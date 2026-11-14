@@ -1,5 +1,5 @@
 // Runs the WebAssembly core off the main thread so long computations never
-// freeze the page.
+// freeze the page. Structured values cross into the core as JSON text.
 
 import init, * as wasm from "../wasm/inlay_wasm";
 import type { CoreApi, CoreRequest, CoreResponse } from "./protocol";
@@ -8,7 +8,13 @@ const ready = init();
 
 const api: CoreApi = {
   coreVersion: () => wasm.coreVersion(),
-  medialAxisOfRing: (ring) => wasm.medialAxisOfRing(ring),
+  importSvg: (text, sourceName) => JSON.parse(wasm.importSvg(text, sourceName)),
+  importToolsYaml: (text) => JSON.parse(wasm.importToolsYaml(text)),
+  projectFromFile: (text) => JSON.parse(wasm.projectFromFile(text)),
+  projectToFile: (project) => wasm.projectToFile(JSON.stringify(project)),
+  toolsFromFile: (text) => JSON.parse(wasm.toolsFromFile(text)),
+  toolsToFile: (tools) => wasm.toolsToFile(JSON.stringify(tools)),
+  validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
 };
 
 self.onmessage = async (event: MessageEvent<CoreRequest>) => {

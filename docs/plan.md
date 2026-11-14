@@ -181,6 +181,20 @@ Results so far (2026-11-14):
 - SVG import with clean-up; 2D view; select regions and create inlay jobs.
 - Done when: you can import an SVG and your tools, pick shapes and reload the project.
 
+Results (2026-11-14): done.
+- Core: tool and project models with validation; versioned file envelope with a
+  migration chain (tested with fake migrations) and a version 1 fixture per file kind;
+  SVG import via `usvg`; limited `tools.yaml` import. 54 tests.
+- The real tooling library imports as 51 tools (36 end mills, 15 V-bits), 47 left out.
+- UI: design view with clickable shapes, scale and mirror, inlay list and editor, tool
+  list with editor, project open/new/import/export, autosave to IndexedDB, and
+  drag-and-drop for every file type.
+- Formats are documented in `docs/formats.md`.
+- The WebAssembly module grew to 1.2 MB (about 0.5 MB compressed) because of the SVG
+  parser.
+- Region rule chosen here: shapes from different SVG paths stay separate regions even if
+  they overlap; an inlay's geometry will be the union of its regions (M3).
+
 **M2. G-code and simulation backbone**
 - Move list, Carvera post, strict interpreter, height-map simulator, 3D viewer.
 - Proven with the simplest operation: clearing a pocket with a flat end mill.

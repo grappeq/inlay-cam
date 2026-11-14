@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120mm" height="80mm" viewBox="0 0 120 80">
+  <!-- Sample design for trying the app: a star, a ring, a leaf and a bar. -->
+  <path fill="#7a4a21" d="M25 8 L29.7 21.5 L44 21.8 L32.6 30.5 L36.8 44.2 L25 36 L13.2 44.2 L17.4 30.5 L6 21.8 L20.3 21.5 Z"/>
+  <path fill="#c9a66b" fill-rule="evenodd" d="M75 6 A20 20 0 1 0 75 46 A20 20 0 1 0 75 6 Z M75 16 A10 10 0 1 1 75 36 A10 10 0 1 1 75 16 Z"/>
+  <path fill="#3d5a3a" d="M12 70 C 22 48, 48 48, 58 70 C 48 76, 22 76, 12 70 Z"/>
+  <rect fill="#7a4a21" x="70" y="58" width="40" height="12" rx="3"/>
+  <!-- Left out by the import: an outline with no fill. -->
+  <path fill="none" stroke="#000" d="M100 10 L112 22"/>
+</svg>

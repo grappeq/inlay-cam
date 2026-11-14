@@ -1,10 +1,20 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
+import type { Project, SvgImport, Tool, ToolsYamlImport } from "./types";
+
 export interface CoreApi {
   coreVersion(): string;
-  /** Six numbers per edge: ax, ay, ra, bx, by, rb (mm). */
-  medialAxisOfRing(ring: Float64Array): Float64Array;
+  importSvg(text: string, sourceName: string): SvgImport;
+  importToolsYaml(text: string): ToolsYamlImport;
+  /** Reads a project file of any supported format version. */
+  projectFromFile(text: string): Project;
+  /** Validates the project and returns the file text. */
+  projectToFile(project: Project): string;
+  toolsFromFile(text: string): Tool[];
+  toolsToFile(tools: Tool[]): string;
+  /** The problem with the tool as text, or null when it is valid. */
+  validateTool(tool: Tool): string | null;
 }
 
 export type CoreMethod = keyof CoreApi;

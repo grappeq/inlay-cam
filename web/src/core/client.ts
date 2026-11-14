@@ -38,3 +38,6 @@ export class CoreClient {
     this.worker.terminate();
   }
 }
+
+/** The one core worker shared by the whole app. */
+export const core = new CoreClient();

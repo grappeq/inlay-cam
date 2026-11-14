@@ -3,18 +3,19 @@
 A web app that generates CNC toolpaths for wooden inlays (V-carve and flat pocket),
 writes G-code for the Carvera Community Firmware, and simulates the result.
 
-Status: milestone 0 (foundations). See [docs/requirements.md](docs/requirements.md) and
-[docs/plan.md](docs/plan.md).
+Status: milestone 1 (projects, tools, design import). No toolpaths or G-code yet. See
+[docs/requirements.md](docs/requirements.md), [docs/plan.md](docs/plan.md) and
+[docs/formats.md](docs/formats.md).
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `crates/inlay-core` | Rust core: geometry now; toolpaths, G-code and simulation later |
+| `crates/inlay-core` | Rust core: geometry, data model, file formats, importers; toolpaths, G-code and simulation later |
 | `crates/inlay-wasm` | WebAssembly wrapper around the core |
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
-| `docs` | Requirements and plan |
+| `docs` | Requirements, plan and file formats |
 
 ## Setup
 

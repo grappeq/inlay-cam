@@ -1,7 +1,25 @@
 //! Thin WebAssembly wrapper around `inlay-core`. No logic lives here.
+//!
+//! Structured values cross the boundary as JSON text. The matching
+//! TypeScript types are in `web/src/core/types.ts`.
 
-use inlay_core::geom::{medial, Region};
+use inlay_core::import::{svg, tools_yaml};
+use inlay_core::project::{self, Project};
+use inlay_core::tools::{self, Tool};
 use wasm_bindgen::prelude::*;
+
+fn to_json<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).expect("core values always serialize")
+}
+
+fn from_json<T: serde::de::DeserializeOwned>(text: &str, what: &str) -> Result<T, JsError> {
+    serde_json::from_str(text)
+        .map_err(|e| JsError::new(&format!("Internal error: bad {what} data ({e})")))
+}
+
+fn err(e: impl std::fmt::Display) -> JsError {
+    JsError::new(&e.to_string())
+}
 
 /// Version of the core, so the UI can show that the module loaded.
 #[wasm_bindgen(js_name = coreVersion)]
@@ -9,22 +27,58 @@ pub fn core_version() -> String {
     inlay_core::version().to_string()
 }
 
-/// Medial axis of one closed ring without holes.
-///
-/// `ring` is `[x0, y0, x1, y1, ...]` in mm. The result holds six numbers per
-/// edge: `[ax, ay, ra, bx, by, rb]`, where `ra` and `rb` are the inscribed
-/// radii at the two ends.
-#[wasm_bindgen(js_name = medialAxisOfRing)]
-pub fn medial_axis_of_ring(ring: &[f64]) -> Result<Vec<f64>, JsError> {
-    let (points, rest) = ring.as_chunks::<2>();
-    if !rest.is_empty() {
-        return Err(JsError::new("ring must hold an even number of coordinates"));
-    }
-    let outer = points.to_vec();
-    let edges =
-        medial::medial_axis(&Region::new(outer)).map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(edges
-        .iter()
-        .flat_map(|e| [e.a[0], e.a[1], e.ra, e.b[0], e.b[1], e.rb])
-        .collect())
+/// Imports an SVG drawing. Returns `SvgImport` as JSON.
+#[wasm_bindgen(js_name = importSvg)]
+pub fn import_svg(text: &str, source_name: &str) -> Result<String, JsError> {
+    svg::import_svg(text, source_name)
+        .map(|v| to_json(&v))
+        .map_err(err)
+}
+
+/// Imports the useful part of a tooling-library `tools.yaml`. Returns
+/// `ToolsYamlImport` as JSON; the tools have empty ids.
+#[wasm_bindgen(js_name = importToolsYaml)]
+pub fn import_tools_yaml(text: &str) -> Result<String, JsError> {
+    tools_yaml::import_tools_yaml(text)
+        .map(|v| to_json(&v))
+        .map_err(err)
+}
+
+/// Reads a project file of any supported version. Returns `Project` as JSON.
+#[wasm_bindgen(js_name = projectFromFile)]
+pub fn project_from_file(text: &str) -> Result<String, JsError> {
+    project::project_from_file_json(text)
+        .map(|v| to_json(&v))
+        .map_err(err)
+}
+
+/// Validates a project and writes it as a project file.
+#[wasm_bindgen(js_name = projectToFile)]
+pub fn project_to_file(project_json: &str) -> Result<String, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    project.validate().map_err(err)?;
+    Ok(project::project_to_file_json(&project))
+}
+
+/// Reads a tool-library file of any supported version. Returns `Tool[]` as JSON.
+#[wasm_bindgen(js_name = toolsFromFile)]
+pub fn tools_from_file(text: &str) -> Result<String, JsError> {
+    tools::tools_from_file_json(text)
+        .map(|v| to_json(&v))
+        .map_err(err)
+}
+
+/// Validates a tool list and writes it as a tool-library file.
+#[wasm_bindgen(js_name = toolsToFile)]
+pub fn tools_to_file(tools_json: &str) -> Result<String, JsError> {
+    let list: Vec<Tool> = from_json(tools_json, "tool list")?;
+    tools::validate_tools(&list).map_err(err)?;
+    Ok(tools::tools_to_file_json(&list))
+}
+
+/// Checks one tool. Returns the problem as text, or nothing when it is valid.
+#[wasm_bindgen(js_name = validateTool)]
+pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {
+    let tool: Tool = from_json(tool_json, "tool")?;
+    Ok(tool.validate().err())
 }

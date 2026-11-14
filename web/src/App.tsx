@@ -1,105 +1,95 @@
-import { useEffect, useState } from "react";
-import { CoreClient } from "./core/client";
-
-// Milestone 0 shell: proves the Rust core loads in a worker and that the
-// medial axis runs in the browser. Replaced by the real UI in milestone 1.
-
-type Edge = { ax: number; ay: number; ra: number; bx: number; by: number; rb: number };
-
-type State =
-  | { kind: "loading" }
-  | { kind: "ready"; version: string; edges: Edge[]; maxRadius: number; millis: number }
-  | { kind: "error"; message: string };
-
-function star(points: number, outer: number, inner: number): Float64Array {
-  const ring = new Float64Array(points * 4);
-  for (let i = 0; i < points * 2; i++) {
-    const angle = (i / (points * 2)) * Math.PI * 2 + Math.PI / 2;
-    const r = i % 2 === 0 ? outer : inner;
-    ring[i * 2] = r * Math.cos(angle);
-    ring[i * 2 + 1] = r * Math.sin(angle);
-  }
-  return ring;
-}
-
-const RING = star(5, 40, 17);
+import { useEffect, useState, type DragEvent } from "react";
+import { DesignCanvas } from "./components/DesignCanvas";
+import { DesignPanel, useImportSvg } from "./components/DesignPanel";
+import { Header } from "./components/Header";
+import { ToolsView } from "./components/ToolsView";
+import { useFileActions } from "./state/files";
+import { AppProvider, useApp, useDispatch } from "./state/store";
 
 export function App() {
-  const [state, setState] = useState<State>({ kind: "loading" });
-
-  useEffect(() => {
-    const core = new CoreClient();
-    let cancelled = false;
-    (async () => {
-      try {
-        const version = await core.call("coreVersion");
-        const started = performance.now();
-        const raw = await core.call("medialAxisOfRing", RING);
-        const millis = performance.now() - started;
-        const edges: Edge[] = [];
-        let maxRadius = 0;
-        for (let i = 0; i < raw.length; i += 6) {
-          const edge = { ax: raw[i], ay: raw[i + 1], ra: raw[i + 2], bx: raw[i + 3], by: raw[i + 4], rb: raw[i + 5] };
-          edges.push(edge);
-          maxRadius = Math.max(maxRadius, edge.ra, edge.rb);
-        }
-        if (!cancelled) setState({ kind: "ready", version, edges, maxRadius, millis });
-      } catch (e) {
-        if (!cancelled) setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-      core.dispose();
-    };
-  }, []);
-
   return (
-    <main>
-      <h1>Wooden Inlays</h1>
-      <p>Milestone 0: the geometry core running in the browser.</p>
-      {state.kind === "loading" && <p className="status">Loading the core…</p>}
-      {state.kind === "error" && <p className="status error">The core failed: {state.message}</p>}
-      {state.kind === "ready" && (
-        <>
-          <p className="status" data-testid="core-status">
-            Core {state.version} loaded. Medial axis: {state.edges.length} edges in {state.millis.toFixed(1)} ms,
-            deepest point {state.maxRadius.toFixed(2)} mm from the edge.
-          </p>
-          <div className="panel">
-            <Preview edges={state.edges} maxRadius={state.maxRadius} />
-          </div>
-          <p className="caption">
-            The lines are where a V-bit travels. Colour shows distance from the edge, which becomes cut depth: blue is
-            shallow, red is deep.
-          </p>
-        </>
-      )}
-    </main>
+    <AppProvider>
+      <Shell />
+    </AppProvider>
   );
 }
 
-function Preview({ edges, maxRadius }: { edges: Edge[]; maxRadius: number }) {
-  const outline: string[] = [];
-  for (let i = 0; i < RING.length; i += 2) outline.push(`${RING[i]},${-RING[i + 1]}`);
+function Shell() {
+  const { ready, view } = useApp();
+  const { importAny } = useFileActions();
+  const [dragging, setDragging] = useState(false);
+
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+  const onDrop = async (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    setDragging(false);
+    // One at a time: each import builds on the state the previous one left.
+    const file = e.dataTransfer.files[0];
+    if (file) await importAny({ name: file.name, text: await file.text() });
+  };
+
   return (
-    <svg viewBox="-45 -45 90 90" role="img" aria-label="A star shape with its medial axis">
-      <polygon points={outline.join(" ")} fill="var(--wood)" stroke="var(--wood-edge)" strokeWidth={0.4} />
-      {edges.map((e, i) => {
-        const depth = maxRadius > 0 ? (e.ra + e.rb) / 2 / maxRadius : 0;
-        return (
-          <line
-            key={i}
-            x1={e.ax}
-            y1={-e.ay}
-            x2={e.bx}
-            y2={-e.by}
-            stroke={`color-mix(in srgb, var(--axis-deep) ${Math.round(depth * 100)}%, var(--axis-shallow))`}
-            strokeWidth={0.6}
-            strokeLinecap="round"
-          />
-        );
-      })}
-    </svg>
+    <div
+      className={`app${dragging ? " dragging" : ""}`}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      <Header />
+      <NoticeBar />
+      {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <ToolsView />}
+      {dragging && <div className="drop-hint">Drop an SVG drawing, a project or tool file, or tools.yaml</div>}
+    </div>
+  );
+}
+
+function DesignView() {
+  const { project } = useApp();
+  const importSvg = useImportSvg();
+  return (
+    <div className="design-view">
+      <main className="stage">
+        {project.design ? (
+          <DesignCanvas design={project.design} />
+        ) : (
+          <div className="empty">
+            <p>No design yet.</p>
+            <button className="primary" onClick={importSvg}>
+              Import SVG…
+            </button>
+          </div>
+        )}
+      </main>
+      <DesignPanel />
+    </div>
+  );
+}
+
+function NoticeBar() {
+  const { notice } = useApp();
+  const dispatch = useDispatch();
+
+  // Confirmations fade by themselves; errors stay until dismissed.
+  useEffect(() => {
+    if (notice?.kind !== "info") return;
+    const timer = setTimeout(() => dispatch({ type: "notice", notice: null }), 8000);
+    return () => clearTimeout(timer);
+  }, [notice, dispatch]);
+
+  if (!notice) return null;
+  return (
+    <div className={`notice ${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>
+      <span>{notice.text}</span>
+      <button className="link" onClick={() => dispatch({ type: "notice", notice: null })}>
+        Dismiss
+      </button>
+    </div>
   );
 }
