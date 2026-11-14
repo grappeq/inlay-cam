@@ -118,7 +118,7 @@ fn clear_one(path: &mut PathBuilder, region: &Region, p: &ClearParams) -> Vec<Re
     offset(&allowed, radius)
 }
 
-fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
+pub(crate) fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
     let Some(from) = from else { return 0 };
     let mut best = 0;
     for (i, p) in ring.iter().enumerate() {
@@ -131,7 +131,7 @@ fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
 
 /// True when the straight line from `a` to `b` keeps the tool centre inside
 /// the area it is allowed in, checked every `step` mm.
-fn stays_inside(allowed: &[Region], a: Point, b: Point, step: f64) -> bool {
+pub(crate) fn stays_inside(allowed: &[Region], a: Point, b: Point, step: f64) -> bool {
     let n = (distance(a, b) / step).ceil().max(1.0) as usize;
     (1..n).all(|i| {
         let t = i as f64 / n as f64;

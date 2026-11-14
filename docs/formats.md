@@ -96,7 +96,7 @@ Exported from the Tools view as `tools.inlay-tools.json`.
 | `rpm` | Spindle speed, whole number greater than 0. |
 | `feed` | Feed rate while cutting sideways, mm/min. |
 | `plunge` | Feed rate while cutting straight down, mm/min. |
-| `stepover` | Sideways distance between passes, mm. Not larger than `diameter`. |
+| `stepover` | Sideways distance between passes, mm. Not larger than `diameter`. For a V-bit it spaces the passes over a flat floor, and the app uses less when this would leave ridges over 0.1 mm. |
 | `stepdown` | Depth per pass, mm. |
 
 When a tool file is imported, a tool with the same name as one already in the list
@@ -176,7 +176,7 @@ One inlay: a pocket and its matching plug or insert.
 | `engagementDepth` | How deep the plug sits in the pocket. Greater than 0. |
 | `glueGap` | Space left under the plug. 0 or more. Pocket depth = engagement depth + glue gap. |
 | `sawGap` | Space between the pocket surface and the plug's backer. Greater than 0. |
-| `clearingToolIds` | Flat end mills that clear the pocket floor. A list so several tools can share the work in a later version; version 1 of the app uses the first. |
+| `clearingToolIds` | Flat end mills that clear the pocket floor. A list so several tools can share the work in a later version; version 1 of the app uses the first. May be empty: the V-bit then clears the floor too. |
 | `vbitToolId` | The V-bit, or `null` when not chosen yet. |
 
 `inlay` for a flat pocket inlay:

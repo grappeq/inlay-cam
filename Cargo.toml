@@ -9,3 +9,7 @@ edition = "2021"
 [profile.release]
 opt-level = 3
 lto = true
+
+# Geometry libraries are too slow unoptimised for the tests that cut whole shapes.
+[profile.dev.package."*"]
+opt-level = 2

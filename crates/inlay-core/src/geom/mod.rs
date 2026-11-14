@@ -6,6 +6,7 @@
 pub mod boolean;
 pub mod medial;
 pub mod offset;
+pub mod simplify;
 
 /// Integer grid resolution: 1 unit = 1 micrometre.
 pub const UNITS_PER_MM: f64 = 1000.0;

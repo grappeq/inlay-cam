@@ -129,7 +129,8 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
         rpm: 12000,
         feed: 500,
         plunge: 150,
-        stepover: Math.round(t.diameter * 400) / 1000,
+        // A V-bit's stepover spaces its passes over a flat floor, where only the tip cuts.
+        stepover: t.kind === "v_bit" ? 0.2 : Math.round(t.diameter * 400) / 1000,
         stepdown: 0.5,
       };
       return { ...t, cutting: [...others, { ...current, ...change }].sort((a, b) => a.material.localeCompare(b.material)) };

@@ -15,15 +15,6 @@ export function OutputPanel({ job }: { job: Job }) {
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
 
-  if (job.inlay.type === "vcarve") {
-    return (
-      <div className="output">
-        <h3>Output</h3>
-        <p className="muted">V-carve toolpaths are not built yet. Flat inlays can already generate their pocket.</p>
-      </div>
-    );
-  }
-
   const generate = async () => {
     setBusy(true);
     try {
@@ -41,7 +32,9 @@ export function OutputPanel({ job }: { job: Job }) {
     <div className="output">
       <h3>Output</h3>
       <p className="hint">
-        Pocket only for now, cut to the tool's reach. The insert and the fit allowance come in a later version.
+        {job.inlay.type === "vcarve"
+          ? "Pocket only for now: the end mill clears the flat floor, then the V-bit cuts the walls and corners. The plug comes in a later version."
+          : "Pocket only for now, cut to the tool's reach. The insert and the fit allowance come in a later version."}
       </p>
       <button className="primary" disabled={busy} onClick={generate}>
         {busy ? "Generating…" : mine ? "Generate pocket again" : "Generate pocket"}
@@ -60,8 +53,8 @@ export function OutputPanel({ job }: { job: Job }) {
       {preview && (
         <>
           <dl className="stats">
-            <dt>Tool</dt>
-            <dd>{preview.built.stats.tools.join(", ")}</dd>
+            <dt>{preview.built.stats.tools.length === 1 ? "Tool" : "Tools, in order"}</dt>
+            <dd>{preview.built.stats.tools.map((name, i) => `T${i + 1} ${name}`).join(", ")}</dd>
             <dt>Cutting time</dt>
             <dd>about {formatMinutes(preview.built.stats.minutes)}, plus tool changes</dd>
             <dt>Cutting length</dt>

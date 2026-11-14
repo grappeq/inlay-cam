@@ -225,6 +225,26 @@ Results (2026-11-14): done, with the caveats below.
 - Done when: the simulated pocket matches the ideal surface within tolerance on the
   fixtures, and a test pocket cut on the machine looks right.
 
+Results (2026-11-14): built and checked in simulation; not cut on the machine.
+- A V-carve inlay generates its pocket file: the end mill (T1) clears the flat floor,
+  then the V-bit (T2) cuts wall rings at each pass depth, ramps along the medial axis
+  into every inside corner and narrow part, and rings over the floor the end mill left.
+- Checked by test: the simulated pocket is never more than 0.02 mm deeper than the ideal
+  surface (depth = distance to the outline / tan(half angle), down to the floor) and
+  never more than 0.12 mm higher, with and without an end mill. 120 core tests.
+- The end mill is optional. Without one, or when it does not fit the floor, the V-bit
+  clears the floor alone and the job says so.
+- On the floor the V-bit's passes are spaced to leave ridges of at most 0.1 mm, even when
+  the tool's own stepover is larger (tool libraries give a share of the body diameter).
+- Outlines made of short segments have a medial branch at every vertex. Branches at
+  nearly straight joints are left out when that leaves under 0.005 mm of material.
+- Curved medial edges (between a vertex and a segment) are split into short straight
+  pieces in `geom::medial`.
+- Warning when a whole shape is too narrow to reach full depth. Narrow parts of a shape
+  that is wide elsewhere are not reported yet; that comes with the plug in M4.
+- Not done: the V-bit takes each wall ring as a full-width cut at its pass depth; there
+  is no arc fitting; the test cut on the machine waits for the air cut.
+
 **M4. V-carve plug**
 - Mirroring, start depth, waste boundary, plug stock, engagement / glue gap / saw gap
   parameters, narrow-feature warnings.
