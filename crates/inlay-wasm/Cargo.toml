@@ -1,0 +1,17 @@
+[package]
+name = "inlay-wasm"
+version.workspace = true
+edition.workspace = true
+description = "WebAssembly bindings for the wooden inlays core"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+inlay-core = { version = "0.1.0", path = "../inlay-core" }
+wasm-bindgen = "0.2.130"
+
+# Not used directly: enables the browser random source for a transitive
+# dependency (see .cargo/config.toml).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }

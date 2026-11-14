@@ -1,0 +1,5 @@
+# The Voronoi library uses a skip list that draws random numbers. On
+# wasm32-unknown-unknown the random source has to be selected explicitly:
+# this picks the browser's crypto API (also available in Web Workers).
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
