@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent } from "react";
 import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel, useImportSvg } from "./components/DesignPanel";
+import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
 import { ToolsView } from "./components/ToolsView";
 import { Viewer3D } from "./components/Viewer3D";
@@ -52,30 +53,44 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, activeJobId } = useApp();
+  const { project, output, fit, activeJobId } = useApp();
   const importSvg = useImportSvg();
   const preview = output !== null && output.jobId === activeJobId ? output.preview : null;
-  const [mode, setMode] = useState<"drawing" | "preview">("drawing");
+  const check = fit !== null && fit.jobId === activeJobId ? fit.check : null;
+  const [mode, setMode] = useState<"drawing" | "preview" | "fit">("drawing");
 
   // A fresh result is what the user asked to see.
   useEffect(() => {
     setMode(preview ? "preview" : "drawing");
   }, [preview]);
+  useEffect(() => {
+    if (check) setMode("fit");
+    else setMode((m) => (m === "fit" ? "drawing" : m));
+  }, [check]);
 
   return (
     <div className="design-view">
       <main className="stage">
-        {preview && (
+        {(preview || check) && (
           <nav className="tabs stage-tabs" aria-label="Stage">
             <button aria-pressed={mode === "drawing"} onClick={() => setMode("drawing")}>
               Drawing
             </button>
-            <button aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>
-              3D preview
-            </button>
+            {preview && (
+              <button aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>
+                3D preview
+              </button>
+            )}
+            {check && (
+              <button aria-pressed={mode === "fit"} onClick={() => setMode("fit")}>
+                Fit
+              </button>
+            )}
           </nav>
         )}
-        {preview && mode === "preview" ? (
+        {check && mode === "fit" ? (
+          <FitView fit={check} />
+        ) : preview && mode === "preview" ? (
           <Viewer3D preview={preview} thickness={preview.built.stock.thickness} />
         ) : project.design ? (
           <DesignCanvas design={project.design} narrow={preview?.built.narrow ?? []} />

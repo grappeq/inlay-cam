@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::{self, Fit, PlugFrame};
 use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{offset, total_area};
@@ -25,12 +26,15 @@ pub struct Machine {
     pub max_rpm: u32,
     /// Rapid speed, mm/min, used for time estimates.
     pub rapid_rate: f64,
+    /// How far the tool can move in X and Y, mm.
+    pub travel: [f64; 2],
 }
 
 pub const CARVERA_AIR: Machine = Machine {
     name: "Carvera Air",
     max_rpm: 13000,
     rapid_rate: 2000.0,
+    travel: [300.0, 200.0],
 };
 
 /// Highest ridge the V-bit may leave between passes on a flat floor, mm.
@@ -81,6 +85,9 @@ pub struct Built {
     pub stats: Stats,
     /// Things worth knowing that do not stop the job.
     pub warnings: Vec<String>,
+    /// For a plug: where its blank lies on the base board once turned over.
+    #[serde(skip)]
+    pub frame: Option<PlugFrame>,
     #[serde(skip)]
     pub program: Program,
     #[serde(skip)]
@@ -256,6 +263,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         return Err(errors);
     };
     let pocket = cut.pocket;
+    let frame = cut.frame;
 
     let (width, height) = cut.board.unwrap_or_else(|| design.placed_size());
     if part == Part::Pocket
@@ -290,6 +298,27 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         )]
     })?;
 
+    // Everything the tool does, from the first move to the last, has to fit
+    // within the machine's travel wherever the board is clamped.
+    for (axis, name) in [(0, "X"), (1, "Y")] {
+        let (low, high) = interpreted
+            .segments
+            .iter()
+            .flat_map(|s| [s.from[axis], s.to[axis]])
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), v| {
+                (low.min(v), high.max(v))
+            });
+        if high - low > machine.travel[axis] {
+            return Err(vec![format!(
+                "The {} spans {} mm in {name}, more than the {} can travel ({} mm).",
+                part.name(),
+                num((high - low).ceil()),
+                machine.name,
+                num(machine.travel[axis])
+            )]);
+        }
+    }
+
     Ok(Built {
         part,
         stock: Stock {
@@ -298,6 +327,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             thickness,
         },
         narrow,
+        frame,
         file_name: format!(
             "{}.{}",
             file_stem(&format!("{} {} {}", project.name, job.name, part.name())),
@@ -336,6 +366,8 @@ struct Cut {
     pocket: Vec<Region>,
     /// Size of the board when it is not the base board.
     board: Option<(f64, f64)>,
+    /// For a plug: where its blank lies on the base board once turned over.
+    frame: Option<PlugFrame>,
 }
 
 impl<'a> Context<'a> {
@@ -438,6 +470,7 @@ fn flat_pocket(ctx: &mut Context, regions: &[Region], tool_id: Option<&str>) -> 
         moves: path.finish(),
         pocket,
         board: None,
+        frame: None,
     })
 }
 
@@ -578,6 +611,7 @@ fn vcarve_pocket(
         moves: path.finish(),
         pocket: regions.to_vec(),
         board: None,
+        frame: None,
     })
 }
 
@@ -667,6 +701,10 @@ fn vcarve_plug_cut(
         moves: path.finish(),
         pocket: shapes,
         board: Some((width, height)),
+        frame: Some(PlugFrame {
+            mirror_x: x1 + plug.margin,
+            offset_y: y0 - plug.margin,
+        }),
     })
 }
 
@@ -735,6 +773,44 @@ pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, V
         problems: simulation.problems,
         built,
     })
+}
+
+/// Both parts of a V-carve inlay, simulated, and how they fit together.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FitCheck {
+    pub fit: Fit,
+    pub pocket: Preview,
+    pub plug: Preview,
+}
+
+/// Builds and simulates the pocket and the plug of a V-carve inlay, then
+/// lowers the plug into the pocket and measures the fit.
+pub fn check_fit(project: &Project, job_id: &str) -> Result<FitCheck, Vec<String>> {
+    let job = project
+        .jobs
+        .iter()
+        .find(|j| j.id == job_id)
+        .ok_or_else(|| vec!["This inlay no longer exists.".to_string()])?;
+    let Inlay::Vcarve {
+        engagement_depth,
+        glue_gap,
+        ..
+    } = &job.inlay
+    else {
+        return Err(vec!["The fit of a flat inlay cannot be checked yet.".into()]);
+    };
+    let pocket = preview(project, job_id, Part::Pocket)?;
+    let plug = preview(project, job_id, Part::Plug)?;
+    let frame = plug.built.frame.expect("a plug has a frame");
+    let fit = analysis::fit(
+        &pocket.map,
+        &plug.map,
+        frame,
+        *engagement_depth,
+        engagement_depth + glue_gap,
+    )
+    .ok_or_else(|| vec!["The plug does not lie over the base board at all.".to_string()])?;
+    Ok(FitCheck { fit, pocket, plug })
 }
 
 fn num(v: f64) -> String {
@@ -1242,6 +1318,64 @@ mod tests {
         assert!(reasons(&p).contains("plug blank is only 3 mm thick"));
 
         assert!(reasons(&project()).contains("cannot be generated yet"));
+    }
+
+    #[test]
+    fn fit_of_a_generated_inlay_is_as_designed_with_a_pointed_bit() {
+        // A perfect point: pocket and plug match exactly.
+        let mut project = vcarve_project(true);
+        project.tools[1].tip_diameter = Some(0.0);
+        let check = check_fit(&project, "j").unwrap();
+        let r = &check.fit.report;
+        assert!(r.proud.abs() < 0.03, "proud {}", r.proud);
+        assert!(
+            (r.glue_gap_mean.unwrap() - 0.3).abs() < 0.03,
+            "{:?}",
+            r.glue_gap_mean
+        );
+        assert!(r.wall_contact > 0.9, "wall contact {}", r.wall_contact);
+        assert!(r.void_width < 0.15, "void width {}", r.void_width);
+        // The face shows plug inside the rectangle and base outside it.
+        let at = |x: f64, y: f64| {
+            let map = &check.pocket.map;
+            check.fit.face[(y / map.cell) as usize * map.nx + (x / map.cell) as usize]
+        };
+        assert_eq!(at(20.0, 15.0), analysis::Face::Plug as u8);
+        assert_eq!(at(2.0, 2.0), analysis::Face::Base as u8);
+        assert_eq!(
+            at(51.0, 25.0),
+            analysis::Face::Base as u8,
+            "inside the L's notch"
+        );
+    }
+
+    #[test]
+    fn fit_shows_what_a_tip_flat_costs() {
+        // With a 0.1 mm tip flat the pocket's corner ramps are shallower than
+        // the plug's corner ridges by 0.05 / tan 30 = 0.087 mm. The strip is
+        // only 0.1 mm wide, two cells of the simulation, so part of it is seen.
+        let check = check_fit(&vcarve_project(true), "j").unwrap();
+        let r = &check.fit.report;
+        assert!(r.proud > 0.01 && r.proud < 0.13, "proud {}", r.proud);
+        assert!(r.press_overlap > 0.01 && r.press_overlap < 0.13);
+        assert!(
+            r.press_overlap_area < 5.0,
+            "overlap area {}",
+            r.press_overlap_area
+        );
+    }
+
+    #[test]
+    fn fit_is_only_for_v_carve_inlays_and_cuts_must_fit_the_machine() {
+        assert!(check_fit(&project(), "j").unwrap_err()[0].contains("flat inlay"));
+        let mut p = project();
+        p.design.as_mut().unwrap().scale = 8.0;
+        p.jobs[0].region_ids = vec![0, 1];
+        let reasons = build_pocket(&p, "j").unwrap_err().join(" | ");
+        assert!(
+            reasons.contains("more than the Carvera Air can travel"),
+            "{reasons}"
+        );
     }
 
     #[test]

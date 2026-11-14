@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { core } from "../core/client";
-import type { Job, Part } from "../core/types";
+import type { FitCheck, Job, Part } from "../core/types";
 import { fmt } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
 
 /** Generates a job's G-code, reports what the simulation found, and offers the file. */
 export function OutputPanel({ job }: { job: Job }) {
-  const { project, output } = useApp();
+  const { project, output, fit } = useApp();
+  const [checking, setChecking] = useState(false);
   const dispatch = useDispatch();
   const [busy, setBusy] = useState<Part | null>(null);
 
@@ -27,6 +28,18 @@ export function OutputPanel({ job }: { job: Job }) {
     }
   };
   const vcarve = job.inlay.type === "vcarve";
+  const myFit = fit?.jobId === job.id ? fit : null;
+  const checkFit = async () => {
+    setChecking(true);
+    try {
+      const check = await core.call("checkFit", project, job.id);
+      dispatch({ type: "setFit", fit: { jobId: job.id, project, check, errors: [] } });
+    } catch (e) {
+      dispatch({ type: "setFit", fit: { jobId: job.id, project, check: null, errors: message(e).split("\n") } });
+    } finally {
+      setChecking(false);
+    }
+  };
   const button = (part: Part) => (
     <button className={part === "pocket" || mine?.part === part ? "primary" : undefined} disabled={busy !== null} onClick={() => generate(part)}>
       {busy === part ? "Generating…" : mine?.part === part ? `Generate ${part} again` : `Generate ${part}`}
@@ -107,7 +120,70 @@ export function OutputPanel({ job }: { job: Job }) {
           {stale && <p className="hint">Generate again to download a file that matches the current settings.</p>}
         </>
       )}
+      {vcarve && (
+        <div className="fit-report">
+          <h3>Fit</h3>
+          <p className="hint">Simulates both files, turns the plug over and lowers it into the pocket.</p>
+          <button disabled={checking || busy !== null} onClick={checkFit}>
+            {checking ? "Checking…" : myFit ? "Check fit again" : "Check fit"}
+          </button>
+          {myFit && myFit.project !== project && <p className="hint warn">The inlay or project has changed since the fit was checked.</p>}
+          {myFit && myFit.errors.length > 0 && (
+            <ul className="problems" role="alert">
+              {myFit.errors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          )}
+          {myFit?.check && <FitNumbers check={myFit.check} />}
+        </div>
+      )}
     </div>
+  );
+}
+
+/** A length to two decimals, without trailing zeros. */
+function mm(v: number): string {
+  return fmt(Math.round(v * 100) / 100);
+}
+
+function FitNumbers({ check }: { check: FitCheck }) {
+  const r = check.report;
+  const seat =
+    Math.abs(r.proud) < 0.03
+      ? "at the designed depth"
+      : r.proud > 0
+        ? `${mm(r.proud)} mm higher than designed`
+        : `${mm(-r.proud)} mm lower than designed`;
+  return (
+    <>
+      {check.problems > 0 && <p className="form-error">The simulation found problems in the files. Generate each part to see them.</p>}
+      <dl className="stats">
+        <dt>Plug rests</dt>
+        <dd>
+          {seat}; first touches at X {mm(r.firstContact[0])}, Y {mm(r.firstContact[1])} mm
+        </dd>
+        <dt>Pressed home</dt>
+        <dd>
+          {r.pressOverlap < 0.01
+            ? "nothing in the way"
+            : `wood must crush by up to ${mm(r.pressOverlap)} mm over ${mm(r.pressOverlapArea)} mm²`}
+        </dd>
+        <dt>Wall contact</dt>
+        <dd>
+          {Math.round(r.wallContact * 100)}% of the wall touches; largest gap {mm(r.wallGapMax)} mm, measured straight up
+        </dd>
+        <dt>Glue gap</dt>
+        <dd>{r.glueGapMean === null ? "the pocket has no flat floor" : `${mm(r.glueGapMean)} mm on average, ${mm(r.glueGapMin ?? 0)} mm at least`}</dd>
+        <dt>Finished face</dt>
+        <dd>
+          {r.voidArea < 0.005
+            ? "no visible gaps"
+            : `gaps of ${mm(r.voidArea)} mm² in total, up to ${mm(r.voidWidth)} mm wide`}
+          , judged {mm(r.trimDepth)} mm below the surface
+        </dd>
+      </dl>
+    </>
   );
 }
 

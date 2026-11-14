@@ -136,6 +136,46 @@ export interface Built {
   warnings: string[];
 }
 
+/** How a simulated plug sits in its simulated pocket. Lengths in mm. */
+export interface FitReport {
+  /** Height of the plug blank's face relative to the base board's surface at rest. */
+  restingSeat: number;
+  intendedSeat: number;
+  /** How much higher than designed the plug rests. */
+  proud: number;
+  firstContact: [number, number];
+  /** Pressed to the designed height: deepest overlap and its area in mm². */
+  pressOverlap: number;
+  pressOverlapArea: number;
+  glueGapMin: number | null;
+  glueGapMean: number | null;
+  /** Share of the bearing wall the plug touches, 0 to 1. */
+  wallContact: number;
+  wallGapMax: number;
+  /** Visible gaps in the finished face: area in mm² and widest in mm. */
+  voidArea: number;
+  voidWidth: number;
+  trimDepth: number;
+}
+
+/** Both parts of a V-carve inlay simulated and fitted, over the base board's grid. */
+export interface FitCheck {
+  report: FitReport;
+  cell: number;
+  nx: number;
+  ny: number;
+  /** Simulation problems found in the two files. */
+  problems: number;
+  /** Space between pocket and plug per cell; NaN where no plug lies over the board. */
+  gap: Float32Array;
+  /** Underside of the resting plug per cell, in the base board's Z; NaN where none. */
+  plugUnder: Float32Array;
+  /** Finished face per cell: 0 base board, 1 plug, 2 gap. */
+  face: Uint8Array;
+  /** The simulated base board per cell. */
+  base: Float32Array;
+}
+
 /** A built G-code file together with the simulation of that file. */
 export interface PocketPreview {
   built: Built;

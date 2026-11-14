@@ -23,6 +23,14 @@ const api: CoreApi = {
       preview.free();
     }
   },
+  checkFit: (project, jobId) => {
+    const check = wasm.checkFit(JSON.stringify(project), jobId);
+    try {
+      return { ...JSON.parse(check.info), gap: check.gap, plugUnder: check.plugUnder, face: check.face, base: check.base };
+    } finally {
+      check.free();
+    }
+  },
 };
 
 self.onmessage = async (event: MessageEvent<CoreRequest>) => {

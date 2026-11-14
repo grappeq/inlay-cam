@@ -155,3 +155,68 @@ pub fn preview_part(
             ))
         })
 }
+
+/// Both parts of a V-carve inlay simulated and fitted together.
+#[wasm_bindgen]
+pub struct FitCheck {
+    check: build::FitCheck,
+}
+
+#[wasm_bindgen]
+impl FitCheck {
+    /// The fit report and the grid's dimensions, as JSON.
+    #[wasm_bindgen(getter)]
+    pub fn info(&self) -> String {
+        let fit = &self.check.fit;
+        serde_json::json!({
+            "report": fit.report,
+            "cell": fit.cell,
+            "nx": fit.nx,
+            "ny": fit.ny,
+            "problems": self.check.pocket.problems.len() + self.check.plug.problems.len(),
+        })
+        .to_string()
+    }
+
+    /// Space between pocket and plug per cell, mm; NaN where no plug lies
+    /// over the base board. Row by row from Y = 0.
+    #[wasm_bindgen(getter)]
+    pub fn gap(&self) -> Vec<f32> {
+        self.check.fit.gap.clone()
+    }
+
+    /// Underside of the resting plug per cell, in the base board's Z; NaN
+    /// where there is no plug.
+    #[wasm_bindgen(getter, js_name = plugUnder)]
+    pub fn plug_under(&self) -> Vec<f32> {
+        self.check.fit.plug_under.clone()
+    }
+
+    /// The finished face per cell: 0 base board, 1 plug, 2 gap.
+    #[wasm_bindgen(getter)]
+    pub fn face(&self) -> Vec<u8> {
+        self.check.fit.face.clone()
+    }
+
+    /// The simulated base board per cell.
+    #[wasm_bindgen(getter)]
+    pub fn base(&self) -> Vec<f32> {
+        self.check.pocket.map.z.clone()
+    }
+}
+
+/// Builds and simulates both parts of a V-carve inlay and measures how the
+/// plug fits the pocket. Fails with every reason, one per line.
+#[wasm_bindgen(js_name = checkFit)]
+pub fn check_fit(project_json: &str, job_id: &str) -> Result<FitCheck, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    project.validate().map_err(err)?;
+    build::check_fit(&project, job_id)
+        .map(|check| FitCheck { check })
+        .map_err(|reasons| {
+            JsError::new(&reasons.join(
+                "
+",
+            ))
+        })
+}

@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Part, PocketPreview, Project, SvgImport, Tool, ToolsYamlImport } from "./types";
+import type { FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -20,6 +20,8 @@ export interface CoreApi {
    * every reason the part cannot be built, one per line of the error message.
    */
   previewPart(project: Project, jobId: string, part: Part): PocketPreview;
+  /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
+  checkFit(project: Project, jobId: string): FitCheck;
 }
 
 export type CoreMethod = keyof CoreApi;

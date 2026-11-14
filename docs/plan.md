@@ -283,6 +283,30 @@ Results (2026-11-14): built and checked in simulation; not cut on the machine.
 - Done when: the app predicts the fit of an M4 job, and a real glued-up test inlay agrees
   with the prediction.
 
+Results (2026-11-14): fit analysis built and checked against known cases; not compared
+with a real glue-up.
+- "Check fit" on a V-carve inlay simulates both files, turns the plug over, lowers it
+  onto the pocket until first contact and reports: how far from the designed depth it
+  rests and where it touches first; how much wood would have to crush to press it home;
+  share of the wall in contact and the largest wall gap; glue gap under the plug; and
+  visible gaps in the finished face, judged 0.1 mm below the surface.
+- A Fit view shows the finished face or the gap map from above, with a cross-section
+  through any clicked point at true proportions.
+- Checked by test: a matching groove and ridge seat exactly with the designed glue gap; a
+  plug 0.2 mm too wide rides high by 0.2 / tan(half angle); one too narrow drops to the
+  floor and shows the wall gap; pocket left uncovered shows as a gap. A generated inlay
+  cut with a perfectly pointed bit fits within 0.03 mm. 135 core tests.
+- The plug is sampled between cell centres, so the two grids need not line up.
+- Limit: features narrower than about two cells (0.1 mm at best) are only partly seen.
+  The 0.09 mm mismatch a 0.1 mm tip flat causes along corner ramps reads as about 0.03.
+- Safety checks now in place: rapids through stock, cuts below the board, cuts deeper
+  than the flutes (which also keeps the shank out of the wood), spindle speed over the
+  machine's limit, and a cut wider than the machine's X or Y travel (300 x 200 mm).
+- Not done: holder collisions and Z travel (tool stick-out is not known); the fit view
+  for flat inlays (M6); comparison with a real glued-up inlay.
+- Fixed on the way: the simulator missed the lowest point under a perfectly pointed bit
+  on a sloped move, leaving corner ramps looking 0.2 mm shallow.
+
 **M6. Flat pocket inlays**
 - Cuttable shape with deviation view, allowance, pocket, insert profile, tabs, 2D fit
   check.

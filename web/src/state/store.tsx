@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
+import type { FitCheck, ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
@@ -26,6 +26,16 @@ export interface AppState {
   saveError: string | null;
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
+  /** The last fit check. Not saved either. */
+  fit: FitOutput | null;
+}
+
+export interface FitOutput {
+  jobId: string;
+  /** The project exactly as it was when the fit was checked. */
+  project: Project;
+  check: FitCheck | null;
+  errors: string[];
 }
 
 export interface Output {
@@ -53,7 +63,8 @@ export type Action =
   | { type: "setImportReport"; report: ImportReport | null }
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
-  | { type: "setOutput"; output: Output | null };
+  | { type: "setOutput"; output: Output | null }
+  | { type: "setFit"; fit: FitOutput | null };
 
 const initial: AppState = {
   ready: false,
@@ -67,6 +78,7 @@ const initial: AppState = {
   notice: null,
   saveError: null,
   output: null,
+  fit: null,
 };
 
 /** Keeps the project's tool copies in step with its jobs and the tool list. */
@@ -88,6 +100,7 @@ function reducer(state: AppState, action: Action): AppState {
         activeJobId: null,
         importReport: action.importReport ?? null,
         output: null,
+        fit: null,
         view: "design",
       });
     case "updateProject":
@@ -117,6 +130,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, saveError: action.error };
     case "setOutput":
       return { ...state, output: action.output };
+    case "setFit":
+      return { ...state, fit: action.fit };
   }
 }
 

@@ -62,6 +62,25 @@ impl HeightMap {
         (ix < self.nx && iy < self.ny).then(|| self.at(ix, iy))
     }
 
+    /// Height at any point of the block, blended between the four nearest
+    /// cell centres, or `None` outside the block.
+    pub fn interpolate(&self, x: f64, y: f64) -> Option<f64> {
+        let (width, height) = (self.nx as f64 * self.cell, self.ny as f64 * self.cell);
+        if x < 0.0 || y < 0.0 || x > width || y > height {
+            return None;
+        }
+        // In units of cells, measured from the first cell's centre.
+        let fx = (x / self.cell - 0.5).clamp(0.0, (self.nx - 1) as f64);
+        let fy = (y / self.cell - 0.5).clamp(0.0, (self.ny - 1) as f64);
+        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(self.nx - 1), (y0 + 1).min(self.ny - 1));
+        let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
+        let at = |ix: usize, iy: usize| self.at(ix, iy) as f64;
+        let low = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
+        let high = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
+        Some(low * (1.0 - ty) + high * ty)
+    }
+
     /// Sweeps `tool` along the straight move `from` -> `to` (tool tip
     /// positions) and lowers every cell it cuts. Returns true if any
     /// material was removed.
@@ -170,6 +189,7 @@ impl ToolProfile {
             f64::NAN,
             f64::NAN,
             f64::NAN,
+            f64::NAN,
         ];
         let mut n = 2;
         let mut add = |t: f64| {
@@ -189,10 +209,12 @@ impl ToolProfile {
                     add((-b + root) / (2.0 * a));
                 }
             }
-            if self.slope > 0.0 {
-                if dz == 0.0 {
-                    add(-b / (2.0 * a)); // closest approach
-                } else {
+            // Closest approach. On a sloped move it is the lowest point only
+            // for a cell right under a pointed tip's path, where the height
+            // has a kink that none of the other candidates finds reliably.
+            add(-b / (2.0 * a));
+            if self.slope > 0.0 && dz != 0.0 {
+                {
                     // d/dt [dz t + slope * sqrt(q)] = 0, with q = a t² + b t + c.
                     let k2 = self.slope * self.slope;
                     let s2 = dz * dz;
@@ -526,5 +548,20 @@ mod tests {
     fn cell_size_tracks_the_stock_size() {
         assert_eq!(HeightMap::cell_for(100.0, 80.0, 2_000_000.0, 0.05), 0.07);
         assert_eq!(HeightMap::cell_for(20.0, 20.0, 2_000_000.0, 0.05), 0.05);
+    }
+
+    #[test]
+    fn a_pointed_bit_on_a_sloped_move_cuts_to_its_tip_right_under_the_path() {
+        // Ramp from 2 mm deep up to the surface along a diagonal.
+        let bit = ToolProfile::v_bit(12.0, 0.0, 60.0);
+        let mut map = HeightMap::new(10.0, 10.0, 0.05);
+        map.cut(&bit, [2.0, 8.0, -2.0], [8.0, 2.0, 0.0]);
+        for i in 1..10 {
+            let t = i as f64 / 10.0;
+            let (x, y) = (2.0 + 6.0 * t, 8.0 - 6.0 * t);
+            let z = map.interpolate(x, y).unwrap();
+            // Sampled up to half a cell off the path, where the cone is 0.04 higher.
+            assert!((z - (-2.0 + 2.0 * t)).abs() < 0.06, "at {t}: {z}");
+        }
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! Pure Rust with no browser dependencies, so everything here is tested natively.
 
+pub mod analysis;
 pub mod build;
 pub mod file;
 pub mod gcode;

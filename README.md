@@ -3,8 +3,8 @@
 A web app that generates CNC toolpaths for wooden inlays (V-carve and flat pocket),
 writes G-code for the Carvera Community Firmware, and simulates the result.
 
-Status: milestone 4 (V-carve plug). V-carve inlays generate and preview both pocket and
-plug; flat inlays generate their pocket only. Fit analysis is not built yet. See
+Status: milestone 5 (fit analysis). V-carve inlays generate and preview both pocket and
+plug, and the fit of the two can be checked; flat inlays generate their pocket only. See
 [docs/requirements.md](docs/requirements.md), [docs/plan.md](docs/plan.md) and
 [docs/formats.md](docs/formats.md).
 
