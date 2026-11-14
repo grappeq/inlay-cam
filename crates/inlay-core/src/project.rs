@@ -28,6 +28,24 @@ pub struct Project {
     /// on a machine with a different tool list.
     #[serde(default)]
     pub tools: Vec<Tool>,
+    /// The board the pockets are cut into.
+    #[serde(default)]
+    pub base: BaseStock,
+}
+
+/// The board that receives the inlays. Its outline is the design's page (after
+/// scaling), with the work origin at the page's bottom-left corner and Z0 on
+/// its top face.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseStock {
+    pub thickness: f64,
+}
+
+impl Default for BaseStock {
+    fn default() -> Self {
+        Self { thickness: 18.0 }
+    }
 }
 
 /// An imported drawing, reduced to filled regions.
@@ -68,6 +86,39 @@ pub struct DesignRegion {
     /// Holes, clockwise.
     #[serde(default)]
     pub holes: Vec<Ring>,
+}
+
+impl Design {
+    /// Page size after scaling, mm.
+    pub fn placed_size(&self) -> (f64, f64) {
+        (self.width * self.scale, self.height * self.scale)
+    }
+
+    /// The regions with these ids as they sit on the base board: mirrored if
+    /// asked, then scaled. Unknown ids are ignored.
+    pub fn placed_regions(&self, ids: &[u32]) -> Vec<Region> {
+        let place = |ring: &Ring| -> Ring {
+            let mut out: Ring = ring
+                .iter()
+                .map(|p| {
+                    [
+                        if self.mirror { self.width - p[0] } else { p[0] } * self.scale,
+                        p[1] * self.scale,
+                    ]
+                })
+                .collect();
+            if self.mirror {
+                // Mirroring flips the winding; restore it.
+                out.reverse();
+            }
+            out
+        };
+        self.regions
+            .iter()
+            .filter(|r| ids.contains(&r.id))
+            .map(|r| Region::with_holes(place(&r.outer), r.holes.iter().map(place).collect()))
+            .collect()
+    }
 }
 
 impl DesignRegion {
@@ -210,6 +261,9 @@ impl Project {
             return Err("the project has no id".into());
         }
         validate_tools(&self.tools)?;
+        if !(self.base.thickness.is_finite() && self.base.thickness > 0.0) {
+            return Err("base board thickness must be greater than 0".into());
+        }
 
         let region_ids: Vec<u32> = self
             .design
@@ -332,6 +386,7 @@ mod tests {
                 },
             ],
             tools: vec![end_mill(), v_bit()],
+            base: BaseStock::default(),
         }
     }
 
@@ -350,6 +405,7 @@ mod tests {
             design: None,
             jobs: vec![],
             tools: vec![],
+            base: BaseStock::default(),
         };
         assert_eq!(
             project_from_file_json(&project_to_file_json(&project)).unwrap(),

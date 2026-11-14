@@ -3,6 +3,7 @@
 //! Public coordinates are millimetres as `f64`. Algorithms that need exact
 //! arithmetic snap to an integer grid of [`UNITS_PER_MM`] units per millimetre.
 
+pub mod boolean;
 pub mod medial;
 pub mod offset;
 

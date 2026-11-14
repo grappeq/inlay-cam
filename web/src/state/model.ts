@@ -7,7 +7,7 @@ export function newId(): string {
 }
 
 export function newProject(name = "Untitled inlay"): Project {
-  return { id: newId(), name, design: null, jobs: [], tools: [] };
+  return { id: newId(), name, design: null, jobs: [], tools: [], base: { thickness: 18 } };
 }
 
 export function defaultInlay(type: Inlay["type"]): Inlay {

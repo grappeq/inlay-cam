@@ -116,7 +116,8 @@ Exported from the header as `<project name>.inlay.json`.
     "name": "Coaster",
     "design": { "…": "see below" },
     "jobs": [],
-    "tools": []
+    "tools": [],
+    "base": { "thickness": 18.0 }
   }
 }
 ```
@@ -128,6 +129,7 @@ Exported from the header as `<project name>.inlay.json`.
 | `design` | The imported drawing, or `null`. |
 | `jobs` | The inlays. |
 | `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. |
+| `base` | The board the pockets are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. |
 
 ### Design
 

@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { ImportReport, Job, Project, Tool } from "../core/types";
+import type { ImportReport, Job, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
@@ -24,6 +24,18 @@ export interface AppState {
   importReport: ImportReport | null;
   notice: Notice | null;
   saveError: string | null;
+  /** The last generated output. Not saved: it is rebuilt on demand. */
+  output: Output | null;
+}
+
+export interface Output {
+  jobId: string;
+  /** The project exactly as it was when this was generated, to tell when it is out of date. */
+  project: Project;
+  /** Set when generation succeeded. */
+  preview: PocketPreview | null;
+  /** Reasons generation failed. */
+  errors: string[];
 }
 
 export type Action =
@@ -39,7 +51,8 @@ export type Action =
   | { type: "setActiveJob"; id: string | null }
   | { type: "setImportReport"; report: ImportReport | null }
   | { type: "notice"; notice: Notice | null }
-  | { type: "saveResult"; error: string | null };
+  | { type: "saveResult"; error: string | null }
+  | { type: "setOutput"; output: Output | null };
 
 const initial: AppState = {
   ready: false,
@@ -52,6 +65,7 @@ const initial: AppState = {
   importReport: null,
   notice: null,
   saveError: null,
+  output: null,
 };
 
 /** Keeps the project's tool copies in step with its jobs and the tool list. */
@@ -72,6 +86,7 @@ function reducer(state: AppState, action: Action): AppState {
         selection: [],
         activeJobId: null,
         importReport: action.importReport ?? null,
+        output: null,
         view: "design",
       });
     case "updateProject":
@@ -99,6 +114,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, notice: action.notice };
     case "saveResult":
       return { ...state, saveError: action.error };
+    case "setOutput":
+      return { ...state, output: action.output };
   }
 }
 

@@ -200,6 +200,25 @@ Results (2026-11-14): done.
 - Proven with the simplest operation: clearing a pocket with a flat end mill.
 - Done when: a simple pocket exports as `.cnc` and shows correctly in the 3D preview.
 
+Results (2026-11-14): done, with the caveats below.
+- Move list, clearing operation, Carvera writer with a firmware-rule lint, strict
+  interpreter, height-map simulator and 3D viewer are in place. 100 core tests.
+- Checked by test: the written file reads back to the same moves; the simulated pocket is
+  at full depth everywhere the tool can reach and untouched everywhere outside the shape;
+  the simulator matches exact answers for a flat slot, a V-groove and a sloped V-bit move.
+- In the app a flat inlay generates its pocket file: the sample design (4 pockets, 3 mm
+  deep) builds and simulates in about a second.
+- Tool numbers start at T1, in the order the tools are used. On the Carvera Air every
+  change is a manual prompt. (A Carvera with a tool rack would auto-load slots T1 to T6;
+  rack support is out of scope for v1.)
+- Arcs are written, read and simulated, but no operation produces them yet: curves go out
+  as short straight moves. Arc fitting is still to do.
+- The simulation uses one dense grid sized to about 2 million cells (0.05 mm at best);
+  tiles and a finer "inspect" pass are still to do.
+- Caveat: the writer follows the firmware rules as read from source. The air cut
+  (`machine-tests/m0-air-cut.cnc`) has still not been run, so no generated file should
+  cut wood until it has.
+
 **M3. V-carve pocket**
 - Medial-axis V-carving with tip flat, flat-depth clipping, clearing plus V-bit, depth
   passes.

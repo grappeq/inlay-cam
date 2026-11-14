@@ -3,6 +3,7 @@ import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel, useImportSvg } from "./components/DesignPanel";
 import { Header } from "./components/Header";
 import { ToolsView } from "./components/ToolsView";
+import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
 import { AppProvider, useApp, useDispatch } from "./state/store";
 
@@ -51,12 +52,32 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project } = useApp();
+  const { project, output, activeJobId } = useApp();
   const importSvg = useImportSvg();
+  const preview = output !== null && output.jobId === activeJobId ? output.preview : null;
+  const [mode, setMode] = useState<"drawing" | "preview">("drawing");
+
+  // A fresh result is what the user asked to see.
+  useEffect(() => {
+    setMode(preview ? "preview" : "drawing");
+  }, [preview]);
+
   return (
     <div className="design-view">
       <main className="stage">
-        {project.design ? (
+        {preview && (
+          <nav className="tabs stage-tabs" aria-label="Stage">
+            <button aria-pressed={mode === "drawing"} onClick={() => setMode("drawing")}>
+              Drawing
+            </button>
+            <button aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>
+              3D preview
+            </button>
+          </nav>
+        )}
+        {preview && mode === "preview" ? (
+          <Viewer3D preview={preview} thickness={project.base.thickness} />
+        ) : project.design ? (
           <DesignCanvas design={project.design} />
         ) : (
           <div className="empty">

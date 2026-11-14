@@ -3,6 +3,7 @@
 //! Structured values cross the boundary as JSON text. The matching
 //! TypeScript types are in `web/src/core/types.ts`.
 
+use inlay_core::build;
 use inlay_core::import::{svg, tools_yaml};
 use inlay_core::project::{self, Project};
 use inlay_core::tools::{self, Tool};
@@ -81,4 +82,67 @@ pub fn tools_to_file(tools_json: &str) -> Result<String, JsError> {
 pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {
     let tool: Tool = from_json(tool_json, "tool")?;
     Ok(tool.validate().err())
+}
+
+/// The result of building a job's pocket file and simulating it.
+#[wasm_bindgen]
+pub struct PocketPreview {
+    preview: build::Preview,
+}
+
+#[wasm_bindgen]
+impl PocketPreview {
+    /// `PreviewInfo` as JSON: the G-code, statistics, warnings, problems and
+    /// the height map's dimensions.
+    #[wasm_bindgen(getter)]
+    pub fn info(&self) -> String {
+        let p = &self.preview;
+        let problems: Vec<_> = p
+            .problems
+            .iter()
+            .map(|problem| serde_json::json!({ "line": problem.line, "message": problem.message }))
+            .collect();
+        serde_json::json!({
+            "built": p.built,
+            "problems": problems,
+            "cell": p.map.cell,
+            "nx": p.map.nx,
+            "ny": p.map.ny,
+        })
+        .to_string()
+    }
+
+    /// Stock height per cell, row by row from Y = 0, each row from X = 0.
+    #[wasm_bindgen(getter)]
+    pub fn heights(&self) -> Vec<f32> {
+        self.preview.map.z.clone()
+    }
+
+    /// The tool's path as read back from the G-code: seven numbers per
+    /// straight piece, `x0 y0 z0 x1 y1 z1 rapid` (rapid is 1 or 0).
+    #[wasm_bindgen(getter)]
+    pub fn path(&self) -> Vec<f32> {
+        let mut out = Vec::with_capacity(self.preview.built.interpreted.segments.len() * 7);
+        for s in &self.preview.built.interpreted.segments {
+            out.extend(s.from.iter().chain(s.to.iter()).map(|v| *v as f32));
+            out.push(if s.rapid { 1.0 } else { 0.0 });
+        }
+        out
+    }
+}
+
+/// Builds the pocket G-code for a job and simulates it on the base board.
+/// On failure the error message lists every reason, one per line.
+#[wasm_bindgen(js_name = previewPocket)]
+pub fn preview_pocket(project_json: &str, job_id: &str) -> Result<PocketPreview, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    project.validate().map_err(err)?;
+    build::preview_pocket(&project, job_id)
+        .map(|preview| PocketPreview { preview })
+        .map_err(|reasons| {
+            JsError::new(&reasons.join(
+                "
+",
+            ))
+        })
 }

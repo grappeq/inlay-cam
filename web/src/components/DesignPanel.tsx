@@ -5,6 +5,7 @@ import { useApp, useDispatch } from "../state/store";
 import { pickTextFile } from "../util/files";
 import { jobColor } from "./DesignCanvas";
 import { NumberField } from "./NumberField";
+import { OutputPanel } from "./OutputPanel";
 
 export function useImportSvg() {
   const { importSvg } = useFileActions();
@@ -92,9 +93,25 @@ function DesignSection({ design, report, onReplace }: { design: Design; report: 
         Mirror left to right
       </label>
       <p className="hint">Only for a drawing that was made mirrored. Plugs are mirrored automatically.</p>
+      <BaseThickness />
       {report && <ReportNotes report={report} />}
       <button onClick={onReplace}>Replace with another SVG…</button>
     </section>
+  );
+}
+
+function BaseThickness() {
+  const { project } = useApp();
+  const dispatch = useDispatch();
+  return (
+    <NumberField
+      label="Base board thickness"
+      unit="mm"
+      min={0.1}
+      value={project.base.thickness}
+      onChange={(v) => v !== undefined && dispatch({ type: "updateProject", update: (p) => ({ ...p, base: { thickness: v } }) })}
+      hint="The board the pockets are cut into. Its outline is the design's page, with the work origin at the bottom-left corner and Z0 on its top face."
+    />
   );
 }
 
@@ -277,10 +294,10 @@ function JobEditor({ job }: { job: Job }) {
         </>
       )}
 
+      <OutputPanel job={job} />
+
       <div className="row">
-        <button className="primary" onClick={() => dispatch({ type: "setActiveJob", id: null })}>
-          Done
-        </button>
+        <button onClick={() => dispatch({ type: "setActiveJob", id: null })}>Done</button>
         <button className="danger" onClick={remove}>
           Delete inlay
         </button>

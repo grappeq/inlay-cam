@@ -85,6 +85,8 @@ export interface Project {
   jobs: Job[];
   /** Copies of the tools the jobs use. */
   tools: Tool[];
+  /** The board the pockets are cut into. Its outline is the design's page. */
+  base: { thickness: number };
 }
 
 export interface ImportReport {
@@ -103,4 +105,36 @@ export interface ToolsYamlImport {
   /** Ids are empty; the caller assigns them. */
   tools: Tool[];
   skipped: { name: string; reason: string }[];
+}
+
+export interface BuildStats {
+  lines: number;
+  /** Total length of cutting moves, mm. */
+  cuttingLength: number;
+  /** Estimated running time without tool changes, minutes. */
+  minutes: number;
+  /** Tool names in the order they are loaded. */
+  tools: string[];
+}
+
+export interface Built {
+  fileName: string;
+  gcode: string;
+  stats: BuildStats;
+  warnings: string[];
+}
+
+/** A built G-code file together with the simulation of that file. */
+export interface PocketPreview {
+  built: Built;
+  /** Problems found while simulating, each with its G-code line. */
+  problems: { line: number; message: string }[];
+  /** Height-map cell size, mm. */
+  cell: number;
+  nx: number;
+  ny: number;
+  /** Stock height per cell (0 is the uncut top), row by row from Y = 0. */
+  heights: Float32Array;
+  /** Tool path: x0 y0 z0 x1 y1 z1 rapid, per straight piece. */
+  path: Float32Array;
 }
