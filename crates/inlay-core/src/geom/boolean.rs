@@ -1,7 +1,9 @@
 //! Boolean operations on regions.
 
 use i_overlay::core::fill_rule::FillRule;
+use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::simplify::SimplifyShape;
+use i_overlay::float::single::SingleFloatOverlay;
 
 use super::{ring_area, Region, Ring};
 
@@ -22,6 +24,26 @@ pub fn union(regions: &[Region]) -> Vec<Region> {
     }
     rings
         .simplify_shape(FillRule::NonZero)
+        .into_iter()
+        .filter(|shape| !shape.is_empty())
+        .map(|mut shape| {
+            let outer = shape.remove(0);
+            Region::with_holes(outer, shape)
+        })
+        .collect()
+}
+
+/// What is left of `subject` after cutting `clips` out of it: none, one or
+/// several regions.
+pub fn difference(subject: &Region, clips: &[Region]) -> Vec<Region> {
+    let shape = |region: &Region| -> Vec<Ring> {
+        std::iter::once(oriented(&region.outer, true))
+            .chain(region.holes.iter().map(|h| oriented(h, false)))
+            .collect()
+    };
+    let clips: Vec<Vec<Ring>> = clips.iter().map(shape).collect();
+    shape(subject)
+        .overlay(&clips, OverlayRule::Difference, FillRule::NonZero)
         .into_iter()
         .filter(|shape| !shape.is_empty())
         .map(|mut shape| {
@@ -82,6 +104,25 @@ mod tests {
         assert_eq!(plugged.len(), 1);
         assert!(plugged[0].holes.is_empty());
         assert!((total(&plugged) - 900.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn difference_cuts_holes_notches_and_splits() {
+        let board = Region::new(rect(0.0, 0.0, 30.0, 10.0));
+        // Inside: a hole.
+        let holed = difference(&board, &[Region::new(rect(5.0, 2.0, 10.0, 8.0))]);
+        assert_eq!(holed.len(), 1);
+        assert_eq!(holed[0].holes.len(), 1);
+        assert!(ring_area(&holed[0].outer) > 0.0 && ring_area(&holed[0].holes[0]) < 0.0);
+        assert!((total(&holed) - 270.0).abs() < 1e-6);
+        // Across: two pieces.
+        let split = difference(&board, &[Region::new(rect(10.0, -1.0, 20.0, 11.0))]);
+        assert_eq!(split.len(), 2);
+        assert!((total(&split) - 200.0).abs() < 1e-6);
+        // Covering: nothing left. Apart: unchanged.
+        assert!(difference(&board, &[Region::new(rect(-1.0, -1.0, 31.0, 11.0))]).is_empty());
+        let apart = difference(&board, &[Region::new(rect(40.0, 0.0, 50.0, 10.0))]);
+        assert!((total(&apart) - 300.0).abs() < 1e-6);
     }
 
     #[test]

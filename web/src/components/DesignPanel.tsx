@@ -42,9 +42,10 @@ export function DesignPanel() {
 
 function ReportNotes({ report }: { report: ImportReport }) {
   const notes: string[] = [];
-  if (report.strokeOnlyPaths > 0) {
+  if (report.openOutlines > 0) {
+    const one = report.openOutlines === 1;
     notes.push(
-      `${report.strokeOnlyPaths} outline-only path${report.strokeOnlyPaths === 1 ? " was" : "s were"} left out. An inlay needs filled shapes: give them a fill, or convert strokes to paths.`,
+      `${report.openOutlines} outline${one ? " does" : "s do"} not close and ${one ? "was" : "were"} left out. An inlay needs closed shapes: join the lines into closed paths in the drawing program.`,
     );
   }
   if (report.hasText) notes.push("The drawing contains text, which was left out. Convert it to outlines first.");

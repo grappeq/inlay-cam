@@ -21,6 +21,16 @@ function ringPath(ring: Ring, design: Design): string {
   return d + "Z";
 }
 
+function ringArea(ring: Ring): number {
+  let sum = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % ring.length];
+    sum += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(sum) / 2;
+}
+
 function regionPath(region: DesignRegion, design: Design): string {
   return ringPath(region.outer, design) + region.holes.map((h) => ringPath(h, design)).join("");
 }
@@ -30,7 +40,11 @@ export function DesignCanvas({ design }: { design: Design }) {
   const dispatch = useDispatch();
 
   const paths = useMemo(
-    () => design.regions.map((region) => ({ id: region.id, d: regionPath(region, design) })),
+    () =>
+      design.regions
+        .map((region) => ({ id: region.id, d: regionPath(region, design), area: ringArea(region.outer) }))
+        // Largest first, so a shape drawn inside another stays on top and can be clicked.
+        .sort((a, b) => b.area - a.area),
     [design],
   );
   const owners = useMemo(() => regionOwners(project.jobs), [project.jobs]);

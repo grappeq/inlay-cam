@@ -90,7 +90,7 @@ export interface Project {
 }
 
 export interface ImportReport {
-  strokeOnlyPaths: number;
+  openOutlines: number;
   hasText: boolean;
   images: number;
   specks: number;

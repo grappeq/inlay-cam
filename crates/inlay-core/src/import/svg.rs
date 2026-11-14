@@ -1,15 +1,19 @@
 //! SVG import: turns a drawing into filled regions in millimetres.
 //!
 //! Each filled path becomes one or more regions (one per separate filled
-//! area), with overlaps inside the path resolved by its fill rule. Regions
-//! from different paths are kept apart so they can be selected separately.
+//! area), with overlaps inside the path resolved by its fill rule. A path with
+//! an outline but no fill, as CAD exports draw everything, is read as the area
+//! its closed outlines enclose, less any smaller outline drawn over it: the
+//! areas between the lines, as the drawing reads. Regions from different paths
+//! are kept apart so they can be selected separately.
 
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::float::simplify::SimplifyShape;
 use serde::Serialize;
 use usvg::tiny_skia_path::{PathSegment, Point as SkPoint};
 
-use crate::geom::{distance, ring_area, Point, Ring};
+use crate::geom::boolean::difference;
+use crate::geom::{distance, ring_area, Point, Region, Ring};
 use crate::project::{Design, DesignRegion};
 
 /// SVG user units are CSS pixels: 96 per inch.
@@ -20,6 +24,9 @@ pub const FLATTEN_TOLERANCE: f64 = 0.01;
 
 /// Filled areas smaller than this are specks, not shapes. mm².
 const MIN_REGION_AREA: f64 = 0.01;
+
+/// An outline whose ends are this close, mm, is closed even without a close command.
+const CLOSED_GAP: f64 = 0.001;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,8 +39,8 @@ pub struct SvgImport {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportReport {
-    /// Paths with an outline but no fill. An inlay needs a filled area.
-    pub stroke_only_paths: u32,
+    /// Outlines without a fill that do not close, so they enclose no area.
+    pub open_outlines: u32,
     /// The drawing contains text that was not converted to outlines.
     pub has_text: bool,
     pub images: u32,
@@ -49,11 +56,13 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
     let mut importer = Importer {
         height_px,
         regions: Vec::new(),
+        outlines: Vec::new(),
         report: ImportReport::default(),
     };
     // Without font support the parser drops text silently, so look for it in the source.
     importer.report.has_text = text.contains("<text");
     importer.group(tree.root());
+    importer.split_nested_outlines();
 
     Ok(SvgImport {
         design: Design {
@@ -71,6 +80,8 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
 struct Importer {
     height_px: f64,
     regions: Vec<DesignRegion>,
+    /// For each region, whether it came from an outline without a fill.
+    outlines: Vec<bool>,
     report: ImportReport,
 }
 
@@ -90,22 +101,33 @@ impl Importer {
         if !path.is_visible() {
             return;
         }
-        let Some(fill) = path.fill() else {
-            if path.stroke().is_some() {
-                self.report.stroke_only_paths += 1;
-            }
-            return;
-        };
-        let color = match fill.paint() {
+        let color = |paint: &usvg::Paint| match paint {
             usvg::Paint::Color(c) => Some(format!("#{:02x}{:02x}{:02x}", c.red, c.green, c.blue)),
             _ => None,
         };
-        let rule = match fill.rule() {
-            usvg::FillRule::NonZero => FillRule::NonZero,
-            usvg::FillRule::EvenOdd => FillRule::EvenOdd,
+        let outline = path.fill().is_none();
+        let (rings, color, rule): (Vec<Ring>, _, _) = if let Some(fill) = path.fill() {
+            let rule = match fill.rule() {
+                usvg::FillRule::NonZero => FillRule::NonZero,
+                usvg::FillRule::EvenOdd => FillRule::EvenOdd,
+            };
+            // A fill closes every subpath whether or not the path says so.
+            let rings = self.rings(path).into_iter().map(|(ring, _)| ring);
+            (rings.collect(), color(fill.paint()), rule)
+        } else if let Some(stroke) = path.stroke() {
+            // An outline drawing: the shape is what the closed outlines enclose.
+            // Even-odd makes an outline inside another one a hole, whichever
+            // way each was drawn.
+            let (closed, open): (Vec<_>, Vec<_>) = self
+                .rings(path)
+                .into_iter()
+                .partition(|(_, closed)| *closed);
+            self.report.open_outlines += open.len() as u32;
+            let rings = closed.into_iter().map(|(ring, _)| ring);
+            (rings.collect(), color(stroke.paint()), FillRule::EvenOdd)
+        } else {
+            return;
         };
-
-        let rings = self.rings(path);
         if rings.is_empty() {
             return;
         }
@@ -128,11 +150,66 @@ impl Importer {
                 outer,
                 holes: shape,
             });
+            self.outlines.push(outline);
         }
     }
 
-    /// Flattens a path into closed rings in mm, Y up.
-    fn rings(&self, path: &usvg::Path) -> Vec<Ring> {
+    /// Outlines carry no fill to say which side of a line belongs to which
+    /// shape, so the shapes are the areas between the lines: every smaller
+    /// outline is cut out of each larger one it overlaps. A circle around six
+    /// shapes becomes the web between them, not a disc underneath.
+    fn split_nested_outlines(&mut self) {
+        if self.outlines.iter().filter(|&&o| o).count() < 2 {
+            return;
+        }
+        let shapes: Vec<Option<(Region, f64)>> = self
+            .regions
+            .iter()
+            .zip(&self.outlines)
+            .map(|(region, &outline)| {
+                outline.then(|| {
+                    let shape = Region::with_holes(region.outer.clone(), region.holes.clone());
+                    let area = shape.area();
+                    (shape, area)
+                })
+            })
+            .collect();
+        let mut out: Vec<DesignRegion> = Vec::with_capacity(self.regions.len());
+        for (i, region) in std::mem::take(&mut self.regions).into_iter().enumerate() {
+            let Some((shape, area)) = &shapes[i] else {
+                out.push(region);
+                continue;
+            };
+            // Ties go to the later outline, so two identical outlines leave one shape.
+            let smaller: Vec<Region> = shapes
+                .iter()
+                .enumerate()
+                .filter_map(|(j, other)| {
+                    let (other, other_area) = other.as_ref()?;
+                    (j != i && (*other_area < *area || (*other_area == *area && j > i)))
+                        .then(|| other.clone())
+                })
+                .collect();
+            for piece in difference(shape, &smaller) {
+                if piece.area() >= MIN_REGION_AREA {
+                    out.push(DesignRegion {
+                        id: 0,
+                        color: region.color.clone(),
+                        outer: piece.outer,
+                        holes: piece.holes,
+                    });
+                }
+            }
+        }
+        for (id, region) in out.iter_mut().enumerate() {
+            region.id = id as u32;
+        }
+        self.regions = out;
+    }
+
+    /// Flattens a path into rings in mm, Y up, each with whether the path
+    /// closed it (by a close command or by ending where it started).
+    fn rings(&self, path: &usvg::Path) -> Vec<(Ring, bool)> {
         let transform = path.abs_transform();
         let to_mm = |p: SkPoint| -> Point {
             let mut q = p;
@@ -143,12 +220,12 @@ impl Importer {
             ]
         };
 
-        let mut rings: Vec<Ring> = Vec::new();
+        let mut rings: Vec<(Ring, bool)> = Vec::new();
         let mut current: Ring = Vec::new();
         for segment in path.data().segments() {
             match segment {
                 PathSegment::MoveTo(p) => {
-                    finish(&mut current, &mut rings);
+                    finish(&mut current, false, &mut rings);
                     current.push(to_mm(p));
                 }
                 PathSegment::LineTo(p) => current.push(to_mm(p)),
@@ -162,28 +239,32 @@ impl Importer {
                         flatten_cubic(start, to_mm(c1), to_mm(c2), to_mm(p), &mut current);
                     }
                 }
-                // A fill closes every subpath whether or not the path says so.
-                PathSegment::Close => finish(&mut current, &mut rings),
+                PathSegment::Close => finish(&mut current, true, &mut rings),
             }
         }
-        finish(&mut current, &mut rings);
+        finish(&mut current, false, &mut rings);
         rings
     }
 }
 
 /// Moves `current` into `rings` if it is a usable ring, dropping repeated points.
-fn finish(current: &mut Ring, rings: &mut Vec<Ring>) {
+fn finish(current: &mut Ring, close_command: bool, rings: &mut Vec<(Ring, bool)>) {
     let mut ring: Ring = Vec::with_capacity(current.len());
     for &p in current.iter() {
         if ring.last().is_none_or(|&last| distance(last, p) > 1e-9) {
             ring.push(p);
         }
     }
-    if ring.len() > 1 && distance(ring[0], ring[ring.len() - 1]) <= 1e-9 {
+    let mut closed = close_command;
+    if ring.len() > 1 && distance(ring[0], ring[ring.len() - 1]) <= CLOSED_GAP {
         ring.pop();
+        closed = true;
     }
     if ring.len() >= 3 {
-        rings.push(ring);
+        rings.push((ring, closed));
+    } else if ring.len() == 2 && !closed {
+        // A lone line: nothing to fill, but worth reporting as an open outline.
+        rings.push((ring, false));
     }
     current.clear();
 }
@@ -225,7 +306,6 @@ fn flatten_cubic(p0: Point, p1: Point, p2: Point, p3: Point, out: &mut Ring) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geom::Region;
     use std::f64::consts::PI;
 
     fn import(svg: &str) -> SvgImport {
@@ -414,12 +494,80 @@ mod tests {
         assert_eq!(
             out.report,
             ImportReport {
-                stroke_only_paths: 1,
+                open_outlines: 1,
                 has_text: true,
                 images: 0,
                 specks: 1
             }
         );
+    }
+
+    #[test]
+    fn closed_outlines_without_a_fill_become_shapes() {
+        // As a CAD export draws things: stroke only, one closed by a command,
+        // one by returning to its start, one left open.
+        let out = import(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="60mm" height="20mm" viewBox="0 0 60 20">
+                 <path d="M0 0H10V10H0Z" style="fill:none;stroke:#0000ff"/>
+                 <path d="M20 0H30V10H20V0" fill="none" stroke="black"/>
+                 <path d="M40 0H50V10H40" fill="none" stroke="black"/></svg>"##,
+        );
+        assert_eq!(out.design.regions.len(), 2);
+        assert_eq!(out.design.regions[0].color.as_deref(), Some("#0000ff"));
+        for region in &out.design.regions {
+            assert_close(area(region), 100.0, 1e-2);
+            assert!(ring_area(&region.outer) > 0.0);
+        }
+        assert_eq!(out.report.open_outlines, 1);
+    }
+
+    #[test]
+    fn an_outline_inside_another_in_the_same_path_is_a_hole() {
+        let out = import(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="40mm" height="40mm" viewBox="0 0 40 40">
+                 <path d="M0 0H40V40H0Z M10 10H30V30H10Z" fill="none" stroke="black"/></svg>"#,
+        );
+        assert_eq!(out.design.regions.len(), 1);
+        assert_close(area(&out.design.regions[0]), 1200.0, 1e-2);
+    }
+
+    #[test]
+    fn a_cad_export_drawn_as_outlines_imports_every_shape() {
+        // A coaster sketch exported from CAD through DXF: two circles and six
+        // rounded shapes, all stroke only, on an 88.26 mm page.
+        let out = import(include_str!("../../tests/svg/cad-outlines.svg"));
+        assert_eq!(out.design.regions.len(), 8);
+        assert_eq!(out.report, ImportReport::default());
+        assert_close(out.design.width, 88.264, 1e-2);
+        let mut regions: Vec<&DesignRegion> = out.design.regions.iter().collect();
+        regions.sort_by(|a, b| area(a).total_cmp(&area(b)));
+        let areas: Vec<f64> = regions.iter().map(|r| area(r)).collect();
+        // The six inner shapes are the same shape turned in steps of 60 degrees.
+        assert!(areas[5] - areas[0] < 0.05, "{areas:?}");
+        let wedges: f64 = areas[..6].iter().sum();
+        // The rim between the two circles, and the web between the inner
+        // circle and the six shapes: the areas between the lines.
+        let (rim, web) = if regions[6].holes.len() == 1 {
+            (6, 7)
+        } else {
+            (7, 6)
+        };
+        assert_eq!(regions[rim].holes.len(), 1);
+        assert_eq!(regions[web].holes.len(), 6);
+        assert_close(areas[rim], PI * (44.0 * 44.0 - 40.0 * 40.0), 2.0);
+        assert_close(areas[web], PI * 40.0 * 40.0 - wedges, 2.0);
+        // Together they tile the outer disc without overlap.
+        assert_close(areas.iter().sum::<f64>(), PI * 44.0 * 44.0, 2.0);
+    }
+
+    #[test]
+    fn filled_shapes_are_not_cut_by_shapes_drawn_over_them() {
+        let out = import(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="40mm" height="40mm" viewBox="0 0 40 40">
+                 <rect width="40" height="40"/><rect x="10" y="10" width="10" height="10"/></svg>"#,
+        );
+        assert_eq!(out.design.regions.len(), 2);
+        assert_close(area(&out.design.regions[0]), 1600.0, 1e-2);
     }
 
     #[test]

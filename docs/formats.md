@@ -201,8 +201,17 @@ Read by `crates/inlay-core/src/import/svg.rs`.
   subpaths become holes.
 - Regions from different paths are kept separate, even where they overlap.
 - A filled path that is not closed is closed, as a fill would paint it.
-- Left out, and reported after import: paths with a stroke but no fill, text that has not
-  been converted to outlines, embedded images, and filled areas under 0.01 mm².
+- A path with a stroke but no fill, as CAD and DXF exports draw everything, becomes the
+  area its closed outlines enclose. An outline counts as closed when the path closes it or
+  it ends within 0.001 mm of its start. Separate lines that only meet at their ends are
+  not joined.
+- Outlines have no fill to say which side of a line belongs to which shape, so the shapes
+  are the areas between the lines: every smaller outline is cut out of each larger one it
+  overlaps. A circle drawn around six shapes becomes the web between them.
+- Filled shapes are not cut this way: a filled shape drawn over another leaves both whole.
+- Left out, and reported after import: outlines without a fill that do not close, text
+  that has not been converted to outlines, embedded images, and filled areas under
+  0.01 mm².
 - Clip paths and masks are ignored: the full shape is imported.
 
 ## `tools.yaml` import
