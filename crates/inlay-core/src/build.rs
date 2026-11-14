@@ -5,14 +5,14 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::gcode::{self, Interpreted};
-use crate::geom::boolean::union;
+use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{offset, total_area};
-use crate::geom::Region;
+use crate::geom::{distance, Point, Region};
 use crate::ops::clear::{clear, ClearError, ClearParams};
-use crate::ops::vcarve::{vcarve, VcarveParams};
+use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{Inlay, Job, Project};
 use crate::sim::{self, HeightMap};
@@ -39,9 +39,43 @@ pub const MAX_FLOOR_RIDGE: f64 = 0.1;
 /// Height above the stock at which the tool travels between cuts, mm.
 pub const SAFE_Z: f64 = 5.0;
 
+/// The two halves of an inlay: each is cut from its own board, with its own file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Part {
+    /// The recess in the base board.
+    Pocket,
+    /// The piece that fills it: carved face down in its own blank, mirrored.
+    Plug,
+}
+
+impl Part {
+    fn name(self) -> &'static str {
+        match self {
+            Part::Pocket => "pocket",
+            Part::Plug => "plug",
+        }
+    }
+}
+
+/// The board a part is cut from. The work origin is its bottom-left corner
+/// and Z0 its top face.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stock {
+    pub width: f64,
+    pub height: f64,
+    pub thickness: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Built {
+    pub part: Part,
+    pub stock: Stock,
+    /// Stretches of the design, as it sits on the base board, too narrow for
+    /// the plug to seat. V-carve inlays only.
+    pub narrow: Vec<[Point; 2]>,
     pub file_name: String,
     pub gcode: String,
     pub stats: Stats,
@@ -51,8 +85,9 @@ pub struct Built {
     pub program: Program,
     #[serde(skip)]
     pub interpreted: Interpreted,
-    /// The pocket's outline at the surface. For a flat inlay, what the tool's
-    /// edge can reach; for a V-carve, the shapes themselves.
+    /// The part's outline in its own board's coordinates. For a flat pocket,
+    /// what the tool's edge can reach; for a V-carved pocket, the shapes; for
+    /// a plug, the mirrored shapes as they are at the engagement depth.
     #[serde(skip)]
     pub pocket: Vec<Region>,
 }
@@ -69,9 +104,14 @@ pub struct Stats {
     pub tools: Vec<String>,
 }
 
-/// Builds the pocket file for a job. On failure returns every reason found,
-/// in plain words.
+/// Builds the pocket file for a job.
 pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String>> {
+    build(project, job_id, Part::Pocket)
+}
+
+/// Builds the file for one part of a job. On failure returns every reason
+/// found, in plain words.
+pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<String>> {
     let machine = &CARVERA_AIR;
     let job = project
         .jobs
@@ -83,13 +123,31 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
         .as_ref()
         .ok_or_else(|| vec!["The project has no design.".to_string()])?;
 
-    let depth = match &job.inlay {
-        Inlay::Flat { pocket_depth, .. } => *pocket_depth,
-        Inlay::Vcarve {
-            engagement_depth,
-            glue_gap,
-            ..
-        } => engagement_depth + glue_gap,
+    // How deep the part is cut, and how thick its board is.
+    let (depth, thickness) = match (part, &job.inlay) {
+        (Part::Pocket, Inlay::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
+        (
+            Part::Pocket,
+            Inlay::Vcarve {
+                engagement_depth,
+                glue_gap,
+                ..
+            },
+        ) => (engagement_depth + glue_gap, project.base.thickness),
+        (
+            Part::Plug,
+            Inlay::Vcarve {
+                engagement_depth,
+                saw_gap,
+                plug_thickness,
+                ..
+            },
+        ) => (engagement_depth + saw_gap, *plug_thickness),
+        (Part::Plug, Inlay::Flat { .. }) => {
+            return Err(vec![
+                "The insert of a flat inlay cannot be generated yet.".into()
+            ])
+        }
     };
 
     let mut errors: Vec<String> = Vec::new();
@@ -99,12 +157,19 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
     if regions.is_empty() {
         errors.push("The inlay has no shapes. Click shapes in the drawing to add them.".into());
     }
-    if depth >= project.base.thickness {
-        errors.push(format!(
-            "The pocket is {} mm deep but the base board is only {} mm thick.",
-            num(depth),
-            num(project.base.thickness)
-        ));
+    if depth >= thickness {
+        errors.push(match part {
+            Part::Pocket => format!(
+                "The pocket is {} mm deep but the base board is only {} mm thick.",
+                num(depth),
+                num(thickness)
+            ),
+            Part::Plug => format!(
+                "The plug is cut {} mm deep but the plug blank is only {} mm thick.",
+                num(depth),
+                num(thickness)
+            ),
+        });
     }
 
     let mut ctx = Context {
@@ -115,19 +180,73 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
         errors,
         warnings,
     };
-    let cut = match &job.inlay {
-        Inlay::Flat { tool_id, .. } => flat_pocket(&mut ctx, &regions, tool_id.as_deref()),
-        Inlay::Vcarve {
-            clearing_tool_ids,
-            vbit_tool_id,
-            ..
-        } => vcarve_pocket(
+    let cut = match (part, &job.inlay) {
+        (_, Inlay::Flat { tool_id, .. }) => flat_pocket(&mut ctx, &regions, tool_id.as_deref()),
+        (
+            Part::Pocket,
+            Inlay::Vcarve {
+                clearing_tool_ids,
+                vbit_tool_id,
+                ..
+            },
+        ) => vcarve_pocket(
             &mut ctx,
             &regions,
             clearing_tool_ids.first().map(String::as_str),
             vbit_tool_id.as_deref(),
         ),
+        (
+            Part::Plug,
+            Inlay::Vcarve {
+                engagement_depth,
+                saw_gap,
+                plug_margin,
+                clearing_tool_ids,
+                vbit_tool_id,
+                ..
+            },
+        ) => vcarve_plug_cut(
+            &mut ctx,
+            &regions,
+            PlugShape {
+                engagement: *engagement_depth,
+                saw_gap: *saw_gap,
+                margin: *plug_margin,
+            },
+            clearing_tool_ids.first().map(String::as_str),
+            vbit_tool_id.as_deref(),
+        ),
     };
+    // Where the pocket ends up shallower than the plug needs to go in.
+    let mut narrow: Vec<[Point; 2]> = Vec::new();
+    if let (
+        Inlay::Vcarve {
+            engagement_depth,
+            vbit_tool_id,
+            ..
+        },
+        Some(_),
+    ) = (&job.inlay, &cut)
+    {
+        if let Some(vbit) = vbit_tool_id
+            .as_deref()
+            .and_then(|id| project.tools.iter().find(|t| t.id == id))
+        {
+            let (half_angle, tip_radius) = vbit_shape(vbit);
+            let radius = tip_radius + engagement_depth * half_angle.tan();
+            narrow = narrow_parts(&regions, radius).unwrap_or_default();
+            let length: f64 = narrow.iter().map(|s| distance(s[0], s[1])).sum();
+            if length < 0.5 {
+                narrow.clear();
+            } else {
+                ctx.warnings.push(format!(
+                    "About {} mm of the design is too narrow for the plug to seat: the pocket there is shallower than the engagement depth of {} mm. These parts are marked on the drawing.",
+                    num(length.round()),
+                    num(*engagement_depth)
+                ));
+            }
+        }
+    }
     let Context {
         errors,
         mut warnings,
@@ -138,17 +257,18 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
     };
     let pocket = cut.pocket;
 
-    let (width, height) = design.placed_size();
-    if regions
-        .iter()
-        .flat_map(|r| r.outer.iter())
-        .any(|p| p[0] < 0.0 || p[1] < 0.0 || p[0] > width || p[1] > height)
+    let (width, height) = cut.board.unwrap_or_else(|| design.placed_size());
+    if part == Part::Pocket
+        && regions
+            .iter()
+            .flat_map(|r| r.outer.iter())
+            .any(|p| p[0] < 0.0 || p[1] < 0.0 || p[0] > width || p[1] > height)
     {
         warnings.push("Part of the inlay lies outside the design's page, which is taken as the edge of the base board.".into());
     }
 
     let program = Program {
-        name: format!("{} - {} - pocket", project.name, job.name),
+        name: format!("{} - {} - {}", project.name, job.name, part.name()),
         tools: cut.tools,
         safe_z: SAFE_Z,
         moves: cut.moves,
@@ -171,9 +291,16 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
     })?;
 
     Ok(Built {
+        part,
+        stock: Stock {
+            width,
+            height,
+            thickness,
+        },
+        narrow,
         file_name: format!(
             "{}.{}",
-            file_stem(&format!("{} {} pocket", project.name, job.name)),
+            file_stem(&format!("{} {} {}", project.name, job.name, part.name())),
             carvera::FILE_EXTENSION
         ),
         stats: Stats {
@@ -207,6 +334,8 @@ struct Cut {
     tools: Vec<ProgramTool>,
     moves: Vec<Move>,
     pocket: Vec<Region>,
+    /// Size of the board when it is not the base board.
+    board: Option<(f64, f64)>,
 }
 
 impl<'a> Context<'a> {
@@ -308,18 +437,35 @@ fn flat_pocket(ctx: &mut Context, regions: &[Region], tool_id: Option<&str>) -> 
         }],
         moves: path.finish(),
         pocket,
+        board: None,
     })
 }
 
-/// A V-carved pocket: an end mill (when one is chosen and fits) clears the
-/// flat floor, then the V-bit cuts the sloped walls, the corners and whatever
-/// floor is left.
-fn vcarve_pocket(
-    ctx: &mut Context,
-    regions: &[Region],
+/// Half angle in radians and tip flat radius in mm of a V-bit.
+fn vbit_shape(vbit: &Tool) -> (f64, f64) {
+    (
+        (vbit.tip_angle.unwrap_or(90.0) / 2.0).to_radians(),
+        vbit.tip_diameter.unwrap_or(0.0) / 2.0,
+    )
+}
+
+/// The tools of a V-carve job, checked, and how the V-bit is to be run.
+struct VcarveSetup<'a> {
+    vbit: &'a Tool,
+    vbit_rpm: u32,
+    end_mill: Option<(&'a Tool, &'a CuttingSettings)>,
+    params: VcarveParams,
+}
+
+/// Looks up and checks the tools of a V-carve job. `flat_depth` is how far the
+/// floor is below the level where the outline is met; `ctx.depth` is how far
+/// it is below the surface.
+fn vcarve_setup<'a>(
+    ctx: &mut Context<'a>,
+    flat_depth: f64,
     end_mill_id: Option<&str>,
     vbit_id: Option<&str>,
-) -> Option<Cut> {
+) -> Option<VcarveSetup<'a>> {
     let vbit = ctx.tool(vbit_id, ToolKind::VBit, "a V-bit");
     let end_mill = match end_mill_id {
         Some(id) => Some(ctx.tool(Some(id), ToolKind::FlatEnd, "an end mill")?),
@@ -333,13 +479,12 @@ fn vcarve_pocket(
     // On a flat floor only the bit's tip cuts, so passes further apart than
     // this leave ridges higher than MAX_FLOOR_RIDGE whatever the tool's own
     // stepover says (tool libraries often give a share of the body diameter).
-    let half_angle = (vbit.tip_angle.unwrap_or(90.0) / 2.0).to_radians();
-    let floor_stepover =
-        vbit.tip_diameter.unwrap_or(0.0) + 2.0 * MAX_FLOOR_RIDGE * half_angle.tan();
+    let (half_angle, tip_radius) = vbit_shape(vbit);
+    let floor_stepover = 2.0 * tip_radius + 2.0 * MAX_FLOOR_RIDGE * half_angle.tan();
     let params = VcarveParams {
-        half_angle: (vbit.tip_angle.unwrap_or(90.0) / 2.0).to_radians(),
-        tip_radius: vbit.tip_diameter.unwrap_or(0.0) / 2.0,
-        depth: ctx.depth,
+        half_angle,
+        tip_radius,
+        depth: flat_depth,
         stepdown: vcutting.stepdown,
         stepover: vcutting.stepover.min(floor_stepover),
         feed: vcutting.feed,
@@ -348,7 +493,7 @@ fn vcarve_pocket(
     let reach = params.radius_at(ctx.depth);
     if reach > vbit.diameter / 2.0 + 1e-9 {
         ctx.errors.push(format!(
-            "At {} mm deep \"{}\" would have to be {} mm wide, but it is {} mm. Use a wider V-bit or a shallower pocket.",
+            "At {} mm deep \"{}\" would have to be {} mm wide, but it is {} mm. Use a wider V-bit or a shallower cut.",
             num(ctx.depth),
             vbit.name,
             num(reach * 2.0),
@@ -356,17 +501,32 @@ fn vcarve_pocket(
         ));
         return None;
     }
+    Some(VcarveSetup {
+        vbit,
+        vbit_rpm: vcutting.rpm,
+        end_mill,
+        params,
+    })
+}
 
-    let floor = params.floor(regions);
+/// Clears `floor` with the end mill when one is chosen and fits, then loads
+/// the V-bit. Returns the floor the end mill cut and the tools used so far;
+/// the V-bit is the last of them.
+fn clear_floor_then_load_vbit(
+    ctx: &mut Context,
+    setup: &VcarveSetup,
+    path: &mut PathBuilder,
+    floor: &[Region],
+    whose: &str,
+) -> (Vec<Region>, Vec<ProgramTool>) {
     let mut number = carvera::FIRST_TOOL_NUMBER;
-    let mut path = PathBuilder::new(SAFE_Z);
     let mut tools = Vec::new();
     let mut cleared = Vec::new();
-    match end_mill {
-        Some((tool, cutting)) if !offset(&floor, -tool.diameter / 2.0).is_empty() => {
+    match setup.end_mill {
+        Some((tool, cutting)) if !offset(floor, -tool.diameter / 2.0).is_empty() => {
             path.start_tool(number, cutting.rpm);
-            cleared = clear(&mut path, &floor, &clear_params(tool, cutting, ctx.depth))
-                .unwrap_or_default();
+            cleared =
+                clear(path, floor, &clear_params(tool, cutting, ctx.depth)).unwrap_or_default();
             tools.push(ProgramTool {
                 number,
                 tool: tool.clone(),
@@ -374,47 +534,139 @@ fn vcarve_pocket(
             number += 1;
         }
         Some((tool, _)) if !floor.is_empty() => ctx.warnings.push(format!(
-            "\"{}\" is too wide for the pocket's flat floor, so it is not used: the V-bit clears the floor on its own.",
+            "\"{}\" is too wide for the {whose} flat floor, so it is not used: the V-bit clears the floor on its own.",
             tool.name
         )),
-        None if !floor.is_empty() => ctx.warnings.push(
-            "No end mill is chosen, so the V-bit clears the pocket's flat floor on its own, which takes much longer.".into(),
-        ),
+        None if !floor.is_empty() => ctx.warnings.push(format!(
+            "No end mill is chosen, so the V-bit clears the {whose} flat floor on its own, which takes much longer."
+        )),
         _ => {}
     }
-
-    path.start_tool(number, vcutting.rpm);
-    let report = match vcarve(&mut path, regions, &cleared, &params) {
-        Ok(report) => report,
-        Err(e) => {
-            ctx.errors.push(format!(
-                "A shape could not be carved: its outline may cross itself or be too small to work out ({e:?})."
-            ));
-            return None;
-        }
-    };
+    path.start_tool(number, setup.vbit_rpm);
     tools.push(ProgramTool {
         number,
-        tool: vbit.clone(),
+        tool: setup.vbit.clone(),
     });
+    (cleared, tools)
+}
 
-    if !report.shallow.is_empty() {
-        let least = report.shallow.iter().cloned().fold(f64::INFINITY, f64::min);
-        ctx.warnings.push(format!(
-            "{} too narrow for the full depth of {} mm: the V-bit gets only {} mm deep there, so a plug will not seat fully.",
-            if report.shallow.len() == 1 && regions.len() == 1 {
-                "The shape is".to_string()
-            } else {
-                format!("{} of the {} shapes are", report.shallow.len(), regions.len())
-            },
-            num(ctx.depth),
-            num((least * 100.0).round() / 100.0)
-        ));
+fn carving_failed(ctx: &mut Context, e: impl std::fmt::Debug) {
+    ctx.errors.push(format!(
+        "A shape could not be carved: its outline may cross itself or be too small to work out ({e:?})."
+    ));
+}
+
+/// A V-carved pocket: an end mill (when one is chosen and fits) clears the
+/// flat floor, then the V-bit cuts the sloped walls, the corners and whatever
+/// floor is left.
+fn vcarve_pocket(
+    ctx: &mut Context,
+    regions: &[Region],
+    end_mill_id: Option<&str>,
+    vbit_id: Option<&str>,
+) -> Option<Cut> {
+    let setup = vcarve_setup(ctx, ctx.depth, end_mill_id, vbit_id)?;
+    let floor = setup.params.floor(regions);
+    let mut path = PathBuilder::new(SAFE_Z);
+    let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "pocket's");
+    if let Err(e) = vcarve(&mut path, regions, &cleared, &setup.params) {
+        carving_failed(ctx, e);
+        return None;
     }
     Some(Cut {
         tools,
         moves: path.finish(),
         pocket: regions.to_vec(),
+        board: None,
+    })
+}
+
+struct PlugShape {
+    engagement: f64,
+    saw_gap: f64,
+    margin: f64,
+}
+
+/// The plug of a V-carve inlay: the shapes mirrored, left standing in a blank
+/// that is otherwise cut down to a flat floor. Turned over, the shapes go
+/// `engagement` deep into the pocket and the floor ends up `saw_gap` above
+/// the base board.
+fn vcarve_plug_cut(
+    ctx: &mut Context,
+    regions: &[Region],
+    plug: PlugShape,
+    end_mill_id: Option<&str>,
+    vbit_id: Option<&str>,
+) -> Option<Cut> {
+    let setup = vcarve_setup(ctx, plug.saw_gap, end_mill_id, vbit_id)?;
+    let p = &setup.params;
+    if regions.is_empty() {
+        return None;
+    }
+
+    // The bit runs this far outside the shapes at floor depth.
+    let needed = p.radius_at(plug.saw_gap) + 0.5;
+    if plug.margin < needed {
+        ctx.errors.push(format!(
+            "The plug margin of {} mm is too small: the V-bit needs {} mm around the shapes.",
+            num(plug.margin),
+            num((needed * 10.0).ceil() / 10.0)
+        ));
+        return None;
+    }
+
+    // The blank is the shapes' bounding box plus the margin. Mirrored left to
+    // right, because the plug goes in face down.
+    let (mut x0, mut y0, mut x1, mut y1) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for q in regions.iter().flat_map(|r| r.outer.iter()) {
+        x0 = x0.min(q[0]);
+        y0 = y0.min(q[1]);
+        x1 = x1.max(q[0]);
+        y1 = y1.max(q[1]);
+    }
+    let (width, height) = (x1 - x0 + 2.0 * plug.margin, y1 - y0 + 2.0 * plug.margin);
+    let place = |ring: &Vec<Point>| -> Vec<Point> {
+        ring.iter()
+            .map(|q| [x1 + plug.margin - q[0], q[1] - (y0 - plug.margin)])
+            .collect()
+    };
+    // The union also puts the rings the right way round again.
+    let shapes = union(
+        &regions
+            .iter()
+            .map(|r| Region::with_holes(place(&r.outer), r.holes.iter().map(place).collect()))
+            .collect::<Vec<_>>(),
+    );
+    let blank = Region::new(vec![
+        [0.0, 0.0],
+        [width, 0.0],
+        [width, height],
+        [0.0, height],
+    ]);
+
+    let floor = difference(&blank, &offset(&shapes, plug.saw_gap * p.tan()));
+    let mut path = PathBuilder::new(SAFE_Z);
+    let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "plug's");
+    if let Err(e) = vcarve_plug(&mut path, &shapes, &blank, &cleared, plug.engagement, p) {
+        carving_failed(ctx, e);
+        return None;
+    }
+    ctx.warnings.push(format!(
+        "The tools cut right up to the edges of the plug blank, and the V-bit's flank passes up to {} mm beyond them. Keep clamps and stops clear, and do not use a blank larger than {} × {} mm unless you trim it to that size afterwards.",
+        num((p.radius_at(ctx.depth) * 10.0).ceil() / 10.0),
+        num((width * 100.0).round() / 100.0),
+        num((height * 100.0).round() / 100.0)
+    ));
+    Some(Cut {
+        tools,
+        moves: path.finish(),
+        pocket: shapes,
+        board: Some((width, height)),
     })
 }
 
@@ -457,12 +709,18 @@ pub struct Preview {
 
 /// Builds a job's pocket file and simulates that file on the base board.
 pub fn preview_pocket(project: &Project, job_id: &str) -> Result<Preview, Vec<String>> {
-    let built = build_pocket(project, job_id)?;
-    let design = project
-        .design
-        .as_ref()
-        .expect("build_pocket checked the design");
-    let (width, height) = design.placed_size();
+    preview(project, job_id, Part::Pocket)
+}
+
+/// Builds the file for one part of a job and simulates that file on the
+/// part's board.
+pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, Vec<String>> {
+    let built = build(project, job_id, part)?;
+    let Stock {
+        width,
+        height,
+        thickness,
+    } = built.stock;
     let tools: HashMap<u32, Tool> = built
         .program
         .tools
@@ -471,14 +729,7 @@ pub fn preview_pocket(project: &Project, job_id: &str) -> Result<Preview, Vec<St
         .collect();
     let cell = HeightMap::cell_for(width, height, 2_000_000.0, 0.05);
     // Simulate what the file says, read back from its text.
-    let simulation = sim::simulate(
-        &built.interpreted,
-        &tools,
-        width,
-        height,
-        project.base.thickness,
-        cell,
-    );
+    let simulation = sim::simulate(&built.interpreted, &tools, width, height, thickness, cell);
     Ok(Preview {
         map: simulation.map,
         problems: simulation.problems,
@@ -764,6 +1015,8 @@ mod tests {
             engagement_depth: 2.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
+            plug_margin: 6.0,
+            plug_thickness: 8.0,
             clearing_tool_ids: if clearing {
                 vec!["t-endmill".into()]
             } else {
@@ -819,6 +1072,7 @@ mod tests {
         assert!(built.gcode.contains("M5\nM6 T2\nS12000 M3\n"));
         assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
         assert_eq!(built.warnings, Vec::<String>::new());
+        assert!(built.narrow.is_empty());
     }
 
     #[test]
@@ -891,11 +1145,103 @@ mod tests {
             built
                 .warnings
                 .iter()
-                .any(|w| w.contains("only 1.65 mm deep")),
+                .any(|w| w.contains("too narrow for the plug to seat")),
             "{:?}",
             built.warnings
         );
         assert_eq!(built.stats.tools, ["60° V-groove Ø12 S6"]);
+    }
+
+    /// Compares the simulated plug with the shape it should be: narrower
+    /// than the outline at the top, the outline at the engagement depth, wider
+    /// at the floor. Returns the most cut too deep and left too high.
+    fn plug_deviation(preview: &Preview) -> (f64, f64) {
+        let shapes = &preview.built.pocket;
+        let tan = 30f64.to_radians().tan();
+        let map = &preview.map;
+        let (mut too_deep, mut too_high): (f64, f64) = (0.0, 0.0);
+        for iy in 0..map.ny {
+            for ix in 0..map.nx {
+                let p = map.centre(ix, iy);
+                let z = map.at(ix, iy) as f64;
+                let d = shapes
+                    .iter()
+                    .map(|r| r.distance_to_boundary(p))
+                    .fold(f64::INFINITY, f64::min);
+                let outside = if shapes.iter().any(|r| r.contains(p)) {
+                    -d
+                } else {
+                    d
+                };
+                let ideal = -(2.0 + outside / tan).clamp(0.0, 3.5);
+                too_deep = too_deep.max(ideal - z);
+                too_high = too_high.max(z - ideal);
+            }
+        }
+        (too_deep, too_high)
+    }
+
+    #[test]
+    fn plug_is_mirrored_in_a_blank_sized_from_the_shapes() {
+        let built = build(&vcarve_project(true), "j", Part::Plug).unwrap();
+        assert_eq!(built.file_name, "Test-board-Flat-inlay-1-plug.cnc");
+        assert_eq!(built.part, Part::Plug);
+        // Shapes span X 5..55 and Y 5..35; 6 mm margin all round.
+        assert_eq!(
+            built.stock,
+            Stock {
+                width: 62.0,
+                height: 42.0,
+                thickness: 8.0
+            }
+        );
+        // The rectangle is on the left of the design, so on the right of the plug.
+        let rectangle = built
+            .pocket
+            .iter()
+            .find(|r| (r.area() - 600.0).abs() < 1e-6)
+            .unwrap();
+        let xs: Vec<f64> = rectangle.outer.iter().map(|q| q[0]).collect();
+        assert!(xs.iter().all(|x| *x > 25.9 && *x < 56.1), "{xs:?}");
+        assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
+        assert_eq!(
+            built.stats.tools,
+            ["Ø3.175×22 1F Downcut", "60° V-groove Ø12 S6"]
+        );
+    }
+
+    #[test]
+    fn simulated_plug_matches_the_ideal_shape() {
+        for clearing in [true, false] {
+            let preview = preview(&vcarve_project(clearing), "j", Part::Plug).unwrap();
+            assert_eq!(preview.problems, []);
+            let (too_deep, too_high) = plug_deviation(&preview);
+            assert!(too_deep < 0.02, "cut {too_deep} mm too deep");
+            assert!(too_high < 0.12, "left {too_high} mm too high");
+        }
+    }
+
+    #[test]
+    fn plug_reports_what_stops_it() {
+        let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
+
+        let mut p = vcarve_project(true);
+        if let Inlay::Vcarve { plug_margin, .. } = &mut p.jobs[0].inlay {
+            *plug_margin = 1.0;
+        }
+        assert!(
+            reasons(&p).contains("plug margin of 1 mm is too small"),
+            "{}",
+            reasons(&p)
+        );
+
+        let mut p = vcarve_project(true);
+        if let Inlay::Vcarve { plug_thickness, .. } = &mut p.jobs[0].inlay {
+            *plug_thickness = 3.0;
+        }
+        assert!(reasons(&p).contains("plug blank is only 3 mm thick"));
+
+        assert!(reasons(&project()).contains("cannot be generated yet"));
     }
 
     #[test]

@@ -186,4 +186,23 @@ mod tests {
             })
             .fold(0.0, f64::max)
     }
+
+    #[test]
+    fn regions_that_grow_into_each_other_merge() {
+        let grown = offset(
+            &[
+                Region::new(rect(0.0, 0.0, 10.0, 20.0)),
+                Region::new(rect(11.5, 0.0, 25.0, 20.0)),
+            ],
+            0.916,
+        );
+        assert_eq!(grown.len(), 1);
+        // The merged outline stays 0.916 from both: nothing of it lies in the gap.
+        for p in &grown[0].outer {
+            assert!(
+                !(p[0] > 10.1 && p[0] < 11.4 && p[1] > 0.5 && p[1] < 19.5),
+                "{p:?}"
+            );
+        }
+    }
 }

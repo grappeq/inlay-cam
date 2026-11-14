@@ -26,8 +26,11 @@ pub struct HeightMap {
 impl HeightMap {
     /// A fresh block `width` by `height` mm, sampled every `cell` mm.
     pub fn new(width: f64, height: f64, cell: f64) -> Self {
-        let nx = (width / cell).ceil().max(1.0) as usize;
-        let ny = (height / cell).ceil().max(1.0) as usize;
+        // A cell belongs to the block when its centre does. Rounding up
+        // instead would add a row of cells past the edge that no cut along
+        // the edge reaches, and it would show as a fin of uncut stock.
+        let count = |size: f64| ((size / cell + 0.5).floor().max(1.0)) as usize;
+        let (nx, ny) = (count(width), count(height));
         Self {
             cell,
             nx,

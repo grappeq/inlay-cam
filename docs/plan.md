@@ -250,6 +250,34 @@ Results (2026-11-14): built and checked in simulation; not cut on the machine.
   parameters, narrow-feature warnings.
 - Done when: pocket and plug files are generated together from one job.
 
+Results (2026-11-14): built and checked in simulation; not cut on the machine.
+- A V-carve inlay generates a plug file as well as a pocket file, each with its own
+  board, preview and download. They are generated one at a time from the same job.
+- The plug is the shapes mirrored left to right, left standing in a blank that is
+  otherwise cut to a flat floor. The outline is met at the engagement depth, so the
+  shapes are narrower than drawn at the top and wider at the floor; the floor is
+  engagement + saw gap deep.
+- The plug blank is the shapes' bounding box plus the plug margin on every side. Its
+  edge is not a wall: the floor runs out to it, so nothing stands proud around the plug.
+  The end mill stays inside the blank; the V-bit's flank passes slightly beyond it.
+- Two new job settings, both with defaults so older files still open: plug margin
+  (8 mm) and plug blank thickness (10 mm).
+- Checked by test: the simulated plug is never more than 0.02 mm lower than the ideal
+  shape and never more than 0.12 mm higher, with and without an end mill; the bit never
+  cuts closer to a shape than its depth allows, including in narrow gaps between shapes.
+  127 core tests.
+- Narrow parts: stretches where the pocket is shallower than the engagement depth are
+  found from the medial axis, reported with their total length, and drawn in red on the
+  design after generating.
+- Fixed on the way: along a medial edge between two corners the inscribed radius was
+  taken as changing evenly, which let the bit cut 0.15 mm into a shape beside a narrow
+  gap. Such edges are now split finely, like the curved ones.
+- Known limit, to be measured in M5: with a tip flat the pocket's corner ramps and
+  narrow grooves are shallower than the plug's matching ridges by tip radius / tan(half
+  angle), 0.09 mm for a 0.1 mm tip on a 60° bit.
+- Not done: pocket and plug are separate buttons rather than one action; plug parts keep
+  their drawing positions (no packing); no cut-out or trimming path for the blank.
+
 **M5. Fit analysis and safety checks**
 - Seating, gap map, cross-section view, trimmed-face view, all safety checks.
 - Done when: the app predicts the fit of an M4 job, and a real glued-up test inlay agrees

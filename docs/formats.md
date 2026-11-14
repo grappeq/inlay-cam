@@ -178,6 +178,8 @@ One inlay: a pocket and its matching plug or insert.
 | `sawGap` | Space between the pocket surface and the plug's backer. Greater than 0. |
 | `clearingToolIds` | Flat end mills that clear the pocket floor. A list so several tools can share the work in a later version; version 1 of the app uses the first. May be empty: the V-bit then clears the floor too. |
 | `vbitToolId` | The V-bit, or `null` when not chosen yet. |
+| `plugMargin` | Width of blank left around the shapes on the plug. Greater than 0. Default 8. The plug blank is the shapes' bounding box grown by this on every side. |
+| `plugThickness` | Thickness of the plug blank. Greater than 0. Default 10. Must exceed engagement depth + saw gap. |
 
 `inlay` for a flat pocket inlay:
 

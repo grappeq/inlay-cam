@@ -157,6 +157,13 @@ pub enum Inlay {
         clearing_tool_ids: Vec<String>,
         #[serde(default)]
         vbit_tool_id: Option<String>,
+        /// Width of blank left around the shapes on the plug, mm. The plug
+        /// blank is the shapes' bounding box grown by this on every side.
+        #[serde(default = "default_plug_margin")]
+        plug_margin: f64,
+        /// Thickness of the plug blank, mm.
+        #[serde(default = "default_plug_thickness")]
+        plug_thickness: f64,
     },
     #[serde(rename_all = "camelCase")]
     Flat {
@@ -171,12 +178,22 @@ pub enum Inlay {
     },
 }
 
+fn default_plug_margin() -> f64 {
+    8.0
+}
+
+fn default_plug_thickness() -> f64 {
+    10.0
+}
+
 impl Inlay {
     pub fn default_vcarve() -> Self {
         Inlay::Vcarve {
             engagement_depth: 3.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
+            plug_margin: 8.0,
+            plug_thickness: 10.0,
             clearing_tool_ids: Vec::new(),
             vbit_tool_id: None,
         }
@@ -220,8 +237,18 @@ impl Inlay {
                 engagement_depth,
                 glue_gap,
                 saw_gap,
+                plug_margin,
+                plug_thickness,
                 ..
             } => {
+                check(
+                    plug_margin.is_finite() && plug_margin > 0.0,
+                    "plug margin must be greater than 0",
+                )?;
+                check(
+                    plug_thickness.is_finite() && plug_thickness > 0.0,
+                    "plug blank thickness must be greater than 0",
+                )?;
                 check(
                     engagement_depth.is_finite() && engagement_depth > 0.0,
                     "engagement depth must be greater than 0",
@@ -368,6 +395,8 @@ mod tests {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
                         saw_gap: 1.5,
+                        plug_margin: 8.0,
+                        plug_thickness: 10.0,
                         clearing_tool_ids: vec!["t-endmill".into()],
                         vbit_tool_id: Some("t-vbit".into()),
                     },

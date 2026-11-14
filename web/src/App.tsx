@@ -76,9 +76,9 @@ function DesignView() {
           </nav>
         )}
         {preview && mode === "preview" ? (
-          <Viewer3D preview={preview} thickness={project.base.thickness} />
+          <Viewer3D preview={preview} thickness={preview.built.stock.thickness} />
         ) : project.design ? (
-          <DesignCanvas design={project.design} />
+          <DesignCanvas design={project.design} narrow={preview?.built.narrow ?? []} />
         ) : (
           <div className="empty">
             <p>No design yet.</p>

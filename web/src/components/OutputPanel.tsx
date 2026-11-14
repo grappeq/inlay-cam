@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { core } from "../core/client";
-import type { Job } from "../core/types";
+import type { Job, Part } from "../core/types";
 import { fmt } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
@@ -9,36 +9,43 @@ import { downloadText } from "../util/files";
 export function OutputPanel({ job }: { job: Job }) {
   const { project, output } = useApp();
   const dispatch = useDispatch();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Part | null>(null);
 
   const mine = output?.jobId === job.id ? output : null;
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
 
-  const generate = async () => {
-    setBusy(true);
+  const generate = async (part: Part) => {
+    setBusy(part);
     try {
-      const preview = await core.call("previewPocket", project, job.id);
-      dispatch({ type: "setOutput", output: { jobId: job.id, project, preview, errors: [] } });
+      const preview = await core.call("previewPart", project, job.id, part);
+      dispatch({ type: "setOutput", output: { jobId: job.id, part, project, preview, errors: [] } });
     } catch (e) {
-      dispatch({ type: "setOutput", output: { jobId: job.id, project, preview: null, errors: message(e).split("\n") } });
+      dispatch({ type: "setOutput", output: { jobId: job.id, part, project, preview: null, errors: message(e).split("\n") } });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
+  const vcarve = job.inlay.type === "vcarve";
+  const button = (part: Part) => (
+    <button className={part === "pocket" || mine?.part === part ? "primary" : undefined} disabled={busy !== null} onClick={() => generate(part)}>
+      {busy === part ? "Generating…" : mine?.part === part ? `Generate ${part} again` : `Generate ${part}`}
+    </button>
+  );
 
   const preview = mine?.preview ?? null;
   return (
     <div className="output">
       <h3>Output</h3>
       <p className="hint">
-        {job.inlay.type === "vcarve"
-          ? "Pocket only for now: the end mill clears the flat floor, then the V-bit cuts the walls and corners. The plug comes in a later version."
+        {vcarve
+          ? "Each part is its own file, cut from its own board. Pocket: the end mill clears the flat floor, then the V-bit cuts the walls and corners. Plug: the same, mirrored, around the shapes."
           : "Pocket only for now, cut to the tool's reach. The insert and the fit allowance come in a later version."}
       </p>
-      <button className="primary" disabled={busy} onClick={generate}>
-        {busy ? "Generating…" : mine ? "Generate pocket again" : "Generate pocket"}
-      </button>
+      <div className="row">
+        {button("pocket")}
+        {vcarve && button("plug")}
+      </div>
 
       {mine && stale && <p className="hint warn">The inlay or project has changed since this was generated.</p>}
 
@@ -52,7 +59,13 @@ export function OutputPanel({ job }: { job: Job }) {
 
       {preview && (
         <>
+          <h4>{preview.built.part === "plug" ? "Plug" : "Pocket"}</h4>
           <dl className="stats">
+            <dt>{preview.built.part === "plug" ? "Plug blank" : "Base board"}</dt>
+            <dd>
+              {fmt(Math.round(preview.built.stock.width * 100) / 100)} × {fmt(Math.round(preview.built.stock.height * 100) / 100)} mm,{" "}
+              {fmt(preview.built.stock.thickness)} mm thick, work origin at its bottom-left corner
+            </dd>
             <dt>{preview.built.stats.tools.length === 1 ? "Tool" : "Tools, in order"}</dt>
             <dd>{preview.built.stats.tools.map((name, i) => `T${i + 1} ${name}`).join(", ")}</dd>
             <dt>Cutting time</dt>

@@ -35,7 +35,13 @@ function regionPath(region: DesignRegion, design: Design): string {
   return ringPath(region.outer, design) + region.holes.map((h) => ringPath(h, design)).join("");
 }
 
-export function DesignCanvas({ design }: { design: Design }) {
+interface Props {
+  design: Design;
+  /** Stretches too narrow for a plug to seat, in board coordinates, from the last generated output. */
+  narrow: [[number, number], [number, number]][];
+}
+
+export function DesignCanvas({ design, narrow }: Props) {
   const { project, selection, activeJobId } = useApp();
   const dispatch = useDispatch();
 
@@ -91,6 +97,14 @@ export function DesignCanvas({ design }: { design: Design }) {
           </path>
         );
       })}
+      {narrow.length > 0 && (
+        <g className="narrow" aria-label="Parts too narrow for the plug to seat">
+          {narrow.map(([a, b], i) => (
+            // Board coordinates have Y up; the drawing has Y down.
+            <line key={i} x1={a[0]} y1={height - a[1]} x2={b[0]} y2={height - b[1]} />
+          ))}
+        </g>
+      )}
     </svg>
   );
 }

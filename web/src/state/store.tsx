@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { ImportReport, Job, PocketPreview, Project, Tool } from "../core/types";
+import type { ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
@@ -30,6 +30,7 @@ export interface AppState {
 
 export interface Output {
   jobId: string;
+  part: Part;
   /** The project exactly as it was when this was generated, to tell when it is out of date. */
   project: Project;
   /** Set when generation succeeded. */

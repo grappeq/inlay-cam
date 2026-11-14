@@ -131,13 +131,22 @@ impl PocketPreview {
     }
 }
 
-/// Builds the pocket G-code for a job and simulates it on the base board.
-/// On failure the error message lists every reason, one per line.
-#[wasm_bindgen(js_name = previewPocket)]
-pub fn preview_pocket(project_json: &str, job_id: &str) -> Result<PocketPreview, JsError> {
+/// Builds the G-code for one part of a job ("pocket" or "plug") and
+/// simulates it. Fails with every reason, one per line.
+#[wasm_bindgen(js_name = previewPart)]
+pub fn preview_part(
+    project_json: &str,
+    job_id: &str,
+    part: &str,
+) -> Result<PocketPreview, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
-    build::preview_pocket(&project, job_id)
+    let part = match part {
+        "pocket" => build::Part::Pocket,
+        "plug" => build::Part::Plug,
+        other => return Err(JsError::new(&format!("Unknown part \"{other}\"."))),
+    };
+    build::preview(&project, job_id, part)
         .map(|preview| PocketPreview { preview })
         .map_err(|reasons| {
             JsError::new(&reasons.join(

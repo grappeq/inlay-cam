@@ -109,26 +109,27 @@ pub fn medial_axis(region: &Region) -> Result<Vec<MedialEdge>, MedialError> {
         };
         let (ra, rb) = (radius(a_units), radius(b_units));
 
-        // A curved edge lies between a vertex and a segment: one of the two
-        // cells it separates belongs to each.
+        // Between two segments the radius changes evenly along the edge. With a
+        // vertex on one side or both it does not, so those edges are split
+        // into pieces short enough for it to be taken as even: a parabola
+        // between a vertex and a segment, a straight line between two vertices.
         let mut points = vec![(a_units, ra), (b_units, rb)];
-        if edge.is_curved() {
-            let other = diagram.cell(diagram.edge_get_cell(twin)?)?;
-            let (other_source, other_category) = other.source_index_2();
-            let o = segments[other_source.usize()];
-            let (o0, o1) = ([o[0] as f64, o[1] as f64], [o[2] as f64, o[3] as f64]);
-            let end = |category, p0: Point, p1: Point| match category {
-                SourceCategory::Segment => None,
-                SourceCategory::SegmentStart | SourceCategory::SinglePoint => Some(p0),
-                SourceCategory::SegmentEnd => Some(p1),
-            };
-            let split = match (end(category, s0, s1), end(other_category, o0, o1)) {
-                (Some(focus), None) => parabola(focus, o0, o1, a_units, b_units),
-                (None, Some(focus)) => parabola(focus, s0, s1, a_units, b_units),
-                _ => Vec::new(),
-            };
-            points.splice(1..1, split);
-        }
+        let other = diagram.cell(diagram.edge_get_cell(twin)?)?;
+        let (other_source, other_category) = other.source_index_2();
+        let o = segments[other_source.usize()];
+        let (o0, o1) = ([o[0] as f64, o[1] as f64], [o[2] as f64, o[3] as f64]);
+        let end = |category, p0: Point, p1: Point| match category {
+            SourceCategory::Segment => None,
+            SourceCategory::SegmentStart | SourceCategory::SinglePoint => Some(p0),
+            SourceCategory::SegmentEnd => Some(p1),
+        };
+        let split = match (end(category, s0, s1), end(other_category, o0, o1)) {
+            (Some(focus), None) => parabola(focus, o0, o1, a_units, b_units),
+            (None, Some(focus)) => parabola(focus, s0, s1, a_units, b_units),
+            (Some(f0), Some(f1)) => between_points(f0, f1, a_units, b_units),
+            (None, None) => Vec::new(),
+        };
+        points.splice(1..1, split);
         for pair in points.windows(2) {
             let ((p, rp), (q, rq)) = (pair[0], pair[1]);
             edges.push(MedialEdge {
@@ -141,6 +142,34 @@ pub fn medial_axis(region: &Region) -> Result<Vec<MedialEdge>, MedialError> {
         }
     }
     Ok(edges)
+}
+
+/// Points strictly between `a` and `b` on the line that is equally far from
+/// `f0` and `f1`, each with that distance. Everything is in grid units.
+fn between_points(f0: Point, f1: Point, a: Point, b: Point) -> Vec<(Point, f64)> {
+    let h = distance(f0, f1) / 2.0;
+    let length = distance(a, b);
+    if h < 1e-6 || length == 0.0 {
+        return Vec::new();
+    }
+    let mid = [(f0[0] + f1[0]) / 2.0, (f0[1] + f1[1]) / 2.0];
+    let u = [(b[0] - a[0]) / length, (b[1] - a[1]) / length];
+    let along = |p: Point| (p[0] - mid[0]) * u[0] + (p[1] - mid[1]) * u[1];
+    let (xa, xb) = (along(a), along(b));
+    // The distance sqrt(h² + x²) bends by at most 1 / h, like the parabola.
+    let pieces = ((xb - xa).abs() / (8.0 * h).sqrt())
+        .ceil()
+        .clamp(1.0, 500.0) as usize;
+    (1..pieces)
+        .map(|i| {
+            let t = i as f64 / pieces as f64;
+            let x = xa + (xb - xa) * t;
+            (
+                [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
+                (h * h + x * x).sqrt(),
+            )
+        })
+        .collect()
 }
 
 /// Points strictly between `a` and `b` on the parabola that is equally far

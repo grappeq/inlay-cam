@@ -15,8 +15,8 @@ const api: CoreApi = {
   toolsFromFile: (text) => JSON.parse(wasm.toolsFromFile(text)),
   toolsToFile: (tools) => wasm.toolsToFile(JSON.stringify(tools)),
   validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
-  previewPocket: (project, jobId) => {
-    const preview = wasm.previewPocket(JSON.stringify(project), jobId);
+  previewPart: (project, jobId, part) => {
+    const preview = wasm.previewPart(JSON.stringify(project), jobId, part);
     try {
       return { ...JSON.parse(preview.info), heights: preview.heights, path: preview.path };
     } finally {

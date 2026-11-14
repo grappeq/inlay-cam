@@ -58,6 +58,10 @@ export interface VcarveInlay {
   sawGap: number;
   clearingToolIds: string[];
   vbitToolId: string | null;
+  /** Width of blank left around the shapes on the plug, mm. */
+  plugMargin: number;
+  /** Thickness of the plug blank, mm. */
+  plugThickness: number;
 }
 
 export interface FlatInlay {
@@ -117,7 +121,15 @@ export interface BuildStats {
   tools: string[];
 }
 
+/** The two halves of an inlay; each has its own board and file. */
+export type Part = "pocket" | "plug";
+
 export interface Built {
+  part: Part;
+  /** The board the part is cut from, mm. */
+  stock: { width: number; height: number; thickness: number };
+  /** Stretches of the design, as placed on the base board, too narrow for the plug to seat. */
+  narrow: [[number, number], [number, number]][];
   fileName: string;
   gcode: string;
   stats: BuildStats;

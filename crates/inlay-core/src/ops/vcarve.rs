@@ -44,7 +44,7 @@ pub struct VcarveParams {
 }
 
 impl VcarveParams {
-    fn tan(&self) -> f64 {
+    pub fn tan(&self) -> f64 {
         self.half_angle.tan()
     }
 
@@ -91,6 +91,10 @@ const SLIVER: f64 = 0.01;
 /// How far a floor ring may stray when its points are thinned, mm.
 const RING_TOLERANCE: f64 = 0.002;
 
+/// Walls closing in by less than this per mm of length count as running
+/// side by side (about 20 degrees between them).
+const NARROW_TAPER: f64 = 0.17;
+
 /// Ramps shallower than this everywhere are not worth a move, mm.
 const MIN_RAMP_DEPTH: f64 = 0.005;
 
@@ -103,9 +107,23 @@ struct Ramp {
     db: f64,
 }
 
-/// Appends the V-bit moves for `regions` to `path`. The bit must already be
-/// loaded and spinning. `cleared` is the part of the floor already cut to full
-/// depth by another tool.
+/// One carving job, whichever side of the outline the bit works on.
+struct Carving<'a> {
+    /// Depth of the flat floor below Z0, mm.
+    floor: f64,
+    /// Where the bit's centre runs along the walls when its tip is this deep.
+    rings_at: &'a dyn Fn(f64) -> Vec<Region>,
+    /// Cuts along the medial axis, with depths below Z0.
+    ramps: Vec<Ramp>,
+    /// Floor left for the bit to clear.
+    rest: Vec<Region>,
+    /// Where the bit's centre may be at floor depth.
+    allowed: Vec<Region>,
+}
+
+/// Appends the V-bit moves that carve the inside of `regions` to `path`: a
+/// pocket. The bit must already be loaded and spinning. `cleared` is the part
+/// of the floor already cut to full depth by another tool.
 pub fn vcarve(
     path: &mut PathBuilder,
     regions: &[Region],
@@ -113,111 +131,239 @@ pub fn vcarve(
     p: &VcarveParams,
 ) -> Result<VcarveReport, VcarveError> {
     let mut report = VcarveReport::default();
-    let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
-    let full_radius = p.radius_at(p.depth);
-
     for region in regions {
         let one = std::slice::from_ref(region);
         let ramps = ramps(region, p)?;
         let deepest = ramps.iter().map(|r| r.da.max(r.db)).fold(0.0, f64::max);
-        let allowed = offset(one, -full_radius);
+        let allowed = offset(one, -p.radius_at(p.depth));
         if allowed.is_empty() {
             report.shallow.push(deepest);
         }
-
-        for pass in 1..=passes {
-            let z = p.depth * pass as f64 / passes as f64;
-            let above = p.depth * (pass - 1) as f64 / passes as f64;
-
-            for level in offset(one, -p.radius_at(z)) {
-                for ring in level.rings() {
-                    let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
-                    plunge_to(path, ring[start], z, p);
-                    for i in 1..=ring.len() {
-                        let q = ring[(start + i) % ring.len()];
-                        path.feed_to([q[0], q[1], -z], p.feed);
-                    }
-                }
-            }
-
-            let cuts: Vec<Ramp> = ramps.iter().flat_map(|r| pass_cuts(r, above, z)).collect();
-            for chain in chains(cuts, path.position().map(|q| [q[0], q[1]])) {
-                plunge_to(path, chain[0].0, chain[0].1, p);
-                for (q, depth) in &chain[1..] {
-                    path.feed_to([q[0], q[1], height(*depth)], p.feed);
-                }
-            }
-        }
-
         // Floor the end mill could not reach: the corners of the floor it
         // rounded off, and floor too narrow for it.
         let margin = (2.0 * p.tip_radius).max(0.02);
         let inner = offset(one, -(p.depth * p.tan() + margin));
         let rest: Vec<Region> = inner.iter().flat_map(|r| difference(r, cleared)).collect();
-        for piece in &rest {
-            // Starting a hair inside drops the hair-thin leftovers where the
-            // two boundaries run side by side.
-            let mut level = offset(std::slice::from_ref(piece), -SLIVER);
-            report.floor_cleared_by_bit += level.iter().map(Region::area).sum::<f64>();
-            // Each ring is offset from the one before: offsetting the first by
-            // ever larger amounts gets slow, and exact spacing does not matter here.
-            let mut area = f64::INFINITY;
-            loop {
-                // A shrinking shape must lose area; one that does not has
-                // collapsed into something the offset can no longer shrink.
-                let now: f64 = level.iter().map(Region::area).sum();
-                if level.is_empty() || now >= area || now < SLIVER * SLIVER {
-                    break;
-                }
-                area = now;
-                floor_rings(path, &level, &allowed, p);
-
-                // Thinning the points matters: otherwise every ring's rounded
-                // corners are rounded again by the next and the count explodes.
-                let inwards = |from: &[Region], by: f64| -> Vec<Region> {
-                    offset(from, -by)
-                        .iter()
-                        .map(|r| simplify(r, RING_TOLERANCE))
-                        .collect()
-                };
-                let half = inwards(&level, p.stepover / 2.0);
-                let next = inwards(&half, p.stepover / 2.0);
-                // Where the area is between one and two stepovers wide the
-                // next ring does not exist, and the middle would be left
-                // standing. Those stretches get a ring half a step in.
-                let continuing = offset(&next, p.stepover / 2.0);
-                let thin: Vec<Region> = half
-                    .iter()
-                    .flat_map(|r| difference(r, &continuing))
-                    .collect();
-                floor_rings(path, &offset(&thin, -SLIVER), &allowed, p);
-                level = next;
-            }
-        }
-        path.retract();
+        carve(
+            path,
+            &Carving {
+                floor: p.depth,
+                rings_at: &|z| offset(one, -p.radius_at(z)),
+                ramps,
+                rest,
+                allowed,
+            },
+            p,
+            &mut report,
+        );
     }
     Ok(report)
 }
 
+/// Appends the V-bit moves that carve away everything around `shapes` inside
+/// `blank`, leaving them standing: a plug.
+///
+/// The outline is met `start_depth` below the surface instead of at it, and
+/// the floor is `p.depth` below that. So a shape is narrower than its outline
+/// at the top, exactly its outline at the start depth, and wider at the
+/// floor: turned over, it fills a pocket carved `start_depth` deep or more
+/// and leaves `p.depth` between the two boards.
+///
+/// The blank's own edge is not a wall: the floor runs out to it.
+pub fn vcarve_plug(
+    path: &mut PathBuilder,
+    shapes: &[Region],
+    blank: &Region,
+    cleared: &[Region],
+    start_depth: f64,
+    p: &VcarveParams,
+) -> Result<VcarveReport, VcarveError> {
+    let mut report = VcarveReport::default();
+    let reach = p.radius_at(p.depth);
+
+    // The medial axis of the waste gives the ramps into the shapes' inward
+    // corners and along gaps too narrow for the bit at full depth. A frame
+    // far outside stands in for the open edge; ramps that belong to it rather
+    // than to a shape are dropped.
+    let far = 2.0 * reach + 5.0;
+    let (mut x0, mut y0, mut x1, mut y1) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for q in &blank.outer {
+        x0 = x0.min(q[0]);
+        y0 = y0.min(q[1]);
+        x1 = x1.max(q[0]);
+        y1 = y1.max(q[1]);
+    }
+    let frame = Region::new(vec![
+        [x0 - far, y0 - far],
+        [x1 + far, y0 - far],
+        [x1 + far, y1 + far],
+        [x0 - far, y1 + far],
+    ]);
+    let to_shapes = |q: Point| {
+        shapes
+            .iter()
+            .map(|s| s.distance_to_boundary(q))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let mut all_ramps = Vec::new();
+    for waste in difference(&frame, shapes) {
+        for r in ramps(&waste, p)? {
+            let touches = |q: Point, depth: f64| to_shapes(q) <= p.radius_at(depth) + 1e-3;
+            if touches(r.a, r.da) && touches(r.b, r.db) {
+                all_ramps.push(Ramp {
+                    da: r.da + start_depth,
+                    db: r.db + start_depth,
+                    ..r
+                });
+            }
+        }
+    }
+
+    let margin = (2.0 * p.tip_radius).max(0.02);
+    let rest: Vec<Region> = difference(blank, &offset(shapes, p.depth * p.tan() + margin))
+        .iter()
+        .flat_map(|r| difference(r, cleared))
+        .collect();
+    carve(
+        path,
+        &Carving {
+            floor: start_depth + p.depth,
+            // Above the start depth this is inside the outline: the bit trims
+            // the top of the shape back to where the pocket's wall will be.
+            rings_at: &|z| offset(shapes, p.radius_at(z - start_depth)),
+            ramps: all_ramps,
+            rest,
+            allowed: difference(blank, &offset(shapes, reach)),
+        },
+        p,
+        &mut report,
+    );
+    Ok(report)
+}
+
+/// The stretches of the shapes' medial axis where the inscribed circle is
+/// smaller than `radius` and the walls run nearly parallel: parts too narrow
+/// for a V-bit to get as deep as that radius allows elsewhere. Corners, where
+/// the walls close in quickly, are not counted.
+pub fn narrow_parts(regions: &[Region], radius: f64) -> Result<Vec<[Point; 2]>, VcarveError> {
+    let mut out = Vec::new();
+    for region in regions {
+        for e in medial_axis(region).map_err(|e| VcarveError::Geometry(e.to_string()))? {
+            let length = distance(e.a, e.b);
+            if length > 1e-9
+                && e.ra.max(e.rb) < radius
+                && (e.rb - e.ra).abs() / length < NARROW_TAPER
+            {
+                out.push([e.a, e.b]);
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut VcarveReport) {
+    let passes = (job.floor / p.stepdown).ceil().max(1.0) as usize;
+    for pass in 1..=passes {
+        let z = job.floor * pass as f64 / passes as f64;
+        let above = job.floor * (pass - 1) as f64 / passes as f64;
+
+        for level in (job.rings_at)(z) {
+            for ring in level.rings() {
+                let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+                plunge_to(path, ring[start], z, p);
+                for i in 1..=ring.len() {
+                    let q = ring[(start + i) % ring.len()];
+                    path.feed_to([q[0], q[1], -z], p.feed);
+                }
+            }
+        }
+
+        let cuts: Vec<Ramp> = job
+            .ramps
+            .iter()
+            .flat_map(|r| pass_cuts(r, above, z))
+            .collect();
+        for chain in chains(cuts, path.position().map(|q| [q[0], q[1]])) {
+            plunge_to(path, chain[0].0, chain[0].1, p);
+            for (q, depth) in &chain[1..] {
+                path.feed_to([q[0], q[1], height(*depth)], p.feed);
+            }
+        }
+    }
+
+    for piece in &job.rest {
+        // Starting a hair inside drops the hair-thin leftovers where two
+        // boundaries run side by side.
+        let mut level = offset(std::slice::from_ref(piece), -SLIVER);
+        report.floor_cleared_by_bit += level.iter().map(Region::area).sum::<f64>();
+        // Each ring is offset from the one before: offsetting the first by
+        // ever larger amounts gets slow, and exact spacing does not matter here.
+        let mut area = f64::INFINITY;
+        loop {
+            // A shrinking shape must lose area; one that does not has
+            // collapsed into something the offset can no longer shrink.
+            let now: f64 = level.iter().map(Region::area).sum();
+            if level.is_empty() || now >= area || now < SLIVER * SLIVER {
+                break;
+            }
+            area = now;
+            floor_rings(path, &level, &job.allowed, job.floor, p);
+
+            // Thinning the points matters: otherwise every ring's rounded
+            // corners are rounded again by the next and the count explodes.
+            let inwards = |from: &[Region], by: f64| -> Vec<Region> {
+                offset(from, -by)
+                    .iter()
+                    .map(|r| simplify(r, RING_TOLERANCE))
+                    .collect()
+            };
+            let half = inwards(&level, p.stepover / 2.0);
+            let next = inwards(&half, p.stepover / 2.0);
+            // Where the area is between one and two stepovers wide the next
+            // ring does not exist, and the middle would be left standing.
+            // Those stretches get a ring half a step in.
+            let continuing = offset(&next, p.stepover / 2.0);
+            let thin: Vec<Region> = half
+                .iter()
+                .flat_map(|r| difference(r, &continuing))
+                .collect();
+            floor_rings(path, &offset(&thin, -SLIVER), &job.allowed, job.floor, p);
+            level = next;
+        }
+    }
+    path.retract();
+}
+
 /// Cuts along every ring of `level` at full depth, staying down between
 /// rings that are close together when the way is clear of the walls.
-fn floor_rings(path: &mut PathBuilder, level: &[Region], allowed: &[Region], p: &VcarveParams) {
+fn floor_rings(
+    path: &mut PathBuilder,
+    level: &[Region],
+    allowed: &[Region],
+    floor: f64,
+    p: &VcarveParams,
+) {
     for ring in level.iter().flat_map(|r| r.rings()) {
         let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
         let first = ring[start];
         let linked = path.position().is_some_and(|pos| {
-            pos[2] == -p.depth
+            pos[2] == -floor
                 && distance([pos[0], pos[1]], first) <= 4.0 * p.stepover
                 && stays_inside(allowed, [pos[0], pos[1]], first, p.stepover / 2.0)
         });
         if linked {
-            path.feed_to([first[0], first[1], -p.depth], p.feed);
+            path.feed_to([first[0], first[1], -floor], p.feed);
         } else {
-            plunge_to(path, first, p.depth, p);
+            plunge_to(path, first, floor, p);
         }
         for i in 1..=ring.len() {
             let q = ring[(start + i) % ring.len()];
-            path.feed_to([q[0], q[1], -p.depth], p.feed);
+            path.feed_to([q[0], q[1], -floor], p.feed);
         }
     }
 }
@@ -554,6 +700,128 @@ mod tests {
             some.floor_cleared_by_bit > 0.0,
             "the floor's corners remain"
         );
+    }
+
+    fn run_plug(shapes: &[Region], blank: &Region, start: f64, p: &VcarveParams) -> Vec<Move> {
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(1, 12000);
+        vcarve_plug(&mut path, shapes, blank, &[], start, p).unwrap();
+        path.finish()
+    }
+
+    /// Distance to the nearest shape's outline, negative inside a shape.
+    fn outside_by(shapes: &[Region], q: Point) -> f64 {
+        let d = shapes
+            .iter()
+            .map(|s| s.distance_to_boundary(q))
+            .fold(f64::INFINITY, f64::min);
+        if shapes.iter().any(|s| s.contains(q)) {
+            -d
+        } else {
+            d
+        }
+    }
+
+    #[test]
+    fn a_plug_is_never_cut_narrower_than_its_pocket() {
+        // 2 mm of engagement, then 1.5 mm down to the floor.
+        let p = VcarveParams {
+            depth: 1.5,
+            ..params()
+        };
+        let start = 2.0;
+        let blank = Region::new(rect(-10.0, -10.0, 40.0, 40.0));
+        for shapes in [
+            vec![Region::new(rect(0.0, 0.0, 30.0, 20.0))],
+            vec![Region::new(l_shape())],
+            vec![Region::new(star(15.0, 15.0, 14.0, 6.0))],
+            vec![Region::with_holes(
+                rect(0.0, 0.0, 30.0, 30.0),
+                vec![rect_cw(10.0, 10.0, 20.0, 20.0)],
+            )],
+            // Two shapes 1.5 mm apart: the gap is too narrow for full depth.
+            vec![
+                Region::new(rect(0.0, 0.0, 10.0, 20.0)),
+                Region::new(rect(11.5, 0.0, 25.0, 20.0)),
+            ],
+        ] {
+            let moves = run_plug(&shapes, &blank, start, &p);
+            let cuts = feeds(&moves);
+            assert!(!cuts.is_empty());
+            let mut deepest: f64 = 0.0;
+            for q in cuts {
+                // With its tip `z` deep the bit is this wide where it crosses
+                // the level of the outline, `start` below the surface.
+                let z = -q[2];
+                let width = p.radius_at(z - start);
+                let room = outside_by(&shapes, [q[0], q[1]]);
+                assert!(
+                    width <= room + 0.01,
+                    "bit cuts {width} from its centre at {q:?} but the shape is {room} away"
+                );
+                assert!(z <= 3.5 + 1e-9, "cut below the floor at {q:?}");
+                deepest = deepest.max(z);
+            }
+            assert!((deepest - 3.5).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_plug_has_ramps_into_its_inward_corners_only() {
+        let p = VcarveParams {
+            depth: 1.5,
+            ..params()
+        };
+        let shapes = [Region::new(l_shape())];
+        let blank = Region::new(rect(-10.0, -10.0, 40.0, 40.0));
+        let moves = run_plug(&shapes, &blank, 2.0, &p);
+        // The L's one inward corner is at (8, 8): the bit climbs to the start
+        // depth there. Nothing ramps towards the blank's own corners.
+        let sloped: Vec<[f64; 3]> = moves
+            .windows(2)
+            .flat_map(|w| match (&w[0], &w[1]) {
+                (Move::Feed { to: a, .. }, Move::Feed { to: b, .. })
+                    if a[2] != b[2] && distance([a[0], a[1]], [b[0], b[1]]) > 1e-6 =>
+                {
+                    vec![*a, *b]
+                }
+                _ => Vec::new(),
+            })
+            .collect();
+        assert!(!sloped.is_empty());
+        for q in &sloped {
+            assert!(distance([q[0], q[1]], [8.0, 8.0]) < 3.0, "ramp at {q:?}");
+        }
+        let highest = sloped
+            .iter()
+            .map(|q| q[2])
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!((highest + 2.0).abs() < 0.2, "ramp tops out at {highest}");
+    }
+
+    #[test]
+    fn narrow_parts_are_found_and_corners_are_not() {
+        // 30 x 20 with a 2 mm wide, 10 mm long arm.
+        let shape = Region::new(vec![
+            [0.0, 0.0],
+            [30.0, 0.0],
+            [30.0, 9.0],
+            [40.0, 9.0],
+            [40.0, 11.0],
+            [30.0, 11.0],
+            [30.0, 20.0],
+            [0.0, 20.0],
+        ]);
+        let found = narrow_parts(std::slice::from_ref(&shape), 1.5).unwrap();
+        let length: f64 = found.iter().map(|s| distance(s[0], s[1])).sum();
+        assert!((length - 8.0).abs() < 1.5, "narrow length {length}");
+        for s in &found {
+            assert!(s[0][0] > 29.0 && s[1][0] > 29.0, "marked {s:?}");
+        }
+        let wide = narrow_parts(&[Region::new(rect(0.0, 0.0, 30.0, 20.0))], 1.5).unwrap();
+        assert!(wide.is_empty());
+        let round = narrow_parts(&[Region::new(circle(0.0, 0.0, 10.0, 180))], 1.5).unwrap();
+        assert!(round.is_empty());
     }
 
     #[test]

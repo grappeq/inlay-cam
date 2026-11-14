@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { PocketPreview, Project, SvgImport, Tool, ToolsYamlImport } from "./types";
+import type { Part, PocketPreview, Project, SvgImport, Tool, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -16,10 +16,10 @@ export interface CoreApi {
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**
-   * Builds the pocket G-code for a job and simulates it. Fails with every
-   * reason the job cannot be built, one per line of the error message.
+   * Builds the G-code for one part of a job and simulates it. Fails with
+   * every reason the part cannot be built, one per line of the error message.
    */
-  previewPocket(project: Project, jobId: string): PocketPreview;
+  previewPart(project: Project, jobId: string, part: Part): PocketPreview;
 }
 
 export type CoreMethod = keyof CoreApi;

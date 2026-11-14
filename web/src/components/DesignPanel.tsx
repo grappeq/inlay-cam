@@ -244,6 +244,21 @@ function JobEditor({ job }: { job: Job }) {
           <p className="derived">
             Pocket depth {fmt(inlay.engagementDepth + inlay.glueGap)} mm. Plug cut depth {fmt(inlay.engagementDepth + inlay.sawGap)} mm.
           </p>
+          <NumberField
+            label="Plug margin"
+            unit="mm"
+            min={0.01}
+            value={inlay.plugMargin}
+            onChange={(v) => v !== undefined && setInlay({ plugMargin: v })}
+            hint="Blank left around the shapes on the plug. The plug blank is the shapes' outer size plus this on every side."
+          />
+          <NumberField
+            label="Plug blank thickness"
+            unit="mm"
+            min={0.01}
+            value={inlay.plugThickness}
+            onChange={(v) => v !== undefined && setInlay({ plugThickness: v })}
+          />
           <ToolPicker
             label="V-bit"
             kind="v_bit"
