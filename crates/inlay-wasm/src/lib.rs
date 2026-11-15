@@ -3,6 +3,11 @@
 //! Structured values cross the boundary as JSON text. The matching
 //! TypeScript types are in `web/src/core/types.ts`.
 
+use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
+
 use inlay_core::build;
 use inlay_core::import::{svg, tools_yaml};
 use inlay_core::project::{self, Project};
@@ -84,10 +89,64 @@ pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {
     Ok(tool.validate().err())
 }
 
-/// The result of building a job's pocket file and simulating it.
+/// The result of building one part's file and simulating it.
 #[wasm_bindgen]
 pub struct PocketPreview {
-    preview: build::Preview,
+    preview: Rc<build::Preview>,
+}
+
+/// The last simulated pocket and plug, kept so that checking their fit does
+/// not simulate them a second time. Keyed by the project text and job.
+struct Kept {
+    key: u64,
+    part: build::Part,
+    preview: Rc<build::Preview>,
+}
+
+thread_local! {
+    static KEPT: RefCell<Vec<Kept>> = const { RefCell::new(Vec::new()) };
+}
+
+fn key_of(project_json: &str, job_id: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    project_json.hash(&mut hasher);
+    job_id.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The simulated part for exactly this project and job: the kept one, or a
+/// fresh one, which is then kept. At most one of each part is kept.
+fn preview_of(
+    project: &Project,
+    project_json: &str,
+    job_id: &str,
+    part: build::Part,
+) -> Result<Rc<build::Preview>, Vec<String>> {
+    let key = key_of(project_json, job_id);
+    let kept = KEPT.with(|k| {
+        k.borrow()
+            .iter()
+            .find(|e| e.key == key && e.part == part)
+            .map(|e| e.preview.clone())
+    });
+    if let Some(preview) = kept {
+        return Ok(preview);
+    }
+    let preview = Rc::new(build::preview(project, job_id, part)?);
+    KEPT.with(|k| {
+        let mut k = k.borrow_mut();
+        k.retain(|e| e.part != part);
+        k.push(Kept {
+            key,
+            part,
+            preview: preview.clone(),
+        });
+    });
+    Ok(preview)
+}
+
+fn reasons(reasons: Vec<String>) -> JsError {
+    JsError::new(&reasons.join("\n"))
 }
 
 #[wasm_bindgen]
@@ -146,20 +205,17 @@ pub fn preview_part(
         "plug" => build::Part::Plug,
         other => return Err(JsError::new(&format!("Unknown part \"{other}\"."))),
     };
-    build::preview(&project, job_id, part)
+    preview_of(&project, project_json, job_id, part)
         .map(|preview| PocketPreview { preview })
-        .map_err(|reasons| {
-            JsError::new(&reasons.join(
-                "
-",
-            ))
-        })
+        .map_err(reasons)
 }
 
 /// Both parts of a V-carve inlay simulated and fitted together.
 #[wasm_bindgen]
 pub struct FitCheck {
-    check: build::FitCheck,
+    fit: inlay_core::analysis::Fit,
+    pocket: Rc<build::Preview>,
+    plug: Rc<build::Preview>,
 }
 
 #[wasm_bindgen]
@@ -167,13 +223,13 @@ impl FitCheck {
     /// The fit report and the grid's dimensions, as JSON.
     #[wasm_bindgen(getter)]
     pub fn info(&self) -> String {
-        let fit = &self.check.fit;
+        let fit = &self.fit;
         serde_json::json!({
             "report": fit.report,
             "cell": fit.cell,
             "nx": fit.nx,
             "ny": fit.ny,
-            "problems": self.check.pocket.problems.len() + self.check.plug.problems.len(),
+            "problems": self.pocket.problems.len() + self.plug.problems.len(),
         })
         .to_string()
     }
@@ -182,26 +238,26 @@ impl FitCheck {
     /// over the base board. Row by row from Y = 0.
     #[wasm_bindgen(getter)]
     pub fn gap(&self) -> Vec<f32> {
-        self.check.fit.gap.clone()
+        self.fit.gap.clone()
     }
 
     /// Underside of the resting plug per cell, in the base board's Z; NaN
     /// where there is no plug.
     #[wasm_bindgen(getter, js_name = plugUnder)]
     pub fn plug_under(&self) -> Vec<f32> {
-        self.check.fit.plug_under.clone()
+        self.fit.plug_under.clone()
     }
 
     /// The finished face per cell: 0 base board, 1 plug, 2 gap.
     #[wasm_bindgen(getter)]
     pub fn face(&self) -> Vec<u8> {
-        self.check.fit.face.clone()
+        self.fit.face.clone()
     }
 
     /// The simulated base board per cell.
     #[wasm_bindgen(getter)]
     pub fn base(&self) -> Vec<f32> {
-        self.check.pocket.map.z.clone()
+        self.pocket.map.z.clone()
     }
 }
 
@@ -211,12 +267,9 @@ impl FitCheck {
 pub fn check_fit(project_json: &str, job_id: &str) -> Result<FitCheck, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
-    build::check_fit(&project, job_id)
-        .map(|check| FitCheck { check })
-        .map_err(|reasons| {
-            JsError::new(&reasons.join(
-                "
-",
-            ))
-        })
+    let pocket =
+        preview_of(&project, project_json, job_id, build::Part::Pocket).map_err(reasons)?;
+    let plug = preview_of(&project, project_json, job_id, build::Part::Plug).map_err(reasons)?;
+    let fit = build::fit_of(&project, job_id, &pocket, &plug).map_err(reasons)?;
+    Ok(FitCheck { fit, pocket, plug })
 }

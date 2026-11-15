@@ -4,10 +4,10 @@ import * as db from "../storage/db";
 import { useFileActions } from "../state/files";
 import { newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch } from "../state/store";
-import { downloadText, fileStem, pickTextFile } from "../util/files";
+import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
 
 export function Header() {
-  const { project, view, saveError, ready } = useApp();
+  const { project, view, saveError, ready, tools } = useApp();
   const dispatch = useDispatch();
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
@@ -27,6 +27,14 @@ export function Header() {
   return (
     <header className="topbar">
       <span className="brand">Wooden Inlays</span>
+      <nav className="tabs" aria-label="Views">
+        <button aria-pressed={view === "design"} onClick={() => dispatch({ type: "setView", view: "design" })}>
+          Design
+        </button>
+        <button aria-pressed={view === "tools"} onClick={() => dispatch({ type: "setView", view: "tools" })}>
+          Tools{tools.length > 0 ? ` (${tools.length})` : ""}
+        </button>
+      </nav>
       <input
         className="project-name"
         type="text"
@@ -37,19 +45,17 @@ export function Header() {
       <span className={`save-state${saveError ? " error" : ""}`} role="status">
         {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : "Saved in this browser"}
       </span>
-      <nav className="tabs" aria-label="Views">
-        <button aria-pressed={view === "design"} onClick={() => dispatch({ type: "setView", view: "design" })}>
-          Design
-        </button>
-        <button aria-pressed={view === "tools"} onClick={() => dispatch({ type: "setView", view: "tools" })}>
-          Tools
-        </button>
-      </nav>
       <div className="actions">
-        <button onClick={() => dispatch({ type: "openProject", project: newProject() })}>New</button>
-        <button onClick={() => setShowProjects(true)}>Open…</button>
-        <button onClick={importProject}>Import file…</button>
-        <button onClick={exportProject}>Export file</button>
+        <button onClick={() => dispatch({ type: "openProject", project: newProject() })}>New project</button>
+        <button onClick={() => setShowProjects(true)} title="Projects stored in this browser">
+          Projects…
+        </button>
+        <button onClick={importProject} title="Open a project file from disk">
+          Open file…
+        </button>
+        <button onClick={exportProject} title="Save this project as a file, to keep or to move to another computer">
+          Save to file
+        </button>
       </div>
       {showProjects && <ProjectsDialog onClose={() => setShowProjects(false)} />}
     </header>
@@ -58,6 +64,7 @@ export function Header() {
 
 function ProjectsDialog({ onClose }: { onClose: () => void }) {
   const { projects, project } = useApp();
+  useEscape(onClose);
   const dispatch = useDispatch();
 
   const open = async (id: string) => {
@@ -79,7 +86,7 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
     <div className="backdrop" onClick={onClose}>
       <div className="dialog" role="dialog" aria-modal="true" aria-label="Projects in this browser" onClick={(e) => e.stopPropagation()}>
         <h2>Projects in this browser</h2>
-        {projects.length === 0 && <p className="muted">Nothing stored yet.</p>}
+        {projects.length === 0 && <p className="muted">Nothing stored yet. A project is stored here as soon as it has a drawing.</p>}
         <ul className="project-list">
           {projects.map((p) => (
             <li key={p.id}>

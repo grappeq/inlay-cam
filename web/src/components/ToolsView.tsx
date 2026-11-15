@@ -4,7 +4,7 @@ import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
 import { MATERIALS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
-import { downloadText, pickTextFile } from "../util/files";
+import { downloadText, pickTextFile, useEscape } from "../util/files";
 import { NumberField } from "./NumberField";
 
 const KIND_LABEL: Record<ToolKind, string> = { flat_end: "Flat end mill", v_bit: "V-bit" };
@@ -46,12 +46,8 @@ export function ToolsView() {
     <main className="tools-view">
       <div className="toolbar">
         <h2>Your tools</h2>
-        <button className="primary" onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>
-          Add end mill
-        </button>
-        <button className="primary" onClick={() => setEditing({ tool: blankTool("v_bit"), isNew: true })}>
-          Add V-bit
-        </button>
+        <button onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>Add end mill</button>
+        <button onClick={() => setEditing({ tool: blankTool("v_bit"), isNew: true })}>Add V-bit</button>
         <span className="spacer" />
         <button onClick={importYaml}>Import tools.yaml…</button>
         <button onClick={importLibrary}>Import tool file…</button>
@@ -70,8 +66,25 @@ export function ToolsView() {
         </p>
       )}
 
+      <p className="muted lead">
+        Kept in this browser and shared by all your projects. A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it
+        time. Each tool needs cutting settings for the wood you cut.
+      </p>
+
       {tools.length === 0 ? (
-        <p className="muted">No tools yet. Add one, or import your tooling library's tools.yaml (only end mills and V-bits are taken).</p>
+        <div className="empty-card">
+          <p>No tools yet.</p>
+          <p className="muted">Add them by hand, or import the tools.yaml of your tooling library. Only end mills and V-bits are taken from it.</p>
+          <div className="row center">
+            <button className="primary" onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>
+              Add end mill
+            </button>
+            <button className="primary" onClick={() => setEditing({ tool: blankTool("v_bit"), isNew: true })}>
+              Add V-bit
+            </button>
+            <button onClick={importYaml}>Import tools.yaml…</button>
+          </div>
+        </div>
       ) : (
         <div className="table-wrap">
           <table>
@@ -96,7 +109,7 @@ export function ToolsView() {
                   <td className="num">{tool.tipAngle !== undefined ? `${fmt(tool.tipAngle)}°` : ""}</td>
                   <td className="num">{tool.kind === "v_bit" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
                   <td className="num">{tool.fluteLength !== undefined ? fmt(tool.fluteLength) : "unknown"}</td>
-                  <td>{tool.cutting.length ? tool.cutting.map((c) => c.material).join(", ") : <span className="warn">none</span>}</td>
+                  <td>{tool.cutting.length ? tool.cutting.map((c) => c.material).join(", ") : <span className="warn">none yet: edit to add</span>}</td>
                   <td className="row-actions">
                     <button onClick={() => setEditing({ tool, isNew: false })}>Edit</button>
                     <button className="danger" onClick={() => remove(tool)}>
@@ -117,6 +130,7 @@ export function ToolsView() {
 
 function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
   const [tool, setTool] = useState<Tool>(props.initial);
+  useEscape(props.onCancel);
   const [error, setError] = useState<string | null>(null);
   const set = (change: Partial<Tool>) => setTool((t) => ({ ...t, ...change }));
 

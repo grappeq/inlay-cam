@@ -1273,6 +1273,16 @@ pub struct FitCheck {
 /// Builds and simulates the pocket and the plug of a V-carve inlay, then
 /// lowers the plug into the pocket and measures the fit.
 pub fn check_fit(project: &Project, job_id: &str) -> Result<FitCheck, Vec<String>> {
+    // Fail early for a flat inlay, before anything is simulated.
+    fit_settings(project, job_id)?;
+    let pocket = preview(project, job_id, Part::Pocket)?;
+    let plug = preview(project, job_id, Part::Plug)?;
+    let fit = fit_of(project, job_id, &pocket, &plug)?;
+    Ok(FitCheck { fit, pocket, plug })
+}
+
+/// Engagement depth and pocket depth of a V-carve inlay.
+fn fit_settings(project: &Project, job_id: &str) -> Result<(f64, f64), Vec<String>> {
     let job = project
         .jobs
         .iter()
@@ -1284,20 +1294,27 @@ pub fn check_fit(project: &Project, job_id: &str) -> Result<FitCheck, Vec<String
         ..
     } = &job.inlay
     else {
-        return Err(vec!["The fit of a flat inlay cannot be checked yet.".into()]);
+        return Err(vec![
+            "A flat inlay's fit is worked out from its outlines when a part is generated.".into(),
+        ]);
     };
-    let pocket = preview(project, job_id, Part::Pocket)?;
-    let plug = preview(project, job_id, Part::Plug)?;
-    let frame = plug.built.frame.expect("a plug has a frame");
-    let fit = analysis::fit(
-        &pocket.map,
-        &plug.map,
-        frame,
-        *engagement_depth,
-        engagement_depth + glue_gap,
-    )
-    .ok_or_else(|| vec!["The plug does not lie over the base board at all.".to_string()])?;
-    Ok(FitCheck { fit, pocket, plug })
+    Ok((*engagement_depth, engagement_depth + glue_gap))
+}
+
+/// Lowers an already simulated plug into an already simulated pocket of the
+/// same V-carve inlay and measures the fit.
+pub fn fit_of(
+    project: &Project,
+    job_id: &str,
+    pocket: &Preview,
+    plug: &Preview,
+) -> Result<Fit, Vec<String>> {
+    let (engagement, pocket_depth) = fit_settings(project, job_id)?;
+    let frame = plug.built.frame.ok_or_else(|| {
+        vec!["Internal error: the plug has no position on the base board.".to_string()]
+    })?;
+    analysis::fit(&pocket.map, &plug.map, frame, engagement, pocket_depth)
+        .ok_or_else(|| vec!["The plug does not lie over the base board at all.".to_string()])
 }
 
 fn num(v: f64) -> String {

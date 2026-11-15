@@ -1,163 +1,248 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { FitCheck, Job, Part, PocketPreview } from "../core/types";
 import { fmt } from "../state/model";
-import { message, useApp, useDispatch } from "../state/store";
+import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
 
-/** Generates a job's G-code, reports what the simulation found, and offers the file. */
-export function OutputPanel({ job }: { job: Job }) {
-  const { project, output, fit } = useApp();
-  const [checking, setChecking] = useState(false);
+/** What the second part of an inlay is called: a plug for a V-carve inlay, an insert for a flat one. */
+export function partName(part: Part, job: Job): string {
+  return part === "pocket" ? "pocket" : job.inlay.type === "vcarve" ? "plug" : "insert";
+}
+
+function capital(text: string): string {
+  return text.replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
+ * Generating an inlay's files: both parts are built and simulated, and for a
+ * V-carve inlay the plug is then fitted into the pocket.
+ */
+export function useOutput(job: Job) {
+  const { project, output } = useApp();
   const dispatch = useDispatch();
-  const [busy, setBusy] = useState<Part | null>(null);
+  // What is being worked on right now, in words, or null when idle.
+  const [busy, setBusy] = useState<string | null>(null);
 
   const mine = output?.jobId === job.id ? output : null;
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
+  // What has to be chosen before anything can be made.
+  const missing =
+    job.regionIds.length === 0
+      ? "Click shapes in the drawing to add them to this inlay first."
+      : job.inlay.type === "vcarve" && job.inlay.vbitToolId === null
+        ? "Choose a V-bit first, under Wood and tools."
+        : job.inlay.type === "flat" && job.inlay.clearingToolIds.length === 0
+          ? "Choose an end mill first, under Wood and tools."
+          : null;
 
-  const generate = async (part: Part) => {
-    setBusy(part);
+  const generate = async () => {
+    const out: Output = { jobId: job.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
+    const publish = () => dispatch({ type: "setOutput", output: { ...out, parts: { ...out.parts }, errors: [...out.errors] } });
+    const vcarve = job.inlay.type === "vcarve";
+    const steps = vcarve ? 3 : 2;
     try {
-      const preview = await core.call("previewPart", project, job.id, part);
-      dispatch({ type: "setOutput", output: { jobId: job.id, part, project, preview, errors: [] } });
-    } catch (e) {
-      dispatch({ type: "setOutput", output: { jobId: job.id, part, project, preview: null, errors: message(e).split("\n") } });
+      for (const [i, part] of (["pocket", "plug"] as Part[]).entries()) {
+        setBusy(`Working out the ${partName(part, job)} (step ${i + 1} of ${steps})…`);
+        try {
+          out.parts[part] = await core.call("previewPart", project, job.id, part);
+        } catch (e) {
+          for (const line of message(e).split("\n")) if (!out.errors.includes(line)) out.errors.push(line);
+        }
+        publish();
+      }
+      if (vcarve && out.parts.pocket && out.parts.plug) {
+        setBusy(`Fitting the plug into the pocket (step 3 of 3)…`);
+        try {
+          out.fit = await core.call("checkFit", project, job.id);
+        } catch (e) {
+          out.fitErrors = message(e).split("\n");
+        }
+        publish();
+      }
+      const stage: Stage = out.fit ? "fit" : out.parts.pocket ? "pocket" : out.parts.plug ? "plug" : "drawing";
+      dispatch({ type: "setStage", stage });
     } finally {
       setBusy(null);
     }
   };
-  const vcarve = job.inlay.type === "vcarve";
-  const myFit = fit?.jobId === job.id ? fit : null;
-  const checkFit = async () => {
-    setChecking(true);
-    try {
-      const check = await core.call("checkFit", project, job.id);
-      dispatch({ type: "setFit", fit: { jobId: job.id, project, check, errors: [] } });
-    } catch (e) {
-      dispatch({ type: "setFit", fit: { jobId: job.id, project, check: null, errors: message(e).split("\n") } });
-    } finally {
-      setChecking(false);
-    }
-  };
-  // The second part is a plug for a V-carve inlay and an insert for a flat one.
-  const nameOf = (part: Part) => (part === "pocket" ? "pocket" : vcarve ? "plug" : "insert");
-  const button = (part: Part) => (
-    <button className={part === "pocket" || mine?.part === part ? "primary" : undefined} disabled={busy !== null} onClick={() => generate(part)}>
-      {busy === part ? "Generating…" : mine?.part === part ? `Generate ${nameOf(part)} again` : `Generate ${nameOf(part)}`}
-    </button>
-  );
 
-  const preview = mine?.preview ?? null;
+  return { mine, stale, busy, missing, generate };
+}
+
+type OutputState = ReturnType<typeof useOutput>;
+
+/** The bar at the foot of the panel: the one button that makes the files, and where things stand. */
+export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
+  const { mine, stale, busy, missing, generate } = state;
+  const second = partName("plug", job);
+  const status = busy
+    ? busy
+    : missing
+      ? missing
+      : !mine
+      ? `Makes the pocket file and the ${second} file${job.inlay.type === "vcarve" ? ", and checks how they fit" : ""}.`
+      : stale
+        ? "Settings have changed since the files were made."
+        : mine.errors.length > 0
+          ? "Not everything could be made. See why above."
+          : "The files match the current settings.";
   return (
-    <div className="output">
-      <h3>Output</h3>
-      <p className="hint">
-        {vcarve
-          ? "Each part is its own file, cut from its own board. Pocket: the end mill clears the flat floor, then the V-bit cuts the walls and corners. Plug: the same, mirrored, around the shapes."
-          : "Each part is its own file, cut from its own board. Pocket: cleared flat to the pocket depth. Insert: the same shapes, smaller by the allowance, cut right out of the insert board the same way up."}
+    <div className="generate-bar">
+      <button className="primary" disabled={busy !== null || missing !== null} onClick={generate}>
+        {busy ? "Working…" : mine ? "Generate again" : "Generate files"}
+      </button>
+      <p className={`bar-status${!busy && (missing || (mine && stale)) ? " warn" : ""}`} role="status">
+        {status}
       </p>
-      <div className="row">
-        {button("pocket")}
-        {button("plug")}
-      </div>
+    </div>
+  );
+}
 
-      {mine && stale && <p className="hint warn">The inlay or project has changed since this was generated.</p>}
+/** What was generated: each file with its checks, and how the two parts fit. */
+export function Results({ job, state }: { job: Job; state: OutputState }) {
+  const { stage } = useApp();
+  const dispatch = useDispatch();
+  const { mine, stale, busy } = state;
+  const top = useRef<HTMLDivElement>(null);
+  // Bring fresh results into view: they appear below everything else in the panel.
+  const finished = mine !== null && busy === null;
+  const made = mine?.project;
+  useEffect(() => {
+    if (finished) top.current?.scrollIntoView({ block: "start" });
+  }, [finished, made]);
+  if (!mine) return null;
+  const show = (to: Stage) => dispatch({ type: "setStage", stage: to });
+  const flatFit = mine.parts.pocket?.built.flatFit ?? mine.parts.plug?.built.flatFit ?? null;
 
-      {mine && mine.errors.length > 0 && (
-        <ul className="problems" role="alert">
-          {mine.errors.map((error) => (
-            <li key={error}>{error}</li>
-          ))}
-        </ul>
+  return (
+    <div className="results" ref={top}>
+      <h3>Files</h3>
+      {stale && (
+        <p className="callout warn">Settings have changed since these were made. Generate again before downloading.</p>
       )}
-
-      {preview && (
-        <>
-          <h4>{nameOf(preview.built.part).replace(/^./, (c) => c.toUpperCase())}</h4>
-          <dl className="stats">
-            <dt>{preview.built.part === "pocket" ? "Base board" : vcarve ? "Plug blank" : "Insert board"}</dt>
-            <dd>
-              {fmt(Math.round(preview.built.stock.width * 100) / 100)} × {fmt(Math.round(preview.built.stock.height * 100) / 100)} mm,{" "}
-              {fmt(preview.built.stock.thickness)} mm thick, work origin at its bottom-left corner
-            </dd>
-            <dt>{preview.built.stats.perTool.length === 1 ? "Tool" : "Tools, in order"}</dt>
-            <dd>
-              {preview.built.stats.perTool.length === 1 ? (
-                `T${preview.built.stats.perTool[0].number} ${preview.built.stats.perTool[0].name}`
-              ) : (
-                <ol className="tool-times">
-                  {preview.built.stats.perTool.map((t) => (
-                    <li key={t.number}>
-                      T{t.number} {t.name}: {formatMinutes(t.minutes)}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </dd>
-            <dt>Cutting time</dt>
-            <dd>
-              about {formatMinutes(preview.built.stats.minutes)}, plus{" "}
-              {preview.built.stats.perTool.length === 1 ? "loading the tool" : `${preview.built.stats.perTool.length} tool changes`}
-            </dd>
-            <dt>Cutting length</dt>
-            <dd>{fmt(Math.round(preview.built.stats.cuttingLength) / 1000)} m</dd>
-            <dt>File</dt>
-            <dd>
-              {preview.built.fileName}, {preview.built.stats.lines} lines
-            </dd>
-          </dl>
-
-          {preview.built.flatFit && <FlatFitNumbers fit={preview.built.flatFit} />}
-
-          {preview.problems.length > 0 ? (
-            <>
-              <p className="form-error">The simulation found problems. Do not run this file.</p>
-              <ul className="problems" role="alert">
-                {preview.problems.map((p) => (
-                  <li key={`${p.line}${p.message}`}>
-                    Line {p.line}: {p.message}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="ok">The simulation found no problems: no rapid touches the stock and the depth suits the tool and board.</p>
-          )}
-
-          {preview.built.warnings.length > 0 && (
-            <ul className="notes">
-              {preview.built.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          )}
-
-          <button disabled={stale} onClick={() => downloadText(preview.built.fileName, preview.built.gcode, "text/plain")}>
-            Download {preview.built.fileName}
-          </button>
-          {stale && <p className="hint">Generate again to download a file that matches the current settings.</p>}
-        </>
+      {mine.errors.length > 0 && (
+        <div className="callout error" role="alert">
+          <p>{Object.keys(mine.parts).length === 0 ? "The files could not be made:" : "One file could not be made:"}</p>
+          <ul>
+            {mine.errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
+        </div>
       )}
-      {vcarve && (
-        <div className="fit-report">
-          <h3>Fit</h3>
-          <p className="hint">Simulates both files, turns the plug over and lowers it into the pocket.</p>
-          <button disabled={checking || busy !== null} onClick={checkFit}>
-            {checking ? "Checking…" : myFit ? "Check fit again" : "Check fit"}
-          </button>
-          {myFit && myFit.project !== project && <p className="hint warn">The inlay or project has changed since the fit was checked.</p>}
-          {myFit && myFit.errors.length > 0 && (
+      {(["pocket", "plug"] as Part[]).map((part) => {
+        const preview = mine.parts[part];
+        return preview ? (
+          <PartCard key={part} name={partName(part, job)} job={job} preview={preview} stale={stale} shown={stage === part} onShow={() => show(part)} />
+        ) : null;
+      })}
+
+      {job.inlay.type === "vcarve" && (mine.fit || mine.fitErrors.length > 0) && (
+        <section className="card">
+          <header className="card-head">
+            <h4>Fit</h4>
+            {mine.fit && (
+              <button className="small" aria-pressed={stage === "fit"} onClick={() => show("fit")}>
+                Show fit
+              </button>
+            )}
+          </header>
+          {mine.fitErrors.length > 0 && (
             <ul className="problems" role="alert">
-              {myFit.errors.map((error) => (
+              {mine.fitErrors.map((error) => (
                 <li key={error}>{error}</li>
               ))}
             </ul>
           )}
-          {myFit?.check && <FitNumbers check={myFit.check} />}
-        </div>
+          {mine.fit && <FitNumbers check={mine.fit} />}
+        </section>
+      )}
+      {flatFit && (
+        <section className="card">
+          <header className="card-head">
+            <h4>Fit</h4>
+          </header>
+          <FlatFitNumbers fit={flatFit} />
+        </section>
       )}
     </div>
+  );
+}
+
+function PartCard(props: { name: string; job: Job; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
+  const { preview, name } = props;
+  const { built } = preview;
+  const tools = built.stats.perTool;
+  const board = built.part === "pocket" ? "Base board" : props.job.inlay.type === "vcarve" ? "Plug blank" : "Insert board";
+  return (
+    <section className="card">
+      <header className="card-head">
+        <h4>{capital(name)}</h4>
+        <button className="small" aria-pressed={props.shown} onClick={props.onShow}>
+          Show in 3D
+        </button>
+      </header>
+
+      {preview.problems.length > 0 ? (
+        <div className="callout error" role="alert">
+          <p>The simulation found problems. Do not run this file.</p>
+          <ul>
+            {preview.problems.map((p) => (
+              <li key={`${p.line}${p.message}`}>
+                Line {p.line}: {p.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="ok">Simulated without problems.</p>
+      )}
+
+      <dl className="stats">
+        <dt>{board}</dt>
+        <dd>
+          {mm(built.stock.width)} × {mm(built.stock.height)} × {fmt(built.stock.thickness)} mm
+        </dd>
+        <dt>Time</dt>
+        <dd>
+          about {formatMinutes(built.stats.minutes)}, plus {tools.length === 1 ? "loading the tool" : `${tools.length} tool changes`}
+        </dd>
+        <dt>{tools.length === 1 ? "Tool" : "Tools"}</dt>
+        <dd>
+          <ol className="tool-times">
+            {tools.map((t) => (
+              <li key={t.number}>
+                T{t.number} {t.name}
+                {tools.length > 1 && <span className="muted">, {formatMinutes(t.minutes)}</span>}
+              </li>
+            ))}
+          </ol>
+        </dd>
+      </dl>
+
+      {built.warnings.length > 0 && (
+        <details className="more" open>
+          <summary>
+            {built.warnings.length} thing{built.warnings.length === 1 ? "" : "s"} to know before cutting
+          </summary>
+          <ul className="notes">
+            {built.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <button className="download" disabled={props.stale} onClick={() => downloadText(built.fileName, built.gcode, "text/plain")}>
+        Download {name} file
+      </button>
+      <p className="hint file-name">
+        {built.fileName}, {built.stats.lines} lines, {fmt(Math.round(built.stats.cuttingLength) / 1000)} m of cutting. The work origin is the
+        board's bottom-left corner, on its top face.
+      </p>
+    </section>
   );
 }
 
@@ -174,9 +259,19 @@ function FitNumbers({ check }: { check: FitCheck }) {
       : r.proud > 0
         ? `${mm(r.proud)} mm higher than designed`
         : `${mm(-r.proud)} mm lower than designed`;
+  // A gap under a tenth of a millimetre is a hairline that glue and sanding dust fill.
+  const seated = Math.abs(r.proud) < 0.03 && r.pressOverlap < 0.05 && check.problems === 0;
+  const good = seated && r.voidWidth < 0.1;
+  const verdict = !seated
+    ? "The plug does not seat as designed. Check the numbers below."
+    : r.voidArea < 0.005
+      ? "The plug seats as designed, with no visible gaps."
+      : good
+        ? "The plug seats as designed. Gaps in the face are hairlines at most."
+        : "The plug seats, but the finished face will show gaps.";
   return (
     <>
-      {check.problems > 0 && <p className="form-error">The simulation found problems in the files. Generate each part to see them.</p>}
+      <p className={good ? "ok" : "warn"}>{verdict}</p>
       <dl className="stats">
         <dt>Plug rests</dt>
         <dd>
@@ -209,27 +304,24 @@ function FitNumbers({ check }: { check: FitCheck }) {
 function FlatFitNumbers({ fit }: { fit: NonNullable<PocketPreview["built"]["flatFit"]> }) {
   const even = Math.abs(fit.gapMax - fit.gapMin) < 0.02;
   return (
-    <>
-      <h4>Fit of insert in pocket</h4>
-      <dl className="stats">
-        <dt>Gap at the wall</dt>
-        <dd>
-          {fit.interferenceArea > 0.01
-            ? `the insert overlaps the base board by ${mm(fit.interferenceArea)} mm²`
-            : even
-              ? `${mm(fit.gapMin)} mm all round`
-              : `${mm(fit.gapMin)} to ${mm(fit.gapMax)} mm`}
-        </dd>
-        <dt>Insert stands</dt>
-        <dd>{fit.proud < 0.005 ? "flush with the surface" : `${mm(fit.proud)} mm above the surface`}</dd>
-        <dt>Against the drawing</dt>
-        <dd>
-          {fit.removedArea + fit.addedArea < 0.05
-            ? "as drawn"
-            : `${mm(fit.removedArea)} mm² left out, ${mm(fit.addedArea)} mm² added, where the tool cannot follow`}
-        </dd>
-      </dl>
-    </>
+    <dl className="stats">
+      <dt>Gap at the wall</dt>
+      <dd>
+        {fit.interferenceArea > 0.01
+          ? `the insert overlaps the base board by ${mm(fit.interferenceArea)} mm²`
+          : even
+            ? `${mm(fit.gapMin)} mm all round`
+            : `${mm(fit.gapMin)} to ${mm(fit.gapMax)} mm`}
+      </dd>
+      <dt>Insert stands</dt>
+      <dd>{fit.proud < 0.005 ? "flush with the surface" : `${mm(fit.proud)} mm above the surface`}</dd>
+      <dt>Against the drawing</dt>
+      <dd>
+        {fit.removedArea + fit.addedArea < 0.05
+          ? "as drawn"
+          : `${mm(fit.removedArea)} mm² left out, ${mm(fit.addedArea)} mm² added, where the tool cannot follow. The outline that is cut is dashed on the drawing.`}
+      </dd>
+    </dl>
   );
 }
 

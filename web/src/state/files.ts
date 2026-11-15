@@ -22,7 +22,7 @@ export function useFileActions() {
     dispatch({ type: "setView", view: "design" });
     if (design.regions.length === 0) {
       dispatch({ type: "setImportReport", report });
-      throw new Error(`No filled shapes were found in ${file.name}.`);
+      throw new Error(`No closed shapes were found in ${file.name}. An inlay needs filled shapes or closed outlines.`);
     }
     const hadJobs = project.jobs.length > 0;
     // A new drawing has new shapes, so inlays made from the old one cannot be kept.

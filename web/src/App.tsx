@@ -1,12 +1,13 @@
 import { useEffect, useState, type DragEvent } from "react";
 import { DesignCanvas } from "./components/DesignCanvas";
-import { DesignPanel, useImportSvg } from "./components/DesignPanel";
+import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
+import { StartGuide } from "./components/StartGuide";
 import { ToolsView } from "./components/ToolsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
-import { AppProvider, useApp, useDispatch } from "./state/store";
+import { AppProvider, useApp, useDispatch, type Stage } from "./state/store";
 
 export function App() {
   return (
@@ -53,57 +54,45 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, fit, activeJobId } = useApp();
-  const importSvg = useImportSvg();
-  const preview = output !== null && output.jobId === activeJobId ? output.preview : null;
-  const check = fit !== null && fit.jobId === activeJobId ? fit.check : null;
-  const [mode, setMode] = useState<"drawing" | "preview" | "fit">("drawing");
+  const { project, output, stage, activeJobId } = useApp();
+  const dispatch = useDispatch();
+  if (!project.design) return <StartGuide />;
 
-  // A fresh result is what the user asked to see.
-  useEffect(() => {
-    setMode(preview ? "preview" : "drawing");
-  }, [preview]);
-  useEffect(() => {
-    if (check) setMode("fit");
-    else setMode((m) => (m === "fit" ? "drawing" : m));
-  }, [check]);
+  const job = project.jobs.find((j) => j.id === activeJobId);
+  const mine = job && output !== null && output.jobId === job.id ? output : null;
+  const pocket = mine?.parts.pocket ?? null;
+  const plug = mine?.parts.plug ?? null;
+  const fit = mine?.fit ?? null;
+  // Fall back to the drawing when what was asked for is not there (any more).
+  const shown: Stage = (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) ? stage : "drawing";
+  const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
+  const marks = pocket ?? plug;
+  const tab = (to: Stage, label: string) => (
+    <button aria-pressed={shown === to} onClick={() => dispatch({ type: "setStage", stage: to })}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="design-view">
       <main className="stage">
-        {(preview || check) && (
-          <nav className="tabs stage-tabs" aria-label="Stage">
-            <button aria-pressed={mode === "drawing"} onClick={() => setMode("drawing")}>
-              Drawing
-            </button>
-            {preview && (
-              <button aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>
-                3D preview
-              </button>
-            )}
-            {check && (
-              <button aria-pressed={mode === "fit"} onClick={() => setMode("fit")}>
-                Fit
-              </button>
-            )}
+        {job && mine && (pocket || plug) && (
+          <nav className="tabs stage-tabs" aria-label="What to look at">
+            {tab("drawing", "Drawing")}
+            {pocket && tab("pocket", "Pocket in 3D")}
+            {plug && tab("plug", `${job.inlay.type === "vcarve" ? "Plug" : "Insert"} in 3D`)}
+            {fit && tab("fit", "Fit")}
           </nav>
         )}
-        {check && mode === "fit" ? (
-          <FitView fit={check} />
-        ) : preview && mode === "preview" ? (
-          <Viewer3D preview={preview} thickness={preview.built.stock.thickness} />
-        ) : project.design ? (
-          <DesignCanvas design={project.design} narrow={preview?.built.narrow ?? []} cuttable={preview?.built.cuttable ?? []} />
+        {shown === "fit" && fit ? (
+          <FitView fit={fit} />
+        ) : preview ? (
+          <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} />
         ) : (
-          <div className="empty">
-            <p>No design yet.</p>
-            <button className="primary" onClick={importSvg}>
-              Import SVG…
-            </button>
-          </div>
+          <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
         )}
       </main>
-      <DesignPanel />
+      <DesignPanel design={project.design} />
     </div>
   );
 }

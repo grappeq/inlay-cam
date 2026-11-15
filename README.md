@@ -3,8 +3,8 @@
 A web app that generates CNC toolpaths for wooden inlays (V-carve and flat pocket),
 writes G-code for the Carvera Community Firmware, and simulates the result.
 
-Status: milestone 7 (several clearing tools). Both inlay types generate and preview both
-of their parts, with one or several end mills used in order. V-carve inlays have a simulated fit check; flat inlays a 2D one. See
+Status: milestone 8 (review of the screens). One button generates both parts of an
+inlay, with one or several end mills used in order, and checks how they fit. V-carve inlays have a simulated fit check; flat inlays a 2D one. See
 [docs/requirements.md](docs/requirements.md), [docs/plan.md](docs/plan.md) and
 [docs/formats.md](docs/formats.md).
 

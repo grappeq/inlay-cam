@@ -8,6 +8,8 @@ import * as db from "../storage/db";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "tools";
+/** What the large area beside the panel shows. */
+export type Stage = "drawing" | "pocket" | "plug" | "fit";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -26,27 +28,21 @@ export interface AppState {
   saveError: string | null;
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
-  /** The last fit check. Not saved either. */
-  fit: FitOutput | null;
+  stage: Stage;
 }
 
-export interface FitOutput {
-  jobId: string;
-  /** The project exactly as it was when the fit was checked. */
-  project: Project;
-  check: FitCheck | null;
-  errors: string[];
-}
-
+/** Everything generated for one inlay in one go: both files and their fit. */
 export interface Output {
   jobId: string;
-  part: Part;
   /** The project exactly as it was when this was generated, to tell when it is out of date. */
   project: Project;
-  /** Set when generation succeeded. */
-  preview: PocketPreview | null;
-  /** Reasons generation failed. */
+  /** The parts that could be built. */
+  parts: Partial<Record<Part, PocketPreview>>;
+  /** Reasons a part could not be built. */
   errors: string[];
+  /** V-carve inlays: how the simulated plug sits in the simulated pocket. */
+  fit: FitCheck | null;
+  fitErrors: string[];
 }
 
 export type Action =
@@ -64,7 +60,7 @@ export type Action =
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
   | { type: "setOutput"; output: Output | null }
-  | { type: "setFit"; fit: FitOutput | null };
+  | { type: "setStage"; stage: Stage };
 
 const initial: AppState = {
   ready: false,
@@ -78,7 +74,7 @@ const initial: AppState = {
   notice: null,
   saveError: null,
   output: null,
-  fit: null,
+  stage: "drawing",
 };
 
 /** Keeps the project's tool copies in step with its jobs and the tool list. */
@@ -100,7 +96,7 @@ function reducer(state: AppState, action: Action): AppState {
         activeJobId: null,
         importReport: action.importReport ?? null,
         output: null,
-        fit: null,
+        stage: "drawing",
         view: "design",
       });
     case "updateProject":
@@ -121,7 +117,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "setSelection":
       return { ...state, selection: action.ids };
     case "setActiveJob":
-      return { ...state, activeJobId: action.id, selection: [] };
+      return { ...state, activeJobId: action.id, selection: [], stage: "drawing" };
     case "setImportReport":
       return { ...state, importReport: action.report };
     case "notice":
@@ -130,8 +126,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, saveError: action.error };
     case "setOutput":
       return { ...state, output: action.output };
-    case "setFit":
-      return { ...state, fit: action.fit };
+    case "setStage":
+      return { ...state, stage: action.stage };
   }
 }
 
@@ -147,7 +143,7 @@ function clickRegion(state: AppState, id: number): AppState {
     return reducer(state, { type: "updateJob", id: active.id, update: (job) => ({ ...job, regionIds }) });
   }
   // A shape that already has an inlay opens that inlay.
-  if (owner) return { ...state, activeJobId: owner.id, selection: [] };
+  if (owner) return { ...state, activeJobId: owner.id, selection: [], stage: "drawing" };
   const selection = state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id];
   return { ...state, selection };
 }

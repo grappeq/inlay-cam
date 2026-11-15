@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 // Saving text to a file and reading a file the user picks.
 
 export function downloadText(fileName: string, text: string, mime = "application/json"): void {
@@ -35,4 +36,15 @@ export function pickTextFile(accept: string): Promise<{ name: string; text: stri
 export function fileStem(name: string): string {
   const stem = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ");
   return stem === "" ? "untitled" : stem;
+}
+
+/** Calls `onEscape` when the Escape key is pressed, for as long as the component is shown. */
+export function useEscape(onEscape: () => void): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onEscape();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onEscape]);
 }

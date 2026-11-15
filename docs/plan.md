@@ -390,6 +390,37 @@ Results (2026-11-15): built and checked in simulation; not cut on the machine.
 - Done when: the coaster can be taken from SVG to both files and a fit check without
   reading documentation, and you agree with the list of changes before they are made.
 
+Results (2026-11-15): done on the developer's own judgement, at the user's request,
+without the list being agreed first; checked in the browser on the coaster and the
+sample drawing. No feature was removed.
+- Found on the walk-through: nothing said what to do first or that tools were needed;
+  the header's four file buttons were hard to tell apart; settings, output and results
+  were one long scroll with the generate buttons below the fold; each part and the fit
+  check had its own button and replaced the others' results; a hint under every field;
+  a missing tool only showed up as an error after generating.
+- Start screen for a project without a drawing: the four steps from tools to files,
+  with the tool list's state, the import button and a sample drawing to try.
+- One button, "Generate files", makes the pocket, the plug or insert and (V-carve) the
+  fit check together. Each simulated part is kept in the core, so the fit check no
+  longer simulates them again: about 14 s for the coaster where it was 17 s for the fit
+  check alone. Results stay side by side: a card per file with its checks, time per
+  tool, things to know and download, and a card for the fit with a one-line verdict.
+- The button sits in a bar at the foot of the panel with the current state: what is
+  still to choose, which step is running, whether the files match the settings.
+- An inlay opens as its own panel, grouped as depths and fit, wood and tools, and the
+  plug blank or insert board (folded away). A cross-section drawn from the current
+  numbers replaces most of the hints.
+- A new inlay takes the V-bit or end mill by itself when the tool list has only one.
+- The drawing area's tabs are Drawing, Pocket in 3D, Plug or Insert in 3D, and Fit.
+- Header: views first; "New project", "Projects…", "Open file…", "Save to file".
+- Look: cool greys with one blue for what can be acted on, so the wood colours of the
+  board and plug are the only warm things on screen; IBM Plex Sans, bundled with the
+  app so it still works offline.
+- Also: dialogs close on Escape; replacing a drawing that has inlays asks first; the
+  fit verdict treats gaps under 0.1 mm as hairlines.
+- Not done: no walk-through with a second person; dark colours are defined but were
+  not looked at; the tool editor dialog is unchanged.
+
 **M9. Finish**
 - Wider set of SVG test files (exports from Fusion, Inkscape, Illustrator and others;
   open paths, overlaps, transforms, units).
