@@ -44,7 +44,7 @@ fn comment_text(text: &str) -> String {
 /// The header line that describes one tool, in the layout of the Fusion 360 post
 /// for the Carvera:
 ///
-/// `(T<number>  <name>  D=<diameter> CR=0 SD=<shank> [TD=<tip flat>] [FL=<flutes>]
+/// `(T<number>  <name>  D=<diameter> CR=<corner radius> SD=<shank> [TD=<tip>] [FL=<flutes>]
 /// [TAPER=<half angle>deg] - <tool type>)`
 ///
 /// The community controller only recognises the line with two spaces on either
@@ -53,15 +53,21 @@ fn comment_text(text: &str) -> String {
 fn tool_comment(t: &ProgramTool) -> String {
     let tool = &t.tool;
     let mut fields = format!(
-        "D={} CR=0 SD={}",
+        "D={} CR={} SD={}",
         number(tool.diameter),
+        number(match tool.kind {
+            ToolKind::CornerRound => tool.corner_radius.unwrap_or(0.0),
+            _ => 0.0,
+        }),
         number(tool.shank_diameter)
     );
+    // Fusion's own names. "radius mill" is what it calls a corner-rounding bit.
     let type_name = match tool.kind {
         ToolKind::FlatEnd => "flat end mill",
         ToolKind::VBit => "chamfer mill",
+        ToolKind::CornerRound => "radius mill",
     };
-    if tool.kind == ToolKind::VBit {
+    if tool.kind != ToolKind::FlatEnd {
         write!(fields, " TD={}", number(tool.tip_diameter.unwrap_or(0.0))).unwrap();
     }
     if let Some(flutes) = tool.flute_length {

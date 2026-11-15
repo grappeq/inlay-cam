@@ -102,6 +102,16 @@ At the user's request; how they were built is in the plan.
 - The colour of each inlay's wood, and of the stock's, can be chosen. It is used in the
   drawing, the 3D view and the fit view.
 
+Second round, the same day:
+
+- The chamfer operation also takes corner-rounding (fillet) bits, as a third kind of tool.
+- Facing and pockets have a choice of path: straight passes side to side, or rings that
+  follow the outline. Facing goes side to side unless told otherwise.
+- Lists are put in order by dragging: the inlays and operations, and an inlay's end mills.
+- Each kind of inlay and operation has a symbol.
+- Arranging the drawing no longer fills the side panel with fields: its tools are in a
+  toolbar above the drawing, where arranging is also switched on and drawings are added.
+
 ## Out of scope for v1 (future)
 
 - A curated list of default tools that can be loaded into the app's tool list: common end

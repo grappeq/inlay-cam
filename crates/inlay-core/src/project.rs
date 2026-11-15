@@ -383,6 +383,9 @@ pub enum Inlay {
     #[serde(rename_all = "camelCase")]
     Pocket {
         depth: f64,
+        /// The shape of the tool's path. Rings by default.
+        #[serde(default)]
+        pattern: Pattern,
         /// Flat end mills, in the order they are used. Each cuts only what
         /// those before it left.
         #[serde(default)]
@@ -403,6 +406,9 @@ pub enum Inlay {
         /// How far beyond the rectangle around the chosen shapes the area reaches, mm.
         #[serde(default)]
         margin: f64,
+        /// The shape of the tool's path. Side to side by default.
+        #[serde(default = "Pattern::raster")]
+        pattern: Pattern,
         #[serde(default)]
         tool_id: Option<String>,
     },
@@ -422,17 +428,37 @@ pub enum Inlay {
         tool_id: Option<String>,
     },
     /// A plain operation: the top edge along the outlines of the shapes is
-    /// bevelled with a V-bit.
+    /// bevelled with a V-bit, or rounded over with a corner-rounding bit.
     #[serde(rename_all = "camelCase")]
     Chamfer {
         /// Where the wood has been cut away: outside the shapes or inside.
         #[serde(default)]
         side: Side,
-        /// Width of the bevel, seen from above, mm.
+        /// Width of the bevel, seen from above, mm. A corner-rounding bit
+        /// cuts its own radius, whatever this says.
         width: f64,
-        #[serde(default)]
-        vbit_tool_id: Option<String>,
+        /// The V-bit or corner-rounding bit. Files written when a chamfer
+        /// took a V-bit only give it as `vbitToolId`.
+        #[serde(default, alias = "vbitToolId")]
+        tool_id: Option<String>,
     },
+}
+
+/// The shape of the path a tool clears an area along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Pattern {
+    /// Rings that follow the outline of the area, from the middle outwards.
+    #[default]
+    Offset,
+    /// Straight passes side to side.
+    Raster,
+}
+
+impl Pattern {
+    fn raster() -> Self {
+        Pattern::Raster
+    }
 }
 
 /// Which side of the shapes' outlines a tool runs on.
@@ -538,12 +564,9 @@ impl Inlay {
             | Inlay::Pocket {
                 clearing_tool_ids, ..
             } => clearing_tool_ids.iter().map(String::as_str).collect(),
-            Inlay::Facing { tool_id, .. } | Inlay::Contour { tool_id, .. } => {
-                tool_id.iter().map(String::as_str).collect()
-            }
-            Inlay::Chamfer { vbit_tool_id, .. } => {
-                vbit_tool_id.iter().map(String::as_str).collect()
-            }
+            Inlay::Facing { tool_id, .. }
+            | Inlay::Contour { tool_id, .. }
+            | Inlay::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
         }
     }
 
@@ -904,6 +927,7 @@ mod tests {
         op(
             "pocket",
             Inlay::Pocket {
+                pattern: Pattern::Offset,
                 depth: 2.0,
                 clearing_tool_ids: vec!["t-endmill".into()],
             },
@@ -911,6 +935,7 @@ mod tests {
         op(
             "facing",
             Inlay::Facing {
+                pattern: Pattern::Raster,
                 above: 6.0,
                 depth: 0.0,
                 margin: 9.0,
@@ -931,7 +956,7 @@ mod tests {
             Inlay::Chamfer {
                 side: Side::Outside,
                 width: 1.0,
-                vbit_tool_id: Some("t-vbit".into()),
+                tool_id: Some("t-vbit".into()),
             },
         );
         let text = project_to_file_json(&p);
@@ -942,12 +967,40 @@ mod tests {
         assert_eq!(read.jobs[5].tool_ids(), vec!["t-vbit"]);
         assert!(!read.jobs[2].inlay.is_inlay() && read.jobs[0].inlay.is_inlay());
 
+        // A facing without a pattern goes side to side, a pocket in rings, and
+        // a chamfer's tool may still be called its V-bit.
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for job in value["project"]["jobs"].as_array_mut().unwrap() {
+            let inlay = job["inlay"].as_object_mut().unwrap();
+            inlay.remove("pattern");
+            if inlay["type"] == "chamfer" {
+                let id = inlay.remove("toolId").unwrap();
+                inlay.insert("vbitToolId".into(), id);
+            }
+        }
+        let old = project_from_file_json(&value.to_string()).unwrap();
+        assert!(matches!(
+            old.jobs[2].inlay,
+            Inlay::Pocket {
+                pattern: Pattern::Offset,
+                ..
+            }
+        ));
+        assert!(matches!(
+            old.jobs[3].inlay,
+            Inlay::Facing {
+                pattern: Pattern::Raster,
+                ..
+            }
+        ));
+        assert_eq!(old.jobs[5].tool_ids(), vec!["t-vbit"]);
+
         // A chamfer has no "on the line", and a colour is #rrggbb.
         let mut bad = p.clone();
         bad.jobs[5].inlay = Inlay::Chamfer {
             side: Side::On,
             width: 1.0,
-            vbit_tool_id: None,
+            tool_id: None,
         };
         assert!(bad.validate().unwrap_err().contains("outside or inside"));
         let mut bad = p.clone();

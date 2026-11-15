@@ -158,6 +158,123 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
     path.retract();
 }
 
+/// How far inside the first and last edge of an area the outermost straight
+/// passes run, so that they cross the area instead of grazing its edge, mm.
+const RASTER_INSET: f64 = 1e-4;
+
+/// Clears with the tool's centre kept inside `centres` in straight passes
+/// side to side, along the longer side of each area, one area at a time to
+/// full depth. With `walls`, each depth ends with a pass round the edge of
+/// the area, which straight passes alone leave scalloped where it is not
+/// straight. Returns the area the tool's edge reaches.
+pub fn raster_centres(
+    path: &mut PathBuilder,
+    centres: &[Region],
+    p: &ClearParams,
+    walls: bool,
+) -> Vec<Region> {
+    for area in centres {
+        raster_one(path, area, p, walls);
+    }
+    offset(centres, p.tool_diameter / 2.0)
+}
+
+fn raster_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams, walls: bool) {
+    let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for q in &allowed.outer {
+        for k in 0..2 {
+            low[k] = low[k].min(q[k]);
+            high[k] = high[k].max(q[k]);
+        }
+    }
+    // Passes run along `u` and step across `v`.
+    let (u, v) = if high[0] - low[0] >= high[1] - low[1] {
+        (0, 1)
+    } else {
+        (1, 0)
+    };
+    let span = (high[v] - low[v] - 2.0 * RASTER_INSET).max(0.0);
+    let steps = (span / p.stepover).ceil().max(1.0) as usize;
+    // Each row: the stretches of it that lie inside the area.
+    let mut rows: Vec<Vec<[Point; 2]>> = Vec::new();
+    for i in 0..=steps {
+        let at = if span == 0.0 {
+            (low[v] + high[v]) / 2.0
+        } else {
+            low[v] + RASTER_INSET + span * i as f64 / steps as f64
+        };
+        let mut crossings: Vec<f64> = Vec::new();
+        for ring in allowed.rings() {
+            for k in 0..ring.len() {
+                let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                if (a[v] > at) != (b[v] > at) {
+                    crossings.push(a[u] + (at - a[v]) / (b[v] - a[v]) * (b[u] - a[u]));
+                }
+            }
+        }
+        crossings.sort_by(f64::total_cmp);
+        let point = |along: f64| -> Point {
+            let mut q = [0.0; 2];
+            q[u] = along;
+            q[v] = at;
+            q
+        };
+        let mut row: Vec<[Point; 2]> = crossings
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| [point(pair[0]), point(pair[1])])
+            .collect();
+        // Back and forth: every other row runs the other way.
+        if rows.len() % 2 == 1 {
+            row.reverse();
+            for piece in &mut row {
+                piece.reverse();
+            }
+        }
+        if !row.is_empty() {
+            rows.push(row);
+        }
+        if span == 0.0 {
+            break;
+        }
+    }
+
+    // Links between passes run along the edge of the area, which counts as inside.
+    let inside = offset(std::slice::from_ref(allowed), 0.01);
+    let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
+    for pass in 1..=passes {
+        let z = -p.depth * pass as f64 / passes as f64;
+        let floor_above = -p.depth * (pass - 1) as f64 / passes as f64;
+        let reach = |path: &mut PathBuilder, first: Point| {
+            let linked = matches!(path.position(), Some(pos) if pos[2] == z
+                && distance([pos[0], pos[1]], first) <= 2.0 * p.tool_diameter
+                && stays_inside(&inside, [pos[0], pos[1]], first, p.stepover / 2.0));
+            if linked {
+                path.feed_to([first[0], first[1], z], p.feed);
+            } else {
+                path.rapid_to(first, floor_above + path.clearance());
+                path.feed_to([first[0], first[1], z], p.plunge);
+            }
+        };
+        for [from, to] in rows.iter().flatten() {
+            reach(path, *from);
+            path.feed_to([to[0], to[1], z], p.feed);
+        }
+        if walls {
+            for ring in allowed.rings() {
+                let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+                reach(path, ring[start]);
+                for i in 1..=ring.len() {
+                    let q = ring[(start + i) % ring.len()];
+                    path.feed_to([q[0], q[1], z], p.feed);
+                }
+            }
+        }
+    }
+    path.retract();
+}
+
 /// How much closer than its radius the tool's edge is taken to pass, when
 /// working out what two neighbouring rings leave standing between them, mm.
 const MISSED_OVERLAP: f64 = 0.01;
@@ -248,6 +365,54 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn side_to_side_passes_cover_the_area_and_stay_in_it() {
+        let region = Region::with_holes(
+            rect(0.0, 0.0, 40.0, 30.0),
+            vec![rect_cw(15.0, 10.0, 25.0, 20.0)],
+        );
+        let p = ClearParams {
+            depth: 1.0,
+            ..params()
+        };
+        let centres = centres(std::slice::from_ref(&region), &[], p.tool_diameter);
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(7, 12000);
+        let pocket = raster_centres(&mut path, &centres, &p, true);
+        let moves = path.finish();
+        let cuts = feeds(&moves);
+        for q in &cuts {
+            let xy = [q[0], q[1]];
+            assert!(
+                region.contains(xy) && region.distance_to_boundary(xy) > 2.0 - 0.02,
+                "tool cut into the wall at {xy:?}"
+            );
+        }
+        // Most of the cutting is straight across, along the longer side.
+        let (mut across, mut all) = (0.0, 0.0);
+        for pair in cuts.windows(2) {
+            let d = distance([pair[0][0], pair[0][1]], [pair[1][0], pair[1][1]]);
+            all += d;
+            if (pair[0][1] - pair[1][1]).abs() < 1e-9 {
+                across += d;
+            }
+        }
+        assert!(across > 0.6 * all, "{across} of {all} mm across");
+        // Nothing the tool can reach is left standing.
+        let (mut x, mut worst) = (0.05, 0.0_f64);
+        while x < 40.0 {
+            let mut y = 0.05;
+            while y < 30.0 {
+                if pocket.iter().any(|r| r.contains([x, y])) {
+                    worst = worst.max(distance_to_cuts(&moves, 1.0, [x, y]));
+                }
+                y += 0.25;
+            }
+            x += 0.25;
+        }
+        assert!(worst < 2.0 + 0.02, "{worst} mm from the nearest cut");
     }
 
     #[test]

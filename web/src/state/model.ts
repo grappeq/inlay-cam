@@ -96,13 +96,13 @@ export function defaultInlay(type: JobType): Inlay {
     case "flat":
       return { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
     case "pocket":
-      return { type, depth: 3, clearingToolIds: [] };
+      return { type, depth: 3, pattern: "offset", clearingToolIds: [] };
     case "facing":
-      return { type, above: 0, depth: 0.5, margin: 0, toolId: null };
+      return { type, above: 0, depth: 0.5, margin: 0, pattern: "raster", toolId: null };
     case "contour":
       return { type, side: "outside", depth: null, tabs: true, toolId: null };
     case "chamfer":
-      return { type, side: "outside", width: 1, vbitToolId: null };
+      return { type, side: "outside", width: 1, toolId: null };
   }
 }
 
@@ -167,9 +167,7 @@ export function jobToolIds(job: Job): string[] {
       ? [...inlay.clearingToolIds, inlay.vbitToolId]
       : inlay.type === "flat" || inlay.type === "pocket"
         ? [...inlay.clearingToolIds]
-        : inlay.type === "chamfer"
-          ? [inlay.vbitToolId]
-          : [inlay.toolId];
+        : [inlay.toolId];
   if (job.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(job.cutOutToolId);
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
@@ -193,7 +191,7 @@ export function missingFor(job: Job): string | null {
     case "vcarve":
       return inlay.vbitToolId === null ? "Choose a V-bit first, under Wood and tools." : null;
     case "chamfer":
-      return inlay.vbitToolId === null ? "Choose a V-bit first." : null;
+      return inlay.toolId === null ? "Choose a V-bit or a corner-rounding bit first." : null;
     case "flat":
       return inlay.clearingToolIds.length === 0 ? "Choose an end mill first, under Wood and tools." : null;
     case "pocket":
@@ -303,11 +301,12 @@ export function projectOnlyTools(project: Project, tools: Tool[]): Tool[] {
   return project.tools.filter((p) => !tools.some((t) => t.id === p.id));
 }
 
-/** Tools offered for a slot: the tool list plus project-only copies, of one kind, by diameter. */
-export function toolChoices(kind: ToolKind, tools: Tool[], project: Project): Tool[] {
+/** Tools offered for a slot: the tool list plus project-only copies, of one kind or of several, by kind and diameter. */
+export function toolChoices(kind: ToolKind | ToolKind[], tools: Tool[], project: Project): Tool[] {
+  const kinds = Array.isArray(kind) ? kind : [kind];
   return [...tools, ...projectOnlyTools(project, tools)]
-    .filter((t) => t.kind === kind)
-    .sort((a, b) => a.diameter - b.diameter || a.name.localeCompare(b.name));
+    .filter((t) => kinds.includes(t.kind))
+    .sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind) || a.diameter - b.diameter || a.name.localeCompare(b.name));
 }
 
 /**
@@ -352,8 +351,13 @@ export function mergeTools(current: Tool[], incoming: Tool[]): MergeResult {
 export function blankTool(kind: ToolKind): Tool {
   return kind === "v_bit"
     ? { id: newId(), name: "", kind, diameter: 6, tipDiameter: 0.1, tipAngle: 60, shankDiameter: 6, cutting: [] }
-    : { id: newId(), name: "", kind, diameter: 3.175, shankDiameter: 3.175, cutting: [] };
+    : kind === "corner_round"
+      ? { id: newId(), name: "", kind, diameter: 8, tipDiameter: 2, cornerRadius: 3, shankDiameter: 6, cutting: [] }
+      : { id: newId(), name: "", kind, diameter: 3.175, shankDiameter: 3.175, cutting: [] };
 }
+
+/** What each kind of tool is called. */
+export const TOOL_KIND_LABELS: Record<ToolKind, string> = { flat_end: "Flat end mill", v_bit: "V-bit", corner_round: "Corner-rounding bit" };
 
 export const MATERIALS: { value: Material; label: string }[] = [
   { value: "hardwood", label: "Hardwood" },
@@ -365,6 +369,7 @@ export function describeTool(tool: Tool): string {
     const tip = tool.tipDiameter ? `, ${fmt(tool.tipDiameter)} mm tip` : "";
     return `${fmt(tool.tipAngle ?? 0)}° V-bit, Ø${fmt(tool.diameter)} mm${tip}`;
   }
+  if (tool.kind === "corner_round") return `Corner-rounding bit, radius ${fmt(tool.cornerRadius ?? 0)} mm, ${fmt(tool.tipDiameter ?? 0)} mm tip`;
   return `Flat end mill, Ø${fmt(tool.diameter)} mm`;
 }
 

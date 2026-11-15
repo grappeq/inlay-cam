@@ -1,6 +1,7 @@
 //! Limited import of a `cnc-tooling-library` `tools.yaml`.
 //!
-//! Only what inlays need is read; everything else in the file is ignored.
+//! Only what the app can use is read: flat end mills, V-bits and
+//! corner-rounding bits. Everything else in the file is ignored.
 //! The fields read are listed in `docs/formats.md`.
 
 use serde::Serialize;
@@ -71,6 +72,7 @@ fn read_tool(entry: &Value, name: &str) -> Result<Tool, String> {
         kind,
         diameter,
         tip_diameter: None,
+        corner_radius: None,
         tip_angle: None,
         flute_length: known("flute_length"),
         shank_diameter: known("shank_diameter").unwrap_or(diameter),
@@ -82,11 +84,18 @@ fn read_tool(entry: &Value, name: &str) -> Result<Tool, String> {
     if kind == ToolKind::VBit {
         // The tooling library's default tip diameter is the body diameter.
         let tip = number("tip_diameter").unwrap_or(diameter);
-        if is_corner_rounding(entry, name, tip, diameter) {
-            return Err("corner-rounding cutter (not used for inlays)".into());
-        }
         tool.tip_diameter = Some(tip);
-        tool.tip_angle = number("tip_angle");
+        if is_corner_rounding(entry, name, tip, diameter) {
+            // The tooling library has no field for the radius: it is what the
+            // body is wider than the tip by, on each side.
+            if tip >= diameter {
+                return Err("corner-rounding cutter without a tip diameter".into());
+            }
+            tool.kind = ToolKind::CornerRound;
+            tool.corner_radius = Some(((diameter - tip) / 2.0 * 10_000.0).round() / 10_000.0);
+        } else {
+            tool.tip_angle = number("tip_angle");
+        }
     }
 
     if let Some(rows) = entry.get("cutting").and_then(Value::as_sequence) {
@@ -206,7 +215,7 @@ tools:
 "#;
 
     #[test]
-    fn imports_end_mills_and_v_bits_only() {
+    fn imports_end_mills_v_bits_and_corner_rounding_bits() {
         let import = import_tools_yaml(SAMPLE).unwrap();
         let names: Vec<&str> = import.tools.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
@@ -215,9 +224,19 @@ tools:
                 "Ø3.175×22 1F Downcut",
                 "Ø2×6 S4 2F",
                 "60° V-groove Ø12 S6",
-                "0.2×30° Engraver S3.175"
+                "0.2×30° Engraver S3.175",
+                "R1 Corner Round Ø4",
+                "Odd cutter"
             ]
         );
+        // A corner-rounding bit comes as a V-bit whose name or Fusion type
+        // gives it away; its radius is what the body is wider than the tip by.
+        for bit in &import.tools[4..] {
+            assert_eq!(bit.kind, ToolKind::CornerRound);
+            assert_eq!(bit.corner_radius, Some(1.0));
+            assert_eq!(bit.tip_diameter, Some(2.0));
+            assert_eq!(bit.tip_angle, None);
+        }
         assert!(import.tools.iter().all(|t| t.id.is_empty()));
     }
 
@@ -286,14 +305,7 @@ tools:
             reason("Ø1 Ball S4 2F"),
             Some("ball nose (not used for inlays)")
         );
-        assert_eq!(
-            reason("R1 Corner Round Ø4"),
-            Some("corner-rounding cutter (not used for inlays)")
-        );
-        assert_eq!(
-            reason("Odd cutter"),
-            Some("corner-rounding cutter (not used for inlays)")
-        );
+        assert_eq!(reason("R1 Corner Round Ø4"), None);
         assert_eq!(
             reason("Ø2.7×16 Drill S4"),
             Some("drill (not used for inlays)")
@@ -304,7 +316,7 @@ tools:
         );
         // No tip diameter means "same as the body" in the tooling library: not a V-bit shape.
         assert!(reason("Blunt cone").unwrap().contains("tip diameter"));
-        assert_eq!(import.skipped.len(), 6);
+        assert_eq!(import.skipped.len(), 4);
     }
 
     #[test]

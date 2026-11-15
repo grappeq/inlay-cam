@@ -3,7 +3,7 @@
 // keep these in step with them. Lengths are mm, angles degrees, feeds mm/min.
 
 export type Material = "hardwood" | "softwood";
-export type ToolKind = "flat_end" | "v_bit";
+export type ToolKind = "flat_end" | "v_bit" | "corner_round";
 
 export interface CuttingSettings {
   material: Material;
@@ -21,8 +21,10 @@ export interface Tool {
   name: string;
   kind: ToolKind;
   diameter: number;
-  /** V-bit only: diameter of the flat at the tip. */
+  /** V-bit: diameter of the flat at the tip. Corner-rounding bit: diameter of the tip below the rounded edge. */
   tipDiameter?: number;
+  /** Corner-rounding bit only: radius of the rounded edge it cuts. */
+  cornerRadius?: number;
   /** V-bit only: included angle. */
   tipAngle?: number;
   fluteLength?: number;
@@ -91,9 +93,13 @@ export interface FlatInlay {
 export type Side = "outside" | "inside" | "on";
 
 /** The shapes cleared to a flat floor. */
+/** The shape of the path a tool clears an area along: rings that follow its outline, or straight passes side to side. */
+export type Pattern = "offset" | "raster";
+
 export interface PocketOp {
   type: "pocket";
   depth: number;
+  pattern: Pattern;
   /** End mills, in the order they are used. */
   clearingToolIds: string[];
 }
@@ -107,6 +113,7 @@ export interface FacingOp {
   depth: number;
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
   margin: number;
+  pattern: Pattern;
   toolId: string | null;
 }
 
@@ -120,14 +127,15 @@ export interface ContourOp {
   toolId: string | null;
 }
 
-/** The top edge along the outlines of the shapes bevelled with a V-bit. */
+/** The top edge along the outlines of the shapes, bevelled with a V-bit or rounded over with a corner-rounding bit. */
 export interface ChamferOp {
   type: "chamfer";
   /** Where the wood has been cut away. */
   side: "outside" | "inside";
-  /** Width of the bevel, seen from above. */
+  /** Width of the bevel, seen from above. A corner-rounding bit cuts its own radius instead. */
   width: number;
-  vbitToolId: string | null;
+  /** The V-bit or corner-rounding bit. */
+  toolId: string | null;
 }
 
 /** An inlay proper: a pocket in the stock and the plug or insert that fills it. */

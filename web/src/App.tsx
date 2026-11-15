@@ -1,4 +1,5 @@
 import { useEffect, useState, type DragEvent } from "react";
+import { ArrangeBar, StageBar } from "./components/ArrangeBar";
 import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
@@ -55,7 +56,7 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, combined, stage, activeJobId } = useApp();
+  const { project, output, combined, stage, activeJobId, arranging } = useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
@@ -102,7 +103,11 @@ function DesignView() {
         ) : preview ? (
           <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
         ) : (
-          <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
+          <>
+            <StageBar design={project.design} />
+            {arranging && <ArrangeBar design={project.design} />}
+            <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
+          </>
         )}
       </main>
       <DesignPanel design={project.design} />

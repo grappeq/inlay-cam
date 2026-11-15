@@ -83,9 +83,10 @@ Exported from the Tools view as `tools.inlay-tools.json`.
 |---|---|---|
 | `id` | yes | Unique within the list. Jobs refer to tools by it. Not shown to the user. |
 | `name` | yes | Not empty. |
-| `kind` | yes | `flat_end` or `v_bit`. |
-| `diameter` | yes | Cutting diameter. For a V-bit, the diameter at the top of the cone. Greater than 0. |
-| `tipDiameter` | V-bit, optional | Diameter of the flat at the tip. Missing or 0 means a perfect point. Must be smaller than `diameter`. |
+| `kind` | yes | `flat_end`, `v_bit` or `corner_round` (a corner-rounding, or fillet, bit). |
+| `diameter` | yes | Cutting diameter. For a V-bit, the diameter at the top of the cone; for a corner-rounding bit, that of its body. Greater than 0. |
+| `tipDiameter` | V-bit and corner-rounding bit, optional | V-bit: diameter of the flat at the tip; missing or 0 means a perfect point; must be smaller than `diameter`. Corner-rounding bit: diameter across the tip, below the rounded edge; missing means 0. |
+| `cornerRadius` | corner-rounding bit, required | Radius of the rounded edge the bit cuts. Greater than 0. `tipDiameter` plus twice this must not exceed `diameter`. |
 | `tipAngle` | V-bit, required | Included angle between the two cutting edges, between 0 and 180. |
 | `fluteLength` | no | Length of the cutting edges along the axis: the deepest the tool can cut. Missing means unknown. |
 | `shankDiameter` | yes | Greater than 0. |
@@ -240,6 +241,7 @@ in both cases, from when the app made inlays only.
 |---|---|
 | `type` | `pocket` |
 | `depth` | Greater than 0, and less than the stock's thickness. |
+| `pattern` | The shape of the tool's path. `offset` (default): rings that follow the outline, from the middle outwards. `raster`: straight passes side to side along the longer side of each area, then once round its edge at each depth. |
 | `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |
 
 `inlay` for a facing: an area milled flat.
@@ -250,6 +252,7 @@ in both cases, from when the app made inlays only.
 | `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
 | `depth` | How far below the stock's surface the area ends up. 0 or more. Default 0. `above` + `depth` must be greater than 0. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
+| `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
 | `toolId` | The flat end mill, or `null` when not chosen yet. |
 
 Without regions the area is the whole stock; with regions it is the upright rectangle
@@ -267,18 +270,27 @@ half its diameter beyond it. The tool travels `safeHeight` above the standing wo
 | `tabs` | Leave tabs across the cut, on the outer outline of each region. Default false. Their size is in the job's `setup`; in a cut that is not through they are no thicker than half its depth. |
 | `toolId` | The flat end mill, or `null` when not chosen yet. |
 
-`inlay` for a chamfer: the top edge along the outlines of the regions, bevelled with a V-bit.
+`inlay` for a chamfer: the top edge along the outlines of the regions, bevelled with a
+V-bit or rounded over with a corner-rounding bit.
 
 | Field | Meaning |
 |---|---|
 | `type` | `chamfer` |
 | `side` | `outside` (default): the wood outside the regions has been cut away, and the bit runs there. `inside`: the regions are pockets or openings, and the bit runs inside them. |
-| `width` | Width of the bevel seen from above. Greater than 0. |
-| `vbitToolId` | The V-bit, or `null` when not chosen yet. |
+| `width` | Width of the bevel seen from above. Greater than 0. Not used with a corner-rounding bit, which cuts its own radius. |
+| `toolId` | The V-bit or corner-rounding bit, or `null` when not chosen yet. Files written when a chamfer took a V-bit only have `vbitToolId` instead, which is read the same. |
 
-The bit's axis runs its tip-flat radius plus 0.2 mm from the outline, on the side named,
+A V-bit's axis runs its tip-flat radius plus 0.2 mm from the outline, on the side named,
 with the tip (`width` + 0.2) / tan(half the bit's angle) below the surface. The bevel is
 then `width` wide and the tip, which hardly cuts, is in the air beside the edge.
+
+A corner-rounding bit's axis runs half its `tipDiameter` from the outline, so that the
+side of its tip is on the outline, with the tip `cornerRadius` below the surface. The edge
+is then a quarter circle of that radius, ending level with the surface.
+
+In the G-code's header a corner-rounding bit is written as Fusion writes one: type
+`radius mill`, with `CR=` its corner radius and `TD=` its tip diameter. Whether the
+Carvera controller draws that type has not been checked.
 
 ## SVG import
 
@@ -347,7 +359,7 @@ everything else in the file is ignored.
 |---|---|---|
 | `tools[].name` | `name` | |
 | `tools[].type` | `kind` | Only `flat_end` and `v_bit` are imported. `ball_end`, `drill` and `thread_mill` are left out. |
-| `tools[].fusion.type` | (filter) | A `v_bit` with `radius mill` is a corner-rounding cutter and is left out. Without this key, a `v_bit` whose name contains "fillet", "corner round" or "radius" and whose tip is narrower than its body is left out too, as the tooling library itself decides. |
+| `tools[].fusion.type` | `kind` | A `v_bit` with `radius mill` is a corner-rounding cutter and becomes `corner_round`. Without this key, so does a `v_bit` whose name contains "fillet", "corner round" or "radius" and whose tip is narrower than its body, as the tooling library itself decides. Its `cornerRadius` is half of what `diameter` exceeds `tip_diameter` by, since the file has no field for it: check it after importing. |
 | `geometry.diameter` | `diameter` | Required. |
 | `geometry.tip_diameter` | `tipDiameter` | V-bits only. The tooling library's default (the body diameter) is not a V shape, so a V-bit without it is left out. |
 | `geometry.tip_angle` | `tipAngle` | V-bits only. Ignored on flat end mills, where the Makera apps store a meaningless 60. |

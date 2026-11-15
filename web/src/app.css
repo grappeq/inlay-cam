@@ -1406,29 +1406,6 @@ legend .check {
 .job-row .job {
   margin-bottom: 0;
 }
-.job-order {
-  display: flex;
-  gap: 2px;
-}
-.swatch.op {
-  border: 2px solid var(--accent);
-  border-radius: 3px;
-  background: none;
-  box-sizing: border-box;
-}
-.swatch.op.pocket {
-  background: var(--accent-soft);
-}
-.swatch.op.contour {
-  border-style: dashed;
-}
-.swatch.op.chamfer {
-  border-width: 2px 2px 5px 2px;
-}
-.swatch.op.facing {
-  border-width: 5px 0 0 0;
-  border-radius: 0;
-}
 .choice-group {
   margin: 12px 0 5px;
   font-size: 12px;
@@ -1463,4 +1440,190 @@ legend .check {
   border-radius: 5px;
   background: var(--surface);
   cursor: pointer;
+}
+
+/* Symbols */
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  vertical-align: middle;
+}
+.job-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+.job {
+  grid-template-columns: 20px 1fr auto;
+}
+.tag .icon {
+  color: var(--accent);
+}
+
+/* The kinds of inlay and operation to add: tiles with a symbol */
+.choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+}
+.choice .icon {
+  color: var(--accent);
+}
+.choice:disabled .icon {
+  color: inherit;
+}
+.choice strong {
+  font-size: 13px;
+}
+.choice-about {
+  min-height: 2.9em;
+}
+
+/* Lists put in order by dragging */
+.grip {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: grab;
+  border-radius: 4px;
+  touch-action: none;
+}
+.grip:hover,
+.grip:focus-visible {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.grip .icon {
+  width: 16px;
+  height: 20px;
+}
+.job-row.ordered {
+  grid-template-columns: auto auto 1fr;
+}
+[data-dragging] {
+  opacity: 0.45;
+}
+[data-drop="before"] {
+  box-shadow: 0 -3px 0 -1px var(--accent);
+}
+[data-drop="after"] {
+  box-shadow: 0 3px 0 -1px var(--accent);
+}
+.tool-order li::before {
+  order: 1;
+}
+.tool-order li .grip {
+  order: 0;
+}
+.tool-order li > :not(.grip) {
+  order: 2;
+}
+
+/* The bar above the drawing, and the arranging tools under it */
+.stage-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.stage-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.arrange-tools {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.tool-group + .tool-group {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+button.tool {
+  display: inline-flex;
+  padding: 4px 6px;
+  min-width: 0;
+}
+button.tool.danger {
+  color: var(--danger);
+}
+/* Number fields in a toolbar: the label beside the box, not above it */
+.arrange-tools .field {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.arrange-tools .field-label {
+  margin: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.arrange-tools .field-input input {
+  width: 5.2em;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.arrange-tools .check {
+  margin: 0;
+  font-size: 12px;
+}
+.tool-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+}
+.tool-number button {
+  padding: 3px 9px;
+}
+/* Which point of the selection stays put when it is resized */
+.anchor {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 9px);
+  grid-auto-rows: 9px;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.anchor button {
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--surface);
+}
+.anchor button[aria-checked="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.arrange-bar button.primary {
+  flex: 1 1 auto;
 }

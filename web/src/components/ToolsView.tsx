@@ -2,12 +2,12 @@ import { useState } from "react";
 import { core } from "../core/client";
 import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { MATERIALS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
+import { MATERIALS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText, pickTextFile, useEscape } from "../util/files";
 import { NumberField } from "./NumberField";
 
-const KIND_LABEL: Record<ToolKind, string> = { flat_end: "Flat end mill", v_bit: "V-bit" };
+const KIND_LABEL: Record<ToolKind, string> = TOOL_KIND_LABELS;
 
 /** The tool list: the first page of the settings view. */
 export function ToolsPage() {
@@ -49,6 +49,7 @@ export function ToolsPage() {
         <h2>Your tools</h2>
         <button onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>Add end mill</button>
         <button onClick={() => setEditing({ tool: blankTool("v_bit"), isNew: true })}>Add V-bit</button>
+        <button onClick={() => setEditing({ tool: blankTool("corner_round"), isNew: true })}>Add corner-rounding bit</button>
         <span className="spacer" />
         <button onClick={importYaml}>Import tools.yaml…</button>
         <button onClick={importLibrary}>Import tool file…</button>
@@ -68,14 +69,14 @@ export function ToolsPage() {
       )}
 
       <p className="muted lead">
-        A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it time. Each tool needs cutting settings for the wood
-        you cut.
+        A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it time. Pockets, contours and facing use end mills; a
+        chamfer uses a V-bit, or a corner-rounding (fillet) bit to round the edge over. Each tool needs cutting settings for the wood you cut.
       </p>
 
       {tools.length === 0 ? (
         <div className="empty-card">
           <p>No tools yet.</p>
-          <p className="muted">Add them by hand, or import the tools.yaml of your tooling library. Only end mills and V-bits are taken from it.</p>
+          <p className="muted">Add them by hand, or import the tools.yaml of your tooling library. Only end mills, V-bits and corner-rounding bits are taken from it.</p>
           <div className="row center">
             <button className="primary" onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>
               Add end mill
@@ -94,7 +95,7 @@ export function ToolsPage() {
                 <th>Name</th>
                 <th>Type</th>
                 <th className="num">Ø mm</th>
-                <th className="num">Angle</th>
+                <th className="num">Angle / radius</th>
                 <th className="num">Tip mm</th>
                 <th className="num">Flute mm</th>
                 <th>Cutting settings</th>
@@ -107,8 +108,10 @@ export function ToolsPage() {
                   <td>{tool.name}</td>
                   <td>{KIND_LABEL[tool.kind]}</td>
                   <td className="num">{fmt(tool.diameter)}</td>
-                  <td className="num">{tool.tipAngle !== undefined ? `${fmt(tool.tipAngle)}°` : ""}</td>
-                  <td className="num">{tool.kind === "v_bit" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
+                  <td className="num">
+                    {tool.kind === "corner_round" ? `R ${fmt(tool.cornerRadius ?? 0)}` : tool.tipAngle !== undefined ? `${fmt(tool.tipAngle)}°` : ""}
+                  </td>
+                  <td className="num">{tool.kind !== "flat_end" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
                   <td className="num">{tool.fluteLength !== undefined ? fmt(tool.fluteLength) : "unknown"}</td>
                   <td>{tool.cutting.length ? tool.cutting.map((c) => c.material).join(", ") : <span className="warn">none yet: edit to add</span>}</td>
                   <td className="row-actions">
@@ -144,8 +147,8 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
         rpm: 12000,
         feed: 500,
         plunge: 150,
-        // A V-bit's stepover spaces its passes over a flat floor, where only the tip cuts.
-        stepover: t.kind === "v_bit" ? 0.2 : Math.round(t.diameter * 400) / 1000,
+        // A V-bit's stepover spaces its passes over a flat floor, where only the tip cuts. A corner-rounding bit never steps over.
+        stepover: t.kind === "v_bit" ? 0.2 : t.kind === "corner_round" ? 0.5 : Math.round(t.diameter * 400) / 1000,
         stepdown: 0.5,
       };
       return { ...t, cutting: [...others, { ...current, ...change }].sort((a, b) => a.material.localeCompare(b.material)) };
@@ -187,7 +190,7 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
         </label>
         <div className="grid">
           <NumberField
-            label={tool.kind === "v_bit" ? "Body diameter" : "Diameter"}
+            label={tool.kind === "flat_end" ? "Diameter" : "Body diameter"}
             unit="mm"
             min={0.001}
             value={tool.diameter}
@@ -210,6 +213,25 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
                 value={tool.tipDiameter ?? 0}
                 onChange={(v) => v !== undefined && set({ tipDiameter: v })}
                 hint="Measure it: 0 for a true point."
+              />
+            </>
+          )}
+          {tool.kind === "corner_round" && (
+            <>
+              <NumberField
+                label="Corner radius"
+                unit="mm"
+                min={0.001}
+                value={tool.cornerRadius}
+                onChange={(v) => v !== undefined && set({ cornerRadius: v })}
+                hint="Radius of the rounded edge it cuts."
+              />
+              <NumberField
+                label="Tip diameter"
+                unit="mm"
+                value={tool.tipDiameter ?? 0}
+                onChange={(v) => v !== undefined && set({ tipDiameter: v })}
+                hint="Across the tip, below the rounded edge. The body is at least this plus twice the radius."
               />
             </>
           )}

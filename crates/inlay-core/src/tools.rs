@@ -19,6 +19,9 @@ const MIGRATIONS: &[Migration] = &[];
 pub enum ToolKind {
     FlatEnd,
     VBit,
+    /// A corner-rounding (fillet) bit: its cutting edge is a quarter circle
+    /// that rounds over the top edge it is run along.
+    CornerRound,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -53,9 +56,13 @@ pub struct Tool {
     pub kind: ToolKind,
     /// Cutting diameter. For a V-bit, the diameter at the top of the cone.
     pub diameter: f64,
-    /// V-bit only: diameter of the flat at the tip. 0 for a perfect point.
+    /// V-bit: diameter of the flat at the tip, 0 for a perfect point.
+    /// Corner-rounding bit: diameter of the tip below the rounded edge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tip_diameter: Option<f64>,
+    /// Corner-rounding bit only: radius of the rounded edge it cuts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius: Option<f64>,
     /// V-bit only: included angle between the two cutting edges.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tip_angle: Option<f64>,
@@ -110,6 +117,22 @@ impl Tool {
                 if !(tip.is_finite() && tip >= 0.0 && tip < self.diameter) {
                     return Err(
                         "tip diameter must be 0 or more and smaller than the diameter".into(),
+                    );
+                }
+            }
+            ToolKind::CornerRound => {
+                let radius = self
+                    .corner_radius
+                    .ok_or("a corner-rounding bit needs a corner radius")?;
+                positive(radius, "corner radius")?;
+                let tip = self.tip_diameter.unwrap_or(0.0);
+                if !(tip.is_finite() && tip >= 0.0) {
+                    return Err("tip diameter must be 0 or more".into());
+                }
+                if tip + 2.0 * radius > self.diameter + 1e-6 {
+                    return Err(
+                        "the diameter must be at least the tip diameter plus twice the corner radius"
+                            .into(),
                     );
                 }
             }
@@ -190,6 +213,7 @@ pub(crate) mod fixtures {
             kind: ToolKind::FlatEnd,
             diameter: 3.175,
             tip_diameter: None,
+            corner_radius: None,
             tip_angle: None,
             flute_length: Some(22.0),
             shank_diameter: 3.175,
@@ -206,6 +230,31 @@ pub(crate) mod fixtures {
         }
     }
 
+    /// A 3 mm corner-rounding bit with a 2 mm tip.
+    pub fn fillet_bit() -> Tool {
+        Tool {
+            id: "t-fillet".into(),
+            name: "R3 corner rounding".into(),
+            kind: ToolKind::CornerRound,
+            diameter: 8.0,
+            tip_diameter: Some(2.0),
+            corner_radius: Some(3.0),
+            tip_angle: None,
+            flute_length: Some(6.0),
+            shank_diameter: 6.0,
+            length: Some(40.0),
+            flutes: Some(2),
+            cutting: vec![CuttingSettings {
+                material: Material::Hardwood,
+                rpm: 12000,
+                feed: 500.0,
+                plunge: 150.0,
+                stepover: 0.5,
+                stepdown: 1.5,
+            }],
+        }
+    }
+
     pub fn v_bit() -> Tool {
         Tool {
             id: "t-vbit".into(),
@@ -213,6 +262,7 @@ pub(crate) mod fixtures {
             kind: ToolKind::VBit,
             diameter: 12.0,
             tip_diameter: Some(0.1),
+            corner_radius: None,
             tip_angle: Some(60.0),
             flute_length: Some(15.5),
             shank_diameter: 6.0,
@@ -227,6 +277,25 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
+
+    #[test]
+    fn a_corner_rounding_bit_needs_a_radius_that_fits_its_body() {
+        let mut bit = fillet_bit();
+        assert_eq!(bit.validate(), Ok(()));
+        let text = tools_to_file_json(std::slice::from_ref(&bit));
+        assert!(text.contains("corner_round") && text.contains("cornerRadius"));
+        assert_eq!(tools_from_file_json(&text).unwrap(), vec![bit.clone()]);
+        bit.corner_radius = Some(4.0);
+        assert!(bit
+            .validate()
+            .unwrap_err()
+            .contains("twice the corner radius"));
+        bit.corner_radius = None;
+        assert!(bit
+            .validate()
+            .unwrap_err()
+            .contains("needs a corner radius"));
+    }
 
     #[test]
     fn valid_tools_pass() {

@@ -12,11 +12,11 @@ use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
-use crate::ops::clear::{centres, clear_centres, ClearParams};
+use crate::ops::clear::{centres, clear_centres, raster_centres, ClearParams};
 use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
-use crate::project::{Inlay, InsertStyle, Job, Machine, Project, Setup, Side};
+use crate::project::{Inlay, InsertStyle, Job, Machine, Pattern, Project, Setup, Side};
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{Move, PathBuilder, Program, ProgramTool};
 use crate::tools::{CuttingSettings, Material, Tool, ToolKind};
@@ -281,6 +281,10 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         job,
         machine,
         depth,
+        pattern: match &job.inlay {
+            Inlay::Pocket { pattern, .. } | Inlay::Facing { pattern, .. } => *pattern,
+            _ => Pattern::Offset,
+        },
         errors,
         warnings,
     };
@@ -328,9 +332,9 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             Inlay::Chamfer {
                 side,
                 width,
-                vbit_tool_id,
+                tool_id,
             },
-        ) => chamfer(&mut ctx, &regions, *side, *width, vbit_tool_id.as_deref()),
+        ) => chamfer(&mut ctx, &regions, *side, *width, tool_id.as_deref()),
         (
             Part::Pocket,
             Inlay::Flat {
@@ -613,6 +617,8 @@ struct Context<'a> {
     machine: &'a Machine,
     /// Depth of the pocket floor, mm.
     depth: f64,
+    /// The shape of the path an end mill clears an area along.
+    pattern: Pattern,
     errors: Vec<String>,
     warnings: Vec<String>,
 }
@@ -781,7 +787,11 @@ impl<'a> Context<'a> {
                 continue;
             }
             path.start_tool(*number, cutting.rpm);
-            let swept = clear_centres(path, &where_to, &clear_params(tool, cutting, self.depth));
+            let params = clear_params(tool, cutting, self.depth);
+            let swept = match self.pattern {
+                Pattern::Offset => clear_centres(path, &where_to, &params),
+                Pattern::Raster => raster_centres(path, &where_to, &params, true),
+            };
             let fresh: f64 = swept
                 .iter()
                 .flat_map(|r| difference(r, &cleared))
@@ -1898,7 +1908,12 @@ fn facing(
     let number = ctx.project.machine.first_tool;
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
-    clear_centres(&mut path, &where_to, &clear_params(tool, cutting, total));
+    // The area has no walls: straight passes need no pass round its edge.
+    let params = clear_params(tool, cutting, total);
+    match ctx.pattern {
+        Pattern::Offset => clear_centres(&mut path, &where_to, &params),
+        Pattern::Raster => raster_centres(&mut path, &where_to, &params, false),
+    };
     let mut moves = path.finish();
     // Worked out as if the top of the standing wood were the surface: lift it there.
     if above > 0.0 {
@@ -2051,50 +2066,78 @@ fn contour(
 /// edge instead of rubbing along the wall under the chamfer.
 const CHAMFER_TIP_CLEAR: f64 = 0.2;
 
-/// How deep a V-bit's tip runs to chamfer an edge `width` wide.
-fn chamfer_depth(vbit: &Tool, width: f64) -> f64 {
-    let (half_angle, _) = vbit_shape(vbit);
-    (width + CHAMFER_TIP_CLEAR) / half_angle.tan()
+/// How an edge-shaping bit is run along an outline: how far its axis is from
+/// the outline, on the side where the wood is gone, and how deep its tip is.
+struct EdgeCut {
+    aside: f64,
+    depth: f64,
 }
 
-/// A chamfer: a V-bit taken along the outlines of the shapes, on the side
-/// where the wood has been cut away, so that its flank bevels the top edge.
+/// How a V-bit is run to bevel an edge `width` wide, or a corner-rounding bit
+/// to round it over to its own radius. `None` for any other tool.
+fn edge_cut(bit: &Tool, width: f64) -> Option<EdgeCut> {
+    match bit.kind {
+        ToolKind::VBit => {
+            let (half_angle, tip_radius) = vbit_shape(bit);
+            Some(EdgeCut {
+                aside: tip_radius + CHAMFER_TIP_CLEAR,
+                depth: (width + CHAMFER_TIP_CLEAR) / half_angle.tan(),
+            })
+        }
+        // The tip's side runs along the wall, and the quarter circle above it
+        // ends level with the surface.
+        ToolKind::CornerRound => Some(EdgeCut {
+            aside: bit.tip_diameter.unwrap_or(0.0) / 2.0,
+            depth: bit.corner_radius.unwrap_or(0.0),
+        }),
+        ToolKind::FlatEnd => None,
+    }
+}
+
+/// A chamfer or a rounded edge: a V-bit or a corner-rounding bit taken along
+/// the outlines of the shapes, on the side where the wood has been cut away,
+/// so that it shapes the top edge.
 fn chamfer(
     ctx: &mut Context,
     regions: &[Region],
     side: Side,
     width: f64,
-    vbit_id: Option<&str>,
+    tool_id: Option<&str>,
 ) -> Option<Cut> {
     // The depth follows from the bit, and the bit is checked against the depth.
-    if let Some(bit) = vbit_id.and_then(|id| {
-        ctx.project
-            .tools
-            .iter()
-            .find(|t| t.id == id && t.kind == ToolKind::VBit)
-    }) {
-        ctx.depth = chamfer_depth(bit, width);
+    let chosen = tool_id.and_then(|id| ctx.project.tools.iter().find(|t| t.id == id));
+    let rounding = chosen.is_some_and(|t| t.kind == ToolKind::CornerRound);
+    if let Some(cut) = chosen.and_then(|bit| edge_cut(bit, width)) {
+        ctx.depth = cut.depth;
     }
-    let (vbit, cutting) = ctx.tool(vbit_id, ToolKind::VBit, "a V-bit")?;
+    let (bit, cutting) = ctx.tool(
+        tool_id,
+        if rounding {
+            ToolKind::CornerRound
+        } else {
+            ToolKind::VBit
+        },
+        "a V-bit or a corner-rounding bit",
+    )?;
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let (_, tip_radius) = vbit_shape(vbit);
-    let aside = tip_radius + CHAMFER_TIP_CLEAR;
-    let depth = ctx.depth;
-    let widest = vbit.diameter / 2.0 - aside;
-    if width > widest + 1e-9 {
-        ctx.errors.push(format!(
-            "\"{}\" is too narrow for a chamfer {} mm wide: it can cut one of {} mm at most.",
-            vbit.name,
-            num(width),
-            num((widest * 100.0).floor() / 100.0)
-        ));
-        return None;
+    let EdgeCut { aside, depth } = edge_cut(bit, width)?;
+    if !rounding {
+        let widest = bit.diameter / 2.0 - aside;
+        if width > widest + 1e-9 {
+            ctx.errors.push(format!(
+                "\"{}\" is too narrow for a chamfer {} mm wide: it can cut one of {} mm at most.",
+                bit.name,
+                num(width),
+                num((widest * 100.0).floor() / 100.0)
+            ));
+            return None;
+        }
     }
     if depth >= ctx.project.base.thickness {
         ctx.errors.push(format!(
-            "The V-bit's tip would run {} mm deep, but the stock is only {} mm thick.",
+            "The bit's tip would run {} mm deep, but the stock is only {} mm thick.",
             num((depth * 100.0).round() / 100.0),
             num(ctx.project.base.thickness)
         ));
@@ -2107,7 +2150,7 @@ fn chamfer(
         .collect();
     if tracks.iter().any(Vec::is_empty) {
         ctx.errors
-            .push("One of the shapes is too small for the V-bit to run inside it.".into());
+            .push("One of the shapes is too small for the bit to run inside it.".into());
         return None;
     }
 
@@ -2118,7 +2161,7 @@ fn chamfer(
         &mut path,
         &tracks,
         &ProfileParams {
-            tool_diameter: vbit.diameter,
+            tool_diameter: bit.diameter,
             depth,
             stepdown: cutting.stepdown,
             feed: cutting.feed,
@@ -2126,16 +2169,30 @@ fn chamfer(
             tabs: None,
         },
     );
-    ctx.warnings.push(format!(
-        "Run this after the edge has been cut. The V-bit's tip runs {} mm {} the outline, {} mm deep, where it expects the wood to be gone already; in uncut wood it leaves a V-groove instead.",
+    let where_to = format!(
+        "{} mm {} the outline, {} mm deep",
         num((aside * 100.0).round() / 100.0),
-        if side == Side::Inside { "inside" } else { "outside" },
+        if side == Side::Inside {
+            "inside"
+        } else {
+            "outside"
+        },
         num((depth * 100.0).round() / 100.0)
-    ));
+    );
+    ctx.warnings.push(if rounding {
+        format!(
+            "Run this after the edge has been cut. The bit rounds the edge to its {} mm radius; its tip runs {where_to}, where it expects the wood to be gone already. In uncut wood it cuts a groove as wide as the bit instead.",
+            num(depth)
+        )
+    } else {
+        format!(
+            "Run this after the edge has been cut. The V-bit's tip runs {where_to}, where it expects the wood to be gone already; in uncut wood it leaves a V-groove instead."
+        )
+    });
     Some(Cut {
         tools: vec![ProgramTool {
             number,
-            tool: vbit.clone(),
+            tool: bit.clone(),
         }],
         moves: path.finish(),
         pocket: regions.to_vec(),
@@ -3890,6 +3947,7 @@ mod tests {
     #[test]
     fn a_plain_pocket_is_cleared_to_its_depth_and_nothing_else_is_touched() {
         let p = op_project(Inlay::Pocket {
+            pattern: Pattern::Offset,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -3923,6 +3981,7 @@ mod tests {
     #[test]
     fn facing_the_whole_stock_starts_above_the_surface_and_leaves_it_flat() {
         let mut p = op_project(Inlay::Facing {
+            pattern: Pattern::Raster,
             above: 2.0,
             depth: 0.5,
             margin: 0.0,
@@ -3955,6 +4014,7 @@ mod tests {
     #[test]
     fn facing_over_shapes_covers_them_and_their_margin_only() {
         let p = op_project(Inlay::Facing {
+            pattern: Pattern::Raster,
             above: 3.0,
             depth: 0.0,
             margin: 2.0,
@@ -3979,6 +4039,7 @@ mod tests {
         // Nothing to do at all is refused.
         let mut none = p.clone();
         none.jobs[0].inlay = Inlay::Facing {
+            pattern: Pattern::Raster,
             above: 0.0,
             depth: 0.0,
             margin: 0.0,
@@ -4061,7 +4122,7 @@ mod tests {
             let p = op_project(Inlay::Chamfer {
                 side,
                 width,
-                vbit_tool_id: Some("t-vbit".into()),
+                tool_id: Some("t-vbit".into()),
             });
             let preview = preview(&p, "j", Part::Pocket).unwrap();
             assert_eq!(preview.problems, []);
@@ -4095,7 +4156,7 @@ mod tests {
         let p = op_project(Inlay::Chamfer {
             side: Side::Outside,
             width: 6.0,
-            vbit_tool_id: Some("t-vbit".into()),
+            tool_id: Some("t-vbit".into()),
         });
         let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
         assert!(reasons.contains("too narrow for a chamfer"), "{reasons}");
@@ -4104,6 +4165,7 @@ mod tests {
     /// A pocket in the rectangle, a contour round it and a chamfer on it.
     fn three_ops() -> Project {
         let mut p = op_project(Inlay::Pocket {
+            pattern: Pattern::Offset,
             depth: 2.0,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4125,7 +4187,7 @@ mod tests {
         bevel.inlay = Inlay::Chamfer {
             side: Side::Inside,
             width: 1.0,
-            vbit_tool_id: Some("t-vbit".into()),
+            tool_id: Some("t-vbit".into()),
         };
         p.jobs.push(outline);
         p.jobs.push(bevel);
@@ -4169,7 +4231,7 @@ mod tests {
         bad.jobs[2].inlay = Inlay::Chamfer {
             side: Side::Inside,
             width: 1.0,
-            vbit_tool_id: None,
+            tool_id: None,
         };
         let reasons = build_combined(&bad, &ids(&["j", "v"]))
             .unwrap_err()
@@ -4182,6 +4244,7 @@ mod tests {
     fn a_file_warns_when_wood_above_the_surface_is_faced_after_other_jobs() {
         let mut p = three_ops();
         p.jobs[2].inlay = Inlay::Facing {
+            pattern: Pattern::Raster,
             above: 4.0,
             depth: 0.0,
             margin: 3.0,
@@ -4197,5 +4260,145 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("standing above")));
+    }
+
+    #[test]
+    fn a_corner_rounding_bit_rounds_the_edge_to_its_radius() {
+        use crate::tools::fixtures::fillet_bit;
+        for side in [Side::Outside, Side::Inside] {
+            let mut p = op_project(Inlay::Chamfer {
+                side,
+                // Ignored: the bit cuts its own radius.
+                width: 0.5,
+                tool_id: Some("t-fillet".into()),
+            });
+            p.tools.push(fillet_bit());
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            assert!(preview
+                .built
+                .gcode
+                .contains("CR=3 SD=6 TD=2 FL=6 - radius mill"));
+            let shape = rectangle();
+            let map = &preview.map;
+            let mut checked = 0;
+            for iy in 0..map.ny {
+                for ix in 0..map.nx {
+                    let q = map.centre(ix, iy);
+                    if !(q[0] > 12.0 && q[0] < 28.0) || shape.contains(q) != (side == Side::Outside)
+                    {
+                        continue;
+                    }
+                    let d = shape.distance_to_boundary(q);
+                    let z = map.at(ix, iy) as f64;
+                    // A quarter circle of radius 3 from the wall up to the surface.
+                    let ideal = if d < 3.0 {
+                        -3.0 + (9.0 - (3.0 - d) * (3.0 - d)).sqrt()
+                    } else {
+                        0.0
+                    };
+                    // Steep at the wall, so a cell's width counts for much there.
+                    let slack = if d < 0.3 { 0.8 } else { 0.15 };
+                    assert!(
+                        (z - ideal).abs() < slack,
+                        "{side:?}: {z} at {d} mm from the edge, wanted {ideal}"
+                    );
+                    checked += 1;
+                }
+            }
+            assert!(checked > 1000);
+        }
+        // An end mill shapes no edges.
+        let p = op_project(Inlay::Chamfer {
+            side: Side::Outside,
+            width: 1.0,
+            tool_id: Some("t-endmill".into()),
+        });
+        let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
+        assert!(
+            reasons.contains("is not a V-bit or a corner-rounding bit"),
+            "{reasons}"
+        );
+    }
+
+    #[test]
+    fn a_pocket_cut_side_to_side_matches_one_cut_in_rings() {
+        let mut p = op_project(Inlay::Pocket {
+            pattern: Pattern::Offset,
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        p.jobs[0].region_ids = vec![0, 1];
+        let rings = preview(&p, "j", Part::Pocket).unwrap();
+        if let Inlay::Pocket { pattern, .. } = &mut p.jobs[0].inlay {
+            *pattern = Pattern::Raster;
+        }
+        let across = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(across.problems, []);
+        let (worst, share) = compare(&rings.map, &across.map, 0.05);
+        assert!(
+            share < 0.002,
+            "{share} of the cells differ, by up to {worst} mm"
+        );
+        // Straight passes along X make up most of the cutting.
+        let (mut level, mut all) = (0.0, 0.0);
+        for s in across
+            .built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| !s.rapid)
+        {
+            all += s.length();
+            if s.from[1] == s.to[1] && s.from[2] == s.to[2] {
+                level += s.length();
+            }
+        }
+        assert!(level > 0.5 * all, "{level} of {all} mm");
+    }
+
+    #[test]
+    fn facing_goes_side_to_side_unless_rings_are_asked_for() {
+        let facing = |pattern| {
+            let mut p = op_project(Inlay::Facing {
+                pattern,
+                above: 0.0,
+                depth: 0.5,
+                margin: 0.0,
+                tool_id: Some("t-endmill".into()),
+            });
+            p.jobs[0].region_ids = vec![];
+            preview(&p, "j", Part::Pocket).unwrap()
+        };
+        let across = facing(Pattern::Raster);
+        let rings = facing(Pattern::Offset);
+        for preview in [&across, &rings] {
+            assert_eq!(preview.problems, []);
+            for z in &preview.map.z {
+                assert!((*z + 0.5).abs() < 1e-4, "left at {z}");
+            }
+        }
+        // Side to side: the passes run along X, the stock's longer side, and
+        // the tool goes down once.
+        let cuts = &across.built.interpreted.segments;
+        let along_y: f64 = cuts
+            .iter()
+            .filter(|s| !s.rapid && s.from[0] == s.to[0] && s.from[2] == s.to[2])
+            .map(|s| s.length())
+            .sum();
+        let along_x: f64 = cuts
+            .iter()
+            .filter(|s| !s.rapid && s.from[1] == s.to[1] && s.from[2] == s.to[2])
+            .map(|s| s.length())
+            .sum();
+        assert!(
+            along_x > 20.0 * along_y,
+            "{along_x} mm along X, {along_y} along Y"
+        );
+        let plunges = cuts
+            .iter()
+            .filter(|s| !s.rapid && s.to[2] < s.from[2])
+            .count();
+        assert_eq!(plunges, 1);
     }
 }

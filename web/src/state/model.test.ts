@@ -86,5 +86,11 @@ describe("jobs", () => {
     expect(jobToolIds(facing)).toEqual(["t"]);
     const chamfer = job("chamfer", []);
     expect(missingFor(chamfer)).toMatch(/shapes/);
+    chamfer.regionIds = [1];
+    expect(missingFor(chamfer)).toMatch(/corner-rounding/);
+    // Facing goes side to side unless asked otherwise; a pocket follows its outline.
+    expect(facing.inlay.type === "facing" && facing.inlay.pattern).toBe("raster");
+    const pocket = job("pocket", [1]);
+    expect(pocket.inlay.type === "pocket" && pocket.inlay.pattern).toBe("offset");
   });
 });

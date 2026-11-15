@@ -126,12 +126,15 @@ impl HeightMap {
 
 /// A tool as the simulator sees it: a shape turned around its axis. The
 /// underside is flat out to `tip_radius`, then rises at `slope` (height per
-/// mm of radius) out to `radius`.
+/// mm of radius) out to `radius`. A corner-rounding bit has `round` instead
+/// of a slope: beyond the tip its underside rises along a quarter circle of
+/// that radius, steep at the tip and level at the top, and is flat from there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolProfile {
     pub radius: f64,
     pub tip_radius: f64,
     pub slope: f64,
+    pub round: f64,
 }
 
 impl ToolProfile {
@@ -140,6 +143,17 @@ impl ToolProfile {
             radius: diameter / 2.0,
             tip_radius: diameter / 2.0,
             slope: 0.0,
+            round: 0.0,
+        }
+    }
+
+    /// A corner-rounding bit that cuts a rounded edge of radius `corner`.
+    pub fn corner_round(diameter: f64, tip_diameter: f64, corner: f64) -> Self {
+        Self {
+            radius: diameter / 2.0,
+            tip_radius: tip_diameter / 2.0,
+            slope: 0.0,
+            round: corner,
         }
     }
 
@@ -150,6 +164,7 @@ impl ToolProfile {
             radius: diameter / 2.0,
             tip_radius: tip_diameter / 2.0,
             slope: 1.0 / half.tan(),
+            round: 0.0,
         }
     }
 
@@ -161,13 +176,27 @@ impl ToolProfile {
                 tool.tip_diameter.unwrap_or(0.0),
                 tool.tip_angle.unwrap_or(90.0),
             ),
+            ToolKind::CornerRound => Self::corner_round(
+                tool.diameter,
+                tool.tip_diameter.unwrap_or(0.0),
+                tool.corner_radius.unwrap_or(0.0),
+            ),
         }
     }
 
     /// Height of the tool's underside above its tip at radius `r`, or `None`
     /// outside the tool.
     pub fn height(&self, r: f64) -> Option<f64> {
-        (r <= self.radius + 1e-9).then(|| (r - self.tip_radius).max(0.0) * self.slope)
+        (r <= self.radius + 1e-9).then(|| {
+            let beyond = (r - self.tip_radius).max(0.0);
+            if self.round > 0.0 {
+                // The quarter circle's centre is level with the tip, one radius out.
+                let short = (self.round - beyond).max(0.0);
+                (self.round * self.round - short * short).sqrt()
+            } else {
+                beyond * self.slope
+            }
+        })
     }
 
     /// Lowest height the tool's underside reaches over one point during a
@@ -180,17 +209,9 @@ impl ToolProfile {
     /// where the tool's edge or tip flat crosses the point, or where the cone
     /// part's slope cancels the move's descent. Those are all tried.
     fn lowest_over(&self, a: f64, b: f64, c: f64, z0: f64, dz: f64) -> Option<f64> {
-        let mut candidates = [
-            0.0,
-            1.0,
-            f64::NAN,
-            f64::NAN,
-            f64::NAN,
-            f64::NAN,
-            f64::NAN,
-            f64::NAN,
-            f64::NAN,
-        ];
+        let mut candidates = [f64::NAN; 32];
+        candidates[0] = 0.0;
+        candidates[1] = 1.0;
         let mut n = 2;
         let mut add = |t: f64| {
             if t > 0.0 && t < 1.0 && n < candidates.len() {
@@ -213,6 +234,13 @@ impl ToolProfile {
             // for a cell right under a pointed tip's path, where the height
             // has a kink that none of the other candidates finds reliably.
             add(-b / (2.0 * a));
+            // A rounding bit's underside has no slope to solve for: on a move
+            // that also changes height, try points along it.
+            if self.round > 0.0 && dz != 0.0 {
+                for k in 1..16 {
+                    add(k as f64 / 16.0);
+                }
+            }
             if self.slope > 0.0 && dz != 0.0 {
                 {
                     // d/dt [dz t + slope * sqrt(q)] = 0, with q = a t² + b t + c.
@@ -394,6 +422,27 @@ mod tests {
         let half_width = 0.05 + 2.0 * 30f64.to_radians().tan();
         assert!(map.sample(15.0, 10.0 + half_width - 0.06).unwrap() < 0.0);
         assert_eq!(map.sample(15.0, 10.0 + half_width + 0.06).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn a_corner_rounding_bit_cuts_a_quarter_circle() {
+        // Radius 3 on a 2 mm tip, tip 3 mm below the surface.
+        let tool = ToolProfile::corner_round(8.0, 2.0, 3.0);
+        let mut map = HeightMap::new(30.0, 20.0, CELL);
+        map.cut(&tool, [5.0, 10.0, -3.0], [25.0, 10.0, -3.0]);
+        for iy in 0..map.ny {
+            let [_, y] = map.centre(300, iy);
+            let d = (y - 10.0).abs();
+            let expected = if d <= 1.0 {
+                -3.0
+            } else if d <= 4.0 {
+                // On the circle of radius 3 centred 4 mm out, at the tip's height.
+                -3.0 + (9.0 - (4.0 - d) * (4.0 - d)).sqrt()
+            } else {
+                0.0
+            };
+            close(map.at(300, iy), expected, 1e-5);
+        }
     }
 
     #[test]

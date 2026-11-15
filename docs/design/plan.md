@@ -607,3 +607,38 @@ stock and to remove a plug's backer; an inlay's colour is its wood's colour ever
   on contours; tabs are placed evenly; a chamfer does not check that its edge has been
   cut; facing follows rings, not straight passes.
 - Recorded for later: a curated list of default tools (see requirements).
+
+### Fillet bits, path shapes, dragging, the arranging toolbar (2026-11-16)
+
+Added at the user's request, after trying the above.
+
+- **Corner-rounding bits.** A third kind of tool, `corner_round`, with a corner radius and
+  a tip diameter. The simulator's tool profile gained a quarter-circle underside; on a move
+  that also changes height its lowest point is found by trying points along the move, as
+  there is no slope to solve for. The chamfer operation takes either a V-bit or such a bit
+  (`toolId`; `vbitToolId` is still read). `tools.yaml` cutters that were left out as
+  corner-rounding are now imported as this kind, with the radius worked out from the body
+  and tip diameters.
+- **Path shapes.** `pattern` on pockets and facings: `offset` (the rings there were) or
+  `raster`, straight passes along the longer side of each area, back and forth, linked
+  along the area's edge without lifting where the way is clear. A pocket's raster ends
+  each depth with a pass round the walls; a facing's needs none, its area having no
+  walls. Facing defaults to `raster`, also for files that say nothing.
+- **Dragging.** One hook (`components/sortable.tsx`) for both lists. A line is dragged by
+  its grip; on the grip the up and down arrows do the same, which replaces the arrow
+  buttons for keyboard use.
+- **Symbols.** One line drawing per kind of job (`components/icons.tsx`): cross-sections
+  for the inlays, the pocket and the chamfer, views from above for the contour and the
+  facing. A chamfer with a corner-rounding bit shows a rounded corner.
+- **Arranging.** A bar above the drawing switches between picking shapes and arranging,
+  and adds drawings. While arranging, a toolbar under it holds the actions as buttons and
+  the selection's position and size as inline fields; the side panel keeps only what is
+  selected, the stock and the keys. The six kinds to add became tiles with their symbols,
+  with one line of explanation for the kind pointed at.
+- Checked by test: the rounded edge against a quarter circle, in the simulator alone and
+  through a generated file; a pocket cut side to side against the same pocket cut in
+  rings; a facing's passes and its single plunge; old files without `pattern` or with
+  `vbitToolId`. 192 core tests, 35 UI tests. Looked at in the browser: the toolbar while
+  arranging, dragging a line of the list, a facing's side-to-side path in 3D.
+- Not checked: a corner-rounding bit was not entered and used through the screens, only
+  through the core's tests; whether the Carvera controller draws a `radius mill`.

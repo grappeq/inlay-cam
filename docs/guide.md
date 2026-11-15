@@ -20,8 +20,12 @@ Open **Tools and settings**. It has three pages, listed on the left: your tools,
 machine, and what a new inlay starts with. All three are kept in this browser and used by
 every project.
 
-On the **Tools** page, add each end mill and V-bit you will use. A `tools.yaml` tool list
-can also be imported; its layout is in [formats.md](formats.md).
+On the **Tools** page, add each end mill, V-bit and corner-rounding bit you will use. A
+`tools.yaml` tool list can also be imported; its layout is in [formats.md](formats.md).
+
+- A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
+  operation only. Give the radius it cuts and the diameter across its tip, below the
+  rounded edge.
 
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
   that. Leave it empty if unknown and the app warns instead.
@@ -83,23 +87,31 @@ under "More", makes it the shapes' extent plus 5 mm.
 The stock applies to this board only. A plug or an insert is cut from a board of its own,
 whose size follows from the shapes and the inlay's settings.
 
-**Add a drawing** puts the shapes of further files on the same stock. They come in at
-their own size, in the middle of the stock, selected and ready to be moved: drag them to
-their place and press "Done". The stock grows when they do not fit. "Replace the drawing",
+**Add drawing**, in the bar above the drawing, puts the shapes of further files on the
+same stock; so does dropping files on the window. The shapes come in at their own size, in
+the middle of the stock, selected and with arranging switched on: drag them to their
+place. The stock grows when they do not fit. "Replace the drawing",
 under "More", starts over with one file; what was made from the old drawing is removed.
 
 "Start with an empty stock", on the start screen, gives a stock of 200 x 150 mm without a
 drawing, to face it or to add drawings to.
 
 If a DXF or an Illustrator SVG comes in at the wrong size, the file's unit was not what
-the app took it for: select its shapes under "Move, resize or delete shapes" and type the
-right width.
+the app took it for: switch to "Arrange", select its shapes and type the right width.
 
 ### Arranging the drawing
 
-A drawing often holds several parts, or parts you do not want. "Move, resize or delete
-shapes" under "Stock and drawings" lets you change that. The app treats the drawing
-as outlines here: an outline takes along everything inside it, the hole it makes in the
+A drawing often holds several parts, or parts you do not want. The bar above the drawing
+switches between two things a click on the drawing can do: **Pick shapes**, for making
+inlays and operations, and **Arrange**, for changing the drawing itself.
+
+While arranging, a toolbar above the drawing holds what can be done to the selected
+shapes, as buttons with a symbol each (point at one to read what it does) and, under them,
+the selection's position and size as numbers. The panel at the side shows what is
+selected, the stock's size and the keys. "Pick shapes", or "Done arranging" in the panel,
+goes back.
+
+The app treats the drawing as outlines here: an outline takes along everything inside it, the hole it makes in the
 shape around it moves with it, and the hole closes when the outline is deleted.
 
 Selecting:
@@ -108,27 +120,30 @@ Selecting:
   "Select whole parts" to pick an outline inside a part, such as a hole or a letter.
 - Shift-click adds to the selection or takes away from it. Drag across empty board to
   select what the box encloses. Click empty board, or press Escape, to clear it.
-- The size and position of the selection are shown under the drawing.
+- The size and position of the selection are shown under the drawing, and in the fields
+  X, Y, W and H of the toolbar. X and Y are the distances of its bottom-left corner from
+  the stock's.
 
 Changing the selection:
 
 - Drag it; hold Shift to keep the move straight. The arrow keys move it by 1 mm, or by
-  0.1 mm with Shift. Or type its distance from the board's left and bottom edges.
+  0.1 mm with Shift. Or type X and Y.
 - Drag the squares on its frame to resize it. A corner keeps the proportions, unless
   Shift is held; a side stretches it one way. The opposite corner or side stays where it
   is; with Ctrl held, the middle does.
-- Type a width or height, or a percentage. "Keep the proportions" decides whether the
-  other size follows, and "When resizing, keep in place" which corner stays where it is.
+- Type W or H, or a percentage under "Scale to". "Keep proportions" decides whether the
+  other size follows. The small grid of five squares beside it chooses which point of the
+  selection stays where it is: a corner, or the middle.
 - Turn it by 90° either way or by any angle, or mirror it.
-- Centre it on the board, across or up and down.
-- "Copy beside" (Ctrl+D) puts a copy to its right.
-- "Keep only this" deletes every other shape and fits the board to what is left: the way
-  to put one part of a sketch on a board of its own.
+- Centre it on the stock, across or up and down.
+- Copy it (Ctrl+D): the copy lands to its right.
+- "Keep only" deletes every other shape and fits the stock to what is left: the way to
+  put one part of a sketch on a stock of its own.
 - Delete it (Delete key). An inlay that loses all its shapes is removed; the app asks
   first.
 
 Typed numbers apply when you press Enter or leave the field. Ctrl+Z undoes and Ctrl+Y
-redoes, up to 50 steps, also after "Done".
+redoes, up to 50 steps, also after arranging.
 
 The board and the view:
 
@@ -183,7 +198,8 @@ mill chosen; the outline that will really be cut is drawn dashed after generatin
 
 ### Several end mills
 
-Add more than one end mill and they are used in the order listed. Each cuts only what the
+Add more than one end mill and they are used in the order listed; drag one by its grip to
+change the order. Each cuts only what the
 ones before it left, so put the largest first; the app says so when the order wastes a
 tool. A tool that fits nowhere, or has nothing left to cut, is left out of the file.
 
@@ -235,21 +251,25 @@ click adds a shape to it or takes it away.
 
 - **Pocket**: clears the shapes to a flat floor, at the depth given, with one end mill or
   several in order. Inside corners are rounded to the smallest; what is really cut is drawn
-  dashed after generating.
+  dashed after generating. "The tool's path" chooses between rings that follow the outline
+  (the usual way) and straight passes side to side, which end with a pass round the walls
+  at each depth.
 - **Contour**: takes an end mill along the outlines. *Outside the shapes* keeps the shapes:
   the tool runs round them, and inside their holes. To cut round the outside of a part
   only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
   leaving an opening of their size. *On the line* puts the tool's centre on the outline.
   The cut goes to a depth, or right through the stock and a little into the spoilboard,
   with or without tabs.
-- **Chamfer**: bevels the top edge along the outlines with a V-bit, to the width given.
-  Choose the side where the wood has been cut away: round the shapes, or inside them. Run
-  it after that edge has been cut. The bit's tip runs a little beside the edge, where it
-  expects air; in uncut wood it would leave a V-groove.
+- **Chamfer**: shapes the top edge along the outlines. With a V-bit the edge is bevelled
+  to the width given. With a corner-rounding (fillet) bit it is rounded over to the bit's
+  own radius, and there is no width to give. Choose the side where the wood has been cut
+  away: round the shapes, or inside them. Run it after that edge has been cut. The bit's
+  tip runs beside the edge, where it expects air; in uncut wood it would leave a groove.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
-  surface* to remove what stands on it.
+  surface* to remove what stands on it. The tool goes side to side in straight passes
+  along the longer side of the area; "The tool's path" can make it go in rings instead.
 
 ### Trimming a plug flush
 
@@ -262,8 +282,9 @@ wood standing on it.
 
 ### One file for the stock
 
-The list of inlays and operations has a tick box and arrows on every line. Tick what one
-file should cut, put the lines in the order to cut them, and press **Generate one file**.
+The list of inlays and operations has a grip and a tick box on every line. Drag a line by
+its grip to put the list in the order to cut in (or select the grip and press the up or
+down arrow), tick what one file should cut, and press **Generate one file**.
 The file cuts each ticked inlay's pocket and each ticked operation, in the order of the
 list. Tools keep one number each through the file, and a tool that the next line also
 starts with stays in the spindle. The file is simulated as a whole and shown in 3D.
