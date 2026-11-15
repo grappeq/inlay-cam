@@ -14,6 +14,8 @@ import {
   rotateShapes,
   scaleShapes,
   shapesInBox,
+  stretchLimits,
+  stretchShapes,
   trimBoard,
   withInside,
 } from "./arrange";
@@ -196,6 +198,24 @@ describe("resizing, mirroring and turning", () => {
     expect(boxOf([shape(d, 0)])).toEqual([20, 0, 60, 60]);
     const back = rotateShapes(d, [0], -90);
     expect(boxOf([shape(back, 1)])).toEqual([20, 20, 40, 40]);
+  });
+
+  it("stretch one way only, from any corner or the middle", () => {
+    const wide = stretchShapes(design(), [3], 0.5, 1, [1, 1]);
+    expect(boxOf([shape(wide, 3)])).toEqual([100, 10, 120, 50]);
+    const middle = stretchShapes(design(), [3], 0.5, 0.5, [0.5, 0.5]);
+    expect(boxOf([shape(middle, 3)])).toEqual([90, 20, 110, 40]);
+    // The ring and the disc in the plate stretch with it, and stay its hole.
+    const plate = stretchShapes(design(), [0], 1, 0.5, [0, 1]);
+    expect(boxOf([shape(plate, 1)])).toEqual([20, 35, 40, 45]);
+    expect(sorted(partOf(plate, 2))).toEqual([0, 1, 2]);
+    expect(overlapping(plate)).toEqual([]);
+  });
+
+  it("know how far a box can grow before it leaves the board", () => {
+    // 20 wide, its right edge 30 from the board's left: growing leftwards, 1.5 times at most.
+    expect(stretchLimits({ x: 10, y: 5, width: 20, height: 10 }, [1, 0])).toEqual([1.5, Infinity]);
+    expect(stretchLimits({ x: 10, y: 5, width: 20, height: 10 }, [0.5, 0.5])).toEqual([2, 2]);
   });
 
   it("scale from the corner that stays put", () => {

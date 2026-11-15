@@ -221,6 +221,6 @@ export interface PocketPreview {
   ny: number;
   /** Stock height per cell (0 is the uncut top), row by row from Y = 0. */
   heights: Float32Array;
-  /** Tool path: x0 y0 z0 x1 y1 z1 rapid, per straight piece. */
+  /** Tool path: x0 y0 z0 x1 y1 z1 rapid tool line, per straight piece, in the order they are cut. */
   path: Float32Array;
 }

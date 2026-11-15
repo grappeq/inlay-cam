@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
-import { moveOnBoard, overlapping, placedBox, shapesInBox } from "../state/arrange";
+import { moveOnBoard, overlapping, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
 import { fmt, regionOwners } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
@@ -56,9 +56,42 @@ interface View {
 type Press =
   | { kind: "pan"; x: number; y: number; view: View }
   | { kind: "shape"; x: number; y: number; id: number; add: boolean; was: boolean; moved: boolean }
+  /** A handle of the selection's box: `hx`, `hy` say which, as fractions of the box from its left and bottom. */
+  | { kind: "handle"; x: number; y: number; hx: number; hy: number; box: Placed; moved: boolean }
   | { kind: "empty"; x: number; y: number; add: boolean; moved: boolean; from: [number, number] };
 
-type Gesture = { kind: "move"; dx: number; dy: number } | { kind: "band"; x0: number; y0: number; x1: number; y1: number };
+type Gesture =
+  | { kind: "move"; dx: number; dy: number }
+  /** Stretching by `fx`, `fy` about the point `anchor` of the box, counted from its left and bottom. */
+  | { kind: "resize"; fx: number; fy: number; anchor: [number, number]; box: Placed }
+  | { kind: "band"; x0: number; y0: number; x1: number; y1: number };
+
+/** The handles of the selection's box, as fractions of the box from its left and bottom. */
+const HANDLES: [number, number][] = [
+  [0, 0],
+  [0.5, 0],
+  [1, 0],
+  [1, 0.5],
+  [1, 1],
+  [0.5, 1],
+  [0, 1],
+  [0, 0.5],
+];
+/** Side of a handle on the screen, px. */
+const HANDLE = 9;
+/** The smallest a selection can be dragged to, mm. */
+const SMALLEST = 0.5;
+
+function handleCursor(hx: number, hy: number): string {
+  if (hx === 0.5) return "ns-resize";
+  if (hy === 0.5) return "ew-resize";
+  return hx === hy ? "nesw-resize" : "nwse-resize";
+}
+
+function handleName(hx: number, hy: number): string {
+  const side = [hy === 0 ? "bottom" : hy === 1 ? "top" : "", hx === 0 ? "left" : hx === 1 ? "right" : ""].filter(Boolean).join("-");
+  return `Resize from the ${side}${hx !== 0.5 && hy !== 0.5 ? " corner" : " side"}`;
+}
 
 const mm = (v: number) => fmt(Math.round(v * 100) / 100);
 
@@ -69,6 +102,8 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   const press = useRef<Press | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [zoomed, setZoomed] = useState<View | null>(null);
+  // How many millimetres of the picture one pixel of the screen shows.
+  const [pixel, setPixel] = useState(0);
 
   const paths = useMemo(
     () =>
@@ -91,6 +126,19 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
 
   // A board of another size is shown whole again.
   useEffect(() => setZoomed(null), [width, height]);
+
+  // Handles keep their size on the screen at any zoom and window size.
+  const measure = () => {
+    const a = svg.current?.getScreenCTM()?.a;
+    if (a && a > 0) setPixel((old) => (Math.abs(old - 1 / a) > 1e-9 ? 1 / a : old));
+  };
+  useLayoutEffect(measure);
+  useEffect(() => {
+    if (!svg.current) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(svg.current);
+    return () => observer.disconnect();
+  }, []);
 
   const toPicture = (clientX: number, clientY: number): [number, number] | null => {
     const matrix = svg.current?.getScreenCTM();
@@ -140,9 +188,13 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const hit = (e.target as Element).closest<SVGElement>("[data-region]");
     const id = hit ? Number(hit.dataset.region) : null;
+    const handle = (e.target as Element).closest<SVGElement>("[data-handle]");
     if (e.button === 1 || (e.button === 0 && !arranging && id === null)) {
       press.current = { kind: "pan", x: e.clientX, y: e.clientY, view: viewNow.current };
       e.preventDefault();
+    } else if (arranging && e.button === 0 && handle && box) {
+      const [hx, hy] = HANDLES[Number(handle.dataset.handle)];
+      press.current = { kind: "handle", x: e.clientX, y: e.clientY, hx, hy, box, moved: false };
     } else if (arranging && e.button === 0) {
       const add = e.shiftKey || e.ctrlKey || e.metaKey;
       if (id !== null) {
@@ -177,6 +229,28 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         from.was = true;
       }
     }
+    if (from.kind === "handle") {
+      const { hx, hy, box: start } = from;
+      // Ctrl or Alt resizes about the middle; otherwise the opposite corner or side stays put.
+      const middle = e.ctrlKey || e.metaKey || e.altKey;
+      const anchor: [number, number] = middle ? [0.5, 0.5] : [1 - hx, 1 - hy];
+      const dx = (e.clientX - from.x) / matrix.a;
+      const dy = -(e.clientY - from.y) / matrix.d;
+      const factor = (h: number, a: number, d: number, size: number) => (h === 0.5 || size <= 0 ? 1 : Math.max(SMALLEST / size, 1 + d / ((h - a) * size)));
+      let fx = factor(hx, anchor[0], dx, start.width);
+      let fy = factor(hy, anchor[1], dy, start.height);
+      const [maxX, maxY] = stretchLimits(start, anchor);
+      const corner = hx !== 0.5 && hy !== 0.5;
+      if (corner && !e.shiftKey) {
+        // A corner keeps the proportions; Shift lets width and height go their own ways.
+        fx = fy = Math.min(Math.max(fx, fy), maxX, maxY);
+      } else {
+        fx = Math.min(fx, maxX);
+        fy = Math.min(fy, maxY);
+      }
+      setGesture({ kind: "resize", fx, fy, anchor, box: start });
+      return;
+    }
     if (from.kind === "shape") {
       let dx = (e.clientX - from.x) / matrix.a;
       // The picture's Y axis points down; the board's points up.
@@ -205,6 +279,15 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     const done = gesture;
     setGesture(null);
     if (!from || from.kind === "pan") return;
+    if (from.kind === "handle") {
+      if (from.moved && done?.kind === "resize") {
+        dispatch({
+          type: "editDrawing",
+          update: (p) => (p.design ? { ...p, design: stretchOnBoard(p.design, selection, done.fx, done.fy, done.anchor) } : p),
+        });
+      }
+      return;
+    }
     if (from.kind === "shape") {
       if (from.moved && done?.kind === "move") {
         dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: moveOnBoard(p.design, selection, done.dx, done.dy) } : p) });
@@ -228,18 +311,39 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   };
 
   const moving = gesture?.kind === "move" ? gesture : null;
-  const shift = moving ? `translate(${moving.dx} ${-moving.dy})` : undefined;
+  const resizing = gesture?.kind === "resize" ? gesture : null;
+  // The selection's box as it is shown right now, part-way through a drag.
+  const shown: Placed | null = !box
+    ? null
+    : moving
+      ? { ...box, x: box.x + moving.dx, y: box.y + moving.dy }
+      : resizing
+        ? {
+            x: box.x + resizing.anchor[0] * box.width * (1 - resizing.fx),
+            y: box.y + resizing.anchor[1] * box.height * (1 - resizing.fy),
+            width: box.width * resizing.fx,
+            height: box.height * resizing.fy,
+          }
+        : box;
+  let shift: string | undefined;
+  if (moving) shift = `translate(${moving.dx} ${-moving.dy})`;
+  else if (resizing && box) {
+    // The picture's Y axis points down; the board's points up.
+    const ax = box.x + resizing.anchor[0] * box.width;
+    const ay = height - (box.y + resizing.anchor[1] * box.height);
+    shift = `translate(${ax} ${ay}) scale(${resizing.fx} ${resizing.fy}) translate(${-ax} ${-ay})`;
+  }
   const readout =
-    box &&
-    `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(box.width)} × ${mm(box.height)} mm, ${mm(box.x + (moving?.dx ?? 0))} mm from the left, ${mm(
-      box.y + (moving?.dy ?? 0),
+    shown &&
+    `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, ${mm(shown.x)} mm from the left, ${mm(
+      shown.y,
     )} mm from the bottom`;
 
   return (
     <div className="canvas-wrap">
       <svg
         ref={svg}
-        className={`canvas${arranging ? " arranging" : ""}${moving ? " dragging" : ""}${zoomed ? " zoomed" : ""}`}
+        className={`canvas${arranging ? " arranging" : ""}${moving || resizing ? " dragging" : ""}${zoomed ? " zoomed" : ""}`}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="group"
         aria-label={arranging ? "Drawing. Click a part to select it, drag it to move it." : "Drawing. Click a shape to select it."}
@@ -251,7 +355,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
           setGesture(null);
         }}
         onDoubleClick={(e) => {
-          if (!(e.target as Element).closest("[data-region]")) setZoomed(null);
+          if (!(e.target as Element).closest("[data-region], [data-handle]")) setZoomed(null);
         }}
       >
         <rect className="page" x={0} y={0} width={width} height={height} />
@@ -307,7 +411,29 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
             ))}
           </g>
         )}
-        {box && <rect className="selection-box" x={box.x} y={height - box.y - box.height} width={box.width} height={box.height} transform={shift} />}
+        {shown && <rect className="selection-box" x={shown.x} y={height - shown.y - shown.height} width={shown.width} height={shown.height} />}
+        {shown &&
+          pixel > 0 &&
+          !moving &&
+          HANDLES.map(([hx, hy], i) => {
+            const side = HANDLE * pixel;
+            // Side handles only where the box is long enough to tell them from the corners.
+            if ((hx === 0.5 && shown.width < 3 * side) || (hy === 0.5 && shown.height < 3 * side)) return null;
+            return (
+              <rect
+                key={i}
+                data-handle={i}
+                className="handle"
+                x={shown.x + hx * shown.width - side / 2}
+                y={height - (shown.y + hy * shown.height) - side / 2}
+                width={side}
+                height={side}
+                style={{ cursor: handleCursor(hx, hy) }}
+              >
+                <title>{handleName(hx, hy)}</title>
+              </rect>
+            );
+          })}
         {gesture?.kind === "band" && (
           <rect
             className="band"

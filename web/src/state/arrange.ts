@@ -247,10 +247,21 @@ export function moveShapes(design: Design, ids: number[], dx: number, dy: number
 
 /** Scales the shapes by `factor`, keeping the corner `anchor` of their box where it is. */
 export function scaleShapes(design: Design, ids: number[], factor: number, anchor: "left" | "right"): Design {
+  return stretchShapes(design, ids, factor, factor, [anchor === "left" ? 0 : 1, 0]);
+}
+
+/**
+ * Stretches the shapes by `fx` across and `fy` up. `anchor` says which point
+ * of their box stays where it is, as fractions of the box from its left and
+ * bottom: [0, 0] the bottom-left corner, [0.5, 0.5] the middle, [1, 1] the
+ * top-right corner.
+ */
+export function stretchShapes(design: Design, ids: number[], fx: number, fy: number, anchor: [number, number]): Design {
   const box = chosenBox(design, new Set(withInside(design, ids)));
-  if (!box || !(factor > 0) || !Number.isFinite(factor) || factor === 1) return design;
-  const ax = anchor === "left" ? box[0] : box[2];
-  return transform(design, ids, ([x, y]) => [ax + (x - ax) * factor, box[1] + (y - box[1]) * factor], false);
+  if (!box || !(fx > 0) || !(fy > 0) || !Number.isFinite(fx) || !Number.isFinite(fy) || (fx === 1 && fy === 1)) return design;
+  const ax = box[0] + anchor[0] * (box[2] - box[0]);
+  const ay = box[1] + anchor[1] * (box[3] - box[1]);
+  return transform(design, ids, ([x, y]) => [ax + (x - ax) * fx, ay + (y - ay) * fy], false);
 }
 
 /** Mirrors the shapes in place: left to right ("x") or top to bottom ("y"). */
@@ -440,6 +451,20 @@ export function moveOnBoard(design: Design, ids: number[], dx: number, dy: numbe
 /** Scales the shapes, keeping their bottom-left corner on the board where it is. */
 export function scaleOnBoard(design: Design, ids: number[], factor: number): Design {
   return scaleShapes(design, ids, factor, design.mirror ? "right" : "left");
+}
+
+/** Stretches the shapes as seen on the board; `anchor` is counted from the left and bottom of their box there. */
+export function stretchOnBoard(design: Design, ids: number[], fx: number, fy: number, anchor: [number, number]): Design {
+  return stretchShapes(design, ids, fx, fy, [design.mirror ? 1 - anchor[0] : anchor[0], anchor[1]]);
+}
+
+/**
+ * The largest factors by which a box on the board can grow from `anchor`
+ * before it passes the board's left or bottom edge.
+ */
+export function stretchLimits(box: Placed, anchor: [number, number]): [number, number] {
+  const limit = (start: number, size: number, part: number) => (part > 0 && size > 0 ? (start + part * size) / (part * size) : Infinity);
+  return [limit(box.x, box.width, anchor[0]), limit(box.y, box.height, anchor[1])];
 }
 
 /** Turns the shapes as seen on the board, counter-clockwise. */

@@ -12,7 +12,8 @@ import {
   placedBox,
   removeShapes,
   rotateOnBoard,
-  scaleOnBoard,
+  stretchLimits,
+  stretchOnBoard,
   trimBoard,
   withInside,
 } from "../state/arrange";
@@ -22,6 +23,15 @@ import { NumberField } from "./NumberField";
 
 const mm = (v: number) => Math.round(v * 100) / 100;
 
+/** The points of the selection's box that can stay put while it is resized, counted from its left and bottom. */
+const ANCHORS: { label: string; at: [number, number] }[] = [
+  { label: "Bottom-left corner", at: [0, 0] },
+  { label: "Bottom-right corner", at: [1, 0] },
+  { label: "Top-left corner", at: [0, 1] },
+  { label: "Top-right corner", at: [1, 1] },
+  { label: "Middle", at: [0.5, 0.5] },
+];
+
 /** The panel shown while the drawing is arranged: move, resize, turn, mirror, copy or delete the selected shapes. */
 export function ArrangePanel({ design }: { design: Design }) {
   const { project, selection, wholeParts, undo, redo } = useApp();
@@ -29,12 +39,26 @@ export function ArrangePanel({ design }: { design: Design }) {
   const [margin, setMargin] = useState(5);
   const [angle, setAngle] = useState(45);
   const [percent, setPercent] = useState(50);
+  const [anchor, setAnchor] = useState(0);
+  const [proportional, setProportional] = useState(true);
 
   const edit = (update: (d: Design) => Design, tag?: string) =>
     dispatch({ type: "editDrawing", tag, at: Date.now(), update: (p) => (p.design ? { ...p, design: update(p.design) } : p) });
   const editProject = (update: (p: Project) => Project, select?: number[]) => dispatch({ type: "editDrawing", update, select });
 
   const box = placedBox(design, selection);
+  /** Resizes the selection about the chosen point, no further than the board's left and bottom edges allow. */
+  const resize = (fx: number, fy: number) => {
+    if (!box) return;
+    const at = ANCHORS[anchor].at;
+    const [maxX, maxY] = stretchLimits(box, at);
+    const kept = fx === fy ? Math.min(fx, maxX, maxY) : null;
+    const [ax, ay] = kept !== null ? [kept, kept] : [Math.min(fx, maxX), Math.min(fy, maxY)];
+    if (ax < fx || ay < fy) {
+      dispatch({ type: "notice", notice: { kind: "info", text: "Made as large as fits: the shape stops at the board's left and bottom edges. Move it or resize it from another corner." } });
+    }
+    edit((d) => stretchOnBoard(d, selection, ax, ay, at));
+  };
   const none = selection.length === 0;
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
   const them = selection.length === 1 ? "it" : "them";
@@ -163,6 +187,7 @@ export function ArrangePanel({ design }: { design: Design }) {
             <ul className="keys">
               <li>Shift-click adds to the selection or takes away from it. Drag across empty board to select what the box encloses.</li>
               <li>Drag the selection to move it; hold Shift to keep it straight. Escape abandons the drag.</li>
+              <li>Drag a square on its frame to resize it. Corners keep the proportions unless Shift is held; Ctrl resizes about the middle.</li>
               <li>Arrow keys move it by 1 mm, or by 0.1 mm with Shift.</li>
               <li>Delete removes it. Ctrl+D copies it. Ctrl+A selects everything. Escape clears the selection.</li>
               <li>Ctrl+Z undoes, Ctrl+Y redoes.</li>
@@ -194,7 +219,7 @@ export function ArrangePanel({ design }: { design: Design }) {
                 unit="mm"
                 min={0.01}
                 value={mm(box.width)}
-                onChange={(v) => v !== undefined && box.width > 0 && edit((d) => scaleOnBoard(d, selection, v / box.width))}
+                onChange={(v) => v !== undefined && box.width > 0 && resize(v / box.width, proportional ? v / box.width : 1)}
               />
               <NumberField
                 deferred
@@ -202,19 +227,34 @@ export function ArrangePanel({ design }: { design: Design }) {
                 unit="mm"
                 min={0.01}
                 value={mm(box.height)}
-                onChange={(v) => v !== undefined && box.height > 0 && edit((d) => scaleOnBoard(d, selection, v / box.height))}
+                onChange={(v) => v !== undefined && box.height > 0 && resize(proportional ? v / box.height : 1, v / box.height)}
               />
             </div>
-            <p className="hint">
-              Press Enter to apply a number. Distances are from the board's bottom-left corner to the selection's. Width and height change together: the shape
-              keeps its proportions.
-            </p>
+            <p className="hint">Press Enter to apply a number. Distances are from the board's bottom-left corner to the selection's.</p>
+            <label className="check">
+              <input type="checkbox" checked={proportional} onChange={(e) => setProportional(e.target.checked)} />
+              Keep the proportions
+            </label>
+            <label className="field">
+              <span className="field-label">When resizing, keep in place</span>
+              <select value={anchor} onChange={(e) => setAnchor(Number(e.target.value))}>
+                {ANCHORS.map((a, i) => (
+                  <option key={a.label} value={i}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="row tools">
               <NumberField label="Scale to" unit="%" min={0.1} value={percent} onChange={(v) => v !== undefined && setPercent(v)} />
-              <button disabled={percent === 100} onClick={() => edit((d) => scaleOnBoard(d, selection, percent / 100))}>
+              <button disabled={percent === 100} onClick={() => resize(percent / 100, percent / 100)}>
                 Scale
               </button>
             </div>
+            <p className="hint">
+              Or drag the squares on the selection's frame: a corner keeps the proportions (Shift lets them go), a side stretches one way. The opposite side
+              stays put; with Ctrl, the middle does.
+            </p>
 
             <h3>Turn and mirror</h3>
             <div className="row">

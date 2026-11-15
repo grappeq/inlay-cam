@@ -63,7 +63,11 @@ Changing the selection:
 
 - Drag it; hold Shift to keep the move straight. The arrow keys move it by 1 mm, or by
   0.1 mm with Shift. Or type its distance from the board's left and bottom edges.
-- Type a width or height, or a percentage; the shape keeps its proportions.
+- Drag the squares on its frame to resize it. A corner keeps the proportions, unless
+  Shift is held; a side stretches it one way. The opposite corner or side stays where it
+  is; with Ctrl held, the middle does.
+- Type a width or height, or a percentage. "Keep the proportions" decides whether the
+  other size follows, and "When resizing, keep in place" which corner stays where it is.
 - Turn it by 90° either way or by any angle, or mirror it.
 - Centre it on the board, across or up and down.
 - "Copy beside" (Ctrl+D) puts a copy to its right.
@@ -149,6 +153,15 @@ how large the board must be.
 
 **Show in 3D** shows the simulated part. The simulation is run on the text of the G-code
 file itself, so what you see is what the file does.
+
+Tick **Show tool path**, above the 3D view, to see where the tool goes:
+
+- Each tool's cutting moves have their own colour; moves in the air are red and can be
+  switched off.
+- "Hide the board" leaves only the path, so that the passes inside the wood can be seen.
+- The "Path shown" slider draws the path up to any point of the file. A cone marks where
+  the tool is, and the line of the file and the tool are named beside the slider. With
+  the slider selected, the arrow keys step one move at a time.
 
 ### Fit
 

@@ -501,8 +501,16 @@ limited (2026-11-15). Reworked from its report:
   position while dragging, Shift to drag straight, Escape to abandon a drag.
 - Shapes stop at the board's left and bottom edges instead of shifting everything else.
   Shapes lying partly on each other are outlined in red and listed.
-- Not done: snapping, aligning or spacing parts against each other, resizing from other
-  corners or by dragging handles.
+- Not done: snapping, aligning or spacing parts against each other.
+- Added afterwards at the user's request: resizing by dragging handles on the selection's
+  frame (corners keep the proportions, sides stretch one way, Ctrl resizes about the
+  middle), and typed sizes from any corner, with or without the proportions.
+
+Also added at the user's request: a fuller tool-path view in the 3D preview. The path was
+already there as a tick box under the view, easily missed. It is now above the view, each
+tool has its own colour, the board can be hidden, the moves in the air switched off, and
+a slider draws the path up to any move, naming the G-code line and the tool. For this the
+core hands over each move's tool number and line.
 - The logic is in `web/src/state/arrange.ts` with tests (`npm test` in `web`).
 
 ## 4. Risks

@@ -446,6 +446,38 @@ input[aria-invalid="true"] {
   margin: 0;
   font-size: 14px;
 }
+.viewer-hint {
+  margin: 0;
+  font-size: 12px;
+}
+.path-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.path-legend .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.path-progress {
+  font-size: 13px;
+}
+.path-progress input[type="range"] {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+.path-where {
+  font-variant-numeric: tabular-nums;
+  min-width: 15em;
+}
 
 /* The drawing */
 .canvas {
@@ -1152,6 +1184,15 @@ legend .check {
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+.handle {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.handle:hover {
+  fill: var(--select);
 }
 .band {
   fill: var(--accent-soft);

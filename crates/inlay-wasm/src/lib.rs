@@ -185,14 +185,17 @@ impl PocketPreview {
         self.preview.map.z.clone()
     }
 
-    /// The tool's path as read back from the G-code: seven numbers per
-    /// straight piece, `x0 y0 z0 x1 y1 z1 rapid` (rapid is 1 or 0).
+    /// The tool's path as read back from the G-code: nine numbers per
+    /// straight piece, `x0 y0 z0 x1 y1 z1 rapid tool line` (rapid is 1 or
+    /// 0, tool the tool's number, line the line of the file).
     #[wasm_bindgen(getter)]
     pub fn path(&self) -> Vec<f32> {
-        let mut out = Vec::with_capacity(self.preview.built.interpreted.segments.len() * 7);
+        let mut out = Vec::with_capacity(self.preview.built.interpreted.segments.len() * 9);
         for s in &self.preview.built.interpreted.segments {
             out.extend(s.from.iter().chain(s.to.iter()).map(|v| *v as f32));
             out.push(if s.rapid { 1.0 } else { 0.0 });
+            out.push(s.tool as f32);
+            out.push(s.line as f32);
         }
         out
     }
