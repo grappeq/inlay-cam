@@ -534,3 +534,14 @@ Rust core compiled to WebAssembly (decided 2026-11-14).
   by a slower per-point method.
 - Setup needed on a development machine: rustup, the `wasm32-unknown-unknown` target, a
   C++ linker for native tests, and `wasm-pack` (or `wasm-bindgen-cli`).
+
+Also added at the user's request: settings for values that were fixed in the code.
+
+- The machine (name, travel in X and Y, top spindle speed, rapid speed, first tool number)
+  is set under "Tools and machine", kept in the browser like the tool list and copied into
+  the open project, so the core reads it from the project. Presets: Carvera Air, Carvera.
+- "Clearances and tabs" are per project: travel height, plunge height, tab width, spacing
+  and thickness, the cut past the bottom of a board, and the board left around a cut-out
+  plug. Project files without them read with the old fixed values.
+- Still fixed: the least number of tabs (3), the V-bit's floor ridge (0.1 mm), the
+  simulation's detail, the import tolerances. No ramped entry or choice of cut direction.

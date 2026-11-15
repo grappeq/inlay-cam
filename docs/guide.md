@@ -10,7 +10,7 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 
 ## 1. List your tools
 
-Open **Tools**. Add each end mill and V-bit you will use, or import the `tools.yaml` of
+Open **Tools and machine**. Add each end mill and V-bit you will use, or import the `tools.yaml` of
 your tooling library (only end mills and V-bits are taken from it).
 
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
@@ -24,6 +24,21 @@ your tooling library (only end mills and V-bits are taken from it).
 
 Tools are shared by all projects. A project keeps its own copy of the tools it uses, so it
 opens correctly elsewhere.
+
+### Your machine
+
+Below the tools are the limits every file is checked against. They start as those of the
+Carvera Air; "Fill in for" sets them for the Carvera.
+
+- **Travel in X and Y**: a file whose moves span more is refused.
+- **Top spindle speed**: a tool set to run faster is refused.
+- **Rapid speed** is only used for the time estimates.
+- **First tool number**: the tools of a file are numbered from here, in the order they are
+  used. On a Carvera with a tool rack, T1 to T6 are the rack's slots and are loaded
+  automatically, whatever is in them; start at 7 to be asked for each tool by hand.
+
+The machine is kept in this browser and used by all projects. The files are always written
+for the Carvera Community Firmware, whatever is set here.
 
 ## 2. Bring in a drawing
 
@@ -142,6 +157,22 @@ how large the board must be.
 - Without tabs it comes loose on the last pass: hold it down with tape.
 - Either way the cut goes 0.2 mm past the bottom of the board. Put a spoilboard under it.
 
+### Clearances and tabs
+
+"Clearances and tabs", under the drawing's settings, holds what every file of the project
+shares. The usual values are in brackets.
+
+- **Travel height** (5 mm): how high above the board the tool moves between cuts. Raise it
+  to clear clamps.
+- **Plunge from** (1 mm): the tool drops fast to this height above wood already cut, then
+  goes down at the plunge feed.
+- **Tab width** (4 mm), **spacing** (40 mm) and **thickness** (1 mm). An outline gets a
+  tab about every spacing, and at least three, where it is long enough. A tab is never
+  thicker than half the board.
+- **Cut past the bottom** (0.2 mm): how far into the spoilboard a part is cut out.
+- **Board around a cut-out plug** (5 mm): what is left of the board on every side, beyond
+  the cut.
+
 ## 4. Generate and check
 
 **Generate files** makes both files and checks them. For each file the panel shows:
@@ -185,8 +216,8 @@ plug down firmly, or use a bit with a smaller flat.
 Download each file and run it on its own board.
 
 - Set the work origin at the board's bottom-left corner, Z0 on its top face.
-- Tool numbers in the file start at T1, in the order the tools are used. The firmware asks
-  for each tool in turn.
+- Tool numbers in the file start at T1, or at the first tool number set for your machine,
+  in the order the tools are used. The firmware asks for each tool in turn.
 - The pocket file is for the base board. The plug or insert file is for its own board, of
   the size the app gives.
 

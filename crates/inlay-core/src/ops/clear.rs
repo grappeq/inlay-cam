@@ -28,10 +28,6 @@ pub struct ClearParams {
     pub plunge: f64,
 }
 
-/// Height above already-cut material at which a rapid descent stops and the
-/// plunge feed takes over.
-const PLUNGE_CLEARANCE: f64 = 1.0;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClearError {
     /// No part of the regions is wide enough for the tool.
@@ -150,7 +146,7 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
             };
             if !linked {
                 // Everything the tool can reach was cut to `floor_above` by the previous pass.
-                path.rapid_to(first, floor_above + PLUNGE_CLEARANCE);
+                path.rapid_to(first, floor_above + path.clearance());
                 path.feed_to([first[0], first[1], z], p.plunge);
             }
             for i in 1..=ring.len() {
@@ -220,6 +216,7 @@ mod tests {
     use crate::geom::fixtures::*;
     use crate::geom::offset::total_area;
     use crate::toolpath::Move;
+    use crate::toolpath::PLUNGE_CLEARANCE;
     use std::f64::consts::PI;
 
     fn params() -> ClearParams {

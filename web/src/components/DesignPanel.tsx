@@ -1,5 +1,5 @@
-import type { Design, ImportReport, Inlay, Job, Material, Tool, ToolKind } from "../core/types";
-import { MATERIALS, describeTool, fmt, newJob, regionOwners, resolveTool, toolChoices } from "../state/model";
+import type { Design, ImportReport, Inlay, Job, Material, Setup, Tool, ToolKind } from "../core/types";
+import { DEFAULT_SETUP, MATERIALS, describeTool, fmt, newJob, regionOwners, resolveTool, toolChoices } from "../state/model";
 import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
 import { pickTextFile } from "../util/files";
@@ -27,6 +27,7 @@ export function DesignPanel({ design }: { design: Design }) {
       <div className="panel-scroll">
         <JobsSection design={design} />
         <DrawingSection design={design} report={importReport} onReplace={importSvg} />
+        <SetupSection />
       </div>
     </aside>
   );
@@ -115,6 +116,91 @@ function DrawingSection({ design, report, onReplace }: { design: Design; report:
           }}
         >
           Replace the drawing…
+        </button>
+      </details>
+    </section>
+  );
+}
+
+/** Clearances and tabs: how every file of the project is cut. */
+function SetupSection() {
+  const { project } = useApp();
+  const dispatch = useDispatch();
+  const setup = project.setup;
+  const set = (change: Partial<Setup>) => dispatch({ type: "updateProject", update: (p) => ({ ...p, setup: { ...p.setup, ...change } }) });
+  const changed = (Object.keys(DEFAULT_SETUP) as (keyof Setup)[]).some((key) => setup[key] !== DEFAULT_SETUP[key]);
+
+  return (
+    <section>
+      <details className="more">
+        <summary>Clearances and tabs{changed ? " (changed)" : ""}</summary>
+        <p className="hint">Used by every file of this project.</p>
+        <div className="row">
+          <NumberField
+            label="Travel height"
+            unit="mm"
+            min={1}
+            max={50}
+            value={setup.safeHeight}
+            // The plunge can never start above the height the tool travels at.
+            onChange={(v) => v !== undefined && set({ safeHeight: v, plungeClearance: Math.min(setup.plungeClearance, v) })}
+            hint="Above the board, between cuts. Raise it to clear clamps."
+          />
+          <NumberField
+            label="Plunge from"
+            unit="mm"
+            min={0.1}
+            max={setup.safeHeight}
+            value={setup.plungeClearance}
+            onChange={(v) => v !== undefined && set({ plungeClearance: v })}
+            hint="Above wood already cut. The tool drops fast to here, then goes down at the plunge feed."
+          />
+        </div>
+        <div className="row">
+          <NumberField label="Tab width" unit="mm" min={0.5} max={50} value={setup.tabWidth} onChange={(v) => v !== undefined && set({ tabWidth: v })} />
+          <NumberField
+            label="Tab spacing"
+            unit="mm"
+            min={5}
+            max={1000}
+            value={setup.tabSpacing}
+            onChange={(v) => v !== undefined && set({ tabSpacing: v })}
+          />
+          <NumberField
+            label="Tab thickness"
+            unit="mm"
+            min={0.1}
+            max={20}
+            value={setup.tabThickness}
+            onChange={(v) => v !== undefined && set({ tabThickness: v })}
+          />
+        </div>
+        <p className="hint">
+          An outline gets a tab about every {fmt(setup.tabSpacing)} mm, and at least three, where it is long enough. A tab is never thicker than half
+          the board.
+        </p>
+        <div className="row">
+          <NumberField
+            label="Cut past the bottom"
+            unit="mm"
+            min={0}
+            max={2}
+            value={setup.throughCut}
+            onChange={(v) => v !== undefined && set({ throughCut: v })}
+            hint="Where a part is cut out of its board, into the spoilboard."
+          />
+          <NumberField
+            label="Board around a cut-out plug"
+            unit="mm"
+            min={0}
+            max={100}
+            value={setup.cutOutBorder}
+            onChange={(v) => v !== undefined && set({ cutOutBorder: v })}
+            hint="Left on every side, beyond the cut."
+          />
+        </div>
+        <button disabled={!changed} onClick={() => dispatch({ type: "updateProject", update: (p) => ({ ...p, setup: DEFAULT_SETUP }) })}>
+          Back to the usual values
         </button>
       </details>
     </section>

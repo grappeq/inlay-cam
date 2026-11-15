@@ -56,6 +56,8 @@ function project(): Project {
     design: design(),
     tools: [],
     base: { thickness: 18 },
+    machine: { name: "Carvera Air", maxRpm: 13000, rapidRate: 2000, travel: [300, 200], firstTool: 1 },
+    setup: { safeHeight: 5, plungeClearance: 1, throughCut: 0.2, tabWidth: 4, tabSpacing: 40, tabThickness: 1, cutOutBorder: 5 },
     jobs: [
       { id: "a", name: "Ring", material: "hardwood", regionIds: [1], inlay: { type: "flat" } as never },
       { id: "b", name: "Plates", material: "hardwood", regionIds: [0, 3], inlay: { type: "flat" } as never },

@@ -76,10 +76,6 @@ pub struct VcarveReport {
     pub floor_cleared_by_bit: f64,
 }
 
-/// Height above the surface at which a rapid descent stops and the plunge
-/// feed takes over.
-const PLUNGE_CLEARANCE: f64 = 1.0;
-
 /// Largest sideways error accepted from leaving out a ramp, mm. Outlines made
 /// of many short segments have a medial branch at every vertex; those at
 /// nearly straight joints change nothing the wall rings do not already cut.
@@ -386,7 +382,7 @@ fn plunge_to(path: &mut PathBuilder, xy: Point, depth: f64, p: &VcarveParams) {
     }) {
         return;
     }
-    path.rapid_to(xy, PLUNGE_CLEARANCE);
+    path.rapid_to(xy, path.clearance());
     path.feed_to(target, p.plunge);
 }
 
@@ -548,6 +544,7 @@ mod tests {
     use super::*;
     use crate::geom::fixtures::*;
     use crate::toolpath::Move;
+    use crate::toolpath::PLUNGE_CLEARANCE;
 
     fn params() -> VcarveParams {
         VcarveParams {

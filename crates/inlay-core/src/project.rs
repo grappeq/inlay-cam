@@ -31,6 +31,139 @@ pub struct Project {
     /// The board the pockets are cut into.
     #[serde(default)]
     pub base: BaseStock,
+    /// The machine the files are for.
+    #[serde(default)]
+    pub machine: Machine,
+    /// Clearances and tabs used by every file of the project.
+    #[serde(default)]
+    pub setup: Setup,
+}
+
+/// The machine the output is for. The G-code is always written for the
+/// Carvera Community Firmware; these are the limits the files are checked
+/// against.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Machine {
+    pub name: String,
+    /// Top spindle speed, rpm.
+    pub max_rpm: u32,
+    /// Rapid speed, mm/min, used for time estimates.
+    pub rapid_rate: f64,
+    /// How far the tool can move in X and Y, mm.
+    pub travel: [f64; 2],
+    /// Number of the first tool in a file; the rest follow in the order the
+    /// tools are used. On a Carvera with a tool rack, T1 to T6 are rack
+    /// slots and are loaded automatically, whatever is in them.
+    pub first_tool: u32,
+}
+
+impl Default for Machine {
+    fn default() -> Self {
+        Self {
+            name: "Carvera Air".into(),
+            max_rpm: 13000,
+            rapid_rate: 2000.0,
+            travel: [300.0, 200.0],
+            first_tool: 1,
+        }
+    }
+}
+
+impl Machine {
+    pub fn validate(&self) -> Result<(), String> {
+        let ok = |v: f64| v.is_finite() && v > 0.0;
+        if self.name.trim().is_empty() {
+            return Err("the machine needs a name".into());
+        }
+        if self.max_rpm == 0 {
+            return Err("the machine's top spindle speed must be greater than 0".into());
+        }
+        if !ok(self.rapid_rate) {
+            return Err("the machine's rapid speed must be greater than 0".into());
+        }
+        if !ok(self.travel[0]) || !ok(self.travel[1]) {
+            return Err("the machine's travel must be greater than 0".into());
+        }
+        if !(1..=99).contains(&self.first_tool) {
+            return Err("the first tool number must be from 1 to 99".into());
+        }
+        Ok(())
+    }
+}
+
+/// Clearances and tabs: how the files of a project are cut, whatever the
+/// inlay. Lengths in mm.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Setup {
+    /// Height above the board at which the tool travels between cuts.
+    pub safe_height: f64,
+    /// Height above already-cut wood at which a rapid descent stops and the
+    /// plunge feed takes over.
+    pub plunge_clearance: f64,
+    /// How far past the bottom of its board a part is cut, so that it comes
+    /// free cleanly.
+    pub through_cut: f64,
+    /// Width of wood left in each tab.
+    pub tab_width: f64,
+    /// Roughly how far apart tabs are along an outline.
+    pub tab_spacing: f64,
+    /// Thickness of a tab. Never more than half the board.
+    pub tab_thickness: f64,
+    /// Board left around a plug that is cut out of it, beyond the width of
+    /// the cut.
+    pub cut_out_border: f64,
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Self {
+            safe_height: 5.0,
+            plunge_clearance: 1.0,
+            through_cut: 0.2,
+            tab_width: 4.0,
+            tab_spacing: 40.0,
+            tab_thickness: 1.0,
+            cut_out_border: 5.0,
+        }
+    }
+}
+
+impl Setup {
+    /// The thickness of the tabs on a board this thick.
+    pub fn tab_thickness_on(&self, board: f64) -> f64 {
+        (board / 2.0).min(self.tab_thickness)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let within = |v: f64, low: f64, high: f64| v.is_finite() && v >= low && v <= high;
+        if !within(self.safe_height, 1.0, 50.0) {
+            return Err("the travel height must be from 1 to 50 mm".into());
+        }
+        if !within(self.plunge_clearance, 0.1, self.safe_height) {
+            return Err(
+                "the plunge height must be at least 0.1 mm and no more than the travel height"
+                    .into(),
+            );
+        }
+        if !within(self.through_cut, 0.0, 2.0) {
+            return Err("the cut past the bottom of a board must be from 0 to 2 mm".into());
+        }
+        if !within(self.tab_width, 0.5, 50.0) {
+            return Err("the tab width must be from 0.5 to 50 mm".into());
+        }
+        if !within(self.tab_spacing, 5.0, 1000.0) {
+            return Err("the tab spacing must be from 5 to 1000 mm".into());
+        }
+        if !within(self.tab_thickness, 0.1, 20.0) {
+            return Err("the tab thickness must be from 0.1 to 20 mm".into());
+        }
+        if !within(self.cut_out_border, 0.0, 100.0) {
+            return Err("the board left around a cut-out plug must be from 0 to 100 mm".into());
+        }
+        Ok(())
+    }
 }
 
 /// The board that receives the inlays. Its outline is the design's page (after
@@ -375,6 +508,8 @@ impl Project {
             return Err("the project has no id".into());
         }
         validate_tools(&self.tools)?;
+        self.machine.validate()?;
+        self.setup.validate()?;
         if !(self.base.thickness.is_finite() && self.base.thickness > 0.0) {
             return Err("base board thickness must be greater than 0".into());
         }
@@ -510,6 +645,8 @@ mod tests {
             ],
             tools: vec![end_mill(), v_bit()],
             base: BaseStock::default(),
+            machine: Machine::default(),
+            setup: Setup::default(),
         }
     }
 
@@ -521,6 +658,30 @@ mod tests {
     }
 
     #[test]
+    fn a_file_without_machine_or_setup_gets_the_defaults() {
+        let text = project_to_file_json(&sample());
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let body = value["project"].as_object_mut().unwrap();
+        assert!(body.remove("machine").is_some() && body.remove("setup").is_some());
+        let read = project_from_file_json(&value.to_string()).unwrap();
+        assert_eq!(read.machine, Machine::default());
+        assert_eq!(read.setup, Setup::default());
+    }
+
+    #[test]
+    fn bad_machine_or_setup_is_refused() {
+        let mut p = sample();
+        p.setup.plunge_clearance = 6.0;
+        assert!(p.validate().unwrap_err().contains("plunge height"));
+        let mut p = sample();
+        p.machine.first_tool = 0;
+        assert!(p.validate().unwrap_err().contains("first tool number"));
+        let mut p = sample();
+        p.machine.travel = [300.0, 0.0];
+        assert!(p.validate().unwrap_err().contains("travel"));
+    }
+
+    #[test]
     fn empty_project_round_trips() {
         let project = Project {
             id: "p".into(),
@@ -529,6 +690,8 @@ mod tests {
             jobs: vec![],
             tools: vec![],
             base: BaseStock::default(),
+            machine: Machine::default(),
+            setup: Setup::default(),
         };
         assert_eq!(
             project_from_file_json(&project_to_file_json(&project)).unwrap(),

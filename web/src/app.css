@@ -951,6 +951,15 @@ details.more[open] > summary {
   max-width: 80ch;
   margin-bottom: 14px;
 }
+.machine {
+  margin-top: 28px;
+}
+.machine-fields {
+  align-items: flex-start;
+}
+.machine-fields > .field {
+  flex: 0 1 170px;
+}
 .spacer {
   flex: 1;
 }

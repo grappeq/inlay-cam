@@ -213,6 +213,8 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
         }],
         tools: vec![end_mill(), vbit],
         base: BaseStock { thickness: 18.0 },
+        machine: Default::default(),
+        setup: Default::default(),
     }
 }
 

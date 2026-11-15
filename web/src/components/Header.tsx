@@ -32,7 +32,7 @@ export function Header() {
           Design
         </button>
         <button aria-pressed={view === "tools"} onClick={() => dispatch({ type: "setView", view: "tools" })}>
-          Tools{tools.length > 0 ? ` (${tools.length})` : ""}
+          Tools{tools.length > 0 ? ` (${tools.length})` : ""} and machine
         </button>
       </nav>
       <input

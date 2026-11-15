@@ -1,13 +1,53 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { Inlay, Job, Material, Project, Tool, ToolKind } from "../core/types";
+import type { Inlay, Job, Machine, Material, Project, Setup, Tool, ToolKind } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
 }
 
+/** Machines whose limits can be filled in with one click. The first is the one a new installation starts with. */
+export const MACHINE_PRESETS: Machine[] = [
+  { name: "Carvera Air", maxRpm: 13000, rapidRate: 2000, travel: [300, 200], firstTool: 1 },
+  { name: "Carvera", maxRpm: 15000, rapidRate: 2000, travel: [360, 240], firstTool: 1 },
+];
+export const DEFAULT_MACHINE: Machine = MACHINE_PRESETS[0];
+
+/** The same values the core gives a project file that has none. */
+export const DEFAULT_SETUP: Setup = {
+  safeHeight: 5,
+  plungeClearance: 1,
+  throughCut: 0.2,
+  tabWidth: 4,
+  tabSpacing: 40,
+  tabThickness: 1,
+  cutOutBorder: 5,
+};
+
+/** Reads the machine kept in browser storage; anything unusable in it falls back to the usual value. */
+export function readMachine(text: string | undefined): Machine {
+  let stored: Partial<Machine> = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    if (parsed && typeof parsed === "object") stored = parsed as Partial<Machine>;
+  } catch {
+    // Not JSON: the usual machine.
+  }
+  const positive = (v: unknown, usual: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : usual);
+  const whole = (v: unknown, usual: number, most: number) => (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= most ? (v as number) : usual);
+  const d = DEFAULT_MACHINE;
+  const travel = Array.isArray(stored.travel) ? stored.travel : [];
+  return {
+    name: typeof stored.name === "string" && stored.name.trim() !== "" ? stored.name : d.name,
+    maxRpm: whole(stored.maxRpm, d.maxRpm, 1_000_000),
+    rapidRate: positive(stored.rapidRate, d.rapidRate),
+    travel: [positive(travel[0], d.travel[0]), positive(travel[1], d.travel[1])],
+    firstTool: whole(stored.firstTool, d.firstTool, 99),
+  };
+}
+
 export function newProject(name = "Untitled inlay"): Project {
-  return { id: newId(), name, design: null, jobs: [], tools: [], base: { thickness: 18 } };
+  return { id: newId(), name, design: null, jobs: [], tools: [], base: { thickness: 18 }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
 }
 
 export function defaultInlay(type: Inlay["type"]): Inlay {

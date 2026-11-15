@@ -46,9 +46,6 @@ pub struct ProfileReport {
     pub tabs: Vec<usize>,
 }
 
-/// Height above already-cut material at which a rapid descent stops.
-const PLUNGE_CLEARANCE: f64 = 1.0;
-
 /// Appends the moves that cut `parts` out. The tool must already be loaded
 /// and spinning.
 pub fn profile(
@@ -91,7 +88,7 @@ pub fn profile(
                     match path.position() {
                         // Back at the start after the pass before: go straight down.
                         Some(pos) if distance([pos[0], pos[1]], first) < 1e-6 && pos[2] <= 0.0 => {}
-                        _ => path.rapid_to(first, PLUNGE_CLEARANCE - above),
+                        _ => path.rapid_to(first, path.clearance() - above),
                     }
                     path.feed_to([first[0], first[1], -z], p.plunge);
                     cut_round(path, &stations, z, tab_top, &tabs, p);
@@ -192,6 +189,7 @@ mod tests {
     use super::*;
     use crate::geom::fixtures::*;
     use crate::toolpath::Move;
+    use crate::toolpath::PLUNGE_CLEARANCE;
 
     fn params(tabs: bool) -> ProfileParams {
         ProfileParams {

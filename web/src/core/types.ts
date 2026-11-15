@@ -97,6 +97,35 @@ export interface Job {
   inlay: Inlay;
 }
 
+/** The machine the files are for: the limits they are checked against. */
+export interface Machine {
+  name: string;
+  /** Top spindle speed, rpm. */
+  maxRpm: number;
+  /** Rapid speed, mm/min, for time estimates. */
+  rapidRate: number;
+  /** How far the tool can move in X and Y. */
+  travel: [number, number];
+  /** Number of the first tool in a file. */
+  firstTool: number;
+}
+
+/** Clearances and tabs used by every file of a project. */
+export interface Setup {
+  /** Height above the board at which the tool travels between cuts. */
+  safeHeight: number;
+  /** Height above already-cut wood at which the plunge feed takes over. */
+  plungeClearance: number;
+  /** How far past the bottom of its board a part is cut. */
+  throughCut: number;
+  tabWidth: number;
+  tabSpacing: number;
+  /** Never more than half the board. */
+  tabThickness: number;
+  /** Board left around a plug that is cut out of it, beyond the width of the cut. */
+  cutOutBorder: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -106,6 +135,9 @@ export interface Project {
   tools: Tool[];
   /** The board the pockets are cut into. Its outline is the design's page. */
   base: { thickness: number };
+  /** A copy of the machine set under Tools. */
+  machine: Machine;
+  setup: Setup;
 }
 
 export interface ImportReport {

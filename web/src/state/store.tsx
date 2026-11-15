@@ -3,10 +3,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { FitCheck, ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
+import type { FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
-import { newProject, regionOwners, toolSnapshots } from "./model";
+import { DEFAULT_MACHINE, newProject, readMachine, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "tools";
 /** What the large area beside the panel shows. */
@@ -17,6 +17,8 @@ export interface AppState {
   /** False until stored data has been loaded. */
   ready: boolean;
   tools: Tool[];
+  /** The machine the files are for. Like the tools, it is kept in this browser and copied into the open project. */
+  machine: Machine;
   project: Project;
   projects: db.ProjectSummary[];
   view: View;
@@ -57,11 +59,12 @@ export interface Output {
 }
 
 export type Action =
-  | { type: "loaded"; tools: Tool[]; project: Project; projects: db.ProjectSummary[] }
+  | { type: "loaded"; tools: Tool[]; machine: Machine; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
   | { type: "updateProject"; update: (project: Project) => Project }
   | { type: "updateJob"; id: string; update: (job: Job) => Job }
   | { type: "setTools"; tools: Tool[] }
+  | { type: "setMachine"; machine: Machine }
   | { type: "setProjects"; projects: db.ProjectSummary[] }
   | { type: "setView"; view: View }
   | { type: "clickRegion"; id: number; add?: boolean }
@@ -81,6 +84,7 @@ export type Action =
 const initial: AppState = {
   ready: false,
   tools: [],
+  machine: DEFAULT_MACHINE,
   project: newProject(),
   projects: [],
   view: "design",
@@ -98,17 +102,18 @@ const initial: AppState = {
   lastEdit: null,
 };
 
-/** Keeps the project's tool copies in step with its jobs and the tool list. */
+/** Keeps the project's copies of the tools and the machine in step with its jobs, the tool list and the machine. */
 function withSnapshots(state: AppState): AppState {
   const tools = toolSnapshots(state.project, state.tools);
-  if (JSON.stringify(tools) === JSON.stringify(state.project.tools)) return state;
-  return { ...state, project: { ...state.project, tools } };
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  if (same(tools, state.project.tools) && same(state.machine, state.project.machine)) return state;
+  return { ...state, project: { ...state.project, tools, machine: state.machine } };
 }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "loaded":
-      return withSnapshots({ ...state, ready: true, tools: action.tools, project: action.project, projects: action.projects });
+      return withSnapshots({ ...state, ready: true, tools: action.tools, machine: action.machine, project: action.project, projects: action.projects });
     case "openProject":
       return withSnapshots({
         ...state,
@@ -133,6 +138,8 @@ function reducer(state: AppState, action: Action): AppState {
       });
     case "setTools":
       return withSnapshots({ ...state, tools: action.tools });
+    case "setMachine":
+      return withSnapshots({ ...state, machine: action.machine });
     case "setProjects":
       return { ...state, projects: action.projects };
     case "setView":
@@ -261,8 +268,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         problem ??= `The last project could not be reopened: ${message(e)}`;
       }
       const projects = await db.listProjects().catch(() => []);
+      const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
       if (cancelled) return;
-      dispatch({ type: "loaded", tools, project, projects });
+      dispatch({ type: "loaded", tools, machine, project, projects });
       if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
     return () => {
@@ -309,6 +317,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [state.ready, state.tools]);
+
+  useEffect(() => {
+    if (!state.ready) return;
+    db.putSetting("machine", JSON.stringify(state.machine)).catch((e) =>
+      dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } }),
+    );
+  }, [state.ready, state.machine]);
 
   const value = useMemo(() => state, [state]);
   return (

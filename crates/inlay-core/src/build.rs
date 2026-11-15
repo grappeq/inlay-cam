@@ -16,33 +16,13 @@ use crate::ops::clear::{centres, clear_centres, ClearParams};
 use crate::ops::profile::{profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
-use crate::project::{Inlay, InsertStyle, Job, Project};
+use crate::project::{Inlay, InsertStyle, Job, Machine, Project, Setup};
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{Move, PathBuilder, Program, ProgramTool};
 use crate::tools::{CuttingSettings, Material, Tool, ToolKind};
 
-/// The machine the output is for.
-pub struct Machine {
-    pub name: &'static str,
-    pub max_rpm: u32,
-    /// Rapid speed, mm/min, used for time estimates.
-    pub rapid_rate: f64,
-    /// How far the tool can move in X and Y, mm.
-    pub travel: [f64; 2],
-}
-
-pub const CARVERA_AIR: Machine = Machine {
-    name: "Carvera Air",
-    max_rpm: 13000,
-    rapid_rate: 2000.0,
-    travel: [300.0, 200.0],
-};
-
 /// Highest ridge the V-bit may leave between passes on a flat floor, mm.
 pub const MAX_FLOOR_RIDGE: f64 = 0.1;
-
-/// Height above the stock at which the tool travels between cuts, mm.
-pub const SAFE_Z: f64 = 5.0;
 
 /// The two halves of an inlay: each is cut from its own board, with its own file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,10 +49,6 @@ fn part_name(part: Part, inlay: &Inlay) -> &'static str {
         (Part::Plug, Inlay::Flat { .. }) => "insert",
     }
 }
-
-/// How far past the bottom of its board an insert is cut, so that it comes
-/// free cleanly, mm.
-pub const THROUGH_CUT: f64 = 0.2;
 
 /// How a flat insert and its pocket go together, from the shapes the tool
 /// actually leaves. Lengths in mm, areas in mm².
@@ -177,7 +153,8 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
 /// Builds the file for one part of a job. On failure returns every reason
 /// found, in plain words.
 pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<String>> {
-    let machine = &CARVERA_AIR;
+    let machine = &project.machine;
+    let through_cut = project.setup.through_cut;
     let job = project
         .jobs
         .iter()
@@ -223,7 +200,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             Inlay::Flat {
                 insert_thickness, ..
             },
-        ) => (insert_thickness + THROUGH_CUT, *insert_thickness),
+        ) => (insert_thickness + through_cut, *insert_thickness),
     };
     // A loose insert is cut right through its board on purpose.
     let loose = matches!(
@@ -429,7 +406,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     let program = Program {
         name: format!("{} - {} - {}", project.name, job.name, name),
         tools: cut.tools,
-        safe_z: SAFE_Z,
+        safe_z: project.setup.safe_height,
         moves: cut.moves,
     };
     let gcode = carvera::write(&program);
@@ -451,7 +428,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
 
     // Everything the tool does, from the first move to the last, has to fit
     // within the machine's travel wherever the board is clamped.
-    for (axis, name) in [(0, "X"), (1, "Y")] {
+    for (axis, along) in [(0, "X"), (1, "Y")] {
         let (low, high) = interpreted
             .segments
             .iter()
@@ -461,7 +438,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             });
         if high - low > machine.travel[axis] {
             return Err(vec![format!(
-                "The {} spans {} mm in {name}, more than the {} can travel ({} mm).",
+                "The {} spans {} mm in {along}, more than the {} can travel ({} mm).",
                 name,
                 num((high - low).ceil()),
                 machine.name,
@@ -549,6 +526,17 @@ struct Cut {
 }
 
 impl<'a> Context<'a> {
+    /// The project's clearances and tabs.
+    fn setup(&self) -> Setup {
+        self.project.setup
+    }
+
+    /// An empty path that travels and plunges at the project's heights.
+    fn path(&self) -> PathBuilder {
+        let setup = self.setup();
+        PathBuilder::new(setup.safe_height).with_clearance(setup.plunge_clearance)
+    }
+
     /// Looks up a tool for the job and checks it can do the work: right kind,
     /// cutting settings for the wood, speed within the machine's range and
     /// cutting edges long enough for the depth.
@@ -880,8 +868,8 @@ fn flat_pocket(
         return None;
     }
 
-    let mut number = carvera::FIRST_TOOL_NUMBER;
-    let mut path = PathBuilder::new(SAFE_Z);
+    let mut number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
     let (_, tools) = ctx.clear_in_order(
         &mut path,
         &shapes.pocket,
@@ -978,8 +966,9 @@ fn flat_insert(
         .map(|r| Region::with_holes(place(&r.outer), r.holes.iter().map(place).collect()))
         .collect();
 
-    let number = carvera::FIRST_TOOL_NUMBER;
-    let mut path = PathBuilder::new(SAFE_Z);
+    let setup = ctx.setup();
+    let number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     let params = ProfileParams {
         tool_diameter: tool.diameter,
@@ -988,10 +977,10 @@ fn flat_insert(
         feed: cutting.feed,
         plunge: cutting.plunge,
         tabs: insert.tabs.then_some(Tabs {
-            // A millimetre of wood, or half the board if it is thinner than two.
-            height: THROUGH_CUT + (insert.thickness / 2.0).min(1.0),
-            width: 4.0,
-            spacing: 40.0,
+            // The thickness asked for, or half the board if that is less.
+            height: setup.through_cut + setup.tab_thickness_on(insert.thickness),
+            width: setup.tab_width,
+            spacing: setup.tab_spacing,
         }),
     };
     let report = match profile(&mut path, &parts, &params) {
@@ -1029,8 +1018,8 @@ fn flat_insert(
         if without < parts.len() {
             ctx.warnings.push(format!(
                 "Tabs {} mm wide and {} mm thick hold each insert to its board: {} in all. Cut them and sand the edge flush before fitting.",
-                num(4.0),
-                num((insert.thickness / 2.0).min(1.0)),
+                num(setup.tab_width),
+                num(setup.tab_thickness_on(insert.thickness)),
                 report.tabs.iter().sum::<usize>()
             ));
         }
@@ -1041,7 +1030,7 @@ fn flat_insert(
     }
     ctx.warnings.push(format!(
         "The cut goes {} mm past the bottom of the insert board: put a spoilboard under it.",
-        num(THROUGH_CUT)
+        num(setup.through_cut)
     ));
     Some(Cut {
         tools: vec![ProgramTool {
@@ -1053,7 +1042,7 @@ fn flat_insert(
         board: Some((width, height)),
         flat_fit: Some(fit),
         cuttable: outlines(&shapes.cuttable),
-        through: THROUGH_CUT,
+        through: setup.through_cut,
         ..Cut::default()
     })
 }
@@ -1145,8 +1134,8 @@ fn flat_backer(
         .flat_map(|r| difference(r, &standing))
         .collect();
 
-    let mut number = carvera::FIRST_TOOL_NUMBER;
-    let mut path = PathBuilder::new(SAFE_Z);
+    let mut number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
     let (cleared, tools) = ctx.clear_in_order(
         &mut path,
         &floor,
@@ -1199,10 +1188,6 @@ fn flat_backer(
     })
 }
 
-/// Board left around a plug that is cut out of it, beyond the width of the
-/// cut, mm.
-const CUT_OUT_BORDER: f64 = 5.0;
-
 /// Takes a finished plug, whose blank so far was the whole board, and cuts it
 /// out of a larger board as one piece: the board grows by a border all round,
 /// everything moves over by that border, and the largest end mill that is
@@ -1215,7 +1200,8 @@ fn cut_piece_out(
     tool_ids: &[String],
 ) -> Option<Cut> {
     let (width, height) = cut.board?;
-    let depth = thickness + THROUGH_CUT;
+    let setup = ctx.setup();
+    let depth = thickness + setup.through_cut;
     let mut candidates: Vec<&Tool> = tool_ids
         .iter()
         .filter_map(|id| {
@@ -1255,7 +1241,7 @@ fn cut_piece_out(
 
     // A whole number of millimetres, so the plug keeps its place on the
     // simulation's grid and its fit reads the same cut out or not.
-    let border = (tool.diameter + CUT_OUT_BORDER).ceil();
+    let border = (tool.diameter + setup.cut_out_border).ceil();
     let shift = |q: &mut [f64]| {
         q[0] += border;
         q[1] += border;
@@ -1294,7 +1280,7 @@ fn cut_piece_out(
                 .iter()
                 .map(|t| t.number)
                 .max()
-                .map_or(carvera::FIRST_TOOL_NUMBER, |n| n + 1);
+                .map_or(ctx.project.machine.first_tool, |n| n + 1);
             cut.tools.push(ProgramTool {
                 number,
                 tool: (*tool).clone(),
@@ -1308,8 +1294,8 @@ fn cut_piece_out(
         [border + width, border + height],
         [border, border + height],
     ]);
-    let tab_height = (thickness / 2.0).min(1.0);
-    let mut path = PathBuilder::new(SAFE_Z);
+    let tab_height = setup.tab_thickness_on(thickness);
+    let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     let report = profile(
         &mut path,
@@ -1321,9 +1307,9 @@ fn cut_piece_out(
             feed: cutting.feed,
             plunge: cutting.plunge,
             tabs: tabs.then_some(Tabs {
-                height: THROUGH_CUT + tab_height,
-                width: 4.0,
-                spacing: 40.0,
+                height: setup.through_cut + tab_height,
+                width: setup.tab_width,
+                spacing: setup.tab_spacing,
             }),
         },
     )
@@ -1343,8 +1329,9 @@ fn cut_piece_out(
     ));
     ctx.warnings.push(if tabs {
         format!(
-            "{} tabs 4 mm wide and {} mm thick hold the plug to its board. Cut them and trim the edge before use.",
+            "{} tabs {} mm wide and {} mm thick hold the plug to its board. Cut them and trim the edge before use.",
             report.tabs.iter().sum::<usize>(),
+            num(setup.tab_width),
             num(tab_height)
         )
     } else {
@@ -1352,10 +1339,10 @@ fn cut_piece_out(
     });
     ctx.warnings.push(format!(
         "The cut goes {} mm past the bottom of the board: put a spoilboard under it.",
-        num(THROUGH_CUT)
+        num(setup.through_cut)
     ));
     cut.board = Some((board_width, board_height));
-    cut.through = THROUGH_CUT;
+    cut.through = setup.through_cut;
     cut.piece = Some([border, border, border + width, border + height]);
     Some(cut)
 }
@@ -1436,7 +1423,7 @@ fn clear_floor_then_load_vbit(
     floor: &[Region],
     whose: &str,
 ) -> (Vec<Region>, Vec<ProgramTool>) {
-    let mut number = carvera::FIRST_TOOL_NUMBER;
+    let mut number = ctx.project.machine.first_tool;
     let (cleared, mut tools) = ctx.clear_in_order(
         path,
         floor,
@@ -1477,7 +1464,7 @@ fn vcarve_pocket(
 ) -> Option<Cut> {
     let setup = vcarve_setup(ctx, ctx.depth, end_mill_ids, vbit_id)?;
     let floor = setup.params.floor(regions);
-    let mut path = PathBuilder::new(SAFE_Z);
+    let mut path = ctx.path();
     let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "pocket's");
     if let Err(e) = vcarve(&mut path, regions, &cleared, &setup.params) {
         carving_failed(ctx, e);
@@ -1563,7 +1550,7 @@ fn vcarve_plug_cut(
     ]);
 
     let floor = difference(&blank, &offset(&shapes, plug.saw_gap * p.tan()));
-    let mut path = PathBuilder::new(SAFE_Z);
+    let mut path = ctx.path();
     let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "plug's");
     if let Err(e) = vcarve_plug(&mut path, &shapes, &blank, &cleared, plug.engagement, p) {
         carving_failed(ctx, e);
@@ -1822,6 +1809,8 @@ mod tests {
             }],
             tools: vec![end_mill(), v_bit()],
             base: BaseStock { thickness: 18.0 },
+            machine: Machine::default(),
+            setup: Setup::default(),
         }
     }
 
@@ -2427,6 +2416,86 @@ mod tests {
     }
 
     #[test]
+    fn the_machine_and_the_setup_shape_the_files() {
+        let mut p = project();
+        if let Inlay::Flat { tabs, .. } = &mut p.jobs[0].inlay {
+            *tabs = true;
+        }
+        p.machine.first_tool = 7;
+        p.setup = Setup {
+            safe_height: 8.0,
+            plunge_clearance: 2.0,
+            through_cut: 0.5,
+            tab_width: 6.0,
+            tab_spacing: 20.0,
+            tab_thickness: 1.5,
+            cut_out_border: 5.0,
+        };
+        let insert = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(insert.problems, vec![]);
+        let built = &insert.built;
+        assert!(built.gcode.contains("M6 T7") && !built.gcode.contains("M6 T1"));
+        assert_eq!(built.stats.per_tool[0].number, 7);
+        // Travel at 8 mm, never at the usual 5.
+        assert!(built.gcode.contains("Z8.000") && !built.gcode.contains("Z5.000"));
+        // A 4 mm board cut 0.5 mm past its bottom, with tabs 1.5 mm thick.
+        assert_eq!(built.stock.through, 0.5);
+        assert!(built.gcode.contains("Z-4.500") && built.gcode.contains("Z-2.500"));
+        assert!(
+            built
+                .warnings
+                .iter()
+                .any(|w| w.contains("Tabs 6 mm wide and 1.5 mm thick")),
+            "{:?}",
+            built.warnings
+        );
+        let usual = {
+            let mut q = p.clone();
+            q.setup.tab_spacing = 40.0;
+            build(&q, "j", Part::Plug).unwrap()
+        };
+        let tabs = |b: &Built| b.gcode.matches("Z-2.500").count();
+        assert!(tabs(built) > tabs(&usual), "closer tabs, more of them");
+
+        // The pocket: rapid descents stop 2 mm above the wood.
+        let pocket = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(pocket.problems, vec![]);
+        assert!(
+            pocket.built.gcode.contains("G0 Z2.000"),
+            "{}",
+            pocket.built.gcode
+        );
+
+        // The machine's limits and name are the project's.
+        p.machine.name = "Small mill".into();
+        p.machine.travel = [20.0, 200.0];
+        let reasons = build_pocket(&p, "j").unwrap_err().join(" | ");
+        assert!(
+            reasons.contains("The pocket spans")
+                && reasons.contains("more than the Small mill can travel (20 mm)"),
+            "{reasons}"
+        );
+        p.machine.travel = [300.0, 200.0];
+        p.machine.max_rpm = 8000;
+        let reasons = build_pocket(&p, "j").unwrap_err().join(" | ");
+        assert!(
+            reasons.contains("Small mill spindle tops out at 8000 rpm"),
+            "{reasons}"
+        );
+    }
+
+    #[test]
+    fn a_wider_border_makes_a_larger_board_for_a_cut_out_plug() {
+        let mut p = vcarve_project(true);
+        set_cut_out(&mut p, true, true);
+        let usual = build(&p, "j", Part::Plug).unwrap();
+        p.setup.cut_out_border = 10.0;
+        let wide = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(wide.stock.width, usual.stock.width + 10.0);
+        assert_eq!(wide.stock.height, usual.stock.height + 10.0);
+    }
+
+    #[test]
     fn fit_is_only_for_v_carve_inlays_and_cuts_must_fit_the_machine() {
         assert!(check_fit(&project(), "j").unwrap_err()[0].contains("flat inlay"));
         let mut p = project();
@@ -2619,7 +2688,7 @@ mod tests {
             let (a, b) = (plain.built.stock, cut.built.stock);
             assert!((b.width - a.width - GROWN).abs() < 1e-9);
             assert!((b.height - a.height - GROWN).abs() < 1e-9);
-            assert_eq!(b.through, THROUGH_CUT);
+            assert_eq!(b.through, Setup::default().through_cut);
             // The end mill comes back after the V-bit, under its own number.
             assert_eq!(cut.built.stats.tools, plain.built.stats.tools);
             assert_eq!(cut.built.stats.tool_changes, 3);
@@ -2640,7 +2709,7 @@ mod tests {
             // One cut right round the plug, through the board except at tabs.
             let [x0, y0, x1, y1] = cut.built.piece.unwrap();
             let map = &cut.map;
-            let bottom = -(b.thickness + THROUGH_CUT) as f32;
+            let bottom = -(b.thickness + Setup::default().through_cut) as f32;
             let track_y = y0 - 3.175 / 2.0;
             let through = (0..map.nx)
                 .filter(|ix| {
@@ -2752,7 +2821,7 @@ mod tests {
             let cut = preview(&p, "j", Part::Plug).unwrap();
             assert_eq!(cut.problems, vec![], "tabs: {tabs}");
             assert!((cut.built.stock.width - plain.stock.width - GROWN).abs() < 1e-9);
-            assert_eq!(cut.built.stock.through, THROUGH_CUT);
+            assert_eq!(cut.built.stock.through, Setup::default().through_cut);
             assert_eq!(cut.built.stats.tool_changes, 2);
             assert_eq!(
                 cut.built

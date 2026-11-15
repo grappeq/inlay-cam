@@ -76,7 +76,12 @@ pub struct PathBuilder {
     moves: Vec<Move>,
     position: Option<P3>,
     safe_z: f64,
+    clearance: f64,
 }
+
+/// The usual height above already-cut material at which a rapid descent
+/// stops and the plunge feed takes over, mm.
+pub const PLUNGE_CLEARANCE: f64 = 1.0;
 
 impl PathBuilder {
     pub fn new(safe_z: f64) -> Self {
@@ -84,7 +89,20 @@ impl PathBuilder {
             moves: Vec::new(),
             position: None,
             safe_z,
+            clearance: PLUNGE_CLEARANCE.min(safe_z),
         }
+    }
+
+    /// Sets the height above already-cut material at which rapid descents stop.
+    pub fn with_clearance(mut self, clearance: f64) -> Self {
+        self.clearance = clearance;
+        self
+    }
+
+    /// Height above already-cut material at which a rapid descent stops and
+    /// the plunge feed takes over.
+    pub fn clearance(&self) -> f64 {
+        self.clearance
     }
 
     pub fn position(&self) -> Option<P3> {

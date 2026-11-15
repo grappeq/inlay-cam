@@ -21,11 +21,6 @@ use crate::toolpath::{Move, Program};
 pub const MAX_LINE_LENGTH: usize = 128;
 pub const FILE_EXTENSION: &str = "cnc";
 
-/// Tool numbers start here, in the order the tools are used. On a Carvera Air
-/// every change is a manual prompt. On a Carvera with a tool rack, T1 to T6
-/// are rack slots and are loaded automatically, whatever is in them.
-pub const FIRST_TOOL_NUMBER: u32 = 1;
-
 pub fn write(program: &Program) -> String {
     let mut out = Writer {
         text: String::new(),

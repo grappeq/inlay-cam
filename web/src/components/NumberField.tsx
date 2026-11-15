@@ -7,6 +7,9 @@ interface Props {
   onChange: (value: number | undefined) => void;
   unit?: string;
   min?: number;
+  max?: number;
+  /** Take whole numbers only. */
+  whole?: boolean;
   /** Allow the field to be left empty (the value is then undefined). */
   optional?: boolean;
   hint?: string;
@@ -21,7 +24,8 @@ interface Props {
  * A number input that only reports complete, in-range numbers. While the text
  * is not a usable number the field is marked invalid and the last good value stays.
  */
-export function NumberField({ label, value, onChange, unit, min = 0, optional, hint, deferred }: Props) {
+export function NumberField({ label, value, onChange, unit, min = 0, max = Infinity, whole, optional, hint, deferred }: Props) {
+  const unusable = (n: number) => Number.isNaN(n) || n < min || n > max || (whole === true && !Number.isInteger(n));
   const [text, setText] = useState(value === undefined ? "" : fmt(value));
   const [invalid, setInvalid] = useState(false);
 
@@ -48,7 +52,7 @@ export function NumberField({ label, value, onChange, unit, min = 0, optional, h
     if (parsed === undefined) {
       setInvalid(!optional);
       if (optional) onChange(undefined);
-    } else if (Number.isNaN(parsed) || parsed < min) {
+    } else if (unusable(parsed)) {
       setInvalid(true);
     } else {
       setInvalid(false);
@@ -64,7 +68,7 @@ export function NumberField({ label, value, onChange, unit, min = 0, optional, h
   /** Deferred fields: hands over what was typed, if it is a usable number and a new one. */
   function commit() {
     const parsed = parse(text);
-    if (parsed === undefined || Number.isNaN(parsed) || parsed < min) return revert();
+    if (parsed === undefined || unusable(parsed)) return revert();
     if (parsed !== value && fmt(parsed) !== (value === undefined ? "" : fmt(value))) onChange(parsed);
     else revert();
   }

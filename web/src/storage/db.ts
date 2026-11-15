@@ -62,10 +62,12 @@ export async function deleteProject(id: string): Promise<void> {
   await run(PROJECTS, "readwrite", (s) => s.delete(id));
 }
 
-export function getSetting(key: "tools" | "lastProjectId"): Promise<string | undefined> {
+export type SettingKey = "tools" | "lastProjectId" | "machine";
+
+export function getSetting(key: SettingKey): Promise<string | undefined> {
   return run<string | undefined>(SETTINGS, "readonly", (s) => s.get(key));
 }
 
-export async function putSetting(key: "tools" | "lastProjectId", value: string): Promise<void> {
+export async function putSetting(key: SettingKey, value: string): Promise<void> {
   await run(SETTINGS, "readwrite", (s) => s.put(value, key));
 }
