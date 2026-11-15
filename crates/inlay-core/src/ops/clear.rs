@@ -4,8 +4,12 @@
 //! The tool follows rings parallel to the boundary, from the middle outwards,
 //! one depth pass at a time. The outermost ring puts the tool's edge exactly
 //! on the boundary, so inside corners come out rounded to the tool's radius.
+//!
+//! A second, smaller tool can follow a larger one: it then works only where
+//! its edge reaches wood the tools before it left (rest machining).
 
-use crate::geom::offset::offset;
+use crate::geom::boolean::{difference, intersection};
+use crate::geom::offset::{offset, open};
 use crate::geom::{distance, Point, Region, Ring};
 use crate::toolpath::PathBuilder;
 
@@ -34,6 +38,14 @@ pub enum ClearError {
     ToolTooWide,
 }
 
+/// Leftover wood thinner than twice this is not worth a visit: it is the
+/// rounding of curves, not something a tool before left standing, mm.
+const REST_SLIVER: f64 = 0.02;
+
+/// How much further than its radius from leftover wood the tool's centre is
+/// still sent, so that rounding never keeps it off a wall it has to follow, mm.
+const REST_MARGIN: f64 = 0.05;
+
 /// Appends the clearing moves for `regions` to `path`. The tool must already
 /// be loaded and spinning. Returns the area the tool's edge reaches, i.e. the
 /// pocket that results.
@@ -42,37 +54,67 @@ pub fn clear(
     regions: &[Region],
     p: &ClearParams,
 ) -> Result<Vec<Region>, ClearError> {
-    // One separate area at a time, to full depth, so the tool does not hop
-    // between pockets after every ring.
-    let mut pocket = Vec::new();
-    for region in regions {
-        pocket.extend(clear_one(path, region, p));
-    }
-    if pocket.is_empty() {
+    let centres = centres(regions, &[], p.tool_diameter);
+    if centres.is_empty() {
         return Err(ClearError::ToolTooWide);
     }
-    Ok(pocket)
+    Ok(clear_centres(path, &centres, p))
 }
 
-/// Clears one connected region. Returns the pocket that results, which is
-/// empty when the tool does not fit anywhere in it.
-fn clear_one(path: &mut PathBuilder, region: &Region, p: &ClearParams) -> Vec<Region> {
-    let radius = p.tool_diameter / 2.0;
-    let region = std::slice::from_ref(region);
+/// Where the centre of a tool of this diameter has to go to clear `regions`,
+/// given that `already` has been cut to full depth by the tools before it.
+/// The tool's edge stays inside `regions`. Empty when the tool fits nowhere,
+/// or when nothing it can reach is left.
+pub fn centres(regions: &[Region], already: &[Region], tool_diameter: f64) -> Vec<Region> {
+    let radius = tool_diameter / 2.0;
+    let mut out = Vec::new();
+    // One separate area at a time, so the tool finishes one before the next.
+    for region in regions {
+        let allowed = offset(std::slice::from_ref(region), -radius);
+        if already.is_empty() || allowed.is_empty() {
+            out.extend(allowed);
+            continue;
+        }
+        // What this tool's edge can reach, less what is gone already.
+        let rest: Vec<Region> = offset(&allowed, radius)
+            .iter()
+            .flat_map(|r| difference(r, already))
+            .collect();
+        let rest = open(&rest, REST_SLIVER);
+        if rest.is_empty() {
+            continue;
+        }
+        // The tool only cuts while its centre is within its radius of that.
+        let near = offset(&rest, radius + REST_MARGIN);
+        out.extend(allowed.iter().flat_map(|a| intersection(a, &near)));
+    }
+    out
+}
 
-    // Ring k keeps the tool centre `radius + k * stepover` inside the boundary.
-    // Each is offset from the original, so errors do not build up.
-    let mut levels: Vec<Vec<Region>> = Vec::new();
+/// Clears with the tool's centre kept inside `centres`, one separate area at
+/// a time to full depth, so the tool does not hop between areas after every
+/// ring. Returns the area the tool's edge reaches.
+pub fn clear_centres(path: &mut PathBuilder, centres: &[Region], p: &ClearParams) -> Vec<Region> {
+    for area in centres {
+        clear_one(path, area, p);
+    }
+    offset(centres, p.tool_diameter / 2.0)
+}
+
+/// Clears with the tool's centre going everywhere inside `allowed`.
+fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
+    let allowed = vec![allowed.clone()];
+
+    // Ring k keeps the tool centre `k * stepover` inside the allowed area.
+    // Each is offset from that area, so errors do not build up.
+    let mut levels: Vec<Vec<Region>> = vec![allowed.clone()];
     loop {
-        let level = offset(region, -(radius + levels.len() as f64 * p.stepover));
+        let level = offset(&allowed, -(levels.len() as f64 * p.stepover));
         if level.is_empty() {
             break;
         }
         levels.push(level);
     }
-    let Some(allowed) = levels.first().cloned() else {
-        return Vec::new();
-    };
 
     // Innermost first, so each ring cuts into the gap the previous one opened
     // and the last ring of a pass is a light cut along the wall.
@@ -114,8 +156,6 @@ fn clear_one(path: &mut PathBuilder, region: &Region, p: &ClearParams) -> Vec<Re
         }
     }
     path.retract();
-
-    offset(&allowed, radius)
 }
 
 pub(crate) fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
@@ -268,6 +308,105 @@ mod tests {
             ),
             Err(ClearError::ToolTooWide)
         );
+    }
+
+    /// An L-shaped pocket: a 6 mm tool leaves the inside corners and cannot
+    /// enter the 4 mm wide arm at all.
+    fn pocket_with_a_narrow_arm() -> Region {
+        Region::new(vec![
+            [0.0, 0.0],
+            [30.0, 0.0],
+            [30.0, 20.0],
+            [20.0, 20.0],
+            [20.0, 40.0],
+            [16.0, 40.0],
+            [16.0, 20.0],
+            [0.0, 20.0],
+        ])
+    }
+
+    #[test]
+    fn a_smaller_tool_goes_only_where_wood_is_left() {
+        let pocket = pocket_with_a_narrow_arm();
+        let regions = std::slice::from_ref(&pocket);
+        let big = ClearParams {
+            tool_diameter: 6.0,
+            stepover: 2.4,
+            ..params()
+        };
+        let small = ClearParams {
+            tool_diameter: 2.0,
+            stepover: 0.8,
+            ..params()
+        };
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(1, 12000);
+        let already = clear(&mut path, regions, &big).unwrap();
+        let big_moves = path.finish().len();
+
+        let where_to = centres(regions, &already, small.tool_diameter);
+        assert!(!where_to.is_empty());
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(2, 12000);
+        let swept = clear_centres(&mut path, &where_to, &small);
+        let moves = path.finish();
+        let cuts = feeds(&moves);
+        assert!(!cuts.is_empty());
+
+        // Never into a wall, and never far from wood the big tool left.
+        let left: Vec<Region> = difference(&pocket, &already);
+        for q in &cuts {
+            let xy = [q[0], q[1]];
+            assert!(pocket.contains(xy) && pocket.distance_to_boundary(xy) > 1.0 - 0.01);
+            let to_wood = left
+                .iter()
+                .map(|r| {
+                    if r.contains(xy) {
+                        0.0
+                    } else {
+                        r.distance_to_boundary(xy)
+                    }
+                })
+                .fold(f64::INFINITY, f64::min);
+            assert!(
+                to_wood < 1.0 + REST_MARGIN + 0.05,
+                "{xy:?} is {to_wood} from any wood"
+            );
+        }
+        // The arm is cleared along its whole length.
+        assert!(cuts.iter().any(|q| q[1] > 38.5));
+
+        // Together the two reach all that the small tool reaches alone.
+        let mut alone = PathBuilder::new(5.0);
+        alone.start_tool(2, 12000);
+        let wanted = clear(&mut alone, regions, &small).unwrap();
+        let both: Vec<Region> = already.iter().chain(swept.iter()).cloned().collect();
+        let missed: f64 = wanted
+            .iter()
+            .flat_map(|r| difference(r, &both))
+            .map(|r| r.area())
+            .sum();
+        assert!(missed < 0.05, "{missed} mm² not reached");
+        // And the small tool has far less to do than on its own.
+        assert!(moves.len() * 2 < alone.finish().len());
+        assert!(big_moves > 0);
+    }
+
+    #[test]
+    fn a_tool_with_nothing_left_to_cut_gets_nowhere_to_go() {
+        let pocket = pocket_with_a_narrow_arm();
+        let regions = std::slice::from_ref(&pocket);
+        let small = ClearParams {
+            tool_diameter: 2.0,
+            stepover: 0.8,
+            ..params()
+        };
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(1, 12000);
+        let already = clear(&mut path, regions, &small).unwrap();
+        // A larger tool after a smaller one, and the same tool twice.
+        assert!(centres(regions, &already, 6.0).is_empty());
+        assert!(centres(regions, &already, 2.0).is_empty());
     }
 
     #[test]

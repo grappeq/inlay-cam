@@ -345,13 +345,37 @@ Results (2026-11-15): built and checked in simulation; not cut on the machine.
 - Each tool after the first cuts only what the tools before it left (rest machining),
   with a tool change between them. The V-bit, where there is one, still comes last.
 - Flat inlays: the smallest tool in the list sets the corner radius of the cuttable
-  shape. The insert outline is cut with one chosen tool.
+  shape and cuts the insert out.
 - The output lists time and tool changes per tool, and warns when a tool in the list
   removes nothing or almost nothing.
 - Project files written before this open with their one tool as a list of one.
 - Done when: a pocket cleared with two end mills simulates to the same shape as with the
   small one alone, in clearly less time, and each later tool stays out of wood already
   removed except where it must pass to reach its work.
+
+Results (2026-11-15): built and checked in simulation; not cut on the machine.
+- Both kinds of inlay take an ordered list of end mills. A flat inlay's old single tool
+  is read as a list of one; project files keep format version 1.
+- Rest machining: a later tool's centre goes only where it is within its radius of wood
+  the earlier tools left (plus 0.05 mm), and never closer to a wall than its radius.
+  Leftovers thinner than 0.04 mm count as rounding and are not visited.
+- A tool that fits nowhere, or finds nothing left, is not loaded at all and the output
+  says why. With a V-bit to follow, a tool that removes under 1% of the floor is used
+  but flagged as hardly worth its tool change.
+- Flat inlays: the smallest end mill in the list, whatever its place, sets the corner
+  radius and cuts the insert out on its own.
+- The output lists each tool's number and its share of the time, and counts the tool
+  changes.
+- In the app the list can be added to, reordered and trimmed; when a smaller tool comes
+  before a larger one it says so and offers to put the largest first.
+- Checked by test: a flat pocket cut with a 6 mm and a 3.175 mm end mill simulates to
+  the same board as with the 3.175 mm alone (under 0.2% of cells differ by more than
+  0.05 mm) in under 80% of the time; the small tool's moves stay within its radius of
+  leftover wood; a V-carve pocket and plug cut with two end mills and the V-bit still
+  fit as designed. 151 core tests.
+- Not done: walls are not given a finishing pass by a single tool, so a faint step can
+  show where two tools' cuts meet; plunges are still straight down; the larger tools do
+  not help cut the insert out.
 
 **M8. Review of the app's screens** (added 2026-11-15)
 - Go through the whole flow as a first-time user: new project, import, select shapes,

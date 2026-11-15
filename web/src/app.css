@@ -491,6 +491,39 @@ h3 {
   font-size: 13px;
   color: var(--muted);
 }
+.tool-order,
+.tool-times {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tool-order {
+  counter-reset: tool;
+  margin-bottom: 6px;
+}
+.tool-order li {
+  counter-increment: tool;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tool-order li::before {
+  content: counter(tool) ".";
+  color: var(--muted);
+  font-size: 12px;
+  width: 16px;
+}
+.tool-order-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.tool-order button {
+  padding: 2px 7px;
+  line-height: 1.2;
+}
 .derived {
   font-size: 13px;
   background: var(--surface-2);

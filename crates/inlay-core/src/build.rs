@@ -12,7 +12,7 @@ use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
-use crate::ops::clear::{clear, ClearError, ClearParams};
+use crate::ops::clear::{centres, clear_centres, ClearParams};
 use crate::ops::profile::{profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
@@ -140,6 +140,20 @@ pub struct Stats {
     pub minutes: f64,
     /// Names of the tools in the order they are loaded.
     pub tools: Vec<String>,
+    /// What each tool does, in the order they are loaded.
+    pub per_tool: Vec<ToolStats>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolStats {
+    /// The tool's number in the file.
+    pub number: u32,
+    pub name: String,
+    /// Length of its cutting moves, mm.
+    pub cutting_length: f64,
+    /// Its share of the running time, minutes.
+    pub minutes: f64,
 }
 
 /// Builds the pocket file for a job.
@@ -230,7 +244,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         (
             Part::Pocket,
             Inlay::Flat {
-                tool_id,
+                clearing_tool_ids,
                 allowance,
                 pocket_depth,
                 insert_thickness,
@@ -239,14 +253,14 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ) => flat_pocket(
             &mut ctx,
             &regions,
-            tool_id.as_deref(),
+            clearing_tool_ids,
             *allowance,
             insert_thickness - pocket_depth,
         ),
         (
             Part::Plug,
             Inlay::Flat {
-                tool_id,
+                clearing_tool_ids,
                 allowance,
                 tabs,
                 pocket_depth,
@@ -263,7 +277,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 thickness: *insert_thickness,
                 margin: *insert_margin,
             },
-            tool_id.as_deref(),
+            clearing_tool_ids,
         ),
         (
             Part::Pocket,
@@ -275,7 +289,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ) => vcarve_pocket(
             &mut ctx,
             &regions,
-            clearing_tool_ids.first().map(String::as_str),
+            clearing_tool_ids,
             vbit_tool_id.as_deref(),
         ),
         (
@@ -296,7 +310,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 saw_gap: *saw_gap,
                 margin: *plug_margin,
             },
-            clearing_tool_ids.first().map(String::as_str),
+            clearing_tool_ids,
             vbit_tool_id.as_deref(),
         ),
     };
@@ -419,6 +433,21 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             cutting_length: interpreted.cutting_length(),
             minutes: interpreted.minutes(machine.rapid_rate),
             tools: program.tools.iter().map(|t| t.tool.name.clone()).collect(),
+            per_tool: program
+                .tools
+                .iter()
+                .map(|t| {
+                    let mine = || interpreted.segments.iter().filter(|s| s.tool == t.number);
+                    ToolStats {
+                        number: t.number,
+                        name: t.tool.name.clone(),
+                        cutting_length: mine().filter(|s| !s.rapid).map(|s| s.length()).sum(),
+                        minutes: mine()
+                            .map(|s| s.length() / if s.rapid { machine.rapid_rate } else { s.feed })
+                            .sum(),
+                    }
+                })
+                .collect(),
         },
         gcode,
         warnings,
@@ -501,6 +530,103 @@ impl<'a> Context<'a> {
         }
         Some((tool, cutting))
     }
+}
+
+/// A clearing tool that removes less than this share of the floor is hardly
+/// worth its tool change when a V-bit finishes the floor anyway.
+const SMALL_SHARE: f64 = 0.01;
+
+impl<'a> Context<'a> {
+    /// Looks up and checks every clearing end mill of the job, in the order
+    /// given. `None` when any of them cannot be used.
+    fn end_mills(&mut self, ids: &[String]) -> Option<Vec<(&'a Tool, &'a CuttingSettings)>> {
+        let found: Vec<_> = ids
+            .iter()
+            .map(|id| self.tool(Some(id), ToolKind::FlatEnd, "an end mill"))
+            .collect();
+        found.into_iter().collect()
+    }
+
+    /// Clears `area` to the job's depth with the end mills in the order
+    /// given: each cuts only what those before it left. A tool that fits
+    /// nowhere, or finds nothing left, is not loaded at all, with a warning.
+    /// Tools are numbered from `number` on, which is advanced. Returns the
+    /// area cut and the tools used.
+    fn clear_in_order(
+        &mut self,
+        path: &mut PathBuilder,
+        area: &[Region],
+        end_mills: &[(&Tool, &CuttingSettings)],
+        number: &mut u32,
+        what: &str,
+        vbit_follows: bool,
+    ) -> (Vec<Region>, Vec<ProgramTool>) {
+        let whole = total_area(area);
+        let mut cleared: Vec<Region> = Vec::new();
+        let mut tools = Vec::new();
+        for (tool, cutting) in end_mills {
+            let fits = !offset(area, -tool.diameter / 2.0).is_empty();
+            let where_to = centres(area, &cleared, tool.diameter);
+            if where_to.is_empty() {
+                if area.is_empty() {
+                    continue;
+                }
+                self.warnings.push(if !fits {
+                    format!(
+                        "\"{}\" ({} mm) is too wide to fit anywhere in {what}, so it is not used.",
+                        tool.name,
+                        num(tool.diameter)
+                    )
+                } else {
+                    format!(
+                        "\"{}\" finds nothing left to cut in {what} after the tools before it, so it is not used. Put larger tools first.",
+                        tool.name
+                    )
+                });
+                continue;
+            }
+            path.start_tool(*number, cutting.rpm);
+            let swept = clear_centres(path, &where_to, &clear_params(tool, cutting, self.depth));
+            let fresh: f64 = swept
+                .iter()
+                .flat_map(|r| difference(r, &cleared))
+                .map(|r| r.area())
+                .sum();
+            if vbit_follows && !cleared.is_empty() && fresh < SMALL_SHARE * whole {
+                self.warnings.push(format!(
+                    "\"{}\" removes only {} mm² of {what}. The V-bit could do that without the extra tool change.",
+                    tool.name,
+                    num((fresh * 10.0).round() / 10.0)
+                ));
+            }
+            cleared.extend(swept);
+            cleared = union(&cleared);
+            tools.push(ProgramTool {
+                number: *number,
+                tool: (*tool).clone(),
+            });
+            *number += 1;
+        }
+        (cleared, tools)
+    }
+}
+
+/// The id of the smallest end mill among `ids`, which is the one that sets
+/// the corner radius of a flat inlay and cuts its insert out. When none of
+/// the ids is an end mill of the project, the first id, so that looking it
+/// up says what is wrong.
+fn smallest_end_mill<'a>(project: &Project, ids: &'a [String]) -> Option<&'a str> {
+    ids.iter()
+        .filter_map(|id| {
+            project
+                .tools
+                .iter()
+                .find(|t| &t.id == id && t.kind == ToolKind::FlatEnd)
+                .map(|t| (id, t.diameter))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id.as_str())
+        .or(ids.first().map(String::as_str))
 }
 
 fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64) -> ClearParams {
@@ -627,42 +753,51 @@ fn outlines(regions: &[Region]) -> Vec<Vec<Point>> {
     regions.iter().flat_map(|r| r.rings().cloned()).collect()
 }
 
-/// A flat-floored pocket with upright walls, cut with one end mill.
+/// A flat-floored pocket with upright walls, cut with one end mill or with
+/// several in order, each clearing what those before it left. The smallest
+/// decides how sharp the corners can be.
 fn flat_pocket(
     ctx: &mut Context,
     regions: &[Region],
-    tool_id: Option<&str>,
+    tool_ids: &[String],
     allowance: f64,
     proud: f64,
 ) -> Option<Cut> {
-    let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
+    if tool_ids.is_empty() {
+        ctx.errors.push("Choose an end mill for this inlay.".into());
+        return None;
+    }
+    let end_mills = ctx.end_mills(tool_ids)?;
     if !ctx.errors.is_empty() {
         return None;
     }
-    let shapes = flat_shapes(regions, tool.diameter / 2.0, allowance);
-
-    let number = carvera::FIRST_TOOL_NUMBER;
-    let mut path = PathBuilder::new(SAFE_Z);
-    path.start_tool(number, cutting.rpm);
-    let cleared = clear(
-        &mut path,
-        &shapes.pocket,
-        &clear_params(tool, cutting, ctx.depth),
-    );
-    if cleared == Err(ClearError::ToolTooWide) || shapes.insert.is_empty() {
+    let smallest = end_mills
+        .iter()
+        .map(|(tool, _)| *tool)
+        .min_by(|a, b| a.diameter.total_cmp(&b.diameter))?;
+    let shapes = flat_shapes(regions, smallest.diameter / 2.0, allowance);
+    if shapes.pocket.is_empty() || shapes.insert.is_empty() {
         ctx.errors.push(format!(
             "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
-            tool.name,
-            num(tool.diameter)
+            smallest.name,
+            num(smallest.diameter)
         ));
         return None;
     }
-    let fit = flat_fit(ctx, regions, &shapes, tool, proud);
+
+    let mut number = carvera::FIRST_TOOL_NUMBER;
+    let mut path = PathBuilder::new(SAFE_Z);
+    let (_, tools) = ctx.clear_in_order(
+        &mut path,
+        &shapes.pocket,
+        &end_mills,
+        &mut number,
+        "the pocket",
+        false,
+    );
+    let fit = flat_fit(ctx, regions, &shapes, smallest, proud);
     Some(Cut {
-        tools: vec![ProgramTool {
-            number,
-            tool: tool.clone(),
-        }],
+        tools,
         moves: path.finish(),
         pocket: shapes.pocket,
         flat_fit: Some(fit),
@@ -686,8 +821,11 @@ fn flat_insert(
     ctx: &mut Context,
     regions: &[Region],
     insert: FlatInsert,
-    tool_id: Option<&str>,
+    tool_ids: &[String],
 ) -> Option<Cut> {
+    // The smallest end mill of the list cuts the insert out: the pocket's
+    // corners are as sharp as that tool makes them.
+    let tool_id = smallest_end_mill(ctx.project, tool_ids);
     let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
     if insert.thickness < insert.pocket_depth {
         ctx.errors.push(format!(
@@ -835,7 +973,7 @@ fn vbit_shape(vbit: &Tool) -> (f64, f64) {
 struct VcarveSetup<'a> {
     vbit: &'a Tool,
     vbit_rpm: u32,
-    end_mill: Option<(&'a Tool, &'a CuttingSettings)>,
+    end_mills: Vec<(&'a Tool, &'a CuttingSettings)>,
     params: VcarveParams,
 }
 
@@ -845,15 +983,13 @@ struct VcarveSetup<'a> {
 fn vcarve_setup<'a>(
     ctx: &mut Context<'a>,
     flat_depth: f64,
-    end_mill_id: Option<&str>,
+    end_mill_ids: &[String],
     vbit_id: Option<&str>,
 ) -> Option<VcarveSetup<'a>> {
     let vbit = ctx.tool(vbit_id, ToolKind::VBit, "a V-bit");
-    let end_mill = match end_mill_id {
-        Some(id) => Some(ctx.tool(Some(id), ToolKind::FlatEnd, "an end mill")?),
-        None => None,
-    };
+    let end_mills = ctx.end_mills(end_mill_ids);
     let (vbit, vcutting) = vbit?;
+    let end_mills = end_mills?;
     if !ctx.errors.is_empty() {
         return None;
     }
@@ -886,13 +1022,13 @@ fn vcarve_setup<'a>(
     Some(VcarveSetup {
         vbit,
         vbit_rpm: vcutting.rpm,
-        end_mill,
+        end_mills,
         params,
     })
 }
 
-/// Clears `floor` with the end mill when one is chosen and fits, then loads
-/// the V-bit. Returns the floor the end mill cut and the tools used so far;
+/// Clears `floor` with the end mills that are chosen, in order, then loads
+/// the V-bit. Returns the floor the end mills cut and the tools used so far;
 /// the V-bit is the last of them.
 fn clear_floor_then_load_vbit(
     ctx: &mut Context,
@@ -902,27 +1038,20 @@ fn clear_floor_then_load_vbit(
     whose: &str,
 ) -> (Vec<Region>, Vec<ProgramTool>) {
     let mut number = carvera::FIRST_TOOL_NUMBER;
-    let mut tools = Vec::new();
-    let mut cleared = Vec::new();
-    match setup.end_mill {
-        Some((tool, cutting)) if !offset(floor, -tool.diameter / 2.0).is_empty() => {
-            path.start_tool(number, cutting.rpm);
-            cleared =
-                clear(path, floor, &clear_params(tool, cutting, ctx.depth)).unwrap_or_default();
-            tools.push(ProgramTool {
-                number,
-                tool: tool.clone(),
-            });
-            number += 1;
-        }
-        Some((tool, _)) if !floor.is_empty() => ctx.warnings.push(format!(
-            "\"{}\" is too wide for the {whose} flat floor, so it is not used: the V-bit clears the floor on its own.",
-            tool.name
-        )),
-        None if !floor.is_empty() => ctx.warnings.push(format!(
-            "No end mill is chosen, so the V-bit clears the {whose} flat floor on its own, which takes much longer."
-        )),
-        _ => {}
+    let (cleared, mut tools) = ctx.clear_in_order(
+        path,
+        floor,
+        &setup.end_mills,
+        &mut number,
+        &format!("the {whose} flat floor"),
+        true,
+    );
+    if !floor.is_empty() && tools.is_empty() {
+        ctx.warnings.push(if setup.end_mills.is_empty() {
+            format!("No end mill is chosen, so the V-bit clears the {whose} flat floor on its own, which takes much longer.")
+        } else {
+            format!("The V-bit clears the {whose} flat floor on its own, which takes much longer.")
+        });
     }
     path.start_tool(number, setup.vbit_rpm);
     tools.push(ProgramTool {
@@ -944,10 +1073,10 @@ fn carving_failed(ctx: &mut Context, e: impl std::fmt::Debug) {
 fn vcarve_pocket(
     ctx: &mut Context,
     regions: &[Region],
-    end_mill_id: Option<&str>,
+    end_mill_ids: &[String],
     vbit_id: Option<&str>,
 ) -> Option<Cut> {
-    let setup = vcarve_setup(ctx, ctx.depth, end_mill_id, vbit_id)?;
+    let setup = vcarve_setup(ctx, ctx.depth, end_mill_ids, vbit_id)?;
     let floor = setup.params.floor(regions);
     let mut path = PathBuilder::new(SAFE_Z);
     let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "pocket's");
@@ -978,10 +1107,10 @@ fn vcarve_plug_cut(
     ctx: &mut Context,
     regions: &[Region],
     plug: PlugShape,
-    end_mill_id: Option<&str>,
+    end_mill_ids: &[String],
     vbit_id: Option<&str>,
 ) -> Option<Cut> {
-    let setup = vcarve_setup(ctx, plug.saw_gap, end_mill_id, vbit_id)?;
+    let setup = vcarve_setup(ctx, plug.saw_gap, end_mill_ids, vbit_id)?;
     let p = &setup.params;
     if regions.is_empty() {
         return None;
@@ -1244,7 +1373,7 @@ mod tests {
                     pocket_depth: 2.0,
                     allowance: 0.1,
                     tabs: false,
-                    tool_id: Some("t-endmill".into()),
+                    clearing_tool_ids: vec!["t-endmill".into()],
                     insert_thickness: 4.0,
                     insert_margin: 8.0,
                 },
@@ -1485,7 +1614,7 @@ mod tests {
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
-            tool_id: None,
+            clearing_tool_ids: vec![],
             insert_thickness: 4.0,
             insert_margin: 8.0,
         });
@@ -1495,7 +1624,7 @@ mod tests {
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
-            tool_id: Some("t-vbit".into()),
+            clearing_tool_ids: vec!["t-vbit".into()],
             insert_thickness: 4.0,
             insert_margin: 8.0,
         });
@@ -1505,7 +1634,7 @@ mod tests {
             pocket_depth: 25.0,
             allowance: 0.1,
             tabs: false,
-            tool_id: Some("t-endmill".into()),
+            clearing_tool_ids: vec!["t-endmill".into()],
             insert_thickness: 4.0,
             insert_margin: 8.0,
         });
@@ -1855,6 +1984,162 @@ mod tests {
             reasons.contains("more than the Carvera Air can travel"),
             "{reasons}"
         );
+    }
+
+    /// The 3.175 mm end mill's 6 mm big brother.
+    fn big_end_mill() -> Tool {
+        let mut big = end_mill();
+        big.id = "t-big".into();
+        big.name = "Big 6 mm".into();
+        big.diameter = 6.0;
+        big.shank_diameter = 6.0;
+        big.cutting[0].stepover = 2.4;
+        big
+    }
+
+    fn set_clearing(p: &mut Project, ids: &[&str]) {
+        let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+        match &mut p.jobs[0].inlay {
+            Inlay::Flat {
+                clearing_tool_ids, ..
+            }
+            | Inlay::Vcarve {
+                clearing_tool_ids, ..
+            } => *clearing_tool_ids = ids,
+        }
+    }
+
+    /// Largest difference in height between two simulated boards, mm, and
+    /// the share of cells that differ by more than `tolerance`.
+    fn compare(a: &HeightMap, b: &HeightMap, tolerance: f32) -> (f32, f64) {
+        assert_eq!((a.nx, a.ny), (b.nx, b.ny));
+        let mut worst: f32 = 0.0;
+        let mut differing = 0;
+        for (x, y) in a.z.iter().zip(&b.z) {
+            let d = (x - y).abs();
+            worst = worst.max(d);
+            if d > tolerance {
+                differing += 1;
+            }
+        }
+        (worst, differing as f64 / a.z.len() as f64)
+    }
+
+    #[test]
+    fn two_end_mills_cut_the_same_flat_pocket_as_the_small_one_alone_in_less_time() {
+        let mut p = project();
+        p.tools.push(big_end_mill());
+        let alone = preview(&p, "j", Part::Pocket).unwrap();
+
+        set_clearing(&mut p, &["t-big", "t-endmill"]);
+        let both = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(both.problems, vec![]);
+        assert_eq!(both.built.stats.tools, ["Big 6 mm", "Ø3.175×22 1F Downcut"]);
+        assert!(both.built.gcode.contains("M6 T1\n") && both.built.gcode.contains("M6 T2\n"));
+        assert!(both.built.warnings.iter().all(|w| !w.contains("not used")));
+
+        // Same pocket: walls where the two tools meet may differ by a cell.
+        let (_, differing) = compare(&alone.map, &both.map, 0.05);
+        assert!(differing < 0.002, "{differing} of the cells differ");
+        // Same fit and the same outline to cut to.
+        assert_eq!(alone.built.cuttable, both.built.cuttable);
+        assert_eq!(alone.built.flat_fit, both.built.flat_fit);
+
+        // Clearly quicker, and the times per tool add up.
+        assert!(
+            both.built.stats.minutes < 0.8 * alone.built.stats.minutes,
+            "{} against {}",
+            both.built.stats.minutes,
+            alone.built.stats.minutes
+        );
+        let per_tool = &both.built.stats.per_tool;
+        assert_eq!(per_tool.len(), 2);
+        assert_eq!((per_tool[0].number, per_tool[1].number), (1, 2));
+        let sum: f64 = per_tool.iter().map(|t| t.minutes).sum();
+        assert!((sum - both.built.stats.minutes).abs() < 1e-6);
+        // The small tool does the lesser share.
+        assert!(per_tool[1].cutting_length < alone.built.stats.cutting_length * 0.5);
+    }
+
+    #[test]
+    fn a_tool_with_nothing_to_do_is_left_out_with_a_reason() {
+        // Small before large: the large one finds nothing left.
+        let mut p = project();
+        p.tools.push(big_end_mill());
+        set_clearing(&mut p, &["t-endmill", "t-big"]);
+        let built = build_pocket(&p, "j").unwrap();
+        assert_eq!(built.stats.tools, ["Ø3.175×22 1F Downcut"]);
+        assert!(!built.gcode.contains("M6 T2"));
+        assert!(
+            built
+                .warnings
+                .iter()
+                .any(|w| w.contains("\"Big 6 mm\" finds nothing left")
+                    && w.contains("Put larger tools first")),
+            "{:?}",
+            built.warnings
+        );
+
+        // A tool wider than every shape: the L is 7 mm wide, the rectangle 20.
+        let mut p = project();
+        let mut huge = big_end_mill();
+        huge.diameter = 25.0;
+        p.tools.push(huge);
+        set_clearing(&mut p, &["t-big", "t-endmill"]);
+        let built = build_pocket(&p, "j").unwrap();
+        assert_eq!(built.stats.tools, ["Ø3.175×22 1F Downcut"]);
+        assert!(built
+            .warnings
+            .iter()
+            .any(|w| w.contains("too wide to fit anywhere in the pocket")));
+    }
+
+    #[test]
+    fn the_smallest_end_mill_sets_the_corners_and_cuts_the_insert() {
+        let mut p = project();
+        p.tools.push(big_end_mill());
+        let alone = build(&p, "j", Part::Plug).unwrap();
+        // Whatever the order.
+        for ids in [["t-big", "t-endmill"], ["t-endmill", "t-big"]] {
+            set_clearing(&mut p, &ids);
+            let insert = build(&p, "j", Part::Plug).unwrap();
+            assert_eq!(insert.stats.tools, ["Ø3.175×22 1F Downcut"]);
+            assert_eq!(insert.gcode, alone.gcode);
+        }
+    }
+
+    #[test]
+    fn several_end_mills_clear_a_v_carved_floor_before_the_v_bit() {
+        let mut p = vcarve_project(true);
+        p.tools.push(big_end_mill());
+        let one = preview(&p, "j", Part::Pocket).unwrap();
+        set_clearing(&mut p, &["t-big", "t-endmill"]);
+        for part in [Part::Pocket, Part::Plug] {
+            let both = preview(&p, "j", part).unwrap();
+            assert_eq!(both.problems, vec![], "{part:?}");
+            assert_eq!(
+                both.built.stats.tools,
+                ["Big 6 mm", "Ø3.175×22 1F Downcut", "60° V-groove Ø12 S6"],
+                "{part:?}"
+            );
+            assert_eq!(both.built.stats.per_tool[2].number, 3);
+            if part == Part::Pocket {
+                // The V-bit finishes everything, so the result is the same.
+                let (worst, differing) = compare(&one.map, &both.map, 0.05);
+                assert!(
+                    differing < 0.002,
+                    "{differing} of the cells differ, worst {worst}"
+                );
+            }
+        }
+        // The fit is still as designed.
+        let check = check_fit(&p, "j").unwrap();
+        assert!(
+            check.fit.report.proud.abs() < 0.03,
+            "{:?}",
+            check.fit.report
+        );
+        assert!(check.fit.report.wall_contact > 0.95);
     }
 
     #[test]

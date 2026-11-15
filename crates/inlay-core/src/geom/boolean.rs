@@ -53,6 +53,28 @@ pub fn difference(subject: &Region, clips: &[Region]) -> Vec<Region> {
         .collect()
 }
 
+/// The part of `subject` that lies inside `clips`: none, one or several regions.
+pub fn intersection(subject: &Region, clips: &[Region]) -> Vec<Region> {
+    let shape = |region: &Region| -> Vec<Ring> {
+        std::iter::once(oriented(&region.outer, true))
+            .chain(region.holes.iter().map(|h| oriented(h, false)))
+            .collect()
+    };
+    let clips: Vec<Vec<Ring>> = clips.iter().map(shape).collect();
+    if clips.is_empty() {
+        return Vec::new();
+    }
+    shape(subject)
+        .overlay(&clips, OverlayRule::Intersect, FillRule::NonZero)
+        .into_iter()
+        .filter(|shape| !shape.is_empty())
+        .map(|mut shape| {
+            let outer = shape.remove(0);
+            Region::with_holes(outer, shape)
+        })
+        .collect()
+}
+
 fn oriented(ring: &Ring, counter_clockwise: bool) -> Ring {
     let mut ring = ring.clone();
     if (ring_area(&ring) > 0.0) != counter_clockwise {
@@ -68,6 +90,17 @@ mod tests {
 
     fn total(regions: &[Region]) -> f64 {
         regions.iter().map(Region::area).sum()
+    }
+
+    #[test]
+    fn intersection_keeps_the_shared_part() {
+        let a = Region::new(rect(0.0, 0.0, 10.0, 10.0));
+        let b = Region::new(rect(6.0, 2.0, 20.0, 8.0));
+        let out = intersection(&a, std::slice::from_ref(&b));
+        assert_eq!(out.len(), 1);
+        assert!((total(&out) - 24.0).abs() < 1e-6);
+        assert!(intersection(&a, &[]).is_empty());
+        assert!(intersection(&a, &[Region::new(rect(20.0, 0.0, 30.0, 10.0))]).is_empty());
     }
 
     #[test]

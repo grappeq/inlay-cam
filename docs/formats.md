@@ -176,7 +176,7 @@ One inlay: a pocket and its matching plug or insert.
 | `engagementDepth` | How deep the plug sits in the pocket. Greater than 0. |
 | `glueGap` | Space left under the plug. 0 or more. Pocket depth = engagement depth + glue gap. |
 | `sawGap` | Space between the pocket surface and the plug's backer. Greater than 0. |
-| `clearingToolIds` | Flat end mills that clear the pocket floor. A list so several tools can share the work in a later version; version 1 of the app uses the first. May be empty: the V-bit then clears the floor too. |
+| `clearingToolIds` | Flat end mills that clear the flat floor, in the order they are used. Each cuts only what those before it left. May be empty: the V-bit then clears the floor too. |
 | `vbitToolId` | The V-bit, or `null` when not chosen yet. |
 | `plugMargin` | Width of blank left around the shapes on the plug. Greater than 0. Default 8. The plug blank is the shapes' bounding box grown by this on every side. |
 | `plugThickness` | Thickness of the plug blank. Greater than 0. Default 10. Must exceed engagement depth + saw gap. |
@@ -189,7 +189,7 @@ One inlay: a pocket and its matching plug or insert.
 | `pocketDepth` | Greater than 0. |
 | `allowance` | Gap between insert and pocket wall all round. 0 or more. Half is added to the pocket and half taken off the insert. |
 | `tabs` | Hold the insert to its stock with tabs while it is cut out. Default false. |
-| `toolId` | The flat end mill, or `null`. Inside corners of both parts cannot be sharper than its radius. |
+| `clearingToolIds` | Flat end mills that cut the pocket, in the order they are used. Each cuts only what those before it left. Corners of both parts cannot be sharper than the radius of the smallest, which also cuts the insert out. Files written before inlays took several tools have `toolId` instead (one id or `null`); it is read as a list of one or none. |
 | `insertThickness` | Thickness of the board the insert is cut from. Greater than 0. Default 4. Must be at least `pocketDepth`. |
 | `insertMargin` | Width of board left around the shapes on the insert board. Greater than 0. Default 8. |
 

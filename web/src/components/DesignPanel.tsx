@@ -266,12 +266,12 @@ function JobEditor({ job }: { job: Job }) {
             material={job.material}
             onChange={(id) => setInlay({ vbitToolId: id })}
           />
-          <ToolPicker
-            label="Clearing end mill"
-            kind="flat_end"
-            value={inlay.clearingToolIds[0] ?? null}
+          <ClearingTools
+            label="Clearing end mills"
+            ids={inlay.clearingToolIds}
             material={job.material}
-            onChange={(id) => setInlay({ clearingToolIds: id === null ? [] : [id] })}
+            onChange={(ids) => setInlay({ clearingToolIds: ids })}
+            hint="They clear the flat floor before the V-bit, in this order. Each cuts only what those before it left. With none, the V-bit clears the floor on its own."
           />
         </>
       ) : (
@@ -310,18 +310,23 @@ function JobEditor({ job }: { job: Job }) {
             <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
             Hold the insert with tabs
           </label>
-          <ToolPicker
-            label="End mill"
-            kind="flat_end"
-            value={inlay.toolId}
+          <ClearingTools
+            label="End mills"
+            ids={inlay.clearingToolIds}
             material={job.material}
-            onChange={(id) => setInlay({ toolId: id })}
+            onChange={(ids) => setInlay({ clearingToolIds: ids })}
+            hint="They cut the pocket in this order. Each cuts only what those before it left. One is enough; a large one first saves time."
           />
           {(() => {
-            const tool = resolveTool(inlay.toolId, tools, project);
-            return tool ? (
-              <p className="derived">Inside corners cannot be sharper than this tool's radius: {fmt(tool.diameter / 2)} mm.</p>
-            ) : null;
+            const chosen = inlay.clearingToolIds.map((id) => resolveTool(id, tools, project)).filter((t): t is Tool => t !== undefined);
+            if (chosen.length === 0) return null;
+            const smallest = chosen.reduce((a, b) => (b.diameter < a.diameter ? b : a));
+            return (
+              <p className="derived">
+                Corners cannot be sharper than the radius of {chosen.length > 1 ? `the smallest, "${smallest.name}"` : "this tool"}:{" "}
+                {fmt(smallest.diameter / 2)} mm.{chosen.length > 1 ? " It also cuts the insert out." : ""}
+              </p>
+            );
           })()}
         </>
       )}
@@ -334,6 +339,95 @@ function JobEditor({ job }: { job: Job }) {
           Delete inlay
         </button>
       </div>
+    </div>
+  );
+}
+
+/** An ordered list of end mills: add, remove, and move up or down. */
+function ClearingTools(props: { label: string; ids: string[]; material: Material; hint: string; onChange: (ids: string[]) => void }) {
+  const { tools, project } = useApp();
+  const dispatch = useDispatch();
+  const { ids } = props;
+  const choices = toolChoices("flat_end", tools, project);
+  const free = choices.filter((t) => !ids.includes(t.id));
+  const chosen = ids.map((id) => ({ id, tool: resolveTool(id, tools, project) }));
+  const sizes = chosen.map((c) => c.tool?.diameter ?? 0);
+  const largestFirst = sizes.every((d, i) => i === 0 || d <= sizes[i - 1]);
+  const move = (from: number, to: number) => {
+    const next = [...ids];
+    next.splice(to, 0, ...next.splice(from, 1));
+    props.onChange(next);
+  };
+  const sort = () =>
+    props.onChange(
+      [...chosen].sort((a, b) => (b.tool?.diameter ?? 0) - (a.tool?.diameter ?? 0)).map((c) => c.id),
+    );
+
+  return (
+    <div className="field" role="group" aria-label={props.label}>
+      <span className="field-label">{props.label}</span>
+      {chosen.length > 0 && (
+        <ol className="tool-order">
+          {chosen.map(({ id, tool }, i) => (
+            <li key={id}>
+              <span className="tool-order-name">
+                {tool ? tool.name : "Missing tool"}
+                <span className="muted"> {tool ? `Ø${fmt(tool.diameter)} mm` : "no longer in the tool list or the project"}</span>
+                {tool && !tool.cutting.some((c) => c.material === props.material) && (
+                  <span className="hint warn">No cutting settings for {props.material}. Add them in the tool list.</span>
+                )}
+              </span>
+              <button type="button" disabled={i === 0} onClick={() => move(i, i - 1)} aria-label={`Move ${tool?.name ?? "tool"} earlier`} title="Earlier">
+                ↑
+              </button>
+              <button
+                type="button"
+                disabled={i === chosen.length - 1}
+                onClick={() => move(i, i + 1)}
+                aria-label={`Move ${tool?.name ?? "tool"} later`}
+                title="Later"
+              >
+                ↓
+              </button>
+              <button type="button" onClick={() => props.onChange(ids.filter((other) => other !== id))} aria-label={`Remove ${tool?.name ?? "tool"}`} title="Remove">
+                ×
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {free.length > 0 && (
+        <select
+          value=""
+          aria-label={chosen.length === 0 ? "Choose an end mill" : "Add another end mill"}
+          onChange={(e) => e.target.value !== "" && props.onChange([...ids, e.target.value])}
+        >
+          <option value="">{chosen.length === 0 ? "Choose an end mill…" : "Add another end mill…"}</option>
+          {free.map((tool) => (
+            <option key={tool.id} value={tool.id}>
+              {tool.name}
+              {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
+            </option>
+          ))}
+        </select>
+      )}
+      {choices.length === 0 && (
+        <span className="hint">
+          No flat end mills in your tool list.{" "}
+          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "tools" })}>
+            Add tools
+          </button>
+        </span>
+      )}
+      {!largestFirst && (
+        <span className="hint warn">
+          A smaller tool comes before a larger one, which leaves the larger one nothing to do.{" "}
+          <button type="button" className="link" onClick={sort}>
+            Put the largest first
+          </button>
+        </span>
+      )}
+      <span className="hint">{props.hint}</span>
     </div>
   );
 }

@@ -151,8 +151,8 @@ pub enum Inlay {
         glue_gap: f64,
         /// Space between the pocket surface and the plug's backer, mm.
         saw_gap: f64,
-        /// Flat end mills that clear the pocket floor, largest first. A list
-        /// so that several tools can share the work later.
+        /// Flat end mills that clear the flat floor, in the order they are
+        /// used. Each cuts only what those before it left.
         #[serde(default)]
         clearing_tool_ids: Vec<String>,
         #[serde(default)]
@@ -173,8 +173,12 @@ pub enum Inlay {
         /// Hold the insert to its stock with tabs while it is cut out.
         #[serde(default)]
         tabs: bool,
-        #[serde(default)]
-        tool_id: Option<String>,
+        /// Flat end mills that cut the pocket, in the order they are used.
+        /// Each cuts only what those before it left. The smallest sets the
+        /// corner radius and cuts the insert out. Files written when an inlay
+        /// had one tool give it as `toolId`.
+        #[serde(default, alias = "toolId", deserialize_with = "one_or_many_tool_ids")]
+        clearing_tool_ids: Vec<String>,
         /// Thickness of the board the insert is cut from, mm. The insert is
         /// cut right through it.
         #[serde(default = "default_insert_thickness")]
@@ -183,6 +187,20 @@ pub enum Inlay {
         #[serde(default = "default_plug_margin")]
         insert_margin: f64,
     },
+}
+
+/// Reads a list of tool ids, or the single optional id older files have.
+fn one_or_many_tool_ids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Ids {
+        Many(Vec<String>),
+        One(Option<String>),
+    }
+    Ok(match Ids::deserialize(d)? {
+        Ids::Many(ids) => ids,
+        Ids::One(id) => id.into_iter().collect(),
+    })
 }
 
 fn default_insert_thickness() -> f64 {
@@ -215,7 +233,7 @@ impl Inlay {
             pocket_depth: 3.0,
             allowance: 0.1,
             tabs: false,
-            tool_id: None,
+            clearing_tool_ids: Vec::new(),
             insert_thickness: 4.0,
             insert_margin: 8.0,
         }
@@ -233,7 +251,9 @@ impl Inlay {
                 .chain(vbit_tool_id.iter())
                 .map(String::as_str)
                 .collect(),
-            Inlay::Flat { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
+            Inlay::Flat {
+                clearing_tool_ids, ..
+            } => clearing_tool_ids.iter().map(String::as_str).collect(),
         }
     }
 
@@ -433,7 +453,7 @@ mod tests {
                         pocket_depth: 2.5,
                         allowance: 0.1,
                         tabs: true,
-                        tool_id: Some("t-endmill".into()),
+                        clearing_tool_ids: vec!["t-endmill".into()],
                         insert_thickness: 4.0,
                         insert_margin: 8.0,
                     },
@@ -485,7 +505,7 @@ mod tests {
             pocket_depth: -1.0,
             allowance: 0.1,
             tabs: false,
-            tool_id: None,
+            clearing_tool_ids: vec![],
             insert_thickness: 4.0,
             insert_margin: 8.0,
         };
@@ -514,6 +534,17 @@ mod tests {
             project.jobs[1].inlay,
             Inlay::Flat { tabs: true, .. }
         ));
+        // Written when a flat inlay had a single `toolId`.
+        assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
+    }
+
+    #[test]
+    fn a_flat_inlay_without_a_tool_in_an_old_file_has_an_empty_list() {
+        let text = include_str!("../tests/fixtures/project-v1.json")
+            .replace("\"toolId\": \"t-endmill\"", "\"toolId\": null");
+        assert!(text.contains("\"toolId\": null"));
+        let project = project_from_file_json(&text).unwrap();
+        assert!(project.jobs[1].inlay.tool_ids().is_empty());
     }
 
     /// Regenerates the fixtures from the samples above. Run by hand, once per

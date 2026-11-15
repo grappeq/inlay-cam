@@ -69,7 +69,8 @@ export interface FlatInlay {
   pocketDepth: number;
   allowance: number;
   tabs: boolean;
-  toolId: string | null;
+  /** End mills that cut the pocket, in the order they are used. The smallest cuts the insert out. */
+  clearingToolIds: string[];
   /** Thickness of the board the insert is cut from, mm. */
   insertThickness: number;
   /** Width of board left around the shapes on the insert board, mm. */
@@ -123,6 +124,8 @@ export interface BuildStats {
   minutes: number;
   /** Tool names in the order they are loaded. */
   tools: string[];
+  /** What each tool does, in the order they are loaded. */
+  perTool: { number: number; name: string; cuttingLength: number; minutes: number }[];
 }
 
 /** The two halves of an inlay; each has its own board and file. */

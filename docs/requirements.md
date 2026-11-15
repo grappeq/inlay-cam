@@ -59,8 +59,9 @@ licence choice stays open.
 ### V-carve inlays
 - Parameters shown to the user: engagement depth, glue gap, saw gap. Start/flat depths are
   derived from these.
-- One flat end mill for clearing plus one V-bit. The design must allow several clearing
-  tools later (rest machining), so clearing is a list of tools, not a single field.
+- One or several flat end mills for clearing, used in the order the user sets (rest
+  machining), plus one V-bit. (Several tools were added after the first version of
+  these requirements; see milestone 7 in the plan.)
 - Plug is mirrored automatically and stays linked to its pocket.
 - Features too narrow for the chosen depth: warn in v1. Automatic relief is planned for
   the version after (see below), so plug toolpath generation should leave room for it.

@@ -81,10 +81,25 @@ export function OutputPanel({ job }: { job: Job }) {
               {fmt(Math.round(preview.built.stock.width * 100) / 100)} × {fmt(Math.round(preview.built.stock.height * 100) / 100)} mm,{" "}
               {fmt(preview.built.stock.thickness)} mm thick, work origin at its bottom-left corner
             </dd>
-            <dt>{preview.built.stats.tools.length === 1 ? "Tool" : "Tools, in order"}</dt>
-            <dd>{preview.built.stats.tools.map((name, i) => `T${i + 1} ${name}`).join(", ")}</dd>
+            <dt>{preview.built.stats.perTool.length === 1 ? "Tool" : "Tools, in order"}</dt>
+            <dd>
+              {preview.built.stats.perTool.length === 1 ? (
+                `T${preview.built.stats.perTool[0].number} ${preview.built.stats.perTool[0].name}`
+              ) : (
+                <ol className="tool-times">
+                  {preview.built.stats.perTool.map((t) => (
+                    <li key={t.number}>
+                      T{t.number} {t.name}: {formatMinutes(t.minutes)}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </dd>
             <dt>Cutting time</dt>
-            <dd>about {formatMinutes(preview.built.stats.minutes)}, plus tool changes</dd>
+            <dd>
+              about {formatMinutes(preview.built.stats.minutes)}, plus{" "}
+              {preview.built.stats.perTool.length === 1 ? "loading the tool" : `${preview.built.stats.perTool.length} tool changes`}
+            </dd>
             <dt>Cutting length</dt>
             <dd>{fmt(Math.round(preview.built.stats.cuttingLength) / 1000)} m</dd>
             <dt>File</dt>
