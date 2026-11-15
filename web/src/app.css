@@ -543,7 +543,7 @@ input[aria-invalid="true"] {
 }
 .cuttable path {
   fill: none;
-  stroke: var(--text);
+  stroke: var(--shape-edge);
   stroke-width: 1.5px;
   stroke-dasharray: 5 3;
   vector-effect: non-scaling-stroke;
@@ -556,8 +556,10 @@ input[aria-invalid="true"] {
   stroke-linecap: round;
   pointer-events: none;
 }
+/* A shape without an inlay: a shade on the stock's wood, whatever its colour. */
 .region {
-  fill: var(--shape);
+  fill: var(--shape-edge);
+  fill-opacity: 0.16;
   stroke: var(--shape-edge);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
@@ -571,17 +573,28 @@ input[aria-invalid="true"] {
   stroke: var(--focus);
   stroke-width: 3;
 }
+.region.owned {
+  fill-opacity: 0.92;
+}
 .region.selected {
   fill: var(--select);
-  stroke: var(--text);
+  fill-opacity: 0.9;
+  stroke: var(--shape-edge);
   stroke-width: 2;
 }
-.region.owned {
-  fill-opacity: 0.85;
-}
 .region.active {
-  stroke: var(--text);
+  stroke: var(--shape-edge);
   stroke-width: 3;
+}
+/* Shapes a plain operation uses, while it is open. */
+.region.used {
+  stroke: var(--select);
+  stroke-width: 3.5;
+  stroke-dasharray: 7 4;
+}
+.region.used:not(.owned) {
+  fill: var(--select);
+  fill-opacity: 0.3;
 }
 .region.dimmed {
   fill-opacity: 0.3;
@@ -1377,4 +1390,77 @@ legend .check {
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+
+/* Inlays and operations: the list, with a tick for the one file and the order */
+.job-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  column-gap: 6px;
+  margin-bottom: 5px;
+}
+.job-row.ordered {
+  grid-template-columns: auto 1fr auto;
+}
+.job-row .job {
+  margin-bottom: 0;
+}
+.job-order {
+  display: flex;
+  gap: 2px;
+}
+.swatch.op {
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  background: none;
+  box-sizing: border-box;
+}
+.swatch.op.pocket {
+  background: var(--accent-soft);
+}
+.swatch.op.contour {
+  border-style: dashed;
+}
+.swatch.op.chamfer {
+  border-width: 2px 2px 5px 2px;
+}
+.swatch.op.facing {
+  border-width: 5px 0 0 0;
+  border-radius: 0;
+}
+.choice-group {
+  margin: 12px 0 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Woods to colour an inlay or the stock with */
+.woods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.wood {
+  width: 26px;
+  height: 26px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+}
+.wood[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.wood-other {
+  width: 34px;
+  height: 28px;
+  padding: 0 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  cursor: pointer;
 }

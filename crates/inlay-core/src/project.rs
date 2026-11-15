@@ -172,19 +172,30 @@ impl Setup {
     }
 }
 
-/// The board that receives the inlays. Its outline is the design's page (after
-/// scaling), with the work origin at the page's bottom-left corner and Z0 on
-/// its top face.
+/// The stock: the board that receives the inlays and is cut by the other
+/// operations. Its outline is the design's page (after scaling), with the work
+/// origin at the page's bottom-left corner and Z0 on its top face.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseStock {
     pub thickness: f64,
+    /// The colour of its wood in the app's pictures, as `#rrggbb`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 impl Default for BaseStock {
     fn default() -> Self {
-        Self { thickness: 18.0 }
+        Self {
+            thickness: 18.0,
+            color: None,
+        }
     }
+}
+
+/// True for a colour written as `#rrggbb`.
+fn is_color(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// An imported drawing, reduced to filled regions.
@@ -266,12 +277,16 @@ impl DesignRegion {
     }
 }
 
-/// One inlay to make: a pocket and its matching plug or insert.
+/// One thing to cut: an inlay (a pocket in the stock and its matching plug or
+/// insert), or a plain operation on the stock.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: String,
     pub name: String,
+    /// The colour of the inlay's wood in the app's pictures, as `#rrggbb`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     /// Chooses which cutting settings of each tool are used.
     pub material: Material,
     /// The design regions this inlay covers.
@@ -364,6 +379,73 @@ pub enum Inlay {
         #[serde(default = "default_plug_margin")]
         insert_margin: f64,
     },
+    /// A plain operation: the shapes cleared to a flat floor.
+    #[serde(rename_all = "camelCase")]
+    Pocket {
+        depth: f64,
+        /// Flat end mills, in the order they are used. Each cuts only what
+        /// those before it left.
+        #[serde(default)]
+        clearing_tool_ids: Vec<String>,
+    },
+    /// A plain operation: an area milled flat. Without shapes the area is
+    /// the whole stock; with shapes, the rectangle around them grown by
+    /// `margin`.
+    #[serde(rename_all = "camelCase")]
+    Facing {
+        /// Wood standing above the stock's surface that is milled away
+        /// first, such as the backer of a glued-in plug, mm.
+        #[serde(default)]
+        above: f64,
+        /// How far below the stock's surface the area ends up, mm.
+        #[serde(default)]
+        depth: f64,
+        /// How far beyond the rectangle around the chosen shapes the area reaches, mm.
+        #[serde(default)]
+        margin: f64,
+        #[serde(default)]
+        tool_id: Option<String>,
+    },
+    /// A plain operation: a cut along the outlines of the shapes.
+    #[serde(rename_all = "camelCase")]
+    Contour {
+        #[serde(default)]
+        side: Side,
+        /// How deep the cut goes. Without a depth it goes right through the
+        /// stock.
+        #[serde(default)]
+        depth: Option<f64>,
+        /// Leave tabs across the cut.
+        #[serde(default)]
+        tabs: bool,
+        #[serde(default)]
+        tool_id: Option<String>,
+    },
+    /// A plain operation: the top edge along the outlines of the shapes is
+    /// bevelled with a V-bit.
+    #[serde(rename_all = "camelCase")]
+    Chamfer {
+        /// Where the wood has been cut away: outside the shapes or inside.
+        #[serde(default)]
+        side: Side,
+        /// Width of the bevel, seen from above, mm.
+        width: f64,
+        #[serde(default)]
+        vbit_tool_id: Option<String>,
+    },
+}
+
+/// Which side of the shapes' outlines a tool runs on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    /// Outside the shapes: the shapes are what is kept.
+    #[default]
+    Outside,
+    /// Inside the shapes: the shapes are what is cut away.
+    Inside,
+    /// With the tool's centre on the outline. Contours only.
+    On,
 }
 
 /// How the insert of a flat inlay is made.
@@ -452,8 +534,23 @@ impl Inlay {
                 .collect(),
             Inlay::Flat {
                 clearing_tool_ids, ..
+            }
+            | Inlay::Pocket {
+                clearing_tool_ids, ..
             } => clearing_tool_ids.iter().map(String::as_str).collect(),
+            Inlay::Facing { tool_id, .. } | Inlay::Contour { tool_id, .. } => {
+                tool_id.iter().map(String::as_str).collect()
+            }
+            Inlay::Chamfer { vbit_tool_id, .. } => {
+                vbit_tool_id.iter().map(String::as_str).collect()
+            }
         }
+    }
+
+    /// True for an inlay, which has a second part; false for a plain
+    /// operation on the stock.
+    pub fn is_inlay(&self) -> bool {
+        matches!(self, Inlay::Vcarve { .. } | Inlay::Flat { .. })
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -523,6 +620,43 @@ impl Inlay {
                     "allowance must be 0 or more",
                 )
             }
+            Inlay::Pocket { depth, .. } => check(
+                depth.is_finite() && depth > 0.0,
+                "depth must be greater than 0",
+            ),
+            Inlay::Facing {
+                above,
+                depth,
+                margin,
+                ..
+            } => {
+                check(
+                    above.is_finite() && above >= 0.0,
+                    "the wood above the surface must be 0 or more",
+                )?;
+                check(
+                    depth.is_finite() && depth >= 0.0,
+                    "the depth below the surface must be 0 or more",
+                )?;
+                check(
+                    margin.is_finite() && margin >= 0.0,
+                    "the margin must be 0 or more",
+                )
+            }
+            Inlay::Contour { depth, .. } => check(
+                depth.is_none_or(|d| d.is_finite() && d > 0.0),
+                "depth must be greater than 0",
+            ),
+            Inlay::Chamfer { width, side, .. } => {
+                check(
+                    width.is_finite() && width > 0.0,
+                    "chamfer width must be greater than 0",
+                )?;
+                check(
+                    side != Side::On,
+                    "a chamfer runs outside or inside the shapes",
+                )
+            }
         }
     }
 }
@@ -540,6 +674,9 @@ impl Project {
         if !(self.base.thickness.is_finite() && self.base.thickness > 0.0) {
             return Err("base board thickness must be greater than 0".into());
         }
+        if self.base.color.as_deref().is_some_and(|c| !is_color(c)) {
+            return Err("the base board's colour must be written as #rrggbb".into());
+        }
 
         let region_ids: Vec<u32> = self
             .design
@@ -549,6 +686,10 @@ impl Project {
         if let Some(design) = &self.design {
             if !(design.scale.is_finite() && design.scale > 0.0) {
                 return Err("design scale must be greater than 0".into());
+            }
+            let positive = |v: f64| v.is_finite() && v > 0.0;
+            if !positive(design.width) || !positive(design.height) {
+                return Err("the stock's width and height must be greater than 0".into());
             }
             for (i, id) in region_ids.iter().enumerate() {
                 if region_ids[..i].contains(id) {
@@ -571,6 +712,9 @@ impl Project {
                 return Err(fail("its id is missing or used twice".into()));
             }
             job.inlay.validate().map_err(fail)?;
+            if job.color.as_deref().is_some_and(|c| !is_color(c)) {
+                return Err(fail("its colour must be written as #rrggbb".into()));
+            }
             if let Some(setup) = &job.setup {
                 setup.validate().map_err(fail)?;
             }
@@ -643,6 +787,7 @@ mod tests {
                     name: "Walnut square".into(),
                     material: Material::Hardwood,
                     region_ids: vec![0],
+                    color: None,
                     setup: None,
                     cut_out_tool_id: None,
                     inlay: Inlay::Vcarve {
@@ -662,6 +807,7 @@ mod tests {
                     name: "Maple triangle".into(),
                     material: Material::Softwood,
                     region_ids: vec![1],
+                    color: None,
                     setup: None,
                     cut_out_tool_id: None,
                     inlay: Inlay::Flat {
@@ -736,6 +882,77 @@ mod tests {
 
         p.jobs[0].setup.as_mut().unwrap().plunge_clearance = 20.0;
         assert!(p.validate().unwrap_err().contains("plunge height"));
+    }
+
+    #[test]
+    fn plain_operations_and_colours_round_trip() {
+        let mut p = sample();
+        p.base.color = Some("#d9b98a".into());
+        p.jobs[0].color = Some("#5b3a1e".into());
+        let mut op = |id: &str, inlay: Inlay| {
+            p.jobs.push(Job {
+                id: id.into(),
+                name: id.into(),
+                material: Material::Hardwood,
+                region_ids: vec![0],
+                color: None,
+                setup: None,
+                cut_out_tool_id: None,
+                inlay,
+            })
+        };
+        op(
+            "pocket",
+            Inlay::Pocket {
+                depth: 2.0,
+                clearing_tool_ids: vec!["t-endmill".into()],
+            },
+        );
+        op(
+            "facing",
+            Inlay::Facing {
+                above: 6.0,
+                depth: 0.0,
+                margin: 9.0,
+                tool_id: Some("t-endmill".into()),
+            },
+        );
+        op(
+            "contour",
+            Inlay::Contour {
+                side: Side::Inside,
+                depth: None,
+                tabs: true,
+                tool_id: Some("t-endmill".into()),
+            },
+        );
+        op(
+            "chamfer",
+            Inlay::Chamfer {
+                side: Side::Outside,
+                width: 1.0,
+                vbit_tool_id: Some("t-vbit".into()),
+            },
+        );
+        let text = project_to_file_json(&p);
+        assert!(text.contains("\"type\": \"contour\"") || text.contains("\"type\":\"contour\""));
+        let read = project_from_file_json(&text).unwrap();
+        assert_eq!(read, p);
+        assert_eq!(read.jobs[4].tool_ids(), vec!["t-endmill"]);
+        assert_eq!(read.jobs[5].tool_ids(), vec!["t-vbit"]);
+        assert!(!read.jobs[2].inlay.is_inlay() && read.jobs[0].inlay.is_inlay());
+
+        // A chamfer has no "on the line", and a colour is #rrggbb.
+        let mut bad = p.clone();
+        bad.jobs[5].inlay = Inlay::Chamfer {
+            side: Side::On,
+            width: 1.0,
+            vbit_tool_id: None,
+        };
+        assert!(bad.validate().unwrap_err().contains("outside or inside"));
+        let mut bad = p.clone();
+        bad.jobs[0].color = Some("walnut".into());
+        assert!(bad.validate().unwrap_err().contains("#rrggbb"));
     }
 
     #[test]

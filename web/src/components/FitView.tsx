@@ -4,8 +4,11 @@ import { fmt } from "../state/model";
 
 type Layer = "face" | "gap";
 
-const BASE: [number, number, number] = [220, 189, 142];
-const PLUG: [number, number, number] = [111, 74, 38];
+/** A colour written as #rrggbb, as red, green and blue. */
+function rgb(color: string): [number, number, number] {
+  const n = parseInt(color.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 const VOID: [number, number, number] = [210, 31, 60];
 const NO_PLUG: [number, number, number] = [236, 232, 224];
 /** Gaps at or above this are drawn in the strongest colour, mm. */
@@ -30,7 +33,9 @@ function signed(z: number): string {
 }
 
 /** The fit of plug and pocket from above, with a cross-section through a chosen row. */
-export function FitView({ fit }: { fit: FitCheck }) {
+export function FitView({ fit, baseColor = "#dcbd8e", plugColor = "#6f4a26" }: { fit: FitCheck; baseColor?: string; plugColor?: string }) {
+  const BASE = useMemo(() => rgb(baseColor), [baseColor]);
+  const PLUG = useMemo(() => rgb(plugColor), [plugColor]);
   const map = useRef<HTMLCanvasElement>(null);
   const section = useRef<HTMLCanvasElement>(null);
   const [layer, setLayer] = useState<Layer>("face");
@@ -63,7 +68,7 @@ export function FitView({ fit }: { fit: FitCheck }) {
       }
     }
     return data;
-  }, [fit, layer]);
+  }, [fit, layer, BASE, PLUG]);
 
   useEffect(() => {
     const canvas = map.current;
@@ -199,7 +204,7 @@ export function FitView({ fit }: { fit: FitCheck }) {
       ctx.fillStyle = "#12414f";
       ctx.fillText(text, left + 4, y);
     }
-  }, [fit, at, span]);
+  }, [fit, at, span, BASE, PLUG]);
 
   const pick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     // The picture keeps its proportions inside the canvas element, so it may

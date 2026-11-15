@@ -86,8 +86,29 @@ freely; the app is released under the MIT licence.
 ### Order of work
 - V-carve inlays first, then flat pocket inlays.
 
+## Added after v1 (2026-11-15)
+
+At the user's request; how they were built is in the plan.
+
+- Stock dimensions: the base board has a width, height and thickness of its own, and the
+  imported shapes are placed within it. It applies to the base board only; plugs and
+  inserts keep boards worked out from the shapes and the inlay's settings.
+- Shapes can be imported from several files onto one stock.
+- Other operations on the stock: pocket, facing, contour and chamfer. Facing serves both
+  to flatten the stock and to mill a glued-in plug's backer off, so it can start above the
+  stock's surface.
+- Each inlay and operation has its own file; several can also be put into one file for
+  the stock, chosen per download.
+- The colour of each inlay's wood, and of the stock's, can be chosen. It is used in the
+  drawing, the 3D view and the fit view.
+
 ## Out of scope for v1 (future)
 
+- A curated list of default tools that can be loaded into the app's tool list: common end
+  mills and V-bits with sensible cutting settings for hardwood and softwood, so that a new
+  user does not start from an empty list. Asked for by the user on 2026-11-15, to be done
+  later. To decide then: which tools, where the list lives (bundled with the app or
+  fetched), and how loading it merges with tools the user already has.
 - Automatic relief of narrow plug features: shave the tips of narrow plug ridges by the
   glue gap so they cannot bottom out. Definitely wanted; first candidate after v1.
 - Uploading jobs to the machine over WiFi/USB.
@@ -96,7 +117,8 @@ freely; the app is released under the MIT licence.
 - Rest machining of flat-pocket corners with a smaller tool, for sharper corners on both
   parts without cutting everything with the small tool.
 - Tapered ball-nose bits for deep, steep-walled V inlays.
-- Facing toolpath that mills the plug backer off after glue-up.
+- Facing toolpath that mills the plug backer off after glue-up. (Done: see "Added after
+  v1".)
 - Calibration coupon (one shape cut at several allowances) with results stored per bit
   and material.
 - Output profiles for other controllers: GRBL, LinuxCNC, Mach.

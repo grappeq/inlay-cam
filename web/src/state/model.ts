@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { Inlay, Job, Machine, Material, Project, Setup, Tool, ToolKind } from "../core/types";
+import type { Design, Inlay, Job, JobType, Machine, Material, Project, Ring, Setup, Tool, ToolKind, TrueInlay } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -89,34 +89,178 @@ export function newProject(name = "Untitled inlay"): Project {
   return { id: newId(), name, design: null, jobs: [], tools: [], base: { thickness: 18 }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
 }
 
-export function defaultInlay(type: Inlay["type"]): Inlay {
-  return type === "vcarve"
-    ? { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true }
-    : { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
+export function defaultInlay(type: JobType): Inlay {
+  switch (type) {
+    case "vcarve":
+      return { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true };
+    case "flat":
+      return { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
+    case "pocket":
+      return { type, depth: 3, clearingToolIds: [] };
+    case "facing":
+      return { type, above: 0, depth: 0.5, margin: 0, toolId: null };
+    case "contour":
+      return { type, side: "outside", depth: null, tabs: true, toolId: null };
+    case "chamfer":
+      return { type, side: "outside", width: 1, vbitToolId: null };
+  }
 }
 
-export function newJob(type: Inlay["type"], regionIds: number[], existing: Job[], setup: Setup): Job {
-  const label = type === "vcarve" ? "V-carve inlay" : "Flat inlay";
-  let n = existing.length + 1;
+/** What each kind of job is called. */
+export const JOB_LABELS: Record<JobType, string> = {
+  vcarve: "V-carve inlay",
+  flat: "Flat inlay",
+  pocket: "Pocket",
+  facing: "Facing",
+  contour: "Contour",
+  chamfer: "Chamfer",
+};
+
+/** True for an inlay, which has a second part; false for a plain operation on the stock. */
+export function isInlay(inlay: Inlay): inlay is TrueInlay {
+  return inlay.type === "vcarve" || inlay.type === "flat";
+}
+
+/** Woods to colour an inlay or the stock with, light to dark. */
+export const WOODS: { name: string; color: string }[] = [
+  { name: "Maple", color: "#e3cfa4" },
+  { name: "Oak", color: "#c9a56b" },
+  { name: "Cherry", color: "#b06a3c" },
+  { name: "Padauk", color: "#a8432b" },
+  { name: "Walnut", color: "#5d3d24" },
+  { name: "Purpleheart", color: "#6d3a5c" },
+  { name: "Wenge", color: "#3b2a20" },
+  { name: "Ebony", color: "#26211e" },
+];
+/** The stock's colour when none is chosen. */
+export const DEFAULT_STOCK_COLOR = "#dcbd8e";
+/** Colours for inlays from before they had one of their own, by position in the list. */
+const OLD_JOB_COLORS = ["#c2552d", "#2f7f6f", "#8a5fbf", "#b8892b", "#3f78b5", "#b04a7a"];
+/** The woods new inlays are given in turn: ones that stand out from a light stock. */
+const NEW_INLAY_WOODS = ["#5d3d24", "#b06a3c", "#a8432b", "#3b2a20", "#6d3a5c", "#c9a56b"];
+
+/** The colour an inlay is drawn in. */
+export function jobColor(job: Job, jobs: Job[]): string {
+  return job.color ?? OLD_JOB_COLORS[Math.max(0, jobs.indexOf(job)) % OLD_JOB_COLORS.length];
+}
+
+export function stockColor(project: Project): string {
+  return project.base.color ?? DEFAULT_STOCK_COLOR;
+}
+
+export function newJob(type: JobType, regionIds: number[], existing: Job[], setup: Setup): Job {
+  const label = JOB_LABELS[type];
+  let n = existing.filter((j) => j.inlay.type === type).length + 1;
   while (existing.some((j) => j.name === `${label} ${n}`)) n++;
-  return { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, setup, inlay: defaultInlay(type) };
+  const job: Job = { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, setup, inlay: defaultInlay(type) };
+  if (isInlay(job.inlay)) {
+    const taken = new Set(existing.map((j) => j.color));
+    job.color = NEW_INLAY_WOODS.find((c) => !taken.has(c)) ?? NEW_INLAY_WOODS[existing.length % NEW_INLAY_WOODS.length];
+  }
+  return job;
 }
 
 export function jobToolIds(job: Job): string[] {
-  const ids = job.inlay.type === "vcarve" ? [...job.inlay.clearingToolIds, job.inlay.vbitToolId] : [...job.inlay.clearingToolIds];
-  if (job.cutOutToolId !== undefined && cutsPlugOut(job.inlay)) ids.push(job.cutOutToolId);
+  const inlay = job.inlay;
+  const ids: (string | null)[] =
+    inlay.type === "vcarve"
+      ? [...inlay.clearingToolIds, inlay.vbitToolId]
+      : inlay.type === "flat" || inlay.type === "pocket"
+        ? [...inlay.clearingToolIds]
+        : inlay.type === "chamfer"
+          ? [inlay.vbitToolId]
+          : [inlay.toolId];
+  if (job.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(job.cutOutToolId);
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
 
 /** Whether the inlay's plug is cut out of a larger board as the last step of its file. */
 export function cutsPlugOut(inlay: Inlay): boolean {
-  return inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer");
+  return isInlay(inlay) && inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer");
 }
 
 /** How deep the cut that frees a plug from its board goes. */
 export function cutOutDepth(job: Job, project: Project): number {
-  const board = job.inlay.type === "vcarve" ? job.inlay.plugThickness : job.inlay.insertThickness;
+  const board = job.inlay.type === "vcarve" ? job.inlay.plugThickness : job.inlay.type === "flat" ? job.inlay.insertThickness : 0;
   return board + jobSetup(job, project).throughCut;
+}
+
+/** What has to be chosen before a job's files can be made, or null when nothing is missing. */
+export function missingFor(job: Job): string | null {
+  const inlay = job.inlay;
+  if (job.regionIds.length === 0 && inlay.type !== "facing") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
+  switch (inlay.type) {
+    case "vcarve":
+      return inlay.vbitToolId === null ? "Choose a V-bit first, under Wood and tools." : null;
+    case "chamfer":
+      return inlay.vbitToolId === null ? "Choose a V-bit first." : null;
+    case "flat":
+      return inlay.clearingToolIds.length === 0 ? "Choose an end mill first, under Wood and tools." : null;
+    case "pocket":
+      return inlay.clearingToolIds.length === 0 ? "Choose an end mill first." : null;
+    case "facing":
+      return inlay.toolId === null ? "Choose an end mill first." : inlay.above + inlay.depth <= 0 ? "Give the wood above the surface, a depth below it, or both." : null;
+    case "contour":
+      return inlay.toolId === null ? "Choose an end mill first." : null;
+  }
+}
+
+/**
+ * The drawing with its scale and mirroring worked into the shapes, so that
+ * its width and height are the stock's own and a shape's numbers are where it
+ * lies on the stock. Older projects scaled and mirrored the drawing as a whole.
+ */
+export function normaliseDesign(design: Design): Design {
+  if (design.scale === 1 && !design.mirror) return design;
+  const { scale, mirror, width } = design;
+  const place = (ring: Ring): Ring => {
+    const out = ring.map(([x, y]): [number, number] => [(mirror ? width - x : x) * scale, y * scale]);
+    // A mirrored ring runs the other way round; put it back.
+    return mirror ? out.reverse() : out;
+  };
+  return {
+    ...design,
+    width: design.width * scale,
+    height: design.height * scale,
+    scale: 1,
+    mirror: false,
+    regions: design.regions.map((r) => ({ ...r, outer: place(r.outer), holes: r.holes.map(place) })),
+  };
+}
+
+/**
+ * Puts the shapes of another drawing on the stock, beside what is there: in
+ * the middle of the stock where they fit, else from its bottom-left corner,
+ * with the stock grown to hold them. Returns the new shapes' ids.
+ */
+export function addDrawing(design: Design, incoming: Design): { design: Design; ids: number[] } {
+  const added = normaliseDesign(incoming);
+  let box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of added.regions) for (const [x, y] of r.outer) box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
+  if (added.regions.length === 0) return { design, ids: [] };
+  const [w, h] = [box[2] - box[0], box[3] - box[1]];
+  const dx = Math.max(0, (design.width - w) / 2) - box[0];
+  const dy = Math.max(0, (design.height - h) / 2) - box[1];
+  let next = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
+  const shift = (ring: Ring): Ring => ring.map(([x, y]) => [x + dx, y + dy]);
+  const regions = added.regions.map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
+  const names = design.sourceName.split(", ").filter((n) => n !== "");
+  if (!names.includes(added.sourceName)) names.push(added.sourceName);
+  return {
+    design: {
+      ...design,
+      sourceName: names.join(", "),
+      width: Math.max(design.width, w),
+      height: Math.max(design.height, h),
+      regions: [...design.regions, ...regions],
+    },
+    ids: regions.map((r) => r.id),
+  };
+}
+
+/** A stock with nothing drawn on it yet. */
+export function emptyDesign(): Design {
+  return { sourceName: "", width: 200, height: 150, scale: 1, mirror: false, regions: [] };
 }
 
 /**
@@ -126,6 +270,7 @@ export function cutOutDepth(job: Job, project: Project): number {
  */
 export function usualCutOutTool(job: Job, tools: Tool[], project: Project): Tool | undefined {
   const depth = cutOutDepth(job, project);
+  if (!isInlay(job.inlay)) return undefined;
   return job.inlay.clearingToolIds
     .map((id) => resolveTool(id, tools, project))
     .filter((t): t is Tool => t !== undefined && t.kind === "flat_end")
@@ -165,10 +310,14 @@ export function toolChoices(kind: ToolKind, tools: Tool[], project: Project): To
     .sort((a, b) => a.diameter - b.diameter || a.name.localeCompare(b.name));
 }
 
-/** Which job, if any, each region belongs to. */
+/**
+ * Which inlay, if any, each region belongs to. A shape is one wood, so it
+ * belongs to one inlay at most; plain operations use any shapes, also those
+ * of an inlay or of each other, and own none.
+ */
 export function regionOwners(jobs: Job[]): Map<number, Job> {
   const owners = new Map<number, Job>();
-  for (const job of jobs) for (const id of job.regionIds) owners.set(id, job);
+  for (const job of jobs) if (isInlay(job.inlay)) for (const id of job.regionIds) owners.set(id, job);
   return owners;
 }
 

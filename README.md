@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/grappeq/inlay-cam/actions/workflows/ci.yml/badge.svg)](https://github.com/grappeq/inlay-cam/actions/workflows/ci.yml)
 
-A web app that turns a drawing into the two G-code files of a wooden inlay: one cuts the
-pocket into the base board, the other cuts the piece that fills it. It simulates both
-files and reports how the two parts will fit before any wood is cut.
+A web app that turns drawings into the two G-code files of a wooden inlay: one cuts the
+pocket into the stock, the other cuts the piece that fills it. It also cuts plain pockets,
+contours and chamfers, and faces the stock. It simulates every file and reports how an
+inlay's two parts will fit before any wood is cut.
 
 - **V-carve inlays**, with sloped walls and sharp corners, and **flat inlays**, with
   upright walls, as loose pieces or as one plug.

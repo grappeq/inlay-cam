@@ -7,9 +7,8 @@ import { dimensionMarks, surfaceHit, type Vec3 } from "./dimensions";
 /** Most vertices per side of the displayed surface; finer height maps are thinned for display only. */
 const MAX_DISPLAY = 600;
 
-const TOP = new THREE.Color("#dcbd8e");
-const DEEP = new THREE.Color("#6f4a26");
-const SIDE = new THREE.Color("#b6935f");
+/** The wood's colour when none is given. */
+const WOOD = "#dcbd8e";
 
 /** Numbers per straight piece of the tool path: x0 y0 z0 x1 y1 z1 rapid tool line. */
 const PIECE = 9;
@@ -41,10 +40,12 @@ interface Props {
   preview: PocketPreview;
   /** Thickness of the stock, mm, for drawing its sides. */
   thickness: number;
+  /** The colour of the wood, as #rrggbb. */
+  color?: string;
 }
 
 /** The simulated stock in 3D, with the tool path as an optional overlay. */
-export function Viewer3D({ preview, thickness }: Props) {
+export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const pathView = useRef<PathView | null>(null);
   const stockGroup = useRef<THREE.Group | null>(null);
@@ -111,7 +112,7 @@ export function Viewer3D({ preview, thickness }: Props) {
       controls.update();
     };
 
-    const stock = buildStock(preview, thickness);
+    const stock = buildStock(preview, thickness, color);
     scene.add(stock);
     stockGroup.current = stock;
     const path = buildPath(preview, reach);
@@ -216,7 +217,7 @@ export function Viewer3D({ preview, thickness }: Props) {
       pathView.current = null;
       stockGroup.current = null;
     };
-  }, [preview, thickness]);
+  }, [preview, thickness, color]);
 
   useEffect(() => {
     const path = pathView.current;
@@ -393,7 +394,11 @@ function buildDimensions(preview: PocketPreview, reach: number, ink: string): Di
 }
 
 /** The cut surface plus the four sides of the board. */
-function buildStock(preview: PocketPreview, thickness: number): THREE.Group {
+function buildStock(preview: PocketPreview, thickness: number, color: string): THREE.Group {
+  // Cut surfaces are drawn darker the deeper they lie; the sides a shade darker than the top.
+  const top = new THREE.Color(color);
+  const deep = top.clone().multiplyScalar(0.45);
+  const side = top.clone().multiplyScalar(0.82);
   const { nx, ny, cell, heights } = preview;
   const step = Math.max(1, Math.ceil(Math.max(nx, ny) / MAX_DISPLAY));
   const dx = Math.ceil(nx / step);
@@ -425,7 +430,7 @@ function buildStock(preview: PocketPreview, thickness: number): THREE.Group {
     for (let i = 0; i < dx; i++) {
       const k = j * dx + i;
       positions.set([xAt(i), yAt(j), z[k]], k * 3);
-      colour.copy(TOP).lerp(DEEP, lowest < 0 ? (z[k] / lowest) * 0.85 : 0);
+      colour.copy(top).lerp(deep, lowest < 0 ? (z[k] / lowest) * 0.85 : 0);
       colors.set([colour.r, colour.g, colour.b], k * 3);
     }
   }
@@ -467,7 +472,7 @@ function buildStock(preview: PocketPreview, thickness: number): THREE.Group {
   const behind = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
   const group = new THREE.Group();
   group.add(new THREE.Mesh(surface, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, ...behind })));
-  group.add(new THREE.Mesh(sides, new THREE.MeshStandardMaterial({ color: SIDE, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, ...behind })));
+  group.add(new THREE.Mesh(sides, new THREE.MeshStandardMaterial({ color: side, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, ...behind })));
   return group;
 }
 

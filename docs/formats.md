@@ -132,9 +132,9 @@ Exported from the header as `<project name>.inlay.json`.
 | `id` | Identifies the project in browser storage. |
 | `name` | Shown in the header; used for the export file name. |
 | `design` | The imported drawing, or `null`. |
-| `jobs` | The inlays. |
+| `jobs` | The inlays and the plain operations on the stock, in the order they are listed and, in one file for the stock, cut. |
 | `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. |
-| `base` | The board the pockets are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. |
+| `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
 | `machine` | The machine the files are checked against, below. Default: the Carvera Air. The app overwrites it with the machine set in the browser whenever the project is open. |
 | `setup` | Clearances and tabs, below, for jobs that have none of their own: those written before each job had them. Default: the values in the table. |
 
@@ -166,10 +166,10 @@ Clearances and tabs. Every field has the default given, so any may be left out.
 
 | Field | Meaning |
 |---|---|
-| `sourceName` | File name the drawing was imported from. |
-| `width`, `height` | Size of the drawing's page as imported, before `scale`. |
-| `scale` | Uniform scale applied when the regions are used. Default 1. |
-| `mirror` | Flip the whole design left to right. Default false. Corrects a drawing that was made mirrored; plugs are mirrored automatically and do not use this. |
+| `sourceName` | File names the shapes were imported from, separated by `, `. Empty for a stock started without a drawing. |
+| `width`, `height` | Size of the page, which is the stock, before `scale`. Both greater than 0. The first drawing sets them; the user can change them. |
+| `scale` | Uniform scale applied when the regions are used. Default 1. The app now writes 1: on opening a project it works any other scale into the regions and the page size. |
+| `mirror` | Flip the whole design left to right. Default false. The app now writes false: on opening a project it works a mirrored design into the regions. |
 | `regions` | The filled areas of the drawing. |
 
 ### Region
@@ -189,14 +189,17 @@ bottom-left corner. Curves have already been replaced by straight segments no fu
 
 ### Job
 
-One inlay: a pocket and its matching plug or insert.
+One inlay (a pocket and its matching plug or insert), or one plain operation on the stock
+(a pocket, a facing, a contour or a chamfer). The field that says which is called `inlay`
+in both cases, from when the app made inlays only.
 
 | Field | Meaning |
 |---|---|
 | `id` | Unique within the project. |
-| `name` | Shown in the inlay list. |
+| `name` | Shown in the list. |
+| `color` | Optional. The colour of an inlay's wood in the app's pictures, as `#rrggbb`. It changes nothing in the G-code. |
 | `material` | `hardwood` or `softwood`: which cutting settings of each tool are used. |
-| `regionIds` | The design regions this inlay covers. Each must exist in the design. |
+| `regionIds` | The design regions this job covers. Each must exist in the design. The app keeps a region in one inlay at most; plain operations may use any regions, also those of an inlay or of each other. A facing may have none. |
 | `setup` | Clearances and tabs for this inlay's files, as above. Optional: without it the project's `setup` is used. The app gives every new inlay its own. |
 | `cutOutToolId` | The flat end mill that cuts a plug out of its board, when `cutOut` is set. Optional: without it, the largest of the inlay's `clearingToolIds` whose flutes reach through the board is used. A file is refused when the chosen tool's flutes are shorter than the board plus `throughCut`. |
 | `inlay` | Type and parameters, below. |
@@ -230,6 +233,52 @@ One inlay: a pocket and its matching plug or insert.
 | `clearingToolIds` | Flat end mills that cut the pocket, in the order they are used. Each cuts only what those before it left. Corners of both parts cannot be sharper than the radius of the smallest, which also cuts the insert out. Files written before inlays took several tools have `toolId` instead (one id or `null`); it is read as a list of one or none. |
 | `insertThickness` | Thickness of the board the insert or plug is cut from. Greater than 0. Default 4. Loose inserts: at least `pocketDepth`. Backer plugs: more than `pocketDepth` + `sawGap`. |
 | `insertMargin` | Width of board left around the shapes on the insert board. Greater than 0. Default 8. |
+
+`inlay` for a plain pocket: the regions cleared to a flat floor.
+
+| Field | Meaning |
+|---|---|
+| `type` | `pocket` |
+| `depth` | Greater than 0, and less than the stock's thickness. |
+| `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |
+
+`inlay` for a facing: an area milled flat.
+
+| Field | Meaning |
+|---|---|
+| `type` | `facing` |
+| `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
+| `depth` | How far below the stock's surface the area ends up. 0 or more. Default 0. `above` + `depth` must be greater than 0. |
+| `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
+| `toolId` | The flat end mill, or `null` when not chosen yet. |
+
+Without regions the area is the whole stock; with regions it is the upright rectangle
+around them, grown by `margin`. The tool's centre goes to the edge of the area, so it cuts
+half its diameter beyond it. The tool travels `safeHeight` above the standing wood, that is
+`safeHeight` + `above` over the surface.
+
+`inlay` for a contour: a cut along the outlines of the regions.
+
+| Field | Meaning |
+|---|---|
+| `type` | `contour` |
+| `side` | `outside` (default): the tool runs its radius outside the regions, and inside their holes. `inside`: its radius inside the regions. `on`: its centre on the outlines. |
+| `depth` | How deep the cut goes, greater than 0 and less than the stock's thickness; or `null` (default) for right through the stock, `throughCut` past its bottom. |
+| `tabs` | Leave tabs across the cut, on the outer outline of each region. Default false. Their size is in the job's `setup`; in a cut that is not through they are no thicker than half its depth. |
+| `toolId` | The flat end mill, or `null` when not chosen yet. |
+
+`inlay` for a chamfer: the top edge along the outlines of the regions, bevelled with a V-bit.
+
+| Field | Meaning |
+|---|---|
+| `type` | `chamfer` |
+| `side` | `outside` (default): the wood outside the regions has been cut away, and the bit runs there. `inside`: the regions are pockets or openings, and the bit runs inside them. |
+| `width` | Width of the bevel seen from above. Greater than 0. |
+| `vbitToolId` | The V-bit, or `null` when not chosen yet. |
+
+The bit's axis runs its tip-flat radius plus 0.2 mm from the outline, on the side named,
+with the tip (`width` + 0.2) / tan(half the bit's angle) below the surface. The bevel is
+then `width` wide and the tip, which hardly cuts, is in the air beside the edge.
 
 ## SVG import
 

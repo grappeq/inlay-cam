@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
 import { moveOnBoard, overlapping, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
-import { fmt, regionOwners } from "../state/model";
+import { fmt, isInlay, jobColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
-/** Colours for inlays, by position in the list. Chosen to stay distinct from the selection colour. */
-export const JOB_COLORS = ["#c2552d", "#2f7f6f", "#8a5fbf", "#b8892b", "#3f78b5", "#b04a7a"];
-
-export function jobColor(index: number): string {
-  return JOB_COLORS[index % JOB_COLORS.length];
+/** An ink that shows on a wood of this colour: dark on light woods, light on dark ones. */
+function inkOn(color: string): string {
+  const n = parseInt(color.slice(1), 16);
+  const light = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return light > 0.45 ? "#3a2c18" : "#f3e7d0";
 }
 
 function ringPath(ring: Ring, design: Design): string {
@@ -114,6 +114,10 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     [design],
   );
   const owners = useMemo(() => regionOwners(project.jobs), [project.jobs]);
+  const active = project.jobs.find((j) => j.id === activeJobId);
+  // A plain operation uses shapes without owning them; they are marked while it is open.
+  const used = useMemo(() => new Set(active && !isInlay(active.inlay) ? active.regionIds : []), [active]);
+  const wood = stockColor(project);
   const overlaps = useMemo(() => (arranging ? new Set(overlapping(design)) : new Set<number>()), [arranging, design]);
 
   const width = design.width * design.scale;
@@ -347,6 +351,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="group"
         aria-label={arranging ? "Drawing. Click a part to select it, drag it to move it." : "Drawing. Click a shape to select it."}
+        style={{ "--shape-edge": inkOn(wood) } as React.CSSProperties}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -358,14 +363,13 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
           if (!(e.target as Element).closest("[data-region], [data-handle]")) setZoomed(null);
         }}
       >
-        <rect className="page" x={0} y={0} width={width} height={height} />
+        <rect className="page" x={0} y={0} width={width} height={height} style={{ fill: wood }} />
         {paths.map(({ id, d }) => {
           const owner = owners.get(id);
-          const ownerIndex = owner ? project.jobs.indexOf(owner) : -1;
           const selected = selection.includes(id);
-          const inActive = owner !== undefined && owner.id === activeJobId;
+          const inActive = (owner !== undefined && owner.id === activeJobId) || used.has(id);
           const dimmed = !arranging && activeJobId !== null && owner !== undefined && !inActive;
-          const label = owner ? `Shape ${id + 1}, in ${owner.name}${selected ? ", selected" : ""}` : `Shape ${id + 1}${selected ? ", selected" : ""}`;
+          const label = `Shape ${id + 1}${owner ? `, in ${owner.name}` : ""}${used.has(id) && active ? `, used by ${active.name}` : ""}${selected ? ", selected" : ""}`;
           const click = (add: boolean) => dispatch({ type: "clickRegion", id, add });
           return (
             <path
@@ -373,18 +377,18 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
               data-region={id}
               d={d}
               fillRule="evenodd"
-              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${dimmed ? " dimmed" : ""}${
+              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}${
                 overlaps.has(id) ? " overlap" : ""
               }`}
-              // While arranging, the selection colour wins over the inlay's.
-              style={owner && !(arranging && selected) ? { fill: jobColor(ownerIndex) } : undefined}
+              // The selection colour wins over the inlay's.
+              style={owner && !selected ? { fill: jobColor(owner, project.jobs) } : undefined}
               transform={selected ? shift : undefined}
               tabIndex={0}
               role="button"
               aria-label={label}
               aria-pressed={selected || inActive}
               // While arranging, presses and releases on the drawing do the selecting.
-              onClick={arranging ? undefined : () => click(false)}
+              onClick={arranging ? undefined : (e) => click(e.shiftKey)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();

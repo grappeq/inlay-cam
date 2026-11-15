@@ -1,14 +1,15 @@
 # Using the app
 
-The app turns shapes from a drawing into G-code for a Carvera Air running the Carvera
-Community Firmware. For each inlay it writes two files: one cuts the pocket into the base
-board, the other cuts the piece that fills it. It simulates both files and reports how the
-two parts will fit.
+The app turns shapes from drawings into G-code for a Carvera Air running the Carvera
+Community Firmware. For each inlay it writes two files: one cuts the pocket into the stock,
+the other cuts the piece that fills it. It simulates both files and reports how the two
+parts will fit. It also cuts plain pockets, contours and chamfers into the stock, and faces
+it.
 
 **Check every file before you run it.** The app is new: its G-code has been run on a real
 machine only as an air cut, and no inlay has been cut with it yet. Look at the simulation,
 read the file, and run it above the board first. You use the app and its files at your own
-risk; see [Before you cut](#5-cut).
+risk; see [Before you cut](#6-cut).
 
 Everything runs in the browser. Projects and tools are stored in that browser only; use
 "Save to file" to keep a copy or move a project to another computer.
@@ -57,7 +58,8 @@ alter inlays you have already made.
 
 ## 2. Bring in a drawing
 
-Use **Import drawing** or drop the file on the window. The app reads SVG and DXF.
+Use **Import drawing** or drop the files on the window. The app reads SVG and DXF, and
+takes several files at once.
 
 - Shapes must be filled, or drawn as lines that join into closed outlines. Lines are
   joined where their ends meet within 0.01 mm.
@@ -66,18 +68,37 @@ Use **Import drawing** or drop the file on the window. The app reads SVG and DXF
 - Text must be converted to outlines first. Images are ignored.
 - After the import the app lists what it left out.
 
-The drawing's page is the base board. Its bottom-left corner is the work origin, with Z0
-on the board's top face. A DXF file has no page, so the board is the shapes' extent plus
-5 mm on every side. Set the board's width or height to scale the drawing, and its
-thickness.
+### The stock
+
+The stock is the board the pockets and the other operations are cut into. Its bottom-left
+corner is the work origin, with Z0 on its top face. The first drawing sets its size: the
+drawing's page, or for a DXF file, which has no page, the shapes' extent plus 5 mm on every
+side.
+
+Under **Stock and drawings** you set the stock's width, height and thickness, and the
+colour of its wood. Changing the size leaves the shapes where they are and as large as they
+are; the app says so when shapes end up outside the stock. "Fit the stock to the shapes",
+under "More", makes it the shapes' extent plus 5 mm.
+
+The stock applies to this board only. A plug or an insert is cut from a board of its own,
+whose size follows from the shapes and the inlay's settings.
+
+**Add a drawing** puts the shapes of further files on the same stock. They come in at
+their own size, in the middle of the stock, selected and ready to be moved: drag them to
+their place and press "Done". The stock grows when they do not fit. "Replace the drawing",
+under "More", starts over with one file; what was made from the old drawing is removed.
+
+"Start with an empty stock", on the start screen, gives a stock of 200 x 150 mm without a
+drawing, to face it or to add drawings to.
 
 If a DXF or an Illustrator SVG comes in at the wrong size, the file's unit was not what
-the app took it for: type the right width.
+the app took it for: select its shapes under "Move, resize or delete shapes" and type the
+right width.
 
 ### Arranging the drawing
 
 A drawing often holds several parts, or parts you do not want. "Move, resize or delete
-shapes" under "Drawing and base board" lets you change that. The app treats the drawing
+shapes" under "Stock and drawings" lets you change that. The app treats the drawing
 as outlines here: an outline takes along everything inside it, the hole it makes in the
 shape around it moves with it, and the hole closes when the outline is deleted.
 
@@ -125,7 +146,12 @@ inlays from them. There is no snapping or aligning of one part to another.
 ## 3. Make an inlay
 
 Click the shapes that will be cut from one wood, then choose the kind of inlay. Each
-inlay is edited in its own panel; "All inlays" takes you back.
+inlay is edited in its own panel; "All inlays and operations" takes you back.
+
+Under "Wood and tools" an inlay has a **colour** for its wood: one of the woods offered, or
+any other colour. The drawing shows each inlay in its colour on the colour of the stock, so
+it previews the finished piece; the 3D view of the plug and the fit view use the same
+colours. Colours change nothing in the files.
 
 ### V-carve inlay
 
@@ -197,9 +223,57 @@ defaults" returns to them. The app's own values are in brackets.
 - **Board around a cut-out plug** (5 mm): what is left of the board on every side, beyond
   the cut.
 
-## 4. Generate and check
+## 4. Other operations on the stock
 
-**Generate files** makes both files and checks them. For each file the panel shows:
+Pockets, contours, chamfers and facing are made like inlays: click shapes, then choose the
+operation. They are listed with the inlays, and each has a panel and a file of its own.
+
+A shape is one wood, so it belongs to one inlay at most. Operations are not bound by that:
+they use any shapes, also those of an inlay or of another operation. Clicking a shape that
+has an inlay opens the inlay; Shift-click selects it instead. With an operation open, any
+click adds a shape to it or takes it away.
+
+- **Pocket**: clears the shapes to a flat floor, at the depth given, with one end mill or
+  several in order. Inside corners are rounded to the smallest; what is really cut is drawn
+  dashed after generating.
+- **Contour**: takes an end mill along the outlines. *Outside the shapes* keeps the shapes:
+  the tool runs round them, and inside their holes. To cut round the outside of a part
+  only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
+  leaving an opening of their size. *On the line* puts the tool's centre on the outline.
+  The cut goes to a depth, or right through the stock and a little into the spoilboard,
+  with or without tabs.
+- **Chamfer**: bevels the top edge along the outlines with a V-bit, to the width given.
+  Choose the side where the wood has been cut away: round the shapes, or inside them. Run
+  it after that edge has been cut. The bit's tip runs a little beside the edge, where it
+  expects air; in uncut wood it would leave a V-groove.
+- **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
+  and the tool runs out over every edge. With shapes it is the rectangle around them plus
+  a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
+  surface* to remove what stands on it.
+
+### Trimming a plug flush
+
+Facing over the shapes of an inlay removes its plug's backer after the glue-up. The panel
+says how far that plug stands above the surface and offers to fill in the fields: that
+height above, 0 below, and the plug's own margin, so that the area is the plug's blank.
+The file starts cutting at that height and travels above it. Z0 is still the stock's
+surface, so set it beside the plug, not on it. The 3D view shows the stock only, not the
+wood standing on it.
+
+### One file for the stock
+
+The list of inlays and operations has a tick box and arrows on every line. Tick what one
+file should cut, put the lines in the order to cut them, and press **Generate one file**.
+The file cuts each ticked inlay's pocket and each ticked operation, in the order of the
+list. Tools keep one number each through the file, and a tool that the next line also
+starts with stays in the spindle. The file is simulated as a whole and shown in 3D.
+
+An inlay's plug or insert always has its own file: it is cut from another board.
+
+## 5. Generate and check
+
+**Generate files** makes both files of an inlay, or the one file of an operation, and
+checks them. For each file the panel shows:
 
 - whether the simulation found a problem (a rapid move through wood, a cut below the
   board, a cut deeper than the tool's flutes). Do not run a file that has one;
@@ -247,15 +321,15 @@ is rounded to the flat's radius and the plug's is not. The sharper the bit and t
 its flat, the more: a 0.2 mm flat on a 30° bit can hold a plug up by 0.37 mm. Clamp the
 plug down firmly, or use a bit with a smaller flat.
 
-## 5. Cut
+## 6. Cut
 
 Download each file and run it on its own board.
 
 - Set the work origin at the board's bottom-left corner, Z0 on its top face.
 - Tool numbers in the file start at T1, or at the first tool number set for your machine,
   in the order the tools are used. The firmware asks for each tool in turn.
-- The pocket file is for the base board. The plug or insert file is for its own board, of
-  the size the app gives.
+- The pocket file, the files of the other operations and the one file for the stock are
+  for the stock. The plug or insert file is for its own board, of the size the app gives.
 
 Before the first real cut, run `machine-tests/m0-air-cut.cnc` as an air cut. It confirms
 that the machine reads this app's G-code as intended.
@@ -273,4 +347,7 @@ app comes with no warranty: what a file does on your machine is your responsibil
 - It checks every cut against the length of the tool's cutting edges, so nothing above
   them ever goes below the board's surface. It does not check the tool holder against
   clamps, or the machine's Z travel.
-- It does not pack inserts to save wood, or surface the board.
+- It does not pack inserts to save wood.
+- It does not simulate wood standing above the stock's surface, such as a glued-in plug.
+- It does not snap or align shapes, so a second drawing is placed by eye or by typed
+  position.

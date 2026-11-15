@@ -58,12 +58,23 @@ pub fn profile(
     if offset(parts, radius).len() < parts.len() {
         return Err(ProfileError::PartsTooClose);
     }
+    let tracks: Vec<Vec<Region>> = parts
+        .iter()
+        .map(|part| offset(std::slice::from_ref(part), radius))
+        .collect();
+    Ok(follow(path, &tracks, p))
+}
+
+/// Appends the moves that take the tool's centre along ready-made tracks,
+/// one set of tracks per part, going deeper each time round. Tabs, when
+/// asked for, are left on the outer ring of each track.
+pub fn follow(path: &mut PathBuilder, parts: &[Vec<Region>], p: &ProfileParams) -> ProfileReport {
     let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
     let mut report = ProfileReport::default();
 
     for part in parts {
         let mut tabs_left = 0;
-        for track in offset(std::slice::from_ref(part), radius) {
+        for track in part {
             // Inside cuts first: the waste in a hole is not what holds the part.
             let rings = track
                 .holes
@@ -98,7 +109,7 @@ pub fn profile(
         report.tabs.push(tabs_left);
         path.retract();
     }
-    Ok(report)
+    report
 }
 
 /// The ring's points from `start` round to `start` again, each with its

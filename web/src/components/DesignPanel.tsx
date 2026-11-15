@@ -1,45 +1,58 @@
-import type { Design, ImportReport, Inlay, Job, Material, Setup, Tool, ToolKind } from "../core/types";
+import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay } from "../core/types";
+import { boxOf, trimBoard } from "../state/arrange";
 import {
+  DEFAULT_STOCK_COLOR,
+  JOB_LABELS,
   MATERIALS,
+  SETUP_LIMITS,
+  WOODS,
   cutOutDepth,
   describeTool,
   fmt,
+  isInlay,
+  jobColor,
   jobSetup,
   newJob,
   regionOwners,
   resolveTool,
   sameSetup,
+  stockColor,
   toolChoices,
   usualCutOutTool,
 } from "../state/model";
 import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
-import { pickTextFile } from "../util/files";
-import { jobColor } from "./DesignCanvas";
+import { pickTextFile, pickTextFiles } from "../util/files";
 import { InlayDiagram } from "./InlayDiagram";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
-import { GenerateBar, Results, useOutput } from "./OutputPanel";
+import { GenerateBar, Results, StockFile, useOutput } from "./OutputPanel";
 import { CutOutFields, HeightFields, TabFields } from "./SetupFields";
 
+/** A job that is an inlay proper, with a pocket and a plug or insert. */
+type InlayJob = Job & { inlay: TrueInlay };
+
+const DRAWINGS = ".svg,.dxf,image/svg+xml";
+
+/** Picks one or more drawings and puts them on the stock. */
 export function useImportSvg() {
-  const { importSvg } = useFileActions();
-  return async () => importSvg(await pickTextFile(".svg,.dxf,image/svg+xml"));
+  const { addDrawings } = useFileActions();
+  return async () => addDrawings(await pickTextFiles(DRAWINGS));
 }
 
-/** The panel beside the drawing: the drawing and its inlays, or the one inlay being worked on. */
+/** The panel beside the drawing: the stock with its inlays and operations, or the one being worked on. */
 export function DesignPanel({ design }: { design: Design }) {
   const { project, importReport, activeJobId, arranging } = useApp();
-  const importSvg = useImportSvg();
   const active = project.jobs.find((j) => j.id === activeJobId);
 
   if (arranging) return <ArrangePanel design={design} />;
-  if (active) return <JobEditor key={active.id} job={active} index={project.jobs.indexOf(active)} />;
+  if (active) return isInlay(active.inlay) ? <JobEditor key={active.id} job={active as InlayJob} /> : <OpEditor key={active.id} job={active} />;
   return (
-    <aside className="panel" aria-label="Drawing and inlays">
+    <aside className="panel" aria-label="Stock, inlays and operations">
       <div className="panel-scroll">
         <JobsSection design={design} />
-        <DrawingSection design={design} report={importReport} onReplace={importSvg} />
+        <StockFile />
+        <StockSection design={design} report={importReport} />
       </div>
     </aside>
   );
@@ -70,77 +83,151 @@ export function ReportNotes({ report }: { report: ImportReport }) {
   );
 }
 
-function DrawingSection({ design, report, onReplace }: { design: Design; report: ImportReport | null; onReplace: () => void }) {
+/** A colour for a wood: a row of common woods, and any other colour. */
+function ColorField({ label, value, onChange, hint }: { label: string; value: string; onChange: (color: string) => void; hint?: string }) {
+  const current = value.toLowerCase();
+  const wood = WOODS.find((w) => w.color === current);
+  return (
+    <div className="field" role="group" aria-label={label}>
+      <span className="field-label">
+        {label}
+        {wood ? <span className="muted"> {wood.name}</span> : null}
+      </span>
+      <div className="woods">
+        {WOODS.map((w) => (
+          <button
+            key={w.color}
+            type="button"
+            className="wood"
+            style={{ background: w.color }}
+            aria-pressed={w.color === current}
+            aria-label={w.name}
+            title={w.name}
+            onClick={() => onChange(w.color)}
+          />
+        ))}
+        <input type="color" className="wood-other" value={current} aria-label={`${label}: another colour`} title="Another colour" onChange={(e) => onChange(e.target.value)} />
+      </div>
+      {hint && <span className="hint">{hint}</span>}
+    </div>
+  );
+}
+
+/** The stock: its size and wood, and the drawings whose shapes lie on it. */
+function StockSection({ design, report }: { design: Design; report: ImportReport | null }) {
   const { project } = useApp();
   const dispatch = useDispatch();
+  const addDrawing = useImportSvg();
+  const { replaceDrawing } = useFileActions();
   const setDesign = (change: Partial<Design>) =>
-    dispatch({ type: "updateProject", update: (p) => (p.design ? { ...p, design: { ...p.design, ...change } } : p) });
-  const scaled = Math.abs(design.scale - 1) > 1e-9;
+    dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: { ...p.design, ...change } } : p) });
+  const setBase = (change: Partial<typeof project.base>) => dispatch({ type: "updateProject", update: (p) => ({ ...p, base: { ...p.base, ...change } }) });
+  const count = design.regions.length;
+  const box = boxOf(design.regions);
+  const outside = box !== null && (box[0] < -1e-6 || box[1] < -1e-6 || box[2] > design.width + 1e-6 || box[3] > design.height + 1e-6);
+  const machine = project.machine;
+  const tooLarge = design.width > machine.travel[0] || design.height > machine.travel[1];
 
   return (
     <section>
-      <h2>Drawing and base board</h2>
+      <h2>Stock and drawings</h2>
+      <div className="row">
+        <NumberField deferred label="Width (X)" unit="mm" min={1} value={round2(design.width)} onChange={(v) => v !== undefined && setDesign({ width: v })} />
+        <NumberField deferred label="Height (Y)" unit="mm" min={1} value={round2(design.height)} onChange={(v) => v !== undefined && setDesign({ height: v })} />
+        <NumberField label="Thickness" unit="mm" min={0.1} value={project.base.thickness} onChange={(v) => v !== undefined && setBase({ thickness: v })} />
+      </div>
+      <p className="hint">
+        The stock is the board the pockets and the other operations are cut into. The work origin is its bottom-left corner, on its top face.
+        Changing its size leaves the shapes as they are.
+      </p>
+      {outside && (
+        <p className="status-line warn" role="status">
+          Some shapes lie outside the stock. Move them, or{" "}
+          <button type="button" className="link" onClick={() => box && setDesign({ width: Math.max(design.width, Math.ceil(box[2])), height: Math.max(design.height, Math.ceil(box[3])) })}>
+            make the stock large enough
+          </button>
+          .
+        </p>
+      )}
+      {tooLarge && (
+        <p className="status-line warn" role="status">
+          The stock is larger than the {machine.name} can travel ({fmt(machine.travel[0])} × {fmt(machine.travel[1])} mm). Files are refused only when their
+          cuts span more than that.
+        </p>
+      )}
+      <ColorField label="Wood" value={stockColor(project)} onChange={(color) => setBase({ color: color === DEFAULT_STOCK_COLOR ? undefined : color })} />
+
       <p className="muted file-name">
-        {design.sourceName}, {design.regions.length} shape{design.regions.length === 1 ? "" : "s"}
+        {count === 0 ? "No shapes yet." : `${count} shape${count === 1 ? "" : "s"}${design.sourceName ? ` from ${design.sourceName}` : ""}.`}
       </p>
       {report && <ReportNotes report={report} />}
       <div className="row">
-        <button onClick={() => dispatch({ type: "setArranging", on: true })}>Move, resize or delete shapes…</button>
+        <button onClick={addDrawing}>Add a drawing…</button>
+        <button disabled={count === 0} onClick={() => dispatch({ type: "setArranging", on: true })}>
+          Move, resize or delete shapes…
+        </button>
       </div>
-      <div className="row">
-        <NumberField
-          label="Width"
-          unit="mm"
-          min={0.001}
-          value={design.width * design.scale}
-          onChange={(v) => v !== undefined && setDesign({ scale: v / design.width })}
-        />
-        <NumberField
-          label="Height"
-          unit="mm"
-          min={0.001}
-          value={design.height * design.scale}
-          onChange={(v) => v !== undefined && setDesign({ scale: v / design.height })}
-        />
-        <NumberField
-          label="Thickness"
-          unit="mm"
-          min={0.1}
-          value={project.base.thickness}
-          onChange={(v) => v !== undefined && dispatch({ type: "updateProject", update: (p) => ({ ...p, base: { thickness: v } }) })}
-        />
-      </div>
-      <p className="hint">
-        The drawing's page is the base board the pockets are cut into. Width and height scale the drawing together
-        {scaled ? ` (drawn at ${fmt(design.width)} × ${fmt(design.height)} mm)` : ""}. The work origin is the board's bottom-left corner, on its top
-        face.
-      </p>
+      <p className="hint">Shapes from several SVG or DXF files can lie on one stock. A drawing that is added comes in selected, to be put in its place.</p>
       <details className="more">
         <summary>More</summary>
-        <label className="check">
-          <input type="checkbox" checked={design.mirror} onChange={(e) => setDesign({ mirror: e.target.checked })} />
-          Mirror left to right
-        </label>
-        <p className="hint">Only for a drawing that was made mirrored. Plugs are mirrored automatically.</p>
-        <button
-          onClick={() => {
-            if (project.jobs.length === 0 || confirm("Replace the drawing? The inlays made from this one will be removed.")) onReplace();
-          }}
-        >
-          Replace the drawing…
-        </button>
+        <div className="row">
+          <button disabled={count === 0} onClick={() => dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: trimBoard(p.design, 5) } : p) })}>
+            Fit the stock to the shapes
+          </button>
+          <button
+            onClick={async () => {
+              const made = project.jobs.length;
+              if (made === 0 || confirm("Replace the drawing? The inlays and operations made from this one will be removed.")) replaceDrawing(await pickTextFile(DRAWINGS));
+            }}
+          >
+            Replace the drawing…
+          </button>
+        </div>
+        <p className="hint">Fitting moves the shapes to 5 mm from the stock's left and bottom edges and trims it to 5 mm beyond them.</p>
       </details>
     </section>
   );
 }
 
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** What a plain operation does, in a line. */
+const OPERATION_HINTS: Record<"pocket" | "contour" | "chamfer" | "facing", string> = {
+  pocket: "Clears the shapes to a flat floor with an end mill.",
+  contour: "Cuts along the outlines of the shapes: round them, inside them or on them, to a depth or right through.",
+  chamfer: "Bevels the top edge along the outlines with a V-bit.",
+  facing: "Mills an area flat: the whole stock, or the rectangle around the shapes, as when trimming a glued-in plug flush.",
+};
+
+function describeJob(job: Job): string {
+  const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
+  const inlay = job.inlay;
+  switch (inlay.type) {
+    case "vcarve":
+      return `V-carve inlay, ${shapes}`;
+    case "flat":
+      return `Flat inlay, ${shapes}`;
+    case "pocket":
+      return `Pocket ${fmt(inlay.depth)} mm deep, ${shapes}`;
+    case "facing":
+      return job.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
+    case "contour":
+      return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}, ${shapes}`;
+    case "chamfer":
+      return `Chamfer ${fmt(inlay.width)} mm, ${shapes}`;
+  }
+}
+
 function JobsSection({ design }: { design: Design }) {
-  const { project, selection, tools, defaults } = useApp();
+  const { project, selection, tools, defaults, combine } = useApp();
   const dispatch = useDispatch();
   const owners = regionOwners(project.jobs);
   const free = design.regions.filter((r) => !owners.has(r.id)).map((r) => r.id);
+  const owned = selection.filter((id) => owners.has(id)).length;
 
-  const create = (type: Inlay["type"]) => {
+  const create = (type: JobType) => {
     const job = newJob(type, selection, project.jobs, defaults);
     // Where the tool list leaves no choice, make it.
     const only = (kind: ToolKind) => {
@@ -148,74 +235,421 @@ function JobsSection({ design }: { design: Design }) {
       return ofKind.length === 1 ? ofKind[0].id : null;
     };
     const endMill = only("flat_end");
-    if (endMill) job.inlay.clearingToolIds = [endMill];
-    if (job.inlay.type === "vcarve") job.inlay.vbitToolId = only("v_bit");
+    const inlay = job.inlay;
+    if (inlay.type === "vcarve" || inlay.type === "flat" || inlay.type === "pocket") inlay.clearingToolIds = endMill ? [endMill] : [];
+    if (inlay.type === "facing" || inlay.type === "contour") inlay.toolId = endMill;
+    if (inlay.type === "vcarve" || inlay.type === "chamfer") inlay.vbitToolId = only("v_bit");
     dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: [...p.jobs, job] }) });
     dispatch({ type: "setActiveJob", id: job.id });
   };
+  const move = (from: number, to: number) =>
+    dispatch({
+      type: "updateProject",
+      update: (p) => {
+        const jobs = [...p.jobs];
+        jobs.splice(to, 0, ...jobs.splice(from, 1));
+        return { ...p, jobs };
+      },
+    });
+  const tick = (id: string, on: boolean) => dispatch({ type: "setCombine", ids: on ? [...combine, id] : combine.filter((other) => other !== id) });
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
+  const none = selection.length === 0;
+  const several = project.jobs.length > 1;
 
   return (
     <section>
-      <h2>Inlays</h2>
+      <h2>Inlays and operations</h2>
       {project.jobs.length > 0 && (
         <ul className="jobs">
           {project.jobs.map((job, index) => (
-            <li key={job.id}>
+            <li key={job.id} className={several ? "job-row ordered" : "job-row"}>
+              {several && (
+                <input
+                  type="checkbox"
+                  checked={combine.includes(job.id)}
+                  onChange={(e) => tick(job.id, e.target.checked)}
+                  aria-label={`Put ${job.name} into the one file for the stock`}
+                  title="Put into the one file for the stock"
+                />
+              )}
               <button className="job" onClick={() => dispatch({ type: "setActiveJob", id: job.id })}>
-                <span className="swatch" style={{ background: jobColor(index) }} />
+                {isInlay(job.inlay) ? (
+                  <span className="swatch" style={{ background: jobColor(job, project.jobs) }} />
+                ) : (
+                  <span className={`swatch op ${job.inlay.type}`} aria-hidden="true" />
+                )}
                 <span className="job-name">{job.name}</span>
-                <span className="muted">
-                  {job.inlay.type === "vcarve" ? "V-carve" : "Flat"}, {job.regionIds.length} shape{job.regionIds.length === 1 ? "" : "s"}
-                </span>
+                <span className="muted">{describeJob(job)}</span>
                 <span className="job-open" aria-hidden="true">
                   ›
                 </span>
               </button>
+              {several && (
+                <span className="job-order">
+                  <button type="button" className="small" disabled={index === 0} onClick={() => move(index, index - 1)} aria-label={`Cut ${job.name} earlier`} title="Earlier">
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={index === project.jobs.length - 1}
+                    onClick={() => move(index, index + 1)}
+                    aria-label={`Cut ${job.name} later`}
+                    title="Later"
+                  >
+                    ↓
+                  </button>
+                </span>
+              )}
             </li>
           ))}
         </ul>
       )}
 
       <div className="new-job">
-        <h3>{project.jobs.length === 0 ? "Make the first inlay" : "Add an inlay"}</h3>
-        {free.length === 0 ? (
-          <p className="status-line">Every shape belongs to an inlay.</p>
-        ) : (
+        <h3>{project.jobs.length === 0 ? "Make the first one" : "Add another"}</h3>
+        <p className="status-line" role="status">
+          {design.regions.length === 0
+            ? "The stock has no shapes yet. Add a drawing below, or face the whole stock."
+            : none
+              ? "Click shapes in the drawing, then choose what to make from them. A shape that has an inlay opens it; Shift-click selects it instead, for an operation."
+              : `${count} selected. Choose what to make from ${selection.length === 1 ? "it" : "them"}:`}
+        </p>
+        {design.regions.length > 0 && (
           <>
-            <p className="status-line" role="status">
-              {selection.length === 0
-                ? "Click the shapes in the drawing that will be cut from one wood. Then choose how to inlay them."
-                : `${count} selected. Choose how to inlay ${selection.length === 1 ? "it" : "them"}:`}
-            </p>
+            <h4 className="choice-group">Inlays</h4>
             <div className="choices">
-              <button className="choice" disabled={selection.length === 0} onClick={() => create("vcarve")}>
+              <button className="choice" disabled={none || owned > 0} onClick={() => create("vcarve")}>
                 <strong>V-carve inlay</strong>
                 <span>Sloped walls cut with a V-bit. Keeps sharp corners and fine detail. The plug is glued in and sawn off.</span>
               </button>
-              <button className="choice" disabled={selection.length === 0} onClick={() => create("flat")}>
+              <button className="choice" disabled={none || owned > 0} onClick={() => create("flat")}>
                 <strong>Flat inlay</strong>
                 <span>Upright walls cut with an end mill. Corners are rounded to the tool. The insert drops in.</span>
               </button>
             </div>
-            <div className="row links">
-              <button className="link" disabled={selection.length === free.length} onClick={() => dispatch({ type: "setSelection", ids: free })}>
-                Select all {free.length} free shape{free.length === 1 ? "" : "s"}
-              </button>
-              {selection.length > 0 && (
-                <button className="link" onClick={() => dispatch({ type: "setSelection", ids: [] })}>
-                  Clear selection
-                </button>
-              )}
-            </div>
+            {owned > 0 && (
+              <p className="hint">
+                {owned === 1 ? "One of the selected shapes belongs" : `${owned} of the selected shapes belong`} to an inlay already. A shape is one wood, so
+                it can be in one inlay only; the operations below take any shapes, and shapes can also be added once an operation is open.
+              </p>
+            )}
           </>
+        )}
+        <h4 className="choice-group">Other operations on the stock</h4>
+        <div className="choices">
+          {(["pocket", "contour", "chamfer"] as const).map((type) => (
+            <button key={type} className="choice" disabled={design.regions.length === 0} onClick={() => create(type)}>
+              <strong>{JOB_LABELS[type]}</strong>
+              <span>{OPERATION_HINTS[type]}</span>
+            </button>
+          ))}
+          <button className="choice" onClick={() => create("facing")}>
+            <strong>Facing{none ? " of the whole stock" : " over the selected shapes"}</strong>
+            <span>{OPERATION_HINTS.facing}</span>
+          </button>
+        </div>
+        {design.regions.length > 0 && (
+          <div className="row links">
+            <button className="link" disabled={free.length === 0 || free.every((id) => selection.includes(id))} onClick={() => dispatch({ type: "setSelection", ids: free })}>
+              Select all {free.length} shape{free.length === 1 ? "" : "s"} without an inlay
+            </button>
+            {!none && (
+              <button className="link" onClick={() => dispatch({ type: "setSelection", ids: [] })}>
+                Clear selection
+              </button>
+            )}
+          </div>
         )}
       </div>
     </section>
   );
 }
 
-function JobEditor({ job, index }: { job: Job; index: number }) {
+/** The wood and the clearances of a plain operation, and its result: the parts every operation's panel shares. */
+function OpEditor({ job }: { job: Job }) {
+  const { project, defaults } = useApp();
+  const dispatch = useDispatch();
+  const output = useOutput(job);
+  const setup = jobSetup(job, project);
+  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, setup: { ...jobSetup(j, project), ...change } }) });
+  const update = (change: Partial<Job>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, ...change }) });
+  const setInlay = (change: Partial<PocketOp> | Partial<FacingOp> | Partial<ContourOp> | Partial<ChamferOp>) => update({ inlay: { ...job.inlay, ...change } as Inlay });
+  const inlay = job.inlay;
+  if (isInlay(inlay)) return null;
+  const label = JOB_LABELS[inlay.type];
+  const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
+  const through = inlay.type === "contour" && inlay.depth === null;
+  const ownHeights = setup.safeHeight !== defaults.safeHeight || setup.plungeClearance !== defaults.plungeClearance;
+
+  const remove = () => {
+    if (!confirm(`Delete "${job.name}"?`)) return;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: p.jobs.filter((j) => j.id !== job.id) }) });
+    dispatch({ type: "setActiveJob", id: null });
+  };
+
+  return (
+    <aside className="panel" aria-label={`${label} ${job.name}`}>
+      <div className="panel-scroll">
+        <section>
+          <div className="editor-head">
+            <button className="link" onClick={() => dispatch({ type: "setActiveJob", id: null })}>
+              ‹ All inlays and operations
+            </button>
+            <span className="tag">
+              <span className={`swatch op ${inlay.type}`} aria-hidden="true" />
+              {label}
+            </span>
+          </div>
+          <label className="field">
+            <span className="field-label">Name</span>
+            <input type="text" value={job.name} onChange={(e) => update({ name: e.target.value })} />
+          </label>
+          <p className={`status-line${job.regionIds.length === 0 && inlay.type !== "facing" ? " warn" : ""}`}>
+            {inlay.type === "facing" && job.regionIds.length === 0
+              ? "No shapes: the whole stock is faced. Click shapes in the drawing to face over them only."
+              : `${job.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.`}
+          </p>
+          <p className="hint">{OPERATION_HINTS[inlay.type]} It may use shapes that belong to an inlay or to other operations.</p>
+        </section>
+
+        <section>
+          <h3>The cut</h3>
+          {inlay.type === "pocket" && (
+            <div className="row">
+              <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
+            </div>
+          )}
+          {inlay.type === "facing" && <FacingFields job={job} inlay={inlay} onChange={setInlay} />}
+          {inlay.type === "contour" && (
+            <>
+              <label className="field">
+                <span className="field-label">The tool runs</span>
+                <select value={inlay.side} onChange={(e) => setInlay({ side: e.target.value as Side })}>
+                  <option value="outside">Outside the shapes: the shapes are what is kept</option>
+                  <option value="inside">Inside the shapes: the shapes are cut away</option>
+                  <option value="on">On the line: the tool's centre follows the outline</option>
+                </select>
+                <span className="hint">
+                  {inlay.side === "outside"
+                    ? "A shape's holes are cut too, from inside them. To cut round the outside of a part only, add everything inside it to the operation as well."
+                    : inlay.side === "inside"
+                      ? "The opening comes out the size of the shapes, with inside corners rounded to the tool."
+                      : "The cut is as wide as the tool, half on each side of the line."}
+                </span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={through} onChange={(e) => setInlay({ depth: e.target.checked ? null : Math.min(3, project.base.thickness / 2) })} />
+                Cut right through the stock
+              </label>
+              {inlay.depth !== null ? (
+                <div className="row">
+                  <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
+                </div>
+              ) : (
+                <p className="derived">
+                  {fmt(project.base.thickness + setup.throughCut)} mm deep: the stock's {fmt(project.base.thickness)} mm and {fmt(setup.throughCut)} mm past its
+                  bottom. Put a spoilboard under it.
+                </p>
+              )}
+              <label className="check">
+                <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
+                Leave tabs across the cut
+              </label>
+              <p className="hint">
+                {inlay.tabs
+                  ? "Tabs keep what the cut frees attached until you cut them."
+                  : through
+                    ? "Without tabs, what the cut frees comes loose on the last pass: hold it down with tape."
+                    : "Tabs matter when the cut goes through."}
+              </p>
+            </>
+          )}
+          {inlay.type === "chamfer" && (
+            <>
+              <label className="field">
+                <span className="field-label">The edge to bevel</span>
+                <select value={inlay.side} onChange={(e) => setInlay({ side: e.target.value as "outside" | "inside" })}>
+                  <option value="outside">Round the shapes: the wood outside them has been cut away</option>
+                  <option value="inside">Inside the shapes: they are pockets or openings</option>
+                </select>
+              </label>
+              <div className="row">
+                <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && setInlay({ width: v })} />
+              </div>
+              <ChamferNote inlay={inlay} />
+            </>
+          )}
+        </section>
+
+        <section>
+          <h3>Wood and tool</h3>
+          <label className="field">
+            <span className="field-label">Wood</span>
+            <select value={job.material} onChange={(e) => update({ material: e.target.value as Material })}>
+              {MATERIALS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <span className="hint">Picks which of the tool's cutting settings are used.</span>
+          </label>
+          {inlay.type === "pocket" && (
+            <ClearingTools
+              label="End mills"
+              ids={inlay.clearingToolIds}
+              material={job.material}
+              onChange={(ids) => setInlay({ clearingToolIds: ids })}
+              hint="One is enough. With several, they are used in this order and each cuts only what those before it left. Inside corners are rounded to the smallest."
+            />
+          )}
+          {(inlay.type === "facing" || inlay.type === "contour") && (
+            <ToolPicker label="End mill" kind="flat_end" value={inlay.toolId} material={job.material} onChange={(id) => setInlay({ toolId: id })} />
+          )}
+          {inlay.type === "chamfer" && (
+            <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} material={job.material} onChange={(id) => setInlay({ vbitToolId: id })} />
+          )}
+        </section>
+
+        <section>
+          <details className="more">
+            <summary>
+              {inlay.type === "contour" ? "Clearances and tabs" : "Clearances"}
+              {(inlay.type === "contour" ? !sameSetup(setup, defaults) : ownHeights) ? " (changed)" : ""}
+            </summary>
+            <p className="hint">
+              For the file of this operation. A new one starts with your defaults, which are set under{" "}
+              <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
+                Tools and settings
+              </button>
+              .
+            </p>
+            <HeightFields setup={setup} onChange={setSetup} />
+            {inlay.type === "contour" && (
+              <>
+                <TabFields setup={setup} onChange={setSetup} />
+                <div className="row setup-row">
+                  <NumberField
+                    label="Cut past the bottom"
+                    unit="mm"
+                    min={SETUP_LIMITS.throughCut[0]}
+                    max={SETUP_LIMITS.throughCut[1]}
+                    value={setup.throughCut}
+                    onChange={(v) => v !== undefined && setSetup({ throughCut: v })}
+                    hint="When the cut goes right through, into the spoilboard."
+                  />
+                </div>
+              </>
+            )}
+            <button disabled={sameSetup(setup, defaults)} onClick={() => update({ setup: defaults })}>
+              Back to your defaults
+            </button>
+          </details>
+        </section>
+
+        <section>
+          <Results job={job} state={output} />
+          <div className="row end">
+            <button className="danger" onClick={remove}>
+              Delete operation
+            </button>
+          </div>
+        </section>
+      </div>
+      <GenerateBar job={job} state={output} />
+    </aside>
+  );
+}
+
+/** How far a glued-in part of an inlay stands above the stock, and how far its blank reaches beyond its shapes. */
+function standingPart(owner: Job): { above: number; margin: number; what: string } | null {
+  const inlay = owner.inlay;
+  if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth, margin: inlay.plugMargin, what: "plug" };
+  if (inlay.type !== "flat") return null;
+  const above = inlay.insertThickness - inlay.pocketDepth;
+  return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, what: "plug" } : { above, margin: 1, what: "inserts" };
+}
+
+function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onChange: (change: Partial<FacingOp>) => void }) {
+  const { project, tools } = useApp();
+  const owners = regionOwners(project.jobs);
+  // The inlays whose shapes this facing covers: it can be set to trim their plugs flush.
+  const inlays = [...new Set(job.regionIds.map((id) => owners.get(id)).filter((j): j is Job => j !== undefined))];
+  const whole = job.regionIds.length === 0;
+  const tool = resolveTool(inlay.toolId, tools, project);
+  const total = inlay.above + inlay.depth;
+
+  return (
+    <>
+      <div className="row">
+        <NumberField label="Wood above the surface" unit="mm" value={inlay.above} onChange={(v) => v !== undefined && onChange({ above: v })} />
+        <NumberField label="Depth below the surface" unit="mm" value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
+        {!whole && <NumberField label="Margin" unit="mm" value={inlay.margin} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
+      </div>
+      <p className="hint">
+        {whole
+          ? "To flatten the stock, give a depth below its surface. The tool runs out over every edge."
+          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank."}{" "}
+        The surface is where Z0 is set.
+      </p>
+      {inlays.map((owner) => {
+        const part = standingPart(owner);
+        if (!part || part.above <= 0) return null;
+        const set = Math.abs(inlay.above - part.above) < 1e-9 && inlay.depth === 0 && Math.abs(inlay.margin - part.margin) < 1e-9;
+        return (
+          <p className="derived" key={owner.id}>
+            The {part.what} of "{owner.name}" {part.what === "inserts" ? "stand" : "stands"} {fmt(part.above)} mm above the surface once glued in.{" "}
+            {set ? (
+              "The fields are set to trim it flush."
+            ) : (
+              <button type="button" className="link" onClick={() => onChange({ above: round2(part.above), depth: 0, margin: part.margin })}>
+                Set the fields to trim {part.what === "inserts" ? "them" : "it"} flush
+              </button>
+            )}
+          </p>
+        );
+      })}
+      {total > 0 && tool && (
+        <p className="derived">
+          {fmt(round2(total))} mm in all{inlay.above > 0 ? `, from ${fmt(inlay.above)} mm above the surface` : ""}. The tool's centre goes to the edge of the
+          area, so it cuts {fmt(tool.diameter / 2)} mm beyond it.
+        </p>
+      )}
+      {inlay.above > 0 && <p className="hint">The 3D view shows the stock only: the wood above its surface is not drawn.</p>}
+    </>
+  );
+}
+
+/** How deep the V-bit runs for the chamfer, and whether it can cut one that wide. */
+function ChamferNote({ inlay }: { inlay: ChamferOp }) {
+  const { project, tools } = useApp();
+  const bit = resolveTool(inlay.vbitToolId, tools, project);
+  if (!bit || bit.kind !== "v_bit") return <p className="hint">Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood is gone.</p>;
+  // As the core works it out: the tip runs 0.2 mm beyond its flat from the edge.
+  const aside = (bit.tipDiameter ?? 0) / 2 + 0.2;
+  const depth = (inlay.width + 0.2) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180);
+  const widest = bit.diameter / 2 - aside;
+  return (
+    <>
+      {inlay.width > widest + 1e-9 ? (
+        <p className="hint warn">
+          "{bit.name}" can cut a chamfer of {fmt(Math.floor(widest * 100) / 100)} mm at most.
+        </p>
+      ) : (
+        <p className="derived">
+          The bit's tip runs {fmt(round2(aside))} mm {inlay.side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
+        </p>
+      )}
+      <p className="hint">
+        Run it after the edge has been cut: the tip expects the wood beside the edge to be gone already, at least that deep. In uncut wood it leaves a
+        V-groove instead.
+      </p>
+    </>
+  );
+}
+
+function JobEditor({ job }: { job: InlayJob }) {
   const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const output = useOutput(job);
@@ -243,10 +677,10 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
         <section>
           <div className="editor-head">
             <button className="link" onClick={back}>
-              ‹ All inlays
+              ‹ All inlays and operations
             </button>
             <span className="tag">
-              <span className="swatch" style={{ background: jobColor(index) }} />
+              <span className="swatch" style={{ background: jobColor(job, project.jobs) }} />
               {inlay.type === "vcarve" ? "V-carve inlay" : "Flat inlay"}
             </span>
           </div>
@@ -304,6 +738,12 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
             </select>
             <span className="hint">Picks which of each tool's cutting settings are used.</span>
           </label>
+          <ColorField
+            label="Colour of the inlay's wood"
+            value={jobColor(job, project.jobs)}
+            onChange={(color) => update({ color })}
+            hint="For the drawing, the 3D view of the plug and the fit view. It changes nothing in the files."
+          />
           {inlay.type === "vcarve" ? (
             <>
               <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} material={job.material} onChange={(id) => setInlay({ vbitToolId: id })} />
@@ -453,7 +893,7 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
  * end mills would give, unless another is chosen. Says whether its cutting
  * edges reach through the board.
  */
-function CutOutTool({ job, onChange }: { job: Job; onChange: (id: string | undefined) => void }) {
+function CutOutTool({ job, onChange }: { job: InlayJob; onChange: (id: string | undefined) => void }) {
   const { tools, project } = useApp();
   const dispatch = useDispatch();
   const choices = toolChoices("flat_end", tools, project);

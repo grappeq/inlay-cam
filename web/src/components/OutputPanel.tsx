@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { FitCheck, Job, Part, PocketPreview, Project } from "../core/types";
-import { fmt } from "../state/model";
+import { JOB_LABELS, fmt, isInlay, missingFor } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
 
-/** What the second part of an inlay is called: a plug for a V-carve inlay, an insert for a flat one. */
+/**
+ * What a part of a job is called. An inlay has a pocket and a second part: a
+ * plug for a V-carve inlay, an insert for a flat one. A plain operation has
+ * one part, named after what it does.
+ */
 export function partName(part: Part, job: Job): string {
-  return part === "pocket" ? "pocket" : job.inlay.type === "vcarve" || job.inlay.insertStyle === "backer" ? "plug" : "insert";
+  const inlay = job.inlay;
+  if (!isInlay(inlay)) return JOB_LABELS[inlay.type].toLowerCase();
+  return part === "pocket" ? "pocket" : inlay.type === "vcarve" || inlay.insertStyle === "backer" ? "plug" : "insert";
+}
+
+/** The parts a job has a file for. */
+export function partsOf(job: Job): Part[] {
+  return isInlay(job.inlay) ? ["pocket", "plug"] : ["pocket"];
 }
 
 function capital(text: string): string {
@@ -28,23 +39,17 @@ export function useOutput(job: Job) {
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
   // What has to be chosen before anything can be made.
-  const missing =
-    job.regionIds.length === 0
-      ? "Click shapes in the drawing to add them to this inlay first."
-      : job.inlay.type === "vcarve" && job.inlay.vbitToolId === null
-        ? "Choose a V-bit first, under Wood and tools."
-        : job.inlay.type === "flat" && job.inlay.clearingToolIds.length === 0
-          ? "Choose an end mill first, under Wood and tools."
-          : null;
+  const missing = missingFor(job);
 
   const generate = async () => {
     const out: Output = { jobId: job.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
     const publish = () => dispatch({ type: "setOutput", output: { ...out, parts: { ...out.parts }, errors: [...out.errors] } });
     const vcarve = job.inlay.type === "vcarve";
-    const steps = vcarve ? 3 : 2;
+    const parts = partsOf(job);
+    const steps = parts.length + (vcarve ? 1 : 0);
     try {
-      for (const [i, part] of (["pocket", "plug"] as Part[]).entries()) {
-        setBusy(`Working out the ${partName(part, job)} (step ${i + 1} of ${steps})…`);
+      for (const [i, part] of parts.entries()) {
+        setBusy(steps === 1 ? `Working out the ${partName(part, job)}…` : `Working out the ${partName(part, job)} (step ${i + 1} of ${steps})…`);
         try {
           out.parts[part] = await core.call("previewPart", project, job.id, part);
         } catch (e) {
@@ -77,12 +82,15 @@ type OutputState = ReturnType<typeof useOutput>;
 export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
   const { mine, stale, busy, missing, generate } = state;
   const second = partName("plug", job);
+  const single = !isInlay(job.inlay);
   const status = busy
     ? busy
     : missing
       ? missing
       : !mine
-      ? `Makes the pocket file and the ${second} file${job.inlay.type === "vcarve" ? ", and checks how they fit" : ""}.`
+      ? single
+        ? "Makes the file for this operation and simulates it."
+        : `Makes the pocket file and the ${second} file${job.inlay.type === "vcarve" ? ", and checks how they fit" : ""}.`
       : stale
         ? "Settings have changed since the files were made."
         : mine.errors.length > 0
@@ -91,7 +99,7 @@ export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
   return (
     <div className="generate-bar">
       <button className="primary" disabled={busy !== null || missing !== null} onClick={generate}>
-        {busy ? "Working…" : mine ? "Generate again" : "Generate files"}
+        {busy ? "Working…" : mine ? "Generate again" : single ? "Generate file" : "Generate files"}
       </button>
       <p className={`bar-status${!busy && (missing || (mine && stale)) ? " warn" : ""}`} role="status">
         {status}
@@ -118,13 +126,15 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
 
   return (
     <div className="results" ref={top}>
-      <h3>Files</h3>
+      <h3>{isInlay(job.inlay) ? "Files" : "File"}</h3>
       {stale && (
         <p className="callout warn">Settings have changed since these were made. Generate again before downloading.</p>
       )}
       {mine.errors.length > 0 && (
         <div className="callout error" role="alert">
-          <p>{Object.keys(mine.parts).length === 0 ? "The files could not be made:" : "One file could not be made:"}</p>
+          <p>
+            {!isInlay(job.inlay) ? "The file could not be made:" : Object.keys(mine.parts).length === 0 ? "The files could not be made:" : "One file could not be made:"}
+          </p>
           <ul>
             {mine.errors.map((error) => (
               <li key={error}>{error}</li>
@@ -132,10 +142,10 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
           </ul>
         </div>
       )}
-      {(["pocket", "plug"] as Part[]).map((part) => {
+      {partsOf(job).map((part) => {
         const preview = mine.parts[part];
         return preview ? (
-          <PartCard key={part} name={partName(part, job)} job={job} preview={preview} stale={stale} shown={stage === part} onShow={() => show(part)} />
+          <PartCard key={part} name={partName(part, job)} board={boardName(part, job)} preview={preview} stale={stale} shown={stage === part} onShow={() => show(part)} />
         ) : null;
       })}
 
@@ -171,13 +181,100 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
   );
 }
 
-function PartCard(props: { name: string; job: Job; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
-  const { preview, name } = props;
+/** What the board a part is cut from is called. */
+function boardName(part: Part, job: Job): string {
+  const inlay = job.inlay;
+  if (part === "pocket" || !isInlay(inlay)) return "Stock";
+  return inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer")
+    ? "Board, at least"
+    : inlay.type === "vcarve" || inlay.insertStyle === "backer"
+      ? "Plug blank"
+      : "Insert board";
+}
+
+/**
+ * One file for the stock from the jobs that are ticked in the list: each
+ * inlay's pocket and each plain operation, in the order of the list.
+ */
+export function StockFile() {
+  const { project, combine, combined, stage, activeJobId } = useApp();
+  const dispatch = useDispatch();
+  const [busy, setBusy] = useState(false);
+  const jobs = project.jobs.filter((j) => combine.includes(j.id));
+  const notReady = jobs.filter((j) => missingFor(j) !== null);
+  const stale = combined !== null && combined.project !== project;
+  if (project.jobs.length < 2 && jobs.length === 0 && !combined) return null;
+
+  const generate = async () => {
+    const jobIds = jobs.map((j) => j.id);
+    setBusy(true);
+    try {
+      const preview = await core.call("previewCombined", project, jobIds);
+      dispatch({ type: "setCombined", combined: { jobIds, project, preview, errors: [] } });
+      dispatch({ type: "setStage", stage: "stock" });
+    } catch (e) {
+      dispatch({ type: "setCombined", combined: { jobIds, project, preview: null, errors: message(e).split("\n") } });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const names = (list: Job[]) => list.map((j) => `"${j.name}"`).join(", ");
+  const status = busy
+    ? "Working out the file…"
+    : jobs.length === 0
+      ? "Tick the inlays and operations it should cut, in the list above."
+      : notReady.length > 0
+        ? `Not ready yet: ${names(notReady)}. Open ${notReady.length === 1 ? "it" : "them"} to see what is missing.`
+        : `Cuts ${names(jobs)}, in this order.`;
+
+  return (
+    <section>
+      <h2>One file for the stock</h2>
+      <p className="hint">
+        Each inlay and operation has a file of its own. This puts several into one file instead: each inlay's pocket and each operation, in the
+        order of the list. A tool that the next one also starts with stays in the spindle.
+      </p>
+      <div className="row tools">
+        <button disabled={busy || jobs.length === 0 || notReady.length > 0} onClick={generate}>
+          {busy ? "Working…" : combined ? "Generate again" : "Generate one file"}
+        </button>
+      </div>
+      <p className={`status-line${!busy && notReady.length > 0 ? " warn" : ""}`} role="status">
+        {status}
+      </p>
+      {combined && (
+        <div className="results">
+          {stale && <p className="callout warn">The project has changed since this was made. Generate again before downloading.</p>}
+          {combined.errors.length > 0 && (
+            <div className="callout error" role="alert">
+              <p>The file could not be made:</p>
+              <ul>
+                {combined.errors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {combined.preview && (
+            <PartCard
+              name="stock"
+              board="Stock"
+              preview={combined.preview}
+              stale={stale}
+              shown={stage === "stock" && activeJobId === null}
+              onShow={() => dispatch({ type: "setStage", stage: "stock" })}
+            />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PartCard(props: { name: string; board: string; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
+  const { preview, name, board } = props;
   const { built } = preview;
   const tools = built.stats.perTool;
-  const inlay = props.job.inlay;
-  const board =
-    built.part === "pocket" ? "Base board" : inlay.cutOut ? "Board, at least" : inlay.type === "vcarve" ? "Plug blank" : inlay.insertStyle === "backer" ? "Plug blank" : "Insert board";
   return (
     <section className="card">
       <header className="card-head">
@@ -210,6 +307,7 @@ function PartCard(props: { name: string; job: Job; preview: PocketPreview; stale
         <dt>Time</dt>
         <dd>
           about {formatMinutes(built.stats.minutes)}, plus {built.stats.toolChanges === 1 ? "loading the tool" : `${built.stats.toolChanges} tool changes`}
+          {built.stock.through > 0 ? `; cuts ${fmt(built.stock.through)} mm past the bottom` : ""}
         </dd>
         <dt>{tools.length === 1 ? "Tool" : "Tools"}</dt>
         <dd>
@@ -260,7 +358,8 @@ function mm(v: number): string {
  * clear it. 0 for a pointed bit.
  */
 function tipRise(project: Project, job: Job): number {
-  const bit = job.inlay.type === "vcarve" ? project.tools.find((t) => t.id === (job.inlay as { vbitToolId: string | null }).vbitToolId) : undefined;
+  const inlay = job.inlay;
+  const bit = inlay.type === "vcarve" ? project.tools.find((t) => t.id === inlay.vbitToolId) : undefined;
   if (!bit || !bit.tipDiameter || !bit.tipAngle) return 0;
   return bit.tipDiameter / 2 / Math.tan((bit.tipAngle * Math.PI) / 360);
 }

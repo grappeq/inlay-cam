@@ -210,11 +210,12 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             material: Material::Hardwood,
             region_ids: region_ids.to_vec(),
             setup: None,
+            color: None,
             cut_out_tool_id: None,
             inlay,
         }],
         tools: vec![end_mill(), vbit],
-        base: BaseStock { thickness: 18.0 },
+        base: BaseStock::default(),
         machine: Default::default(),
         setup: Default::default(),
     }

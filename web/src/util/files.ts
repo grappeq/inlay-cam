@@ -32,6 +32,25 @@ export function pickTextFile(accept: string): Promise<{ name: string; text: stri
   });
 }
 
+/** Opens the file picker for any number of files. Resolves to an empty list when the user cancels. */
+export function pickTextFiles(accept: string): Promise<{ name: string; text: string }[]> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = true;
+    input.onchange = async () => {
+      try {
+        resolve(await Promise.all([...(input.files ?? [])].map(async (file) => ({ name: file.name, text: await file.text() }))));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    input.oncancel = () => resolve([]);
+    input.click();
+  });
+}
+
 /** A safe file name stem from a user-entered name. */
 export function fileStem(name: string): string {
   const stem = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ");

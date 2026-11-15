@@ -221,6 +221,21 @@ pub fn preview_part(
         .map_err(reasons)
 }
 
+/// Builds one G-code file that runs the stock's part of several jobs in the
+/// order given (`job_ids_json` is a JSON list of job ids), and simulates it.
+/// Fails with every reason, one per line.
+#[wasm_bindgen(js_name = previewCombined)]
+pub fn preview_combined(project_json: &str, job_ids_json: &str) -> Result<PocketPreview, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    project.validate().map_err(err)?;
+    let job_ids: Vec<String> = from_json(job_ids_json, "job list")?;
+    build::preview_combined(&project, &job_ids)
+        .map(|preview| PocketPreview {
+            preview: Rc::new(preview),
+        })
+        .map_err(reasons)
+}
+
 /// Both parts of a V-carve inlay simulated and fitted together.
 #[wasm_bindgen]
 pub struct FitCheck {

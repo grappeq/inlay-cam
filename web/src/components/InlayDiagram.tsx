@@ -1,4 +1,4 @@
-import type { Inlay } from "../core/types";
+import type { TrueInlay } from "../core/types";
 import { fmt } from "../state/model";
 
 /** One measured height in the picture: where it starts and ends, and what to call it. */
@@ -38,7 +38,7 @@ function Dimensions({ x, items }: { x: number; items: Dimension[] }) {
  * board, and the plug or insert in place. Heights follow the numbers; very
  * small ones are drawn large enough to see.
  */
-export function InlayDiagram({ inlay, halfAngle }: { inlay: Inlay; halfAngle: number }) {
+export function InlayDiagram({ inlay, halfAngle }: { inlay: TrueInlay; halfAngle: number }) {
   const left = 8;
   const right = 176;
   const middle = (left + right) / 2;

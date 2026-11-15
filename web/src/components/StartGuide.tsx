@@ -1,4 +1,5 @@
 import { useFileActions } from "../state/files";
+import { emptyDesign } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { ReportNotes, useImportSvg } from "./DesignPanel";
 
@@ -28,8 +29,8 @@ export function StartGuide() {
     <main className="start">
       <h1>From a drawing to two files that fit</h1>
       <p className="start-lead">
-        This app turns the shapes of an SVG or DXF drawing into G-code for a Carvera Air: one file for the pocket, one for the piece that fills it. It
-        simulates both before you cut.
+        This app turns the shapes of SVG or DXF drawings into G-code for a Carvera Air. For an inlay it writes one file for the pocket and one for the
+        piece that fills it; it also cuts plain pockets, contours and chamfers, and faces the stock. It simulates every file before you cut.
       </p>
       <p className="hint start-caution">
         The app is new and comes with no warranty. Check every file in the simulation and run it above the board before you cut wood with it.
@@ -51,8 +52,8 @@ export function StartGuide() {
         <li>
           <h2>Bring in a drawing</h2>
           <p>
-            An SVG or DXF file with filled shapes, or lines that join into closed outlines. Convert text to outlines first. You can also drop the
-            file anywhere on this window.
+            One or more SVG or DXF files with filled shapes, or lines that join into closed outlines. Convert text to outlines first. You can also
+            drop the files anywhere on this window. The first drawing sets the size of the stock, which you can change afterwards.
           </p>
           {importReport && <ReportNotes report={importReport} />}
           <div className="row start-actions">
@@ -60,15 +61,21 @@ export function StartGuide() {
               Import drawing…
             </button>
             <button onClick={trySample}>Try the sample drawing</button>
+            <button onClick={() => dispatch({ type: "addDrawing", design: emptyDesign(), replace: false })} title="A stock of 200 × 150 mm with nothing on it yet">
+              Start with an empty stock
+            </button>
           </div>
         </li>
         <li>
-          <h2>Pick shapes and choose the inlay</h2>
-          <p>Click the shapes that will be one wood. Choose a V-carve inlay for sharp detail, or a flat inlay for simple shapes.</p>
+          <h2>Pick shapes and choose what to make</h2>
+          <p>
+            Click the shapes that will be one wood. Choose a V-carve inlay for sharp detail, or a flat inlay for simple shapes. Pockets, contours,
+            chamfers and facing are made the same way.
+          </p>
         </li>
         <li>
           <h2>Generate, check, download</h2>
-          <p>See each part in 3D, read how the two will fit, then download the files for the machine.</p>
+          <p>See each part in 3D, read how an inlay's two parts will fit, then download the files for the machine.</p>
         </li>
       </ol>
     </main>

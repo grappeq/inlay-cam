@@ -3,16 +3,16 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool } from "../core/types";
+import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, newProject, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
 export type SettingsPage = "tools" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
-export type Stage = "drawing" | "pocket" | "plug" | "fit";
+export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -36,6 +36,10 @@ export interface AppState {
   saveError: string | null;
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
+  /** The jobs ticked to go into one file for the stock. */
+  combine: string[];
+  /** The last file generated for several jobs at once. Not saved. */
+  combined: Combined | null;
   stage: Stage;
   /** The drawing is being arranged: clicks select shapes to move, resize or delete. */
   arranging: boolean;
@@ -63,6 +67,15 @@ export interface Output {
   fitErrors: string[];
 }
 
+/** One file that runs the stock's part of several jobs, in the order of the list. */
+export interface Combined {
+  jobIds: string[];
+  /** The project exactly as it was when this was generated. */
+  project: Project;
+  preview: PocketPreview | null;
+  errors: string[];
+}
+
 export type Action =
   | { type: "loaded"; tools: Tool[]; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
@@ -81,6 +94,10 @@ export type Action =
   | { type: "saveResult"; error: string | null }
   | { type: "setOutput"; output: Output | null }
   | { type: "setStage"; stage: Stage }
+  | { type: "setCombine"; ids: string[] }
+  | { type: "setCombined"; combined: Combined | null }
+  /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
+  | { type: "addDrawing"; design: Design; replace: boolean }
   | { type: "setArranging"; on: boolean }
   | { type: "setWholeParts"; on: boolean }
   | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[] }
@@ -102,6 +119,8 @@ const initial: AppState = {
   notice: null,
   saveError: null,
   output: null,
+  combine: [],
+  combined: null,
   stage: "drawing",
   arranging: false,
   wholeParts: true,
@@ -127,17 +146,19 @@ function reducer(state: AppState, action: Action): AppState {
         tools: action.tools,
         machine: action.machine,
         defaults: action.defaults,
-        project: action.project,
+        project: normalised(action.project),
         projects: action.projects,
       });
     case "openProject":
       return withSnapshots({
         ...state,
-        project: action.project,
+        project: normalised(action.project),
         selection: [],
         activeJobId: null,
         importReport: action.importReport ?? null,
         output: null,
+        combine: [],
+        combined: null,
         stage: "drawing",
         view: "design",
         arranging: false,
@@ -178,6 +199,44 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, output: action.output };
     case "setStage":
       return { ...state, stage: action.stage };
+    case "setCombine":
+      return { ...state, combine: action.ids };
+    case "setCombined":
+      return { ...state, combined: action.combined };
+    case "addDrawing": {
+      const current = state.project.design;
+      if (!current || action.replace) {
+        return withSnapshots({
+          ...state,
+          project: { ...state.project, design: normaliseDesign(action.design), jobs: action.replace ? [] : state.project.jobs },
+          selection: [],
+          activeJobId: null,
+          output: null,
+          combine: [],
+          combined: null,
+          stage: "drawing",
+          view: "design",
+          arranging: false,
+          undo: [],
+          redo: [],
+          lastEdit: null,
+        });
+      }
+      // The new shapes come in selected, ready to be moved to their place.
+      const { design, ids } = addDrawing(current, action.design);
+      return withSnapshots({
+        ...state,
+        project: { ...state.project, design },
+        undo: [...state.undo.slice(-49), state.project],
+        redo: [],
+        lastEdit: null,
+        selection: ids,
+        activeJobId: null,
+        stage: "drawing",
+        view: "design",
+        arranging: true,
+      });
+    }
     case "setArranging":
       return { ...state, arranging: action.on, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
     case "setWholeParts":
@@ -219,6 +278,13 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
+/** The project with the drawing's scale and mirroring worked into its shapes. */
+function normalised(project: Project): Project {
+  if (!project.design) return project;
+  const design = normaliseDesign(project.design);
+  return design === project.design ? project : { ...project, design };
+}
+
 function clickRegion(state: AppState, id: number, add: boolean): AppState {
   if (state.arranging && state.project.design) {
     // A shape is picked with everything inside it; a whole part, from its outermost outline in.
@@ -233,14 +299,15 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   const active = state.project.jobs.find((j) => j.id === state.activeJobId);
 
   if (active) {
-    if (owner && owner.id !== active.id) {
+    // A shape is one wood, so one inlay; a plain operation takes any shape.
+    if (isInlay(active.inlay) && owner && owner.id !== active.id) {
       return { ...state, notice: { kind: "info", text: `That shape already belongs to "${owner.name}".` } };
     }
     const regionIds = active.regionIds.includes(id) ? active.regionIds.filter((r) => r !== id) : [...active.regionIds, id];
     return reducer(state, { type: "updateJob", id: active.id, update: (job) => ({ ...job, regionIds }) });
   }
-  // A shape that already has an inlay opens that inlay.
-  if (owner) return { ...state, activeJobId: owner.id, selection: [], stage: "drawing" };
+  // A shape that already has an inlay opens that inlay; with Shift it is selected, for an operation.
+  if (owner && !add) return { ...state, activeJobId: owner.id, selection: [], stage: "drawing" };
   const selection = state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id];
   return { ...state, selection };
 }

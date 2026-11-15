@@ -22,6 +22,8 @@ export interface CoreApi {
    * every reason the part cannot be built, one per line of the error message.
    */
   previewPart(project: Project, jobId: string, part: Part): PocketPreview;
+  /** Builds one file that runs the stock's part of several jobs in the order given, and simulates it. */
+  previewCombined(project: Project, jobIds: string[]): PocketPreview;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
   checkFit(project: Project, jobId: string): FitCheck;
 }

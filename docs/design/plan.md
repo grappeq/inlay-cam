@@ -557,3 +557,53 @@ Also added at the user's request: settings for values that were fixed in the cod
     with a list of the pages beside them.
 - Still fixed: the least number of tabs (3), the V-bit's floor ridge (0.1 mm), the
   simulation's detail, the import tolerances. No ramped entry or choice of cut direction.
+
+### Stock, several drawings, other operations, colours (2026-11-15)
+
+Added at the user's request. Three things were asked of the user first: operations get a
+file each and can be put into one file per download; facing must serve both to flatten the
+stock and to remove a plug's backer; an inlay's colour is its wood's colour everywhere.
+
+- **Stock.** The drawing's page already was the base board; it is now called the stock and
+  sized by typing. The drawing-wide scale and mirror are gone from the screens: on opening
+  a project they are worked into the shapes (`normaliseDesign` in the UI; the core still
+  reads them), so a shape's numbers are where it lies on the stock. Scaling and mirroring
+  are done on selected shapes, under arranging. No new fields: the project file keeps
+  format version 1.
+- **Several drawings.** A further file's shapes are given new ids and put in the middle of
+  the stock, selected, with arranging switched on; the stock grows when they do not fit.
+  Several files can be picked or dropped at once. `sourceName` lists the files.
+- **Operations.** Pocket, facing, contour and chamfer are further variants of a job's
+  `inlay`, so they share its name, wood, shapes, clearances and place in the list, and go
+  through the same pipeline: moves, G-code, read back, simulated. An operation has one
+  part. Only inlays own shapes; operations use any.
+  - Pocket: the existing clearing with several tools in order.
+  - Facing: clearing with the tool's centre taken to the edge of the area (the stock, or
+    the rectangle around the shapes plus a margin, which is what a plug's blank is). It is
+    worked out as if the top of the standing wood were the surface, then lifted by that
+    much, so it starts above Z0 and travels above the wood.
+  - Contour: the insert's profiling, opened up to tracks outside, inside or on the
+    outlines (`ops::profile::follow`), to a depth or through the stock, with tabs.
+  - Chamfer: the same along tracks beside the outline, with a V-bit, at the depth that
+    gives the bevel its width. The tip is kept 0.2 mm beyond its flat from the edge.
+- **One file for the stock** (`build::build_combined`): the programs of the ticked jobs'
+  stock parts joined in list order. Tools are numbered once for the file by tool id. Where
+  the next program starts with the tool already in the spindle, the stop, the `M6` and the
+  restart are left out, the tool crosses at the higher of the two travel heights, and only
+  a changed speed is written. The joined file is written, linted, read back and simulated
+  like any other.
+- **Colours.** `color` on a job and on `base`. A new inlay is given a wood not yet used;
+  inlays from older files keep the colours they were drawn in. The drawing's page is
+  filled with the stock's colour and the outlines take an ink that shows on it.
+- Checked by test: each operation against the shape it should leave in simulation
+  (pocket depth and untouched surround, facing level and start height, the tool's side
+  and distance for the three kinds of contour, through cut with tabs, the bevel's slope
+  and width on both sides); the one file against the files it joins; the new jobs through
+  the project file. 186 core tests, 35 UI tests. Looked at in the browser: a contour
+  round an inlay's shape, a facing set from an inlay's plug, one file from two jobs, a
+  second drawing added.
+- Known limits: wood above the surface is not simulated, and jobs that come before a
+  facing in one file do not allow for it (the file says so); no ramped entry or lead-in
+  on contours; tabs are placed evenly; a chamfer does not check that its edge has been
+  cut; facing follows rings, not straight passes.
+- Recorded for later: a curated list of default tools (see requirements).

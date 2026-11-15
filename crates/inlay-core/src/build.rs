@@ -13,10 +13,10 @@ use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
 use crate::ops::clear::{centres, clear_centres, ClearParams};
-use crate::ops::profile::{profile, ProfileError, ProfileParams, Tabs};
+use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
-use crate::project::{Inlay, InsertStyle, Job, Machine, Project, Setup};
+use crate::project::{Inlay, InsertStyle, Job, Machine, Project, Setup, Side};
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{Move, PathBuilder, Program, ProgramTool};
 use crate::tools::{CuttingSettings, Material, Tool, ToolKind};
@@ -47,6 +47,10 @@ fn part_name(part: Part, inlay: &Inlay) -> &'static str {
             },
         ) => "plug",
         (Part::Plug, Inlay::Flat { .. }) => "insert",
+        (_, Inlay::Pocket { .. }) => "pocket",
+        (_, Inlay::Facing { .. }) => "facing",
+        (_, Inlay::Contour { .. }) => "contour",
+        (_, Inlay::Chamfer { .. }) => "chamfer",
     }
 }
 
@@ -169,8 +173,23 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         .as_ref()
         .ok_or_else(|| vec!["The project has no design.".to_string()])?;
 
+    let plain = !job.inlay.is_inlay();
+    if plain && part == Part::Plug {
+        return Err(vec![
+            "Only an inlay has a second part. This operation has one file.".to_string(),
+        ]);
+    }
+
     // How deep the part is cut, and how thick its board is.
     let (depth, thickness) = match (part, &job.inlay) {
+        (_, Inlay::Pocket { depth, .. }) => (*depth, project.base.thickness),
+        (_, Inlay::Facing { depth, .. }) => (*depth, project.base.thickness),
+        (_, Inlay::Contour { depth, .. }) => (
+            depth.unwrap_or(project.base.thickness + through_cut),
+            project.base.thickness,
+        ),
+        // Worked out from the V-bit once it is known.
+        (_, Inlay::Chamfer { .. }) => (0.0, project.base.thickness),
         (Part::Pocket, Inlay::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
         (
             Part::Pocket,
@@ -218,16 +237,32 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         )
     );
     let name = part_name(part, &job.inlay);
+    // A contour without a depth goes right through the stock on purpose.
+    let through_stock = matches!(&job.inlay, Inlay::Contour { depth: None, .. });
 
     let mut errors: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
 
     let regions = union(&design.placed_regions(&job.region_ids));
-    if regions.is_empty() {
-        errors.push("The inlay has no shapes. Click shapes in the drawing to add them.".into());
+    if regions.is_empty() && !matches!(&job.inlay, Inlay::Facing { .. }) {
+        errors.push(if plain {
+            "The operation has no shapes. Click shapes in the drawing to add them.".into()
+        } else {
+            "The inlay has no shapes. Click shapes in the drawing to add them.".into()
+        });
     }
-    if depth >= thickness && !loose {
+    if depth >= thickness && !loose && !through_stock {
         errors.push(match part {
+            _ if plain => format!(
+                "The cut is {} mm deep but the stock is only {} mm thick.{}",
+                num(depth),
+                num(thickness),
+                if matches!(&job.inlay, Inlay::Contour { .. }) {
+                    " To cut right through, choose \"through the stock\"."
+                } else {
+                    ""
+                }
+            ),
             Part::Pocket => format!(
                 "The pocket is {} mm deep but the base board is only {} mm thick.",
                 num(depth),
@@ -250,6 +285,52 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         warnings,
     };
     let cut = match (part, &job.inlay) {
+        (
+            _,
+            Inlay::Pocket {
+                clearing_tool_ids, ..
+            },
+        ) => plain_pocket(&mut ctx, &regions, clearing_tool_ids),
+        (
+            _,
+            Inlay::Facing {
+                above,
+                margin,
+                tool_id,
+                ..
+            },
+        ) => facing(
+            &mut ctx,
+            &regions,
+            design.placed_size(),
+            *above,
+            *margin,
+            tool_id.as_deref(),
+        ),
+        (
+            _,
+            Inlay::Contour {
+                side,
+                tabs,
+                tool_id,
+                ..
+            },
+        ) => contour(
+            &mut ctx,
+            &regions,
+            *side,
+            through_stock,
+            *tabs,
+            tool_id.as_deref(),
+        ),
+        (
+            _,
+            Inlay::Chamfer {
+                side,
+                width,
+                vbit_tool_id,
+            },
+        ) => chamfer(&mut ctx, &regions, *side, *width, vbit_tool_id.as_deref()),
         (
             Part::Pocket,
             Inlay::Flat {
@@ -406,16 +487,62 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             .flat_map(|r| r.outer.iter())
             .any(|p| p[0] < 0.0 || p[1] < 0.0 || p[0] > width || p[1] > height)
     {
-        warnings.push("Part of the inlay lies outside the design's page, which is taken as the edge of the base board.".into());
+        warnings.push(
+            "Some of the shapes lie outside the stock. Move them, or make the stock larger.".into(),
+        );
     }
 
+    // An operation is named by the user; an inlay's two files also say which part they are.
+    let title = if plain {
+        format!("{} - {}", project.name, job.name)
+    } else {
+        format!("{} - {} - {}", project.name, job.name, name)
+    };
     let program = Program {
-        name: format!("{} - {} - {}", project.name, job.name, name),
+        name: title.clone(),
         tools: cut.tools,
         safe_z: Setup::of(project, job).safe_height,
         moves: cut.moves,
     };
-    let gcode = carvera::write(&program);
+    let (gcode, interpreted, stats) = finish(&program, machine, name)?;
+
+    Ok(Built {
+        part,
+        stock: Stock {
+            width,
+            height,
+            thickness,
+            through,
+        },
+        narrow,
+        cuttable,
+        flat_fit,
+        frame,
+        piece,
+        cut_width,
+        shapes,
+        file_name: format!(
+            "{}.{}",
+            file_stem(&title.replace(" - ", " ")),
+            carvera::FILE_EXTENSION
+        ),
+        stats,
+        gcode,
+        warnings,
+        program,
+        interpreted,
+        pocket,
+    })
+}
+
+/// Writes a program as G-code, checks the text and reads it back. `name` is
+/// what the file cuts, for messages.
+fn finish(
+    program: &Program,
+    machine: &Machine,
+    name: &str,
+) -> Result<(String, Interpreted, Stats), Vec<String>> {
+    let gcode = carvera::write(program);
 
     // The file must satisfy the firmware's rules and read back cleanly. A
     // failure here is a bug in this app, never the user's doing.
@@ -453,54 +580,29 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         }
     }
 
-    Ok(Built {
-        part,
-        stock: Stock {
-            width,
-            height,
-            thickness,
-            through,
-        },
-        narrow,
-        cuttable,
-        flat_fit,
-        frame,
-        piece,
-        cut_width,
-        shapes,
-        file_name: format!(
-            "{}.{}",
-            file_stem(&format!("{} {} {}", project.name, job.name, name)),
-            carvera::FILE_EXTENSION
-        ),
-        stats: Stats {
-            lines: interpreted.lines,
-            cutting_length: interpreted.cutting_length(),
-            minutes: interpreted.minutes(machine.rapid_rate),
-            tools: program.tools.iter().map(|t| t.tool.name.clone()).collect(),
-            tool_changes: interpreted.tool_changes.len() as u32,
-            per_tool: program
-                .tools
-                .iter()
-                .map(|t| {
-                    let mine = || interpreted.segments.iter().filter(|s| s.tool == t.number);
-                    ToolStats {
-                        number: t.number,
-                        name: t.tool.name.clone(),
-                        cutting_length: mine().filter(|s| !s.rapid).map(|s| s.length()).sum(),
-                        minutes: mine()
-                            .map(|s| s.length() / if s.rapid { machine.rapid_rate } else { s.feed })
-                            .sum(),
-                    }
-                })
-                .collect(),
-        },
-        gcode,
-        warnings,
-        program,
-        interpreted,
-        pocket,
-    })
+    let stats = Stats {
+        lines: interpreted.lines,
+        cutting_length: interpreted.cutting_length(),
+        minutes: interpreted.minutes(machine.rapid_rate),
+        tools: program.tools.iter().map(|t| t.tool.name.clone()).collect(),
+        tool_changes: interpreted.tool_changes.len() as u32,
+        per_tool: program
+            .tools
+            .iter()
+            .map(|t| {
+                let mine = || interpreted.segments.iter().filter(|s| s.tool == t.number);
+                ToolStats {
+                    number: t.number,
+                    name: t.tool.name.clone(),
+                    cutting_length: mine().filter(|s| !s.rapid).map(|s| s.length()).sum(),
+                    minutes: mine()
+                        .map(|s| s.length() / if s.rapid { machine.rapid_rate } else { s.feed })
+                        .sum(),
+                }
+            })
+            .collect(),
+    };
+    Ok((gcode, interpreted, stats))
 }
 
 /// What is known while a job is turned into moves, and what has been found
@@ -605,7 +707,12 @@ impl<'a> Context<'a> {
         }
         match tool.flute_length {
             Some(flutes) if self.depth > flutes => self.errors.push(format!(
-                "The pocket is {} mm deep, but the cutting edges of \"{}\" are only {} mm long.",
+                "The {} {} mm deep, but the cutting edges of \"{}\" are only {} mm long.",
+                if self.job.inlay.is_inlay() {
+                    "pocket is"
+                } else {
+                    "cut goes"
+                },
                 num(self.depth),
                 tool.name,
                 num(flutes)
@@ -1690,6 +1797,534 @@ fn vcarve_plug_cut(
     })
 }
 
+/// A plain pocket: the shapes cleared to a flat floor with one end mill, or
+/// with several in order. Inside corners are left rounded to the smallest.
+fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> Option<Cut> {
+    if tool_ids.is_empty() {
+        ctx.errors
+            .push("Choose an end mill for this pocket.".into());
+        return None;
+    }
+    let end_mills = ctx.end_mills(tool_ids)?;
+    if !ctx.errors.is_empty() || regions.is_empty() {
+        return None;
+    }
+    let smallest = end_mills
+        .iter()
+        .map(|(tool, _)| *tool)
+        .min_by(|a, b| a.diameter.total_cmp(&b.diameter))?;
+    if offset(regions, -smallest.diameter / 2.0).is_empty() {
+        ctx.errors.push(format!(
+            "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
+            smallest.name,
+            num(smallest.diameter)
+        ));
+        return None;
+    }
+
+    let mut number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
+    let (cleared, tools) = ctx.clear_in_order(
+        &mut path,
+        regions,
+        &end_mills,
+        &mut number,
+        "the pocket",
+        false,
+    );
+    let wanted = total_area(regions);
+    let left = wanted - total_area(&cleared);
+    if left > 0.002 * wanted && left > 0.05 {
+        ctx.warnings.push(format!(
+            "{} mm² of the shapes is not cut: \"{}\" rounds inside corners to its {} mm radius and cannot enter anything narrower than {} mm. What is cut is dashed on the drawing.",
+            num((left * 10.0).round() / 10.0),
+            smallest.name,
+            num(smallest.diameter / 2.0),
+            num(smallest.diameter)
+        ));
+    }
+    Some(Cut {
+        tools,
+        moves: path.finish(),
+        cuttable: outlines(&cleared),
+        pocket: cleared,
+        ..Cut::default()
+    })
+}
+
+/// Facing: an area milled flat with an end mill, from `above` the stock's
+/// surface down to the job's depth below it. Without shapes the area is the
+/// whole stock; with shapes, the rectangle around them grown by `margin`. The
+/// tool's centre
+/// goes right to the edge of the area, so no wall is left around it above the
+/// surface.
+fn facing(
+    ctx: &mut Context,
+    regions: &[Region],
+    stock: (f64, f64),
+    above: f64,
+    margin: f64,
+    tool_id: Option<&str>,
+) -> Option<Cut> {
+    let depth = ctx.depth;
+    let total = above + depth;
+    if total <= 0.0 {
+        ctx.errors.push(
+            "There is nothing to face: give the wood above the surface, a depth below it, or both."
+                .into(),
+        );
+        return None;
+    }
+    let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
+    if !ctx.errors.is_empty() {
+        return None;
+    }
+    let radius = tool.diameter / 2.0;
+    // With shapes, the rectangle around them: a plug's blank is one, whatever
+    // the shapes on it.
+    let whole = regions.is_empty();
+    let [x0, y0, x1, y1] = match extent(regions) {
+        Some(b) => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin],
+        None => [0.0, 0.0, stock.0, stock.1],
+    };
+    let wanted = vec![Region::new(vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]])];
+    // Cleared as an area one radius larger, the tool's centre covers `wanted`.
+    let where_to = centres(&offset(&wanted, radius), &[], tool.diameter);
+    if where_to.is_empty() {
+        return None;
+    }
+
+    let safe = ctx.setup().safe_height;
+    let number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
+    path.start_tool(number, cutting.rpm);
+    clear_centres(&mut path, &where_to, &clear_params(tool, cutting, total));
+    let mut moves = path.finish();
+    // Worked out as if the top of the standing wood were the surface: lift it there.
+    if above > 0.0 {
+        for m in &mut moves {
+            match m {
+                Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. } => to[2] += above,
+                Move::RapidXy { .. }
+                | Move::ToolChange { .. }
+                | Move::SpindleOn { .. }
+                | Move::SpindleOff => {}
+            }
+        }
+        ctx.warnings.push(format!(
+            "The first {} mm are cut above the stock's surface. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
+            num(above),
+            num(safe + above)
+        ));
+    }
+    ctx.warnings.push(if whole {
+        format!(
+            "The tool runs {} mm out over every edge of the stock. Keep clamps below the surface or out of its way.",
+            num(radius)
+        )
+    } else {
+        format!(
+            "The tool's centre goes to the edge of the area, so it cuts up to {} mm beyond it.",
+            num(radius)
+        )
+    });
+    Some(Cut {
+        tools: vec![ProgramTool {
+            number,
+            tool: tool.clone(),
+        }],
+        moves,
+        pocket: wanted,
+        ..Cut::default()
+    })
+}
+
+/// A contour: an end mill taken along the outlines of the shapes, outside
+/// them, inside them or on them, down to the job's depth or right through
+/// the stock.
+fn contour(
+    ctx: &mut Context,
+    regions: &[Region],
+    side: Side,
+    through: bool,
+    tabs: bool,
+    tool_id: Option<&str>,
+) -> Option<Cut> {
+    let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
+    if !ctx.errors.is_empty() || regions.is_empty() {
+        return None;
+    }
+    let radius = tool.diameter / 2.0;
+    let delta = match side {
+        Side::Outside => radius,
+        Side::Inside => -radius,
+        Side::On => 0.0,
+    };
+    if side == Side::Outside && offset(regions, radius).len() < regions.len() {
+        ctx.errors.push(format!(
+            "Two of the shapes are closer together than \"{}\" is wide ({} mm), so it cannot pass between them. Move them apart, use a smaller tool, or cut them in separate operations.",
+            tool.name,
+            num(tool.diameter)
+        ));
+        return None;
+    }
+    let tracks: Vec<Vec<Region>> = regions
+        .iter()
+        .map(|r| offset(std::slice::from_ref(r), delta))
+        .collect();
+    if tracks.iter().any(Vec::is_empty) {
+        ctx.errors.push(format!(
+            "\"{}\" ({} mm) is too wide to run inside {}.",
+            tool.name,
+            num(tool.diameter),
+            if regions.len() == 1 {
+                "the shape"
+            } else {
+                "one of the shapes"
+            }
+        ));
+        return None;
+    }
+
+    let setup = ctx.setup();
+    let depth = ctx.depth;
+    let thickness = ctx.project.base.thickness;
+    let tab_thickness = if through {
+        setup.tab_thickness_on(thickness)
+    } else {
+        setup.tab_thickness.min(depth / 2.0)
+    };
+    let number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
+    path.start_tool(number, cutting.rpm);
+    let report = follow(
+        &mut path,
+        &tracks,
+        &ProfileParams {
+            tool_diameter: tool.diameter,
+            depth,
+            stepdown: cutting.stepdown,
+            feed: cutting.feed,
+            plunge: cutting.plunge,
+            tabs: tabs.then_some(Tabs {
+                height: tab_thickness + if through { setup.through_cut } else { 0.0 },
+                width: setup.tab_width,
+                spacing: setup.tab_spacing,
+            }),
+        },
+    );
+    let left: usize = report.tabs.iter().sum();
+    if tabs && left > 0 {
+        ctx.warnings.push(format!(
+            "{} tabs {} mm wide and {} mm thick are left across the cut. Cut them and trim the edge afterwards.",
+            left,
+            num(setup.tab_width),
+            num(tab_thickness)
+        ));
+    } else if tabs {
+        ctx.warnings
+            .push("The outlines are too short for tabs, so none are left.".into());
+    }
+    if through {
+        if !tabs || left == 0 {
+            ctx.warnings.push("Without tabs, what the cut frees comes loose on the last pass. Hold it down with tape or it can be thrown by the tool.".into());
+        }
+        ctx.warnings.push(format!(
+            "The cut goes {} mm past the bottom of the stock: put a spoilboard under it.",
+            num(setup.through_cut)
+        ));
+    }
+    Some(Cut {
+        tools: vec![ProgramTool {
+            number,
+            tool: tool.clone(),
+        }],
+        moves: path.finish(),
+        pocket: regions.to_vec(),
+        through: if through { setup.through_cut } else { 0.0 },
+        ..Cut::default()
+    })
+}
+
+/// How far beyond its tip flat a V-bit's axis is kept from the edge it
+/// chamfers, mm. The tip, which hardly cuts, then runs in the air beside the
+/// edge instead of rubbing along the wall under the chamfer.
+const CHAMFER_TIP_CLEAR: f64 = 0.2;
+
+/// How deep a V-bit's tip runs to chamfer an edge `width` wide.
+fn chamfer_depth(vbit: &Tool, width: f64) -> f64 {
+    let (half_angle, _) = vbit_shape(vbit);
+    (width + CHAMFER_TIP_CLEAR) / half_angle.tan()
+}
+
+/// A chamfer: a V-bit taken along the outlines of the shapes, on the side
+/// where the wood has been cut away, so that its flank bevels the top edge.
+fn chamfer(
+    ctx: &mut Context,
+    regions: &[Region],
+    side: Side,
+    width: f64,
+    vbit_id: Option<&str>,
+) -> Option<Cut> {
+    // The depth follows from the bit, and the bit is checked against the depth.
+    if let Some(bit) = vbit_id.and_then(|id| {
+        ctx.project
+            .tools
+            .iter()
+            .find(|t| t.id == id && t.kind == ToolKind::VBit)
+    }) {
+        ctx.depth = chamfer_depth(bit, width);
+    }
+    let (vbit, cutting) = ctx.tool(vbit_id, ToolKind::VBit, "a V-bit")?;
+    if !ctx.errors.is_empty() || regions.is_empty() {
+        return None;
+    }
+    let (_, tip_radius) = vbit_shape(vbit);
+    let aside = tip_radius + CHAMFER_TIP_CLEAR;
+    let depth = ctx.depth;
+    let widest = vbit.diameter / 2.0 - aside;
+    if width > widest + 1e-9 {
+        ctx.errors.push(format!(
+            "\"{}\" is too narrow for a chamfer {} mm wide: it can cut one of {} mm at most.",
+            vbit.name,
+            num(width),
+            num((widest * 100.0).floor() / 100.0)
+        ));
+        return None;
+    }
+    if depth >= ctx.project.base.thickness {
+        ctx.errors.push(format!(
+            "The V-bit's tip would run {} mm deep, but the stock is only {} mm thick.",
+            num((depth * 100.0).round() / 100.0),
+            num(ctx.project.base.thickness)
+        ));
+        return None;
+    }
+    let delta = if side == Side::Inside { -aside } else { aside };
+    let tracks: Vec<Vec<Region>> = regions
+        .iter()
+        .map(|r| offset(std::slice::from_ref(r), delta))
+        .collect();
+    if tracks.iter().any(Vec::is_empty) {
+        ctx.errors
+            .push("One of the shapes is too small for the V-bit to run inside it.".into());
+        return None;
+    }
+
+    let number = ctx.project.machine.first_tool;
+    let mut path = ctx.path();
+    path.start_tool(number, cutting.rpm);
+    follow(
+        &mut path,
+        &tracks,
+        &ProfileParams {
+            tool_diameter: vbit.diameter,
+            depth,
+            stepdown: cutting.stepdown,
+            feed: cutting.feed,
+            plunge: cutting.plunge,
+            tabs: None,
+        },
+    );
+    ctx.warnings.push(format!(
+        "Run this after the edge has been cut. The V-bit's tip runs {} mm {} the outline, {} mm deep, where it expects the wood to be gone already; in uncut wood it leaves a V-groove instead.",
+        num((aside * 100.0).round() / 100.0),
+        if side == Side::Inside { "inside" } else { "outside" },
+        num((depth * 100.0).round() / 100.0)
+    ));
+    Some(Cut {
+        tools: vec![ProgramTool {
+            number,
+            tool: vbit.clone(),
+        }],
+        moves: path.finish(),
+        pocket: regions.to_vec(),
+        ..Cut::default()
+    })
+}
+
+/// Builds one file that runs the stock's part of several jobs one after the
+/// other, in the order given: an inlay's pocket, or a plain operation. A tool
+/// that the next job also starts with stays in the spindle, and tools keep
+/// one number each through the whole file.
+pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Vec<String>> {
+    if job_ids.is_empty() {
+        return Err(vec!["Tick what the file should cut.".to_string()]);
+    }
+    let design = project
+        .design
+        .as_ref()
+        .ok_or_else(|| vec!["The project has no design.".to_string()])?;
+    let name_of = |id: &str| {
+        project
+            .jobs
+            .iter()
+            .find(|j| j.id == id)
+            .map_or("?", |j| j.name.as_str())
+    };
+
+    let mut parts: Vec<(&str, Built)> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    for id in job_ids {
+        match build(project, id, Part::Pocket) {
+            Ok(built) => parts.push((name_of(id), built)),
+            Err(reasons) => errors.extend(
+                reasons
+                    .into_iter()
+                    .map(|reason| format!("{}: {reason}", name_of(id))),
+            ),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    let mut tools: Vec<ProgramTool> = Vec::new();
+    let mut moves: Vec<Move> = Vec::new();
+    // The tool in the spindle and its speed, and where the tool is.
+    let mut loaded: Option<(u32, u32)> = None;
+    let mut at: Option<[f64; 3]> = None;
+    for (_, built) in &parts {
+        // This part's tool numbers as they are in the whole file.
+        let mut numbers: HashMap<u32, u32> = HashMap::new();
+        for t in &built.program.tools {
+            let number = match tools.iter().find(|known| known.tool.id == t.tool.id) {
+                Some(known) => known.number,
+                None => {
+                    let number = project.machine.first_tool + tools.len() as u32;
+                    tools.push(ProgramTool {
+                        number,
+                        tool: t.tool.clone(),
+                    });
+                    number
+                }
+            };
+            numbers.insert(t.number, number);
+        }
+
+        let part = &built.program.moves;
+        let mut i = 0;
+        while i < part.len() {
+            match &part[i] {
+                Move::ToolChange { number } => {
+                    let number = numbers[number];
+                    let rpm = match part.get(i + 1) {
+                        Some(Move::SpindleOn { rpm }) => *rpm,
+                        _ => 0,
+                    };
+                    match (loaded, at) {
+                        (Some((have, have_rpm)), Some(from)) if have == number && rpm > 0 => {
+                            // The same tool again: it stays in, still turning.
+                            if matches!(moves.last(), Some(Move::SpindleOff)) {
+                                moves.pop();
+                            }
+                            if rpm != have_rpm {
+                                moves.push(Move::SpindleOn { rpm });
+                            }
+                            loaded = Some((number, rpm));
+                            i += 2;
+                            // It is not parked high above the work this time: travel at
+                            // the higher of the two parts' travel heights.
+                            if let Some(Move::RapidXy { to }) = part.get(i) {
+                                let next = match part.get(i + 1) {
+                                    Some(Move::Rapid { to }) => to[2],
+                                    _ => from[2],
+                                };
+                                let z = from[2].max(next);
+                                moves.push(Move::Rapid {
+                                    to: [from[0], from[1], z],
+                                });
+                                moves.push(Move::Rapid {
+                                    to: [to[0], to[1], z],
+                                });
+                                at = Some([to[0], to[1], z]);
+                                i += 1;
+                            }
+                            continue;
+                        }
+                        _ => {
+                            moves.push(Move::ToolChange { number });
+                            loaded = Some((number, rpm));
+                            at = None;
+                        }
+                    }
+                }
+                m @ (Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. }) => {
+                    at = Some(*to);
+                    moves.push(m.clone());
+                }
+                m => moves.push(m.clone()),
+            }
+            i += 1;
+        }
+    }
+
+    let names: Vec<&str> = parts.iter().map(|(name, _)| *name).collect();
+    let program = Program {
+        name: format!("{} - stock - {}", project.name, names.join(", ")),
+        tools,
+        safe_z: parts
+            .iter()
+            .map(|(_, b)| b.program.safe_z)
+            .fold(0.0, f64::max),
+        moves,
+    };
+    let (gcode, interpreted, stats) = finish(&program, &project.machine, "file")?;
+
+    let mut warnings: Vec<String> = Vec::new();
+    // Wood standing above the surface is only allowed for by the job that faces it off.
+    for (i, id) in job_ids.iter().enumerate().skip(1) {
+        let job = project.jobs.iter().find(|j| &j.id == id);
+        if let Some(Inlay::Facing { above, .. }) = job.map(|j| &j.inlay) {
+            if *above > 0.0 {
+                warnings.push(format!(
+                    "\"{}\" faces off {} mm of wood standing above the surface, but {} before it in this file {} as if the surface were clear. Make sure nothing stands in {} way, or put the facing first.",
+                    name_of(id),
+                    num(*above),
+                    if i == 1 { "the job" } else { "the jobs" },
+                    if i == 1 { "travels" } else { "travel" },
+                    if i == 1 { "its" } else { "their" }
+                ));
+            }
+        }
+    }
+    for (name, built) in &parts {
+        warnings.extend(built.warnings.iter().map(|w| format!("{name}: {w}")));
+    }
+    let pocket: Vec<Region> = parts.iter().flat_map(|(_, b)| b.pocket.clone()).collect();
+    let (width, height) = design.placed_size();
+    Ok(Built {
+        part: Part::Pocket,
+        stock: Stock {
+            width,
+            height,
+            thickness: project.base.thickness,
+            through: parts
+                .iter()
+                .map(|(_, b)| b.stock.through)
+                .fold(0.0, f64::max),
+        },
+        narrow: parts.iter().flat_map(|(_, b)| b.narrow.clone()).collect(),
+        cuttable: parts.iter().flat_map(|(_, b)| b.cuttable.clone()).collect(),
+        flat_fit: None,
+        frame: None,
+        piece: None,
+        cut_width: None,
+        shapes: extent(&pocket),
+        file_name: format!(
+            "{}.{}",
+            file_stem(&format!("{} stock", project.name)),
+            carvera::FILE_EXTENSION
+        ),
+        stats,
+        gcode,
+        warnings,
+        program,
+        interpreted,
+        pocket,
+    })
+}
+
 fn checked_tool<'a>(
     project: &'a Project,
     id: Option<&str>,
@@ -1698,7 +2333,7 @@ fn checked_tool<'a>(
     errors: &mut Vec<String>,
 ) -> Option<&'a Tool> {
     let Some(id) = id else {
-        errors.push(format!("Choose {what} for this inlay."));
+        errors.push(format!("Choose {what}."));
         return None;
     };
     let tool = project.tools.iter().find(|t| t.id == id);
@@ -1735,7 +2370,16 @@ pub fn preview_pocket(project: &Project, job_id: &str) -> Result<Preview, Vec<St
 /// Builds the file for one part of a job and simulates that file on the
 /// part's board.
 pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, Vec<String>> {
-    let built = build(project, job_id, part)?;
+    Ok(simulated(build(project, job_id, part)?))
+}
+
+/// Builds one file that runs several jobs on the stock, and simulates it.
+pub fn preview_combined(project: &Project, job_ids: &[String]) -> Result<Preview, Vec<String>> {
+    Ok(simulated(build_combined(project, job_ids)?))
+}
+
+/// Simulates a built file on its board.
+fn simulated(built: Built) -> Preview {
     let Stock {
         width,
         height,
@@ -1758,11 +2402,11 @@ pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, V
         thickness + through,
         cell,
     );
-    Ok(Preview {
+    Preview {
         map: simulation.map,
         problems: simulation.problems,
         built,
-    })
+    }
 }
 
 /// Both parts of a V-carve inlay, simulated, and how they fit together.
@@ -1909,6 +2553,7 @@ mod tests {
                 material: Material::Hardwood,
                 region_ids: vec![0, 1],
                 setup: None,
+                color: None,
                 cut_out_tool_id: None,
                 inlay: Inlay::Flat {
                     pocket_depth: 2.0,
@@ -1923,7 +2568,7 @@ mod tests {
                 },
             }],
             tools: vec![end_mill(), v_bit()],
-            base: BaseStock { thickness: 18.0 },
+            base: BaseStock::default(),
             machine: Machine::default(),
             setup: Setup::default(),
         }
@@ -2850,6 +3495,7 @@ mod tests {
             | Inlay::Vcarve {
                 clearing_tool_ids, ..
             } => *clearing_tool_ids = ids,
+            _ => panic!("not an inlay"),
         }
     }
 
@@ -2992,6 +3638,7 @@ mod tests {
                 *cut_out = on;
                 *tabs = with_tabs;
             }
+            _ => panic!("not an inlay"),
         }
     }
 
@@ -3204,5 +3851,351 @@ mod tests {
     fn file_names_are_safe_for_the_machine() {
         assert_eq!(file_stem("Żółw / coaster #2 (final)"), "w-coaster-2-final");
         assert_eq!(file_stem("???"), "inlay");
+    }
+
+    // Plain operations on the stock.
+
+    /// The test board with one plain operation on the rectangle, and the
+    /// V-bit given cutting settings.
+    fn op_project(inlay: Inlay) -> Project {
+        let mut p = with_inlay(inlay);
+        p.jobs[0].name = "Op".into();
+        p.jobs[0].region_ids = vec![0];
+        p.tools[1].cutting = vec![CuttingSettings {
+            material: Material::Hardwood,
+            rpm: 12000,
+            feed: 500.0,
+            plunge: 150.0,
+            stepover: 0.2,
+            stepdown: 1.0,
+        }];
+        p
+    }
+
+    fn cuts(built: &Built) -> Vec<[f64; 3]> {
+        built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| !s.rapid)
+            .flat_map(|s| [s.from, s.to])
+            .collect()
+    }
+
+    /// The rectangle of the test board.
+    fn rectangle() -> Region {
+        Region::new(vec![[5.0, 5.0], [35.0, 5.0], [35.0, 25.0], [5.0, 25.0]])
+    }
+
+    #[test]
+    fn a_plain_pocket_is_cleared_to_its_depth_and_nothing_else_is_touched() {
+        let p = op_project(Inlay::Pocket {
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        assert_eq!(preview.built.file_name, "Test-board-Op.cnc");
+        let map = &preview.map;
+        let shape = rectangle();
+        for iy in 0..map.ny {
+            for ix in 0..map.nx {
+                let q = map.centre(ix, iy);
+                let z = map.at(ix, iy) as f64;
+                let edge = shape.distance_to_boundary(q);
+                if shape.contains(q) && edge > 1.6 {
+                    assert!((z + 2.5).abs() < 1e-4, "not at depth at {q:?}: {z}");
+                } else if !shape.contains(q) && edge > map.cell {
+                    assert_eq!(z, 0.0, "cut outside the shape at {q:?}");
+                }
+            }
+        }
+        // The corners the tool cannot reach are reported.
+        assert!(preview
+            .built
+            .warnings
+            .iter()
+            .any(|w| w.contains("is not cut")));
+        // Only inlays have a second part.
+        assert!(build(&p, "j", Part::Plug).is_err());
+    }
+
+    #[test]
+    fn facing_the_whole_stock_starts_above_the_surface_and_leaves_it_flat() {
+        let mut p = op_project(Inlay::Facing {
+            above: 2.0,
+            depth: 0.5,
+            margin: 0.0,
+            tool_id: Some("t-endmill".into()),
+        });
+        p.jobs[0].region_ids = vec![];
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        // Every cell of the stock ends up at the depth.
+        for z in &preview.map.z {
+            assert!((*z + 0.5).abs() < 1e-4, "left at {z}");
+        }
+        let cuts = cuts(&preview.built);
+        let top = cuts.iter().map(|q| q[2]).fold(f64::NEG_INFINITY, f64::max);
+        let bottom = cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min);
+        assert!(top > 1.0, "nothing is cut above the surface: {top}");
+        assert!((bottom + 0.5).abs() < 1e-9);
+        // Travel is above the wood that stands on the surface.
+        let travel = preview
+            .built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| s.rapid && s.from[2] == s.to[2] && s.length() > 1.0)
+            .map(|s| s.to[2])
+            .fold(f64::INFINITY, f64::min);
+        assert!(travel >= 7.0 - 1e-9, "travels at {travel}");
+    }
+
+    #[test]
+    fn facing_over_shapes_covers_them_and_their_margin_only() {
+        let p = op_project(Inlay::Facing {
+            above: 3.0,
+            depth: 0.0,
+            margin: 2.0,
+            tool_id: Some("t-endmill".into()),
+        });
+        let built = build(&p, "j", Part::Pocket).unwrap();
+        // The rectangle is 5..35 by 5..25; the area reaches 2 mm beyond it.
+        let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+        for q in cuts(&built) {
+            for k in 0..2 {
+                low[k] = low[k].min(q[k]);
+                high[k] = high[k].max(q[k]);
+            }
+            assert!(q[2] >= -1e-9, "cut below the surface at {q:?}");
+        }
+        for (got, wanted) in low.iter().chain(&high).zip([3.0, 3.0, 37.0, 27.0]) {
+            assert!(
+                (got - wanted).abs() < 0.02,
+                "the tool's centre went to {got}, not {wanted}"
+            );
+        }
+        // Nothing to do at all is refused.
+        let mut none = p.clone();
+        none.jobs[0].inlay = Inlay::Facing {
+            above: 0.0,
+            depth: 0.0,
+            margin: 0.0,
+            tool_id: Some("t-endmill".into()),
+        };
+        assert!(build(&none, "j", Part::Pocket).unwrap_err()[0].contains("nothing to face"));
+    }
+
+    #[test]
+    fn a_contour_keeps_the_tool_on_its_side_of_the_outline() {
+        let shape = rectangle();
+        for (side, inside, away) in [
+            (Side::Outside, false, 1.5875),
+            (Side::Inside, true, 1.5875),
+            (Side::On, true, 0.0),
+        ] {
+            let p = op_project(Inlay::Contour {
+                side,
+                depth: Some(3.0),
+                tabs: false,
+                tool_id: Some("t-endmill".into()),
+            });
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            assert_eq!(preview.built.stock.through, 0.0);
+            let cuts = cuts(&preview.built);
+            assert!(cuts.iter().any(|q| (q[2] + 3.0).abs() < 1e-9));
+            for q in cuts {
+                let xy = [q[0], q[1]];
+                let edge = shape.distance_to_boundary(xy);
+                assert!(
+                    (edge - away).abs() < 0.01,
+                    "{side:?}: {edge} from the outline"
+                );
+                if away > 0.0 {
+                    assert_eq!(shape.contains(xy), inside, "{side:?}: wrong side at {xy:?}");
+                }
+                assert!(q[2] >= -3.0 - 1e-9);
+            }
+        }
+    }
+
+    #[test]
+    fn a_contour_without_a_depth_goes_through_the_stock_and_can_leave_tabs() {
+        let mut p = op_project(Inlay::Contour {
+            side: Side::Outside,
+            depth: None,
+            tabs: true,
+            tool_id: Some("t-endmill".into()),
+        });
+        p.base.thickness = 6.0;
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        assert_eq!(preview.built.stock.through, 0.2);
+        let cuts = cuts(&preview.built);
+        let bottom = cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min);
+        assert!((bottom + 6.2).abs() < 1e-9, "bottom at {bottom}");
+        let notes = preview.built.warnings.join(" | ");
+        assert!(notes.contains("tabs 4 mm wide and 1 mm thick"), "{notes}");
+        assert!(notes.contains("spoilboard"), "{notes}");
+        // Tabs: level cuts 1.2 mm above the bottom of the cut.
+        assert!(cuts.iter().any(|q| (q[2] + 5.0).abs() < 1e-9));
+
+        // A depth of the whole stock or more is not a through cut by accident.
+        p.jobs[0].inlay = Inlay::Contour {
+            side: Side::Outside,
+            depth: Some(6.0),
+            tabs: false,
+            tool_id: Some("t-endmill".into()),
+        };
+        let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
+        assert!(reasons.contains("through the stock"), "{reasons}");
+    }
+
+    #[test]
+    fn a_chamfer_bevels_the_edge_to_its_width() {
+        let width = 1.5;
+        let tan = 30f64.to_radians().tan();
+        for side in [Side::Outside, Side::Inside] {
+            let p = op_project(Inlay::Chamfer {
+                side,
+                width,
+                vbit_tool_id: Some("t-vbit".into()),
+            });
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            let shape = rectangle();
+            let map = &preview.map;
+            let mut checked = 0;
+            for iy in 0..map.ny {
+                for ix in 0..map.nx {
+                    let q = map.centre(ix, iy);
+                    // Away from the corners, where the bevels of two edges meet.
+                    if !(q[0] > 12.0 && q[0] < 28.0) {
+                        continue;
+                    }
+                    // On the side of the outline where the wood stays.
+                    if shape.contains(q) != (side == Side::Outside) {
+                        continue;
+                    }
+                    let d = shape.distance_to_boundary(q);
+                    let z = map.at(ix, iy) as f64;
+                    let ideal = if d < width { -(width - d) / tan } else { 0.0 };
+                    assert!(
+                        (z - ideal).abs() < 0.15,
+                        "{side:?}: {z} at {d} mm from the edge, wanted {ideal}"
+                    );
+                    checked += 1;
+                }
+            }
+            assert!(checked > 1000);
+        }
+        // A bevel wider than the bit can cut is refused.
+        let p = op_project(Inlay::Chamfer {
+            side: Side::Outside,
+            width: 6.0,
+            vbit_tool_id: Some("t-vbit".into()),
+        });
+        let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
+        assert!(reasons.contains("too narrow for a chamfer"), "{reasons}");
+    }
+
+    /// A pocket in the rectangle, a contour round it and a chamfer on it.
+    fn three_ops() -> Project {
+        let mut p = op_project(Inlay::Pocket {
+            depth: 2.0,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        p.base.thickness = 6.0;
+        p.jobs[0].name = "Recess".into();
+        let mut outline = p.jobs[0].clone();
+        outline.id = "c".into();
+        outline.name = "Outline".into();
+        outline.region_ids = vec![0, 1];
+        outline.inlay = Inlay::Contour {
+            side: Side::Outside,
+            depth: None,
+            tabs: true,
+            tool_id: Some("t-endmill".into()),
+        };
+        let mut bevel = p.jobs[0].clone();
+        bevel.id = "v".into();
+        bevel.name = "Bevel".into();
+        bevel.inlay = Inlay::Chamfer {
+            side: Side::Inside,
+            width: 1.0,
+            vbit_tool_id: Some("t-vbit".into()),
+        };
+        p.jobs.push(outline);
+        p.jobs.push(bevel);
+        p
+    }
+
+    #[test]
+    fn several_jobs_go_into_one_file_and_a_shared_tool_stays_in() {
+        let p = three_ops();
+        let ids = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        // Pocket then contour, both with the end mill: one tool, loaded once.
+        let two = preview_combined(&p, &ids(&["j", "c"])).unwrap();
+        assert_eq!(two.problems, []);
+        assert_eq!(two.built.interpreted.tool_changes, [1]);
+        assert_eq!(two.built.gcode.matches("M6").count(), 1);
+        assert_eq!(two.built.file_name, "Test-board-stock.cnc");
+        assert_eq!(two.built.stock.through, 0.2);
+        assert!(two
+            .built
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("Outline: ")));
+        // The file cuts what the two files cut one after the other.
+        let alone: f64 = ["j", "c"]
+            .iter()
+            .map(|id| build(&p, id, Part::Pocket).unwrap().stats.cutting_length)
+            .sum();
+        assert!((two.built.stats.cutting_length - alone).abs() < 1e-6);
+        let lowest = two.map.z.iter().fold(f32::INFINITY, |a, b| a.min(*b));
+        assert!((lowest + 6.2).abs() < 1e-4);
+
+        // With the chamfer between them the end mill is loaded twice, under one number.
+        let three = preview_combined(&p, &ids(&["j", "v", "c"])).unwrap();
+        assert_eq!(three.problems, []);
+        assert_eq!(three.built.interpreted.tool_changes, [1, 2, 1]);
+        assert_eq!(three.built.stats.per_tool.len(), 2);
+
+        // One job that cannot be built stops the file, and says which.
+        let mut bad = p.clone();
+        bad.jobs[2].inlay = Inlay::Chamfer {
+            side: Side::Inside,
+            width: 1.0,
+            vbit_tool_id: None,
+        };
+        let reasons = build_combined(&bad, &ids(&["j", "v"]))
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.starts_with("Bevel: "), "{reasons}");
+        assert!(build_combined(&p, &[]).is_err());
+    }
+
+    #[test]
+    fn a_file_warns_when_wood_above_the_surface_is_faced_after_other_jobs() {
+        let mut p = three_ops();
+        p.jobs[2].inlay = Inlay::Facing {
+            above: 4.0,
+            depth: 0.0,
+            margin: 3.0,
+            tool_id: Some("t-endmill".into()),
+        };
+        let ids = vec!["j".to_string(), "v".to_string()];
+        let built = build_combined(&p, &ids).unwrap();
+        assert!(built.warnings[0].contains("standing above the surface"));
+        // The end mill stays in, and crosses to the facing above that wood.
+        assert_eq!(built.interpreted.tool_changes, [1]);
+        let reversed = build_combined(&p, &["v".to_string(), "j".to_string()]).unwrap();
+        assert!(!reversed
+            .warnings
+            .iter()
+            .any(|w| w.contains("standing above")));
     }
 }

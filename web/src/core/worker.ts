@@ -24,6 +24,14 @@ const api: CoreApi = {
       preview.free();
     }
   },
+  previewCombined: (project, jobIds) => {
+    const preview = wasm.previewCombined(JSON.stringify(project), JSON.stringify(jobIds));
+    try {
+      return { ...JSON.parse(preview.info), heights: preview.heights, path: preview.path };
+    } finally {
+      preview.free();
+    }
+  },
   checkFit: (project, jobId) => {
     const check = wasm.checkFit(JSON.stringify(project), jobId);
     try {

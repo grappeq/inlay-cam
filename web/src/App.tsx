@@ -4,6 +4,7 @@ import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
 import { partName } from "./components/OutputPanel";
+import { isInlay, jobColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
 import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
@@ -20,7 +21,7 @@ export function App() {
 
 function Shell() {
   const { ready, view } = useApp();
-  const { importAny } = useFileActions();
+  const { importAll } = useFileActions();
   const [dragging, setDragging] = useState(false);
 
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -28,9 +29,8 @@ function Shell() {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragging(false);
-    // One at a time: each import builds on the state the previous one left.
-    const file = e.dataTransfer.files[0];
-    if (file) await importAny({ name: file.name, text: await file.text() });
+    const files = await Promise.all([...e.dataTransfer.files].map(async (file) => ({ name: file.name, text: await file.text() })));
+    await importAll(files);
   };
 
   return (
@@ -49,13 +49,13 @@ function Shell() {
       <Header />
       <NoticeBar />
       {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
-      {dragging && <div className="drop-hint">Drop an SVG or DXF drawing, a project or tool file, or tools.yaml</div>}
+      {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, or tools.yaml</div>}
     </div>
   );
 }
 
 function DesignView() {
-  const { project, output, stage, activeJobId } = useApp();
+  const { project, output, combined, stage, activeJobId } = useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
@@ -64,9 +64,15 @@ function DesignView() {
   const pocket = mine?.parts.pocket ?? null;
   const plug = mine?.parts.plug ?? null;
   const fit = mine?.fit ?? null;
+  // The one file for the stock is looked at from the list, with no inlay or operation open.
+  const whole = !job ? (combined?.preview ?? null) : null;
   // Fall back to the drawing when what was asked for is not there (any more).
-  const shown: Stage = (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) ? stage : "drawing";
-  const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
+  const shown: Stage =
+    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "stock" && whole) ? stage : "drawing";
+  const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : shown === "stock" ? whole : null;
+  const wood = stockColor(project);
+  const plugWood = job && isInlay(job.inlay) ? jobColor(job, project.jobs) : wood;
+  const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
   const marks = pocket ?? plug;
   const tab = (to: Stage, label: string) => (
     <button aria-pressed={shown === to} onClick={() => dispatch({ type: "setStage", stage: to })}>
@@ -80,15 +86,21 @@ function DesignView() {
         {job && mine && (pocket || plug) && (
           <nav className="tabs stage-tabs" aria-label="What to look at">
             {tab("drawing", "Drawing")}
-            {pocket && tab("pocket", "Pocket in 3D")}
-            {plug && tab("plug", `${partName("plug", job).replace(/^./, (c) => c.toUpperCase())} in 3D`)}
+            {pocket && tab("pocket", `${capital(partName("pocket", job))} in 3D`)}
+            {plug && tab("plug", `${capital(partName("plug", job))} in 3D`)}
             {fit && tab("fit", "Fit")}
           </nav>
         )}
+        {whole && (
+          <nav className="tabs stage-tabs" aria-label="What to look at">
+            {tab("drawing", "Drawing")}
+            {tab("stock", "File for the stock in 3D")}
+          </nav>
+        )}
         {shown === "fit" && fit ? (
-          <FitView fit={fit} />
+          <FitView fit={fit} baseColor={wood} plugColor={plugWood} />
         ) : preview ? (
-          <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} />
+          <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
         ) : (
           <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
         )}

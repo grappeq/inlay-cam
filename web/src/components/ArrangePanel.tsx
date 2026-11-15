@@ -17,7 +17,7 @@ import {
   trimBoard,
   withInside,
 } from "../state/arrange";
-import { fmt, regionOwners } from "../state/model";
+import { fmt } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { NumberField } from "./NumberField";
 
@@ -69,17 +69,17 @@ export function ArrangePanel({ design }: { design: Design }) {
   const remove = () => {
     if (none) return;
     if (everything) {
-      dispatch({ type: "notice", notice: { kind: "info", text: "A drawing needs at least one shape. To start over, replace the drawing." } });
+      dispatch({ type: "notice", notice: { kind: "info", text: "This would leave the stock without shapes. To start over, replace the drawing." } });
       return;
     }
-    const owners = regionOwners(project.jobs);
-    const used = withInside(design, selection).filter((id) => owners.has(id)).length;
+    const inUse = new Set(project.jobs.flatMap((j) => j.regionIds));
+    const used = withInside(design, selection).filter((id) => inUse.has(id)).length;
     const emptied = emptiedJobs(project, selection);
     const consequence =
       emptied.length > 0
         ? `${emptied.map((n) => `"${n}"`).join(" and ")} will have no shapes left and will be removed too.`
-        : `${used === 1 ? "It" : "They"} will be taken out of ${used === 1 ? "it" : "their inlays"}.`;
-    if (used > 0 && !confirm(`${used} of these shapes ${used === 1 ? "belongs" : "belong"} to an inlay. ${consequence} Delete?`)) return;
+        : `${used === 1 ? "It" : "They"} will be taken out of ${used === 1 ? "it" : "them"}.`;
+    if (used > 0 && !confirm(`${used} of these shapes ${used === 1 ? "is" : "are"} used by an inlay or operation. ${consequence} Delete?`)) return;
     editProject((p) => removeShapes(p, selection));
   };
   const duplicate = () => {
@@ -295,15 +295,15 @@ export function ArrangePanel({ design }: { design: Design }) {
         )}
 
         <section>
-          <h3>Base board</h3>
+          <h3>Stock</h3>
           <p className="status-line">
             {fmt(mm(design.width * design.scale))} × {fmt(mm(design.height * design.scale))} mm. It grows when shapes are moved past its right or top edge.
           </p>
           <div className="row tools">
             <NumberField label="Margin" unit="mm" value={margin} onChange={(v) => v !== undefined && setMargin(v)} />
-            <button onClick={() => edit((d) => trimBoard(d, margin / d.scale))}>Fit board to shapes</button>
+            <button onClick={() => edit((d) => trimBoard(d, margin / d.scale))}>Fit stock to shapes</button>
           </div>
-          <p className="hint">Fitting leaves the margin between the outermost shapes and the board's edges.</p>
+          <p className="hint">Fitting leaves the margin between the outermost shapes and the stock's edges. Its size can also be typed in, under "Stock and drawings".</p>
         </section>
       </div>
       <div className="generate-bar arrange-bar">

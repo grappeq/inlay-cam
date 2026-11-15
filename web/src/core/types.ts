@@ -87,13 +87,64 @@ export interface FlatInlay {
   insertMargin: number;
 }
 
-export type Inlay = VcarveInlay | FlatInlay;
+/** Which side of the shapes' outlines a tool runs on. */
+export type Side = "outside" | "inside" | "on";
+
+/** The shapes cleared to a flat floor. */
+export interface PocketOp {
+  type: "pocket";
+  depth: number;
+  /** End mills, in the order they are used. */
+  clearingToolIds: string[];
+}
+
+/** An area milled flat: the whole stock when the job has no shapes, else the rectangle around the shapes grown by the margin. */
+export interface FacingOp {
+  type: "facing";
+  /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
+  above: number;
+  /** How far below the stock's surface the area ends up. */
+  depth: number;
+  /** How far beyond the rectangle around the chosen shapes the area reaches. */
+  margin: number;
+  toolId: string | null;
+}
+
+/** A cut along the outlines of the shapes. */
+export interface ContourOp {
+  type: "contour";
+  side: Side;
+  /** How deep the cut goes; null for right through the stock. */
+  depth: number | null;
+  tabs: boolean;
+  toolId: string | null;
+}
+
+/** The top edge along the outlines of the shapes bevelled with a V-bit. */
+export interface ChamferOp {
+  type: "chamfer";
+  /** Where the wood has been cut away. */
+  side: "outside" | "inside";
+  /** Width of the bevel, seen from above. */
+  width: number;
+  vbitToolId: string | null;
+}
+
+/** An inlay proper: a pocket in the stock and the plug or insert that fills it. */
+export type TrueInlay = VcarveInlay | FlatInlay;
+/** A plain operation on the stock: one file, no second part. */
+export type Operation = PocketOp | FacingOp | ContourOp | ChamferOp;
+/** What a job cuts. The name is from when the app made inlays only. */
+export type Inlay = TrueInlay | Operation;
+export type JobType = Inlay["type"];
 
 export interface Job {
   id: string;
   name: string;
   material: Material;
   regionIds: number[];
+  /** The colour of the inlay's wood in the app's pictures, as #rrggbb. */
+  color?: string;
   /** Clearances and tabs for this inlay's files. An inlay from an older file has none and uses the project's. */
   setup?: Setup;
   /** The end mill that cuts a plug out of its board. Without one, the largest of the inlay's end mills that reaches through. */
@@ -137,8 +188,8 @@ export interface Project {
   jobs: Job[];
   /** Copies of the tools the jobs use. */
   tools: Tool[];
-  /** The board the pockets are cut into. Its outline is the design's page. */
-  base: { thickness: number };
+  /** The stock: the board the pockets and other operations are cut into. Its outline is the design's page. */
+  base: { thickness: number; color?: string };
   /** A copy of the machine set under Tools and settings. */
   machine: Machine;
   /** For inlays without clearances and tabs of their own. */
