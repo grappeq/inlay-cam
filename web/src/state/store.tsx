@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type
 import { core } from "../core/client";
 import type { FitCheck, ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
+import { partOf } from "./arrange";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "tools";
@@ -29,6 +30,12 @@ export interface AppState {
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
   stage: Stage;
+  /** The drawing is being arranged: clicks select shapes to move, resize or delete. */
+  arranging: boolean;
+  /** While arranging, a click selects the whole part a shape belongs to. */
+  wholeParts: boolean;
+  /** Projects as they were before each change to the drawing, oldest first. */
+  undo: Project[];
 }
 
 /** Everything generated for one inlay in one go: both files and their fit. */
@@ -60,7 +67,11 @@ export type Action =
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
   | { type: "setOutput"; output: Output | null }
-  | { type: "setStage"; stage: Stage };
+  | { type: "setStage"; stage: Stage }
+  | { type: "setArranging"; on: boolean }
+  | { type: "setWholeParts"; on: boolean }
+  | { type: "editDrawing"; update: (project: Project) => Project }
+  | { type: "undoDrawing" };
 
 const initial: AppState = {
   ready: false,
@@ -75,6 +86,9 @@ const initial: AppState = {
   saveError: null,
   output: null,
   stage: "drawing",
+  arranging: false,
+  wholeParts: true,
+  undo: [],
 };
 
 /** Keeps the project's tool copies in step with its jobs and the tool list. */
@@ -98,6 +112,8 @@ function reducer(state: AppState, action: Action): AppState {
         output: null,
         stage: "drawing",
         view: "design",
+        arranging: false,
+        undo: [],
       });
     case "updateProject":
       return withSnapshots({ ...state, project: action.update(state.project) });
@@ -128,10 +144,42 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, output: action.output };
     case "setStage":
       return { ...state, stage: action.stage };
+    case "setArranging":
+      return { ...state, arranging: action.on, selection: [], activeJobId: null, stage: "drawing", undo: [] };
+    case "setWholeParts":
+      return { ...state, wholeParts: action.on };
+    case "editDrawing": {
+      const project = action.update(state.project);
+      if (project === state.project || project.design === state.project.design) return state;
+      const left = new Set(project.design?.regions.map((r) => r.id));
+      return withSnapshots({
+        ...state,
+        project,
+        undo: [...state.undo.slice(-29), state.project],
+        selection: state.selection.filter((id) => left.has(id)),
+      });
+    }
+    case "undoDrawing": {
+      const before = state.undo[state.undo.length - 1];
+      if (!before) return state;
+      return withSnapshots({
+        ...state,
+        project: { ...state.project, design: before.design, jobs: before.jobs },
+        undo: state.undo.slice(0, -1),
+        selection: state.selection.filter((id) => before.design?.regions.some((r) => r.id === id)),
+      });
+    }
   }
 }
 
 function clickRegion(state: AppState, id: number): AppState {
+  if (state.arranging && state.project.design) {
+    const ids = state.wholeParts ? partOf(state.project.design, id) : [id];
+    const selection = state.selection.includes(id)
+      ? state.selection.filter((r) => !ids.includes(r))
+      : [...state.selection, ...ids.filter((r) => !state.selection.includes(r))];
+    return { ...state, selection };
+  }
   const owner = regionOwners(state.project.jobs).get(id);
   const active = state.project.jobs.find((j) => j.id === state.activeJobId);
 

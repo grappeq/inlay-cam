@@ -5,6 +5,7 @@ import { useApp, useDispatch } from "../state/store";
 import { pickTextFile } from "../util/files";
 import { jobColor } from "./DesignCanvas";
 import { InlayDiagram } from "./InlayDiagram";
+import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 
@@ -15,10 +16,11 @@ export function useImportSvg() {
 
 /** The panel beside the drawing: the drawing and its inlays, or the one inlay being worked on. */
 export function DesignPanel({ design }: { design: Design }) {
-  const { project, importReport, activeJobId } = useApp();
+  const { project, importReport, activeJobId, arranging } = useApp();
   const importSvg = useImportSvg();
   const active = project.jobs.find((j) => j.id === activeJobId);
 
+  if (arranging) return <ArrangePanel design={design} />;
   if (active) return <JobEditor key={active.id} job={active} index={project.jobs.indexOf(active)} />;
   return (
     <aside className="panel" aria-label="Drawing and inlays">
@@ -69,6 +71,9 @@ function DrawingSection({ design, report, onReplace }: { design: Design; report:
         {design.sourceName}, {design.regions.length} shape{design.regions.length === 1 ? "" : "s"}
       </p>
       {report && <ReportNotes report={report} />}
+      <div className="row">
+        <button onClick={() => dispatch({ type: "setArranging", on: true })}>Move, resize or delete shapes…</button>
+      </div>
       <div className="row">
         <NumberField
           label="Width"

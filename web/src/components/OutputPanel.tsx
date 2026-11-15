@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
-import type { FitCheck, Job, Part, PocketPreview } from "../core/types";
+import type { FitCheck, Job, Part, PocketPreview, Project } from "../core/types";
 import { fmt } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
@@ -156,7 +156,7 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
               ))}
             </ul>
           )}
-          {mine.fit && <FitNumbers check={mine.fit} />}
+          {mine.fit && <FitNumbers check={mine.fit} tipRise={tipRise(mine.project, job)} />}
         </section>
       )}
       {flatFit && (
@@ -253,7 +253,19 @@ function mm(v: number): string {
   return fmt(Math.round(v * 100) / 100);
 }
 
-function FitNumbers({ check }: { check: FitCheck }) {
+/**
+ * How high a V-bit's tip flat can hold a plug off at a sharp corner, mm: the
+ * pocket's corner is rounded to the flat's radius while the plug's stays
+ * sharp, and the plug has to rise by that radius over the wall's slope to
+ * clear it. 0 for a pointed bit.
+ */
+function tipRise(project: Project, job: Job): number {
+  const bit = job.inlay.type === "vcarve" ? project.tools.find((t) => t.id === (job.inlay as { vbitToolId: string | null }).vbitToolId) : undefined;
+  if (!bit || !bit.tipDiameter || !bit.tipAngle) return 0;
+  return bit.tipDiameter / 2 / Math.tan((bit.tipAngle * Math.PI) / 360);
+}
+
+function FitNumbers({ check, tipRise }: { check: FitCheck; tipRise: number }) {
   const r = check.report;
   const seat =
     Math.abs(r.proud) < 0.03
@@ -264,11 +276,11 @@ function FitNumbers({ check }: { check: FitCheck }) {
   // A gap under a tenth of a millimetre is a hairline that glue and sanding dust fill.
   const seated = Math.abs(r.proud) < 0.03 && r.pressOverlap < 0.05 && check.problems === 0;
   // Held off by a little wood in a few places, as the bit's tip flat leaves in sharp corners.
-  const pressesHome = check.problems === 0 && r.proud > 0 && r.pressOverlap < 0.2 && r.pressOverlapArea < 3;
+  const pressesHome = check.problems === 0 && r.proud > 0 && r.pressOverlap < Math.max(0.2, tipRise + 0.05) && r.pressOverlapArea < 5;
   const good = seated && r.voidWidth < 0.1;
   const verdict = !seated
     ? pressesHome
-      ? `The plug seats once pressed: up to ${mm(r.pressOverlap)} mm of wood has to give, over ${mm(r.pressOverlapArea)} mm² in all. Sharp corners do this when the V-bit's tip is not a true point.`
+      ? `The plug seats once pressed: up to ${mm(r.pressOverlap)} mm of wood has to give, over ${mm(r.pressOverlapArea)} mm² in all. Sharp corners do this when the V-bit's tip is not a true point: clamp the plug down firmly, or use a bit with a smaller tip flat.`
       : "The plug does not seat as designed. Check the numbers below."
     : r.voidArea < 0.005
       ? "The plug seats as designed, with no visible gaps."

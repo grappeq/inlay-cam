@@ -25,11 +25,7 @@ pub fn union(regions: &[Region]) -> Vec<Region> {
     rings
         .simplify_shape(FillRule::NonZero)
         .into_iter()
-        .filter(|shape| !shape.is_empty())
-        .map(|mut shape| {
-            let outer = shape.remove(0);
-            Region::with_holes(outer, shape)
-        })
+        .filter_map(region_of)
         .collect()
 }
 
@@ -45,11 +41,7 @@ pub fn difference(subject: &Region, clips: &[Region]) -> Vec<Region> {
     shape(subject)
         .overlay(&clips, OverlayRule::Difference, FillRule::NonZero)
         .into_iter()
-        .filter(|shape| !shape.is_empty())
-        .map(|mut shape| {
-            let outer = shape.remove(0);
-            Region::with_holes(outer, shape)
-        })
+        .filter_map(region_of)
         .collect()
 }
 
@@ -67,12 +59,42 @@ pub fn intersection(subject: &Region, clips: &[Region]) -> Vec<Region> {
     shape(subject)
         .overlay(&clips, OverlayRule::Intersect, FillRule::NonZero)
         .into_iter()
-        .filter(|shape| !shape.is_empty())
-        .map(|mut shape| {
-            let outer = shape.remove(0);
-            Region::with_holes(outer, shape)
-        })
+        .filter_map(region_of)
         .collect()
+}
+
+/// A ring enclosing less than this is rounding, not wood. mm².
+const SCRAP_AREA: f64 = 1e-6;
+
+/// A ring thinner than this on average is rounding too, however long. mm.
+const SCRAP_WIDTH: f64 = 1e-5;
+
+/// True for a ring that encloses nothing to speak of: next to no area, or a
+/// hair-thin strip along an edge two shapes share.
+fn is_scrap(ring: &Ring) -> bool {
+    let area = ring_area(ring).abs();
+    let around: f64 = (0..ring.len())
+        .map(|i| {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            (a[0] - b[0]).hypot(a[1] - b[1])
+        })
+        .sum();
+    area <= SCRAP_AREA || area < SCRAP_WIDTH * around
+}
+
+/// One shape of a result as a region. Shapes and holes of no area are
+/// dropped: shapes that share an edge leave such slivers along it when
+/// they are merged or cut from each other.
+fn region_of(mut shape: Vec<Ring>) -> Option<Region> {
+    if shape.is_empty() {
+        return None;
+    }
+    let outer = shape.remove(0);
+    if is_scrap(&outer) {
+        return None;
+    }
+    shape.retain(|hole| !is_scrap(hole));
+    Some(Region::with_holes(outer, shape))
 }
 
 fn oriented(ring: &Ring, counter_clockwise: bool) -> Ring {
@@ -101,6 +123,26 @@ mod tests {
         assert!((total(&out) - 24.0).abs() < 1e-6);
         assert!(intersection(&a, &[]).is_empty());
         assert!(intersection(&a, &[Region::new(rect(20.0, 0.0, 30.0, 10.0))]).is_empty());
+    }
+
+    #[test]
+    fn shapes_sharing_an_edge_merge_without_leaving_slivers() {
+        // A plate with a hole, and the shape that fills the hole exactly.
+        let plate = Region::with_holes(
+            rect(0.0, 0.0, 20.0, 20.0),
+            vec![vec![[5.0, 5.0], [5.0, 14.0], [12.0, 5.0]]],
+        );
+        let filling = Region::new(vec![[5.0, 5.0], [12.0, 5.0], [5.0, 14.0]]);
+        // The same, with the rounding a drawing's numbers pick up on the way.
+        let nearly = Region::new(vec![[5.0, 5.0 - 1.2e-7], [12.0, 5.0 - 1.2e-7], [5.0, 14.0]]);
+        let rounded = union(&[plate.clone(), nearly]);
+        assert_eq!(rounded.len(), 1);
+        assert!(rounded[0].holes.is_empty(), "{:?}", rounded[0].holes);
+
+        let out = union(&[plate, filling]);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].holes.is_empty(), "{:?}", out[0].holes);
+        assert!((total(&out) - 400.0).abs() < 1e-6);
     }
 
     #[test]

@@ -44,6 +44,24 @@ thickness.
 If a DXF or an Illustrator SVG comes in at the wrong size, the file's unit was not what
 the app took it for: type the right width.
 
+### Arranging the drawing
+
+A drawing often holds several parts, or parts you do not want. "Move, resize or delete
+shapes" under "Drawing and base board" lets you change that:
+
+- Click a part to select it. A part is an outer outline with everything inside it; untick
+  "Select whole parts" to pick single shapes.
+- Drag the selection, nudge it with the arrow keys (1 mm, or 0.1 mm with Shift), or type
+  its distance from the board's left and bottom edges.
+- Type a width or height to resize it; the other follows.
+- Mirror it left to right or top to bottom, or delete it.
+- The board grows when shapes are moved past its edge. "Trim the board to the shapes"
+  makes it the shapes' extent plus a margin.
+- "Undo" takes back the last change, up to 30 of them, until you press "Done".
+
+Shapes keep their inlays when they are moved or resized. The app does not stop you from
+putting one shape on top of another.
+
 ## 3. Make an inlay
 
 Click the shapes that will be cut from one wood, then choose the kind of inlay. Each
@@ -118,7 +136,10 @@ the insert stands above the surface.
 
 The fit check works on a grid of 0.05 to 0.2 mm, coarser for larger boards. Differences
 smaller than a cell are noise. A plug that "seats once pressed" is held off by a little
-wood in sharp corners, which a V-bit with a tip flat always leaves.
+wood in sharp corners, which a V-bit with a tip flat always leaves: the pocket's corner
+is rounded to the flat's radius and the plug's is not. The sharper the bit and the larger
+its flat, the more: a 0.2 mm flat on a 30° bit can hold a plug up by 0.37 mm. Clamp the
+plug down firmly, or use a bit with a smaller flat.
 
 ## 5. Cut
 
@@ -137,5 +158,7 @@ that the machine reads this app's G-code as intended.
 
 - It does not read DXF blocks or binary DXF, or text that is not outlines.
 - It does not fit arcs: curves are written as short straight moves.
-- It does not check the tool holder or the Z travel.
+- It checks every cut against the length of the tool's cutting edges, so nothing above
+  them ever goes below the board's surface. It does not check the tool holder against
+  clamps, or the machine's Z travel.
 - It does not pack inserts to save wood, or surface the board.

@@ -118,11 +118,15 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
 
     // Innermost first, so each ring cuts into the gap the previous one opened
     // and the last ring of a pass is a light cut along the wall.
-    let rings: Vec<Ring> = levels
-        .iter()
-        .rev()
-        .flat_map(|level| level.iter().flat_map(|r| r.rings().cloned()))
-        .collect();
+    let radius = p.tool_diameter / 2.0;
+    let mut rings: Vec<Ring> = Vec::new();
+    for k in (0..levels.len()).rev() {
+        let inner = levels.get(k + 1).map(Vec::as_slice).unwrap_or(&[]);
+        for island in missed(&levels[k], inner, radius, p.stepover) {
+            rings.extend(island.rings().cloned());
+        }
+        rings.extend(levels[k].iter().flat_map(|r| r.rings().cloned()));
+    }
 
     let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {
@@ -156,6 +160,36 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
         }
     }
     path.retract();
+}
+
+/// How much closer than its radius the tool's edge is taken to pass, when
+/// working out what two neighbouring rings leave standing between them, mm.
+const MISSED_OVERLAP: f64 = 0.01;
+
+/// The islands that rings along the edges of `level` and of `inner`, the next
+/// level in, leave standing between them, as further rings to cut. With a
+/// stepover of more than the tool's radius there are such islands: in the
+/// middle of an area where the next ring no longer fits, and at corners.
+/// Each island gets a ring round its edge, and rings inside that while it is
+/// wider than the tool.
+fn missed(level: &[Region], inner: &[Region], radius: f64, stepover: f64) -> Vec<Region> {
+    if stepover <= radius {
+        return Vec::new();
+    }
+    let reach = radius - MISSED_OVERLAP;
+    let covered = offset(inner, reach);
+    let mut islands: Vec<Region> = offset(level, -reach)
+        .iter()
+        .flat_map(|r| difference(r, &covered))
+        .collect();
+    let mut out = Vec::new();
+    while !islands.is_empty() {
+        let next = offset(&islands, -reach);
+        // Innermost first, like the rings themselves.
+        out.splice(0..0, islands);
+        islands = next;
+    }
+    out
 }
 
 pub(crate) fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
@@ -235,6 +269,71 @@ mod tests {
                 region.distance_to_boundary(xy) > 2.0 - 0.01,
                 "tool cut into the wall at {xy:?}"
             );
+        }
+    }
+
+    /// Distance from `q` to the nearest cut at full depth.
+    fn distance_to_cuts(moves: &[Move], depth: f64, q: Point) -> f64 {
+        let mut best = f64::INFINITY;
+        let mut from: Option<[f64; 3]> = None;
+        for m in moves {
+            let to = match m {
+                Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                _ => continue,
+            };
+            if let (Some(a), Move::Feed { .. }) = (from, m) {
+                if (a[2] + depth).abs() < 1e-9 && (to[2] + depth).abs() < 1e-9 {
+                    let (dx, dy) = (to[0] - a[0], to[1] - a[1]);
+                    let len2 = dx * dx + dy * dy;
+                    let t = if len2 > 0.0 {
+                        (((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / len2).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    best = best.min(distance(q, [a[0] + t * dx, a[1] + t * dy]));
+                }
+            }
+            from = Some(to);
+        }
+        best
+    }
+
+    #[test]
+    fn a_stepover_above_the_radius_leaves_nothing_standing() {
+        // A square whose middle the next ring in no longer fits, a ring-shaped
+        // area, and a shape with sharp corners.
+        let shapes = [
+            Region::new(rect(0.0, 0.0, 8.4, 8.4)),
+            Region::with_holes(
+                rect(0.0, 0.0, 30.0, 22.0),
+                vec![rect_cw(9.0, 8.0, 21.0, 14.0)],
+            ),
+            Region::new(star(0.0, 0.0, 30.0, 14.0)),
+        ];
+        for stepover in [2.1, 2.4, 3.0, 3.9] {
+            let p = ClearParams {
+                stepover,
+                depth: 1.0,
+                ..params()
+            };
+            for shape in &shapes {
+                let (moves, pocket) = run(std::slice::from_ref(shape), &p);
+                let (mut x, mut worst) = (-32.0, 0.0_f64);
+                while x < 32.0 {
+                    let mut y = -32.0;
+                    while y < 32.0 {
+                        if pocket.iter().any(|r| r.contains([x, y])) {
+                            worst = worst.max(distance_to_cuts(&moves, 1.0, [x, y]));
+                        }
+                        y += 0.1;
+                    }
+                    x += 0.1;
+                }
+                assert!(
+                    worst < 2.0 + 0.02,
+                    "stepover {stepover}: wood left {worst} mm from the nearest cut"
+                );
+            }
         }
     }
 

@@ -251,7 +251,7 @@ Read by `crates/inlay-core/src/import/dxf.rs`. Only the text (ASCII) form is rea
 
 ## Test drawings
 
-`crates/inlay-core/tests/drawings` holds 14 SVG and 10 DXF files, each exercising one
+`crates/inlay-core/tests/drawings` holds 14 SVG and 11 DXF files, each exercising one
 way real files differ, and `manifest.json`, which says what the import of each must find.
 Both are written by `tools/make_test_drawings.py`, which works the expected numbers out
 from the geometry. The tests in `crates/inlay-core/src/import/corpus_tests.rs` import

@@ -506,6 +506,16 @@ input[aria-invalid="true"] {
 .region.dimmed {
   fill-opacity: 0.3;
 }
+.canvas.arranging .region.selected {
+  cursor: move;
+}
+.canvas.dragging .region.selected {
+  fill-opacity: 0.7;
+}
+.canvas.dragging {
+  user-select: none;
+  touch-action: none;
+}
 
 /* Side panel */
 .panel {
@@ -1059,4 +1069,13 @@ legend .check {
   button {
     transition: background-color 0.12s, border-color 0.12s;
   }
+}
+
+/* Arranging the drawing */
+.arrange-bar {
+  display: flex;
+  gap: 8px;
+}
+.arrange-bar button:first-child {
+  flex: 0 0 34%;
 }

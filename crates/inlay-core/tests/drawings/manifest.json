@@ -186,5 +186,14 @@
     ],
     "build": "all",
     "simulate": true
+  },
+  {
+    "file": "dxf-11-several-parts.dxf",
+    "regions": 12,
+    "area": 8600,
+    "page": [
+      260,
+      100
+    ]
   }
 ]

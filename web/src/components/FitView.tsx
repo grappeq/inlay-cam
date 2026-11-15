@@ -202,9 +202,14 @@ export function FitView({ fit }: { fit: FitCheck }) {
   }, [fit, at, span]);
 
   const pick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // The picture keeps its proportions inside the canvas element, so it may
+    // not fill it: work out where it really is.
     const box = e.currentTarget.getBoundingClientRect();
-    const ix = Math.floor(((e.clientX - box.left) / box.width) * fit.nx);
-    const iy = fit.ny - 1 - Math.floor(((e.clientY - box.top) / box.height) * fit.ny);
+    const scale = Math.min(box.width / fit.nx, box.height / fit.ny);
+    const left = box.left + (box.width - fit.nx * scale) / 2;
+    const top = box.top + (box.height - fit.ny * scale) / 2;
+    const ix = Math.floor((e.clientX - left) / scale);
+    const iy = fit.ny - 1 - Math.floor((e.clientY - top) / scale);
     setAt([Math.max(0, Math.min(fit.nx - 1, ix)), Math.max(0, Math.min(fit.ny - 1, iy))]);
   };
 

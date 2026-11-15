@@ -451,6 +451,29 @@ for k in range(6):
 random.Random(7).shuffle(coaster)
 case("dxf-10-coaster-sketch.dxf", dxf(coaster, units=4), 8, math.pi * 44**2, page=[98, 98], build="all", simulate=True)
 
+
+def polygon(points):
+    return [line(points[i], points[(i + 1) % len(points)]) for i in range(len(points))]
+
+
+# One sketch holding three separate parts, as a CAD program exports several
+# bodies at once: a house-shaped plate with a ring and three figures with sharp
+# corners (one of them with a hole), a strip with two holes, and a plate with
+# a triangle. Partly at negative coordinates.
+parts = (
+    polygon([(-20, 0), (60, 0), (60, 50), (20, 90), (-20, 50)])
+    + [circle((20, 45), 12), circle((20, 45), 5)]
+    + polygon([(-12, 6), (4, 6), (4, 26), (-12, 12)])
+    + polygon([(-6, 10), (1, 10), (1, 19)])
+    + polygon([(10, 6), (14, 6), (22, 26), (18, 26)])
+    + polygon([(28, 6), (33, 6), (33, 26), (29, 26), (24, 21), (26, 19), (28, 21)])
+    + [lwpolyline([(90, 10), (150, 10), (150, 30), (90, 30)], True), circle((100, 20), 4), circle((140, 20), 4)]
+    + [lwpolyline([(170, 40), (230, 40), (230, 70), (170, 70)], True)]
+    + polygon([(185, 45), (215, 45), (200, 65)])
+)
+random.Random(11).shuffle(parts)
+case("dxf-11-several-parts.dxf", dxf(parts, units=4), 12, 5600 + 1200 + 1800, page=[260, 100])
+
 with open(os.path.join(OUT, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
     json.dump(manifest, f, indent=2)
     f.write("\n")

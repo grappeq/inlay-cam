@@ -299,6 +299,105 @@ fn chosen_drawings_simulate_without_problems_and_fit() {
     }
 }
 
+/// A sketch of several parts, the figures on the house chosen, a 2 mm end
+/// mill stepping over by more than its radius and a 30° engraving bit with a
+/// tip flat: the end mill must leave nothing standing on the plug's floor,
+/// and the plug must be held off by no more than the tip flat explains.
+#[test]
+fn a_wide_stepover_leaves_no_wood_standing_on_a_plug() {
+    let case = cases()
+        .into_iter()
+        .find(|c| c.file == "dxf-11-several-parts.dxf")
+        .unwrap();
+    let import = import(&case).unwrap();
+    // The three figures, without the hole in the first.
+    let figures: Vec<u32> = import
+        .design
+        .regions
+        .iter()
+        .filter(|r| {
+            let ys = r.outer.iter().map(|q| q[1]);
+            let top = ys.clone().fold(f64::MIN, f64::max);
+            let bottom = ys.fold(f64::MAX, f64::min);
+            let right = r.outer.iter().map(|q| q[0]).fold(f64::MIN, f64::max);
+            bottom > 10.0 && top < 32.0 && right < 70.0 && r.to_region().area() > 40.0
+        })
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(figures.len(), 3);
+
+    let mut project = project_of(&import, &figures, Kind::Vcarve);
+    project.tools[0].diameter = 2.0;
+    project.tools[0].cutting[0].stepover = 1.26;
+    project.tools[1].tip_angle = Some(30.0);
+    project.tools[1].tip_diameter = Some(0.2);
+    project.tools[1].diameter = 4.0;
+    if let Inlay::Vcarve { cut_out, .. } = &mut project.jobs[0].inlay {
+        *cut_out = false;
+    }
+
+    let plug = preview(&project, "j", Part::Plug).unwrap();
+    assert_eq!(plug.problems, vec![]);
+    // The floor is the engagement depth plus the saw gap down; the walls
+    // reach less than 1 mm out from the shapes there.
+    let floor = -(2.0 + 1.5);
+    let shapes = &plug.built.pocket;
+    let mut standing = 0;
+    for iy in 0..plug.map.ny {
+        for ix in 0..plug.map.nx {
+            if f64::from(plug.map.at(ix, iy)) < floor + 0.05 {
+                continue;
+            }
+            let q = plug.map.centre(ix, iy);
+            let clear_of_shapes = !shapes.iter().any(|r| r.contains(q))
+                && shapes.iter().all(|r| r.distance_to_boundary(q) > 1.0);
+            if clear_of_shapes {
+                standing += 1;
+            }
+        }
+    }
+    assert_eq!(standing, 0, "cells of wood left standing on the floor");
+
+    let fit = check_fit(&project, "j").unwrap().fit.report;
+    // A 0.2 mm flat on a 30° bit can hold a sharp corner 0.1 / tan 15° up.
+    let tip_rise = 0.1 / 15f64.to_radians().tan();
+    assert!(
+        fit.proud < tip_rise + 0.05 && fit.press_overlap_area < 5.0,
+        "{fit:?}"
+    );
+}
+
+/// Shapes that share an edge, such as a figure and the hole in it, or a
+/// plate and a figure on it, can be chosen together: merging them must not
+/// leave a sliver along the shared edge that stops the carving.
+#[test]
+fn any_two_shapes_of_a_drawing_can_be_carved_together() {
+    let case = cases()
+        .into_iter()
+        .find(|c| c.file == "dxf-11-several-parts.dxf")
+        .unwrap();
+    let import = import(&case).unwrap();
+    let ids: Vec<u32> = import.design.regions.iter().map(|r| r.id).collect();
+    let mut wrong = Vec::new();
+    for (i, a) in ids.iter().enumerate() {
+        for b in &ids[i + 1..] {
+            let project = project_of(&import, &[*a, *b], Kind::Vcarve);
+            if let Err(e) = build(&project, "j", Part::Pocket) {
+                wrong.push(format!("shapes {a} and {b}: {e:?}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "
+{}",
+        wrong.join(
+            "
+"
+        )
+    );
+}
+
 /// How long a full bed of shapes takes. Run by hand:
 /// `cargo test -p inlay-core --release full_bed -- --ignored --nocapture`
 #[test]

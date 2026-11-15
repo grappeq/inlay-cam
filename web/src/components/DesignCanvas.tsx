@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
+import { moveOnBoard, removeShapes } from "../state/arrange";
 import { regionOwners } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
@@ -44,8 +45,57 @@ interface Props {
 }
 
 export function DesignCanvas({ design, narrow, cuttable }: Props) {
-  const { project, selection, activeJobId } = useApp();
+  const { project, selection, activeJobId, arranging } = useApp();
   const dispatch = useDispatch();
+  const svg = useRef<SVGSVGElement>(null);
+  // While arranging: where a press began, and how far the selection has been dragged, in board millimetres.
+  const press = useRef<{ x: number; y: number; id: number; moved: boolean } | null>(null);
+  const [drag, setDrag] = useState<[number, number] | null>(null);
+
+  const edit = (update: (d: Design) => Design) =>
+    dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: update(p.design) } : p) });
+  const dragged = (e: React.PointerEvent): [number, number] | null => {
+    const from = press.current;
+    const matrix = svg.current?.getScreenCTM();
+    if (!from || !matrix) return null;
+    return [(e.clientX - from.x) / matrix.a, (e.clientY - from.y) / matrix.d];
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const from = press.current;
+    if (!from) return;
+    if (!from.moved) {
+      if (Math.hypot(e.clientX - from.x, e.clientY - from.y) < 4) return;
+      from.moved = true;
+      // Dragging a shape that is not selected picks it up first.
+      if (!selection.includes(from.id)) dispatch({ type: "clickRegion", id: from.id });
+    }
+    setDrag(dragged(e));
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const from = press.current;
+    const by = dragged(e);
+    if (from?.moved && by) {
+      // The picture's Y axis points down; the board's points up.
+      edit((d) => moveOnBoard(d, selection, by[0], -by[1]));
+      // The click that follows a drag must not change the selection.
+      setTimeout(() => (press.current = null), 0);
+    } else {
+      press.current = null;
+    }
+    setDrag(null);
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!arranging || selection.length === 0) return;
+    const step = e.shiftKey ? 0.1 : 1;
+    const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+    if (moves[e.key]) {
+      e.preventDefault();
+      edit((d) => moveOnBoard(d, selection, moves[e.key][0], moves[e.key][1]));
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      dispatch({ type: "editDrawing", update: (p) => removeShapes(p, selection) });
+    }
+  };
 
   const paths = useMemo(
     () =>
@@ -63,10 +113,15 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
 
   return (
     <svg
-      className="canvas"
+      ref={svg}
+      className={`canvas${arranging ? " arranging" : ""}${drag ? " dragging" : ""}`}
+      onPointerMove={arranging ? onPointerMove : undefined}
+      onPointerUp={arranging ? onPointerUp : undefined}
+      onPointerLeave={arranging ? onPointerUp : undefined}
+      onKeyDown={onKeyDown}
       viewBox={`${-pad} ${-pad} ${width + 2 * pad} ${height + 2 * pad}`}
       role="group"
-      aria-label="Design. Click a shape to select it."
+      aria-label={arranging ? "Design. Click a part to select it, drag to move it." : "Design. Click a shape to select it."}
     >
       <rect className="page" x={0} y={0} width={width} height={height} />
       {paths.map(({ id, d }) => {
@@ -74,7 +129,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         const ownerIndex = owner ? project.jobs.indexOf(owner) : -1;
         const selected = selection.includes(id);
         const inActive = owner !== undefined && owner.id === activeJobId;
-        const dimmed = activeJobId !== null && owner !== undefined && !inActive;
+        const dimmed = !arranging && activeJobId !== null && owner !== undefined && !inActive;
         const label = owner ? `Shape ${id + 1}, in ${owner.name}` : `Shape ${id + 1}${selected ? ", selected" : ""}`;
         return (
           <path
@@ -87,7 +142,12 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
             role="button"
             aria-label={label}
             aria-pressed={selected || inActive}
-            onClick={() => dispatch({ type: "clickRegion", id })}
+            transform={drag && selected ? `translate(${drag[0]} ${drag[1]})` : undefined}
+            onPointerDown={arranging ? (e) => (press.current = { x: e.clientX, y: e.clientY, id, moved: false }) : undefined}
+            onClick={() => {
+              if (press.current?.moved) return;
+              dispatch({ type: "clickRegion", id });
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();

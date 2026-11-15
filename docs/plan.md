@@ -462,6 +462,27 @@ the machine.
   Z-travel checks; inserts are not packed to save wood.
 - Still to do by the user: the air cut in `machine-tests`, and a first real cut.
 
+### After milestone 9: first use on the user's own DXF (2026-11-15)
+
+Found by the user and fixed:
+- Bits of wood were left standing on a plug's floor. An end mill whose stepover is more
+  than its radius misses an island in the middle of an area where the next ring in no
+  longer fits, and at some corners. Clearing now finds those islands and cuts them. The
+  warning about a stepover above half the diameter is gone, since it no longer applies.
+- In the fit view, clicks landed in the wrong place whenever the picture did not fill
+  its frame.
+- The fit verdict now allows for the V-bit: a plug held off by no more than the bit's tip
+  flat explains (its radius over the tangent of the half angle) "seats once pressed".
+
+Found on the way, with a new test drawing of several parts (`dxf-11-several-parts.dxf`):
+- Two shapes that share an edge, chosen together, could stop the carving: merging them
+  left a hair-thin sliver along the edge. Merging and cutting shapes now drop these.
+
+Added at the user's request: arranging the drawing. Parts or single shapes can be
+selected, moved (dragging, arrow keys or typed position), resized, mirrored and deleted,
+with undo; the board grows with the shapes and can be trimmed to them. See docs/guide.md.
+Not checked: shapes placed on top of each other.
+
 ## 4. Risks
 
 | Risk | Effect | Mitigation |

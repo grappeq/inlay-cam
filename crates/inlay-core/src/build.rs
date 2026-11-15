@@ -586,13 +586,6 @@ impl<'a> Context<'a> {
                 tool.name
             )),
         }
-        if kind == ToolKind::FlatEnd && cutting.stepover > tool.diameter * 0.5 {
-            self.warnings.push(format!(
-                "The stepover of \"{}\" ({} mm) is more than half its diameter, which can leave thin ridges on the pocket floor.",
-                tool.name,
-                num(cutting.stepover)
-            ));
-        }
         Some((tool, cutting))
     }
 }
