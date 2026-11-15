@@ -56,5 +56,5 @@ From the controller's log of the run (firmware 2.2.0c):
 
 Since that run the tool comment lines, in this file and in the app's files, have the
 layout the controller reads: `(T1  name  D=3.175 CR=0 SD=3.175 FL=22 - flat end mill)`.
-Nothing else in the file changed. Not yet checked in the controller: that it now logs
-"Detected T1" when the file is opened.
+Nothing else in the file changed. Opened in the controller afterwards, its tool list shows
+"T1 · Flat End Mill" and "T2 · Flat End Mill" with the name from the comment line.
