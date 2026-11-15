@@ -338,9 +338,38 @@ Results (2026-11-15): built and checked in simulation; not cut on the machine.
   positions (no packing); tabs are placed evenly, not steered onto straight stretches;
   plunges are straight down, no ramping.
 
-**M7. Finish**
-- Error messages, empty states, documentation, performance on a full-bed job, format
-  fixtures frozen as version 1.
+**M7. Several clearing tools, in order** (added 2026-11-15)
+- A job takes an ordered list of clearing end mills instead of one, for V-carve and flat
+  inlays, pocket and plug or insert. The user sets the order; the app suggests largest
+  first.
+- Each tool after the first cuts only what the tools before it left (rest machining),
+  with a tool change between them. The V-bit, where there is one, still comes last.
+- Flat inlays: the smallest tool in the list sets the corner radius of the cuttable
+  shape. The insert outline is cut with one chosen tool.
+- The output lists time and tool changes per tool, and warns when a tool in the list
+  removes nothing or almost nothing.
+- Project files written before this open with their one tool as a list of one.
+- Done when: a pocket cleared with two end mills simulates to the same shape as with the
+  small one alone, in clearly less time, and each later tool stays out of wood already
+  removed except where it must pass to reach its work.
+
+**M8. Review of the app's screens** (added 2026-11-15)
+- Go through the whole flow as a first-time user: new project, import, select shapes,
+  set up tools, generate, check, download. Note every point of confusion, every step
+  that could be dropped and every number that needs explaining.
+- Make it simpler and nicer to use without removing any feature: sensible defaults,
+  settings grouped by how often they are changed, plain wording, clearer state (what is
+  out of date, what is running, what to do next), consistent layout, keyboard and
+  screen-reader use.
+- Includes the error messages and empty states first listed under the finishing
+  milestone.
+- Done when: the coaster can be taken from SVG to both files and a fit check without
+  reading documentation, and you agree with the list of changes before they are made.
+
+**M9. Finish**
+- Wider set of SVG test files (exports from Fusion, Inkscape, Illustrator and others;
+  open paths, overlaps, transforms, units).
+- Documentation, performance on a full-bed job, format fixtures frozen as version 1.
 
 ## 4. Risks
 
