@@ -44,7 +44,7 @@ export function StartGuide() {
                   unset > 0 ? ` ${count(unset, "tool has", "tools have")} no cutting settings yet.` : ""
                 }`}
           </p>
-          <button className={tools.length === 0 ? "primary" : ""} onClick={() => dispatch({ type: "setView", view: "tools" })}>
+          <button className={tools.length === 0 ? "primary" : ""} onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
             {tools.length === 0 ? "Add tools" : "Open tool list"}
           </button>
         </li>

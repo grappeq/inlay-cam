@@ -7,7 +7,7 @@ import { loadStoredProject, message, useApp, useDispatch } from "../state/store"
 import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
 
 export function Header() {
-  const { project, view, saveError, ready, tools } = useApp();
+  const { project, view, saveError, ready } = useApp();
   const dispatch = useDispatch();
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
@@ -31,8 +31,8 @@ export function Header() {
         <button aria-pressed={view === "design"} onClick={() => dispatch({ type: "setView", view: "design" })}>
           Design
         </button>
-        <button aria-pressed={view === "tools"} onClick={() => dispatch({ type: "setView", view: "tools" })}>
-          Tools{tools.length > 0 ? ` (${tools.length})` : ""} and machine
+        <button aria-pressed={view === "settings"} onClick={() => dispatch({ type: "setView", view: "settings" })}>
+          Tools and settings
         </button>
       </nav>
       <input

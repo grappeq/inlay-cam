@@ -5,7 +5,7 @@ import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
 import { partName } from "./components/OutputPanel";
 import { StartGuide } from "./components/StartGuide";
-import { ToolsView } from "./components/ToolsView";
+import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
 import { AppProvider, useApp, useDispatch, type Stage } from "./state/store";
@@ -48,7 +48,7 @@ function Shell() {
     >
       <Header />
       <NoticeBar />
-      {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <ToolsView />}
+      {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
       {dragging && <div className="drop-hint">Drop an SVG or DXF drawing, a project or tool file, or tools.yaml</div>}
     </div>
   );

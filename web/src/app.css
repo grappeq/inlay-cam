@@ -931,14 +931,110 @@ details.more[open] > summary {
   color: var(--warn);
 }
 
-/* Tools view */
-.tools-view {
+/* Tools and settings: a list of pages beside the page itself. */
+.settings {
   flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-nav {
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.settings-nav button {
+  display: block;
+  text-align: left;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0 5px 5px 0;
+  background: none;
+  padding: 8px 10px 8px 11px;
+}
+.settings-nav button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.settings-nav button[aria-current="page"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.settings-nav-title {
+  display: block;
+  font-weight: 600;
+}
+.settings-nav button[aria-current="page"] .settings-nav-title {
+  color: var(--accent);
+}
+.settings-nav-note {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.settings-nav-foot {
+  margin: 14px 10px 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.settings-page {
+  flex: 1;
+  min-width: 0;
   overflow: auto;
-  padding: 16px;
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
+  padding: 18px 24px 32px;
+}
+.settings-page > * {
+  max-width: 980px;
+}
+.setting-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.setting-group {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
+  gap: 8px 32px;
+  padding: 16px 18px 10px;
+}
+.setting-group + .setting-group {
+  border-top: 1px solid var(--line);
+}
+.setting-about h3 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.setting-about p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.setting-fields .setup-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 14px;
+}
+.setting-fields .setup-row > .field {
+  flex: 0 1 190px;
+}
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.panel .setup-row {
+  align-items: flex-start;
+}
+.cut-out-tool {
+  margin: 6px 0 8px;
 }
 .toolbar {
   display: flex;
@@ -954,15 +1050,6 @@ details.more[open] > summary {
 .lead {
   max-width: 80ch;
   margin-bottom: 14px;
-}
-.machine {
-  margin-top: 28px;
-}
-.machine-fields {
-  align-items: flex-start;
-}
-.machine-fields > .field {
-  flex: 0 1 170px;
 }
 .spacer {
   flex: 1;
@@ -1083,6 +1170,38 @@ legend .check {
 }
 
 @media (max-width: 800px) {
+  .settings {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .settings-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    padding: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+  }
+  .settings-nav button {
+    flex: 0 0 auto;
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 5px 5px 0 0;
+    padding: 6px 10px;
+  }
+  .settings-nav button[aria-current="page"] {
+    border-bottom-color: var(--accent);
+  }
+  .settings-nav-foot {
+    display: none;
+  }
+  .settings-page {
+    overflow: visible;
+    padding: 14px 16px 24px;
+  }
+  .setting-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .design-view {
     flex-direction: column;
     overflow-y: auto;

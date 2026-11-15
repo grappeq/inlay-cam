@@ -94,6 +94,10 @@ export interface Job {
   name: string;
   material: Material;
   regionIds: number[];
+  /** Clearances and tabs for this inlay's files. An inlay from an older file has none and uses the project's. */
+  setup?: Setup;
+  /** The end mill that cuts a plug out of its board. Without one, the largest of the inlay's end mills that reaches through. */
+  cutOutToolId?: string;
   inlay: Inlay;
 }
 
@@ -110,7 +114,7 @@ export interface Machine {
   firstTool: number;
 }
 
-/** Clearances and tabs used by every file of a project. */
+/** Clearances and tabs: how the files of an inlay are cut. */
 export interface Setup {
   /** Height above the board at which the tool travels between cuts. */
   safeHeight: number;
@@ -135,8 +139,9 @@ export interface Project {
   tools: Tool[];
   /** The board the pockets are cut into. Its outline is the design's page. */
   base: { thickness: number };
-  /** A copy of the machine set under Tools. */
+  /** A copy of the machine set under Tools and settings. */
   machine: Machine;
+  /** For inlays without clearances and tabs of their own. */
   setup: Setup;
 }
 

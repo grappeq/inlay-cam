@@ -135,6 +135,32 @@ Exported from the header as `<project name>.inlay.json`.
 | `jobs` | The inlays. |
 | `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. |
 | `base` | The board the pockets are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. |
+| `machine` | The machine the files are checked against, below. Default: the Carvera Air. The app overwrites it with the machine set in the browser whenever the project is open. |
+| `setup` | Clearances and tabs, below, for jobs that have none of their own: those written before each job had them. Default: the values in the table. |
+
+### Machine
+
+| Field | Meaning |
+|---|---|
+| `name` | Used in messages. Not empty. Default `Carvera Air`. |
+| `maxRpm` | Top spindle speed. A tool set to run faster is refused. Default 13000. |
+| `rapidRate` | Rapid speed in mm/min, for time estimates only. Default 2000. |
+| `travel` | `[x, y]`: how far the tool can move. Default `[300, 200]`. |
+| `firstTool` | Number of the first tool in a file, 1 to 99. Default 1. |
+
+### Setup
+
+Clearances and tabs. Every field has the default given, so any may be left out.
+
+| Field | Meaning |
+|---|---|
+| `safeHeight` | Height above the board at which the tool travels between cuts. 1 to 50. Default 5. |
+| `plungeClearance` | Height above wood already cut at which the plunge feed takes over. 0.1 up to `safeHeight`. Default 1. |
+| `throughCut` | How far past the bottom of its board a part is cut out. 0 to 2. Default 0.2. |
+| `tabWidth` | 0.5 to 50. Default 4. |
+| `tabSpacing` | An outline gets a tab about every this far, and at least three. 5 to 1000. Default 40. |
+| `tabThickness` | 0.1 to 20, and never more than half the board. Default 1. |
+| `cutOutBorder` | Board left around a plug that is cut out of it, beyond the width of the cut. 0 to 100. Default 5. |
 
 ### Design
 
@@ -171,6 +197,8 @@ One inlay: a pocket and its matching plug or insert.
 | `name` | Shown in the inlay list. |
 | `material` | `hardwood` or `softwood`: which cutting settings of each tool are used. |
 | `regionIds` | The design regions this inlay covers. Each must exist in the design. |
+| `setup` | Clearances and tabs for this inlay's files, as above. Optional: without it the project's `setup` is used. The app gives every new inlay its own. |
+| `cutOutToolId` | The flat end mill that cuts a plug out of its board, when `cutOut` is set. Optional: without it, the largest of the inlay's `clearingToolIds` whose flutes reach through the board is used. A file is refused when the chosen tool's flutes are shorter than the board plus `throughCut`. |
 | `inlay` | Type and parameters, below. |
 
 `inlay` for a V-carve inlay:

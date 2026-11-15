@@ -540,10 +540,20 @@ Rust core compiled to WebAssembly (decided 2026-11-14).
 Also added at the user's request: settings for values that were fixed in the code.
 
 - The machine (name, travel in X and Y, top spindle speed, rapid speed, first tool number)
-  is set under "Tools and machine", kept in the browser like the tool list and copied into
+  is set under "Tools and machine" (now "Tools and settings"), kept in the browser like the tool list and copied into
   the open project, so the core reads it from the project. Presets: Carvera Air, Carvera.
 - "Clearances and tabs" are per project: travel height, plunge height, tab width, spacing
   and thickness, the cut past the bottom of a board, and the board left around a cut-out
   plug. Project files without them read with the old fixed values.
+- Later, at the user's request after the first air cut:
+  - Clearances and tabs moved from the project to each inlay (`Job.setup`; the project's
+    remain for inlays from older files). Their defaults for new inlays are kept in the
+    browser, like the tools and the machine.
+  - The end mill that cuts a plug out of its board can be chosen per inlay
+    (`Job.cutOutToolId`). Left alone it is the largest of the inlay's end mills that
+    reaches through the board, as before. A chosen tool whose flutes are shorter than
+    the cut is refused.
+  - The tools view became "Tools and settings": three pages (tools, machine, new inlays)
+    with a list of the pages beside them.
 - Still fixed: the least number of tabs (3), the V-bit's floor ridge (0.1 mm), the
   simulation's detail, the import tolerances. No ramped entry or choice of cut direction.

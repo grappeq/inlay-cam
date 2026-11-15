@@ -15,8 +15,12 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 
 ## 1. List your tools
 
-Open **Tools and machine**. Add each end mill and V-bit you will use. A `tools.yaml` tool
-list can also be imported; its layout is in [formats.md](formats.md).
+Open **Tools and settings**. It has three pages, listed on the left: your tools, your
+machine, and what a new inlay starts with. All three are kept in this browser and used by
+every project.
+
+On the **Tools** page, add each end mill and V-bit you will use. A `tools.yaml` tool list
+can also be imported; its layout is in [formats.md](formats.md).
 
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
   that. Leave it empty if unknown and the app warns instead.
@@ -32,8 +36,8 @@ opens correctly elsewhere.
 
 ### Your machine
 
-Below the tools are the limits every file is checked against. They start as those of the
-Carvera Air; "Fill in for" sets them for the Carvera.
+The **Machine** page holds the limits every file is checked against. They start as those
+of the Carvera Air; "Fill in for" sets them for the Carvera.
 
 - **Travel in X and Y**: a file whose moves span more is refused.
 - **Top spindle speed**: a tool set to run faster is refused.
@@ -42,8 +46,14 @@ Carvera Air; "Fill in for" sets them for the Carvera.
   used. On a Carvera with a tool rack, T1 to T6 are the rack's slots and are loaded
   automatically, whatever is in them; start at 7 to be asked for each tool by hand.
 
-The machine is kept in this browser and used by all projects. The files are always written
-for the Carvera Community Firmware, whatever is set here.
+The files are always written for the Carvera Community Firmware, whatever is set here.
+
+### Defaults for new inlays
+
+The **New inlays** page holds the clearances and tabs a new inlay starts with: travel
+height, plunge height, the tabs, and how parts are cut out. They are described under
+"Clearances and tabs" below. Each inlay keeps its own copy, so changing a default does not
+alter inlays you have already made.
 
 ## 2. Bring in a drawing
 
@@ -161,11 +171,16 @@ how large the board must be.
 - With tabs, the plug stays attached until you cut the tabs.
 - Without tabs it comes loose on the last pass: hold it down with tape.
 - Either way the cut goes 0.2 mm past the bottom of the board. Put a spoilboard under it.
+- **End mill for the cut-out**: left alone, the largest of the inlay's end mills that
+  reaches through the board does it. Choose another to cut the plug out with a tool the
+  inlay does not otherwise use, such as a longer one. The app shows how deep the cut is
+  beside the tool's flute length, and refuses the file when the flutes are too short.
 
 ### Clearances and tabs
 
-"Clearances and tabs", under the drawing's settings, holds what every file of the project
-shares. The usual values are in brackets.
+"Clearances and tabs", at the bottom of an inlay's panel, holds how that inlay's two files
+are cut. A new inlay starts with your defaults from **Tools and settings**; "Back to your
+defaults" returns to them. The app's own values are in brackets.
 
 - **Travel height** (5 mm): how high above the board the tool moves between cuts. Raise it
   to clear clamps.

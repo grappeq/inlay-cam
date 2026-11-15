@@ -13,7 +13,7 @@ export const MACHINE_PRESETS: Machine[] = [
 ];
 export const DEFAULT_MACHINE: Machine = MACHINE_PRESETS[0];
 
-/** The same values the core gives a project file that has none. */
+/** The app's own clearances and tabs: the same values the core gives a project file that has none. */
 export const DEFAULT_SETUP: Setup = {
   safeHeight: 5,
   plungeClearance: 1,
@@ -23,6 +23,45 @@ export const DEFAULT_SETUP: Setup = {
   tabThickness: 1,
   cutOutBorder: 5,
 };
+
+/** The range each clearance may take, as the core checks them. The plunge height is also capped by the travel height. */
+export const SETUP_LIMITS: Record<keyof Setup, [number, number]> = {
+  safeHeight: [1, 50],
+  plungeClearance: [0.1, 50],
+  throughCut: [0, 2],
+  tabWidth: [0.5, 50],
+  tabSpacing: [5, 1000],
+  tabThickness: [0.1, 20],
+  cutOutBorder: [0, 100],
+};
+
+/** Reads the inlay defaults kept in browser storage; anything unusable in them falls back to the app's value. */
+export function readSetup(text: string | undefined): Setup {
+  let stored: Partial<Setup> = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    if (parsed && typeof parsed === "object") stored = parsed as Partial<Setup>;
+  } catch {
+    // Not JSON: the app's values.
+  }
+  const out = { ...DEFAULT_SETUP };
+  for (const key of Object.keys(SETUP_LIMITS) as (keyof Setup)[]) {
+    const v = stored[key];
+    const [low, high] = SETUP_LIMITS[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= low && v <= high) out[key] = v;
+  }
+  out.plungeClearance = Math.min(out.plungeClearance, out.safeHeight);
+  return out;
+}
+
+export function sameSetup(a: Setup, b: Setup): boolean {
+  return (Object.keys(SETUP_LIMITS) as (keyof Setup)[]).every((key) => a[key] === b[key]);
+}
+
+/** The clearances and tabs an inlay's files are cut with. */
+export function jobSetup(job: Job, project: Project): Setup {
+  return job.setup ?? project.setup;
+}
 
 /** Reads the machine kept in browser storage; anything unusable in it falls back to the usual value. */
 export function readMachine(text: string | undefined): Machine {
@@ -56,16 +95,42 @@ export function defaultInlay(type: Inlay["type"]): Inlay {
     : { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
 }
 
-export function newJob(type: Inlay["type"], regionIds: number[], existing: Job[]): Job {
+export function newJob(type: Inlay["type"], regionIds: number[], existing: Job[], setup: Setup): Job {
   const label = type === "vcarve" ? "V-carve inlay" : "Flat inlay";
   let n = existing.length + 1;
   while (existing.some((j) => j.name === `${label} ${n}`)) n++;
-  return { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, inlay: defaultInlay(type) };
+  return { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, setup, inlay: defaultInlay(type) };
 }
 
 export function jobToolIds(job: Job): string[] {
-  const ids = job.inlay.type === "vcarve" ? [...job.inlay.clearingToolIds, job.inlay.vbitToolId] : job.inlay.clearingToolIds;
-  return ids.filter((id): id is string => id !== null);
+  const ids = job.inlay.type === "vcarve" ? [...job.inlay.clearingToolIds, job.inlay.vbitToolId] : [...job.inlay.clearingToolIds];
+  if (job.cutOutToolId !== undefined && cutsPlugOut(job.inlay)) ids.push(job.cutOutToolId);
+  return [...new Set(ids.filter((id): id is string => id !== null))];
+}
+
+/** Whether the inlay's plug is cut out of a larger board as the last step of its file. */
+export function cutsPlugOut(inlay: Inlay): boolean {
+  return inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer");
+}
+
+/** How deep the cut that frees a plug from its board goes. */
+export function cutOutDepth(job: Job, project: Project): number {
+  const board = job.inlay.type === "vcarve" ? job.inlay.plugThickness : job.inlay.insertThickness;
+  return board + jobSetup(job, project).throughCut;
+}
+
+/**
+ * The end mill that cuts the plug out when none is chosen for it: the largest
+ * of the inlay's end mills whose cutting edges reach through the board, as
+ * the core picks it.
+ */
+export function usualCutOutTool(job: Job, tools: Tool[], project: Project): Tool | undefined {
+  const depth = cutOutDepth(job, project);
+  return job.inlay.clearingToolIds
+    .map((id) => resolveTool(id, tools, project))
+    .filter((t): t is Tool => t !== undefined && t.kind === "flat_end")
+    .sort((a, b) => b.diameter - a.diameter)
+    .find((t) => t.fluteLength === undefined || t.fluteLength >= depth);
 }
 
 /** The tool a job refers to: the current one from the tool list, else the copy kept in the project. */

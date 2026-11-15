@@ -62,7 +62,7 @@ export async function deleteProject(id: string): Promise<void> {
   await run(PROJECTS, "readwrite", (s) => s.delete(id));
 }
 
-export type SettingKey = "tools" | "lastProjectId" | "machine";
+export type SettingKey = "tools" | "lastProjectId" | "machine" | "inlayDefaults";
 
 export function getSetting(key: SettingKey): Promise<string | undefined> {
   return run<string | undefined>(SETTINGS, "readonly", (s) => s.get(key));

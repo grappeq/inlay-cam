@@ -1,5 +1,17 @@
 import type { Design, ImportReport, Inlay, Job, Material, Setup, Tool, ToolKind } from "../core/types";
-import { DEFAULT_SETUP, MATERIALS, describeTool, fmt, newJob, regionOwners, resolveTool, toolChoices } from "../state/model";
+import {
+  MATERIALS,
+  cutOutDepth,
+  describeTool,
+  fmt,
+  jobSetup,
+  newJob,
+  regionOwners,
+  resolveTool,
+  sameSetup,
+  toolChoices,
+  usualCutOutTool,
+} from "../state/model";
 import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
 import { pickTextFile } from "../util/files";
@@ -8,6 +20,7 @@ import { InlayDiagram } from "./InlayDiagram";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
+import { CutOutFields, HeightFields, TabFields } from "./SetupFields";
 
 export function useImportSvg() {
   const { importSvg } = useFileActions();
@@ -27,7 +40,6 @@ export function DesignPanel({ design }: { design: Design }) {
       <div className="panel-scroll">
         <JobsSection design={design} />
         <DrawingSection design={design} report={importReport} onReplace={importSvg} />
-        <SetupSection />
       </div>
     </aside>
   );
@@ -122,99 +134,14 @@ function DrawingSection({ design, report, onReplace }: { design: Design; report:
   );
 }
 
-/** Clearances and tabs: how every file of the project is cut. */
-function SetupSection() {
-  const { project } = useApp();
-  const dispatch = useDispatch();
-  const setup = project.setup;
-  const set = (change: Partial<Setup>) => dispatch({ type: "updateProject", update: (p) => ({ ...p, setup: { ...p.setup, ...change } }) });
-  const changed = (Object.keys(DEFAULT_SETUP) as (keyof Setup)[]).some((key) => setup[key] !== DEFAULT_SETUP[key]);
-
-  return (
-    <section>
-      <details className="more">
-        <summary>Clearances and tabs{changed ? " (changed)" : ""}</summary>
-        <p className="hint">Used by every file of this project.</p>
-        <div className="row">
-          <NumberField
-            label="Travel height"
-            unit="mm"
-            min={1}
-            max={50}
-            value={setup.safeHeight}
-            // The plunge can never start above the height the tool travels at.
-            onChange={(v) => v !== undefined && set({ safeHeight: v, plungeClearance: Math.min(setup.plungeClearance, v) })}
-            hint="Above the board, between cuts. Raise it to clear clamps."
-          />
-          <NumberField
-            label="Plunge from"
-            unit="mm"
-            min={0.1}
-            max={setup.safeHeight}
-            value={setup.plungeClearance}
-            onChange={(v) => v !== undefined && set({ plungeClearance: v })}
-            hint="Above wood already cut. The tool drops fast to here, then goes down at the plunge feed."
-          />
-        </div>
-        <div className="row">
-          <NumberField label="Tab width" unit="mm" min={0.5} max={50} value={setup.tabWidth} onChange={(v) => v !== undefined && set({ tabWidth: v })} />
-          <NumberField
-            label="Tab spacing"
-            unit="mm"
-            min={5}
-            max={1000}
-            value={setup.tabSpacing}
-            onChange={(v) => v !== undefined && set({ tabSpacing: v })}
-          />
-          <NumberField
-            label="Tab thickness"
-            unit="mm"
-            min={0.1}
-            max={20}
-            value={setup.tabThickness}
-            onChange={(v) => v !== undefined && set({ tabThickness: v })}
-          />
-        </div>
-        <p className="hint">
-          An outline gets a tab about every {fmt(setup.tabSpacing)} mm, and at least three, where it is long enough. A tab is never thicker than half
-          the board.
-        </p>
-        <div className="row">
-          <NumberField
-            label="Cut past the bottom"
-            unit="mm"
-            min={0}
-            max={2}
-            value={setup.throughCut}
-            onChange={(v) => v !== undefined && set({ throughCut: v })}
-            hint="Where a part is cut out of its board, into the spoilboard."
-          />
-          <NumberField
-            label="Board around a cut-out plug"
-            unit="mm"
-            min={0}
-            max={100}
-            value={setup.cutOutBorder}
-            onChange={(v) => v !== undefined && set({ cutOutBorder: v })}
-            hint="Left on every side, beyond the cut."
-          />
-        </div>
-        <button disabled={!changed} onClick={() => dispatch({ type: "updateProject", update: (p) => ({ ...p, setup: DEFAULT_SETUP }) })}>
-          Back to the usual values
-        </button>
-      </details>
-    </section>
-  );
-}
-
 function JobsSection({ design }: { design: Design }) {
-  const { project, selection, tools } = useApp();
+  const { project, selection, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const owners = regionOwners(project.jobs);
   const free = design.regions.filter((r) => !owners.has(r.id)).map((r) => r.id);
 
   const create = (type: Inlay["type"]) => {
-    const job = newJob(type, selection, project.jobs);
+    const job = newJob(type, selection, project.jobs, defaults);
     // Where the tool list leaves no choice, make it.
     const only = (kind: ToolKind) => {
       const ofKind = tools.filter((t) => t.kind === kind);
@@ -289,9 +216,12 @@ function JobsSection({ design }: { design: Design }) {
 }
 
 function JobEditor({ job, index }: { job: Job; index: number }) {
-  const { project, tools } = useApp();
+  const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const output = useOutput(job);
+  const setup = jobSetup(job, project);
+  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, setup: { ...jobSetup(j, project), ...change } }) });
+  const ownSetup = !sameSetup(setup, defaults);
   const update = (change: Partial<Job>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, ...change }) });
   const setInlay = (change: Partial<Inlay>) => update({ inlay: { ...job.inlay, ...change } as Inlay });
   const back = () => dispatch({ type: "setActiveJob", id: null });
@@ -456,6 +386,7 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
                       Cut the plug out of a larger board
                     </label>
                   )}
+                  {plug && inlay.cutOut && <CutOutTool job={job} onChange={(id) => update({ cutOutToolId: id })} />}
                   <label className="check">
                     <input
                       type="checkbox"
@@ -468,7 +399,7 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
                   <p className="hint">
                     {plug
                       ? inlay.cutOut
-                        ? "The whole plug is cut out as one piece, round the edge of its blank, after it is carved. An end mill long enough to go through the board is needed."
+                        ? "The whole plug is cut out as one piece, round the edge of its blank, after it is carved."
                         : "The file carves the plug into a blank cut to size beforehand: the shapes' outer size plus the margin on every side."
                       : "The insert board is the shapes' outer size plus the margin on every side."}{" "}
                     {inlay.tabs && (!plug || inlay.cutOut)
@@ -485,6 +416,25 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
         </section>
 
         <section>
+          <details className="more">
+            <summary>Clearances and tabs{ownSetup ? " (changed)" : ""}</summary>
+            <p className="hint">
+              For the files of this inlay. A new inlay starts with your defaults, which are set under{" "}
+              <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
+                Tools and settings
+              </button>
+              .
+            </p>
+            <HeightFields setup={setup} onChange={setSetup} />
+            <TabFields setup={setup} onChange={setSetup} />
+            <CutOutFields setup={setup} onChange={setSetup} />
+            <button disabled={!ownSetup} onClick={() => update({ setup: defaults })}>
+              Back to your defaults
+            </button>
+          </details>
+        </section>
+
+        <section>
           <Results job={job} state={output} />
           <div className="row end">
             <button className="danger" onClick={remove}>
@@ -495,6 +445,73 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
       </div>
       <GenerateBar job={job} state={output} />
     </aside>
+  );
+}
+
+/**
+ * The end mill that cuts a plug out of its board: the one the inlay's other
+ * end mills would give, unless another is chosen. Says whether its cutting
+ * edges reach through the board.
+ */
+function CutOutTool({ job, onChange }: { job: Job; onChange: (id: string | undefined) => void }) {
+  const { tools, project } = useApp();
+  const dispatch = useDispatch();
+  const choices = toolChoices("flat_end", tools, project);
+  const usual = usualCutOutTool(job, tools, project);
+  const depth = cutOutDepth(job, project);
+  const picked = job.cutOutToolId;
+  const chosen = picked !== undefined ? resolveTool(picked, tools, project) : usual;
+  const hasEndMills = job.inlay.clearingToolIds.length > 0;
+
+  return (
+    <label className="field cut-out-tool">
+      <span className="field-label">End mill for the cut-out</span>
+      <select value={picked ?? ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}>
+        <option value="">
+          {usual ? `The inlay's own: ${usual.name}` : hasEndMills ? "None of the inlay's end mills is long enough" : "Choose an end mill…"}
+        </option>
+        {picked !== undefined && !chosen && <option value={picked}>Missing tool</option>}
+        {choices.map((tool) => (
+          <option key={tool.id} value={tool.id}>
+            {tool.name}
+            {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
+          </option>
+        ))}
+      </select>
+      {choices.length === 0 && (
+        <span className="hint">
+          No flat end mills in your tool list.{" "}
+          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
+            Add tools
+          </button>
+        </span>
+      )}
+      {picked !== undefined && !chosen && <span className="hint warn">This tool is no longer in the tool list or the project. Choose another.</span>}
+      {!chosen && picked === undefined && choices.length > 0 && (
+        <span className="hint warn">
+          {hasEndMills
+            ? `The cut is ${fmt(depth)} mm deep, more than the cutting edges of the inlay's end mills. Choose a longer one.`
+            : "The plug cannot be cut out without an end mill. Choose one."}
+        </span>
+      )}
+      {chosen &&
+        (chosen.fluteLength === undefined ? (
+          <span className="hint warn">
+            The cut is {fmt(depth)} mm deep. The flute length of this tool is unknown, so check that it reaches.
+          </span>
+        ) : chosen.fluteLength < depth ? (
+          <span className="hint warn">
+            The cut is {fmt(depth)} mm deep, but the cutting edges of this tool are only {fmt(chosen.fluteLength)} mm long. Choose a longer one.
+          </span>
+        ) : (
+          <span className="hint">
+            {describeTool(chosen)}. Its cutting edges are {fmt(chosen.fluteLength)} mm long; the cut is {fmt(depth)} mm deep.
+          </span>
+        ))}
+      {chosen && !chosen.cutting.some((c) => c.material === job.material) && (
+        <span className="hint warn">This tool has no cutting settings for {job.material}. Add them in the tool list.</span>
+      )}
+    </label>
   );
 }
 
@@ -574,7 +591,7 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
       {choices.length === 0 && (
         <span className="hint">
           No flat end mills in your tool list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "tools" })}>
+          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
             Add tools
           </button>
         </span>
@@ -614,7 +631,7 @@ function ToolPicker(props: { label: string; kind: ToolKind; value: string | null
       {choices.length === 0 && (
         <span className="hint">
           No {props.kind === "v_bit" ? "V-bits" : "flat end mills"} in your tool list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "tools" })}>
+          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
             Add tools
           </button>
         </span>

@@ -46,7 +46,7 @@ export function useFileActions() {
     const result = await core.call("importToolsYaml", file.text);
     const merged = mergeTools(tools, result.tools);
     dispatch({ type: "setTools", tools: merged.tools });
-    dispatch({ type: "setView", view: "tools" });
+    dispatch({ type: "setView", view: "settings", page: "tools" });
     const reasons = new Map<string, number>();
     for (const s of result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     const skipped = [...reasons].map(([reason, n]) => `${n} × ${reason}`).join("; ");
@@ -56,7 +56,7 @@ export function useFileActions() {
   async function importToolLibrary(file: TextFile) {
     const merged = mergeTools(tools, await core.call("toolsFromFile", file.text));
     dispatch({ type: "setTools", tools: merged.tools });
-    dispatch({ type: "setView", view: "tools" });
+    dispatch({ type: "setView", view: "settings", page: "tools" });
     info(summary(file.name, merged.added, merged.updated));
   }
 

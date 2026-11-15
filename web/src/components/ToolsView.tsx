@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { core } from "../core/client";
-import type { CuttingSettings, Machine, Material, Tool, ToolKind } from "../core/types";
+import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { MACHINE_PRESETS, MATERIALS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
+import { MATERIALS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText, pickTextFile, useEscape } from "../util/files";
 import { NumberField } from "./NumberField";
 
 const KIND_LABEL: Record<ToolKind, string> = { flat_end: "Flat end mill", v_bit: "V-bit" };
 
-export function ToolsView() {
+/** The tool list: the first page of the settings view. */
+export function ToolsPage() {
   const { tools, project } = useApp();
   const dispatch = useDispatch();
   const actions = useFileActions();
@@ -43,7 +44,7 @@ export function ToolsView() {
   };
 
   return (
-    <main className="tools-view">
+    <>
       <div className="toolbar">
         <h2>Your tools</h2>
         <button onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>Add end mill</button>
@@ -67,8 +68,8 @@ export function ToolsView() {
       )}
 
       <p className="muted lead">
-        Kept in this browser and shared by all your projects. A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it
-        time. Each tool needs cutting settings for the wood you cut.
+        A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it time. Each tool needs cutting settings for the wood
+        you cut.
       </p>
 
       {tools.length === 0 ? (
@@ -123,90 +124,8 @@ export function ToolsView() {
         </div>
       )}
 
-      <MachineSection />
-
       {editing && <ToolEditor initial={editing.tool} isNew={editing.isNew} taken={tools} onSave={save} onCancel={() => setEditing(null)} />}
-    </main>
-  );
-}
-
-/** The limits of the machine the files are checked against. */
-function MachineSection() {
-  const { machine } = useApp();
-  const dispatch = useDispatch();
-  const set = (change: Partial<Machine>) => dispatch({ type: "setMachine", machine: { ...machine, ...change } });
-  // The name is typed freely, but an empty one is never kept.
-  const [name, setName] = useState(machine.name);
-  if (name.trim() !== "" && name !== machine.name && document.activeElement?.id !== "machine-name") setName(machine.name);
-
-  return (
-    <section className="machine" aria-labelledby="machine-heading">
-      <div className="toolbar">
-        <h2 id="machine-heading">Your machine</h2>
-        <span className="muted">Fill in for:</span>
-        {MACHINE_PRESETS.map((preset) => (
-          <button
-            key={preset.name}
-            onClick={() => {
-              set({ name: preset.name, maxRpm: preset.maxRpm, travel: preset.travel });
-              setName(preset.name);
-            }}
-          >
-            {preset.name}
-          </button>
-        ))}
-      </div>
-      <p className="muted lead">
-        Kept in this browser and used by all your projects. Every file is checked against these limits. The files themselves are always written for
-        the Carvera Community Firmware.
-      </p>
-      <div className="row machine-fields">
-        <label className="field">
-          <span className="field-label">Name</span>
-          <span className="field-input">
-            <input
-              id="machine-name"
-              type="text"
-              value={name}
-              aria-invalid={name.trim() === ""}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (e.target.value.trim() !== "") set({ name: e.target.value });
-              }}
-              onBlur={() => setName(machine.name)}
-            />
-          </span>
-        </label>
-        <NumberField label="Travel in X" unit="mm" min={1} value={machine.travel[0]} onChange={(v) => v !== undefined && set({ travel: [v, machine.travel[1]] })} />
-        <NumberField label="Travel in Y" unit="mm" min={1} value={machine.travel[1]} onChange={(v) => v !== undefined && set({ travel: [machine.travel[0], v] })} />
-        <NumberField
-          label="Top spindle speed"
-          unit="rpm"
-          min={1}
-          whole
-          value={machine.maxRpm}
-          onChange={(v) => v !== undefined && set({ maxRpm: v })}
-          hint="A tool set to run faster is refused."
-        />
-        <NumberField
-          label="Rapid speed"
-          unit="mm/min"
-          min={1}
-          value={machine.rapidRate}
-          onChange={(v) => v !== undefined && set({ rapidRate: v })}
-          hint="Only for the time estimates."
-        />
-        <NumberField
-          label="First tool number"
-          min={1}
-          max={99}
-          whole
-          value={machine.firstTool}
-          onChange={(v) => v !== undefined && set({ firstTool: v })}
-          hint="The tools of a file are numbered from here, in the order they are used. On a Carvera with a tool rack, T1 to T6 are the rack's slots."
-        />
-      </div>
-    </section>
+    </>
   );
 }
 

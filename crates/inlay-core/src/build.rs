@@ -154,12 +154,12 @@ pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String
 /// found, in plain words.
 pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<String>> {
     let machine = &project.machine;
-    let through_cut = project.setup.through_cut;
     let job = project
         .jobs
         .iter()
         .find(|j| j.id == job_id)
         .ok_or_else(|| vec!["This inlay no longer exists.".to_string()])?;
+    let through_cut = Setup::of(project, job).through_cut;
     let design = project
         .design
         .as_ref()
@@ -406,7 +406,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     let program = Program {
         name: format!("{} - {} - {}", project.name, job.name, name),
         tools: cut.tools,
-        safe_z: project.setup.safe_height,
+        safe_z: Setup::of(project, job).safe_height,
         moves: cut.moves,
     };
     let gcode = carvera::write(&program);
@@ -526,12 +526,12 @@ struct Cut {
 }
 
 impl<'a> Context<'a> {
-    /// The project's clearances and tabs.
+    /// The inlay's clearances and tabs.
     fn setup(&self) -> Setup {
-        self.project.setup
+        Setup::of(self.project, self.job)
     }
 
-    /// An empty path that travels and plunges at the project's heights.
+    /// An empty path that travels and plunges at the inlay's heights.
     fn path(&self) -> PathBuilder {
         let setup = self.setup();
         PathBuilder::new(setup.safe_height).with_clearance(setup.plunge_clearance)
@@ -1202,33 +1202,57 @@ fn cut_piece_out(
     let (width, height) = cut.board?;
     let setup = ctx.setup();
     let depth = thickness + setup.through_cut;
-    let mut candidates: Vec<&Tool> = tool_ids
-        .iter()
-        .filter_map(|id| {
-            ctx.project
-                .tools
-                .iter()
-                .find(|t| &t.id == id && t.kind == ToolKind::FlatEnd)
-        })
-        .collect();
-    candidates.sort_by(|a, b| b.diameter.total_cmp(&a.diameter));
-    if candidates.is_empty() {
-        ctx.errors.push(
-            "Cutting the plug out of its board needs an end mill. Choose one for this inlay."
-                .into(),
-        );
-        return None;
-    }
-    let Some(tool) = candidates
-        .iter()
-        .find(|t| t.flute_length.is_none_or(|flutes| flutes >= depth))
-    else {
-        ctx.errors.push(format!(
-            "None of the chosen end mills has cutting edges long enough to cut the plug out of a {} mm board: {} mm are needed.",
-            num(thickness),
-            num(depth)
-        ));
-        return None;
+    let tool: &Tool = if let Some(id) = ctx.job.cut_out_tool_id.as_deref() {
+        // The tool chosen for the cut-out, whatever else it does.
+        let tool = checked_tool(
+            ctx.project,
+            Some(id),
+            ToolKind::FlatEnd,
+            "an end mill to cut the plug out",
+            &mut ctx.errors,
+        )?;
+        if let Some(flutes) = tool.flute_length.filter(|flutes| *flutes < depth) {
+            ctx.errors.push(format!(
+                "The cutting edges of \"{}\" are {} mm long, too short to cut the plug out of a {} mm board: {} mm are needed.",
+                tool.name,
+                num(flutes),
+                num(thickness),
+                num(depth)
+            ));
+            return None;
+        }
+        tool
+    } else {
+        // The largest of the inlay's end mills that reaches through the board.
+        let mut candidates: Vec<&Tool> = tool_ids
+            .iter()
+            .filter_map(|id| {
+                ctx.project
+                    .tools
+                    .iter()
+                    .find(|t| &t.id == id && t.kind == ToolKind::FlatEnd)
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.diameter.total_cmp(&a.diameter));
+        if candidates.is_empty() {
+            ctx.errors.push(
+                "Cutting the plug out of its board needs an end mill. Choose one for the cut-out."
+                    .into(),
+            );
+            return None;
+        }
+        let Some(tool) = candidates
+            .iter()
+            .find(|t| t.flute_length.is_none_or(|flutes| flutes >= depth))
+        else {
+            ctx.errors.push(format!(
+                "None of the chosen end mills has cutting edges long enough to cut the plug out of a {} mm board: {} mm are needed. Choose a longer one for the cut-out.",
+                num(thickness),
+                num(depth)
+            ));
+            return None;
+        };
+        tool
     };
     let Some(cutting) = tool.cutting_for(ctx.job.material) else {
         ctx.errors.push(format!(
@@ -1238,6 +1262,22 @@ fn cut_piece_out(
         ));
         return None;
     };
+    if cutting.rpm > ctx.machine.max_rpm {
+        ctx.errors.push(format!(
+            "\"{}\" is set to {} rpm, but the {} spindle tops out at {} rpm.",
+            tool.name, cutting.rpm, ctx.machine.name, ctx.machine.max_rpm
+        ));
+        return None;
+    }
+    if tool.flute_length.is_none() {
+        let note = format!(
+            "The flute length of \"{}\" is unknown, so the depth could not be checked against it.",
+            tool.name
+        );
+        if !ctx.warnings.contains(&note) {
+            ctx.warnings.push(note);
+        }
+    }
 
     // A whole number of millimetres, so the plug keeps its place on the
     // simulation's grid and its fit reads the same cut out or not.
@@ -1795,6 +1835,8 @@ mod tests {
                 name: "Flat inlay 1".into(),
                 material: Material::Hardwood,
                 region_ids: vec![0, 1],
+                setup: None,
+                cut_out_tool_id: None,
                 inlay: Inlay::Flat {
                     pocket_depth: 2.0,
                     allowance: 0.1,
@@ -2493,6 +2535,126 @@ mod tests {
         let wide = build(&p, "j", Part::Plug).unwrap();
         assert_eq!(wide.stock.width, usual.stock.width + 10.0);
         assert_eq!(wide.stock.height, usual.stock.height + 10.0);
+    }
+
+    #[test]
+    fn an_inlay_cuts_with_its_own_clearances() {
+        let mut p = vcarve_project(true);
+        set_cut_out(&mut p, true, true);
+        let usual = build(&p, "j", Part::Plug).unwrap();
+        assert!(usual.gcode.contains("Z5.000") && !usual.gcode.contains("Z8.000"));
+
+        // The inlay's own values win over the project's, which stay for
+        // inlays that have none.
+        p.setup.safe_height = 12.0;
+        p.jobs[0].setup = Some(Setup {
+            safe_height: 8.0,
+            cut_out_border: 10.0,
+            through_cut: 0.5,
+            ..Setup::default()
+        });
+        let own = build(&p, "j", Part::Plug).unwrap();
+        assert!(own.gcode.contains("Z8.000"));
+        assert!(!own.gcode.contains("Z5.000") && !own.gcode.contains("Z12.000"));
+        assert_eq!(own.stock.width, usual.stock.width + 10.0);
+        assert_eq!(own.stock.through, 0.5);
+        let pocket = build(&p, "j", Part::Pocket).unwrap();
+        assert!(pocket.gcode.contains("Z8.000") && !pocket.gcode.contains("Z12.000"));
+
+        p.jobs[0].setup = None;
+        let inherited = build(&p, "j", Part::Plug).unwrap();
+        assert!(inherited.gcode.contains("Z12.000"));
+
+        p.jobs[0].setup = Some(Setup {
+            tab_width: 0.0,
+            ..Setup::default()
+        });
+        assert!(p.validate().unwrap_err().contains("tab width"));
+    }
+
+    #[test]
+    fn the_tool_that_cuts_a_plug_out_can_be_chosen() {
+        // A second, larger end mill that does nothing else in the inlay.
+        let wide = |flutes: Option<f64>| {
+            let mut tool = end_mill();
+            tool.id = "t-wide".into();
+            tool.name = "6 mm upcut".into();
+            tool.diameter = 6.0;
+            tool.shank_diameter = 6.0;
+            tool.flute_length = flutes;
+            tool
+        };
+        let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
+
+        // Without clearing end mills there is nothing to fall back on.
+        let mut p = vcarve_project(false);
+        set_cut_out(&mut p, true, true);
+        assert!(reasons(&p).contains("Choose one for the cut-out"));
+
+        p.tools.push(wide(Some(20.0)));
+        p.jobs[0].cut_out_tool_id = Some("t-wide".into());
+        assert_eq!(p.jobs[0].tool_ids(), vec!["t-vbit", "t-wide"]);
+        let cut = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(cut.problems, vec![]);
+        assert_eq!(cut.built.stats.tools.len(), 2);
+        assert!(cut
+            .built
+            .warnings
+            .iter()
+            .any(|w| w.contains("is cut out of its board last, with \"6 mm upcut\"")));
+        // The board grows by the chosen tool's width plus the border.
+        let plain = {
+            let mut q = p.clone();
+            set_cut_out(&mut q, false, false);
+            build(&q, "j", Part::Plug).unwrap()
+        };
+        assert_eq!(cut.built.stock.width, plain.stock.width + 2.0 * 11.0);
+
+        // Chosen over a clearing end mill that would otherwise do it.
+        let mut q = vcarve_project(true);
+        set_cut_out(&mut q, true, false);
+        q.tools.push(wide(Some(20.0)));
+        q.jobs[0].cut_out_tool_id = Some("t-wide".into());
+        let both = build(&q, "j", Part::Plug).unwrap();
+        assert_eq!(both.stats.tools.len(), 3);
+        assert!(both
+            .warnings
+            .iter()
+            .any(|w| w.contains("with \"6 mm upcut\"")));
+
+        // The 8 mm board needs 8.2 mm of cutting edge.
+        p.tools[2] = wide(Some(8.0));
+        let why = reasons(&p);
+        assert!(
+            why.contains("\"6 mm upcut\" are 8 mm long, too short")
+                && why.contains("8.2 mm are needed"),
+            "{why}"
+        );
+        p.tools[2] = wide(Some(8.2));
+        assert!(build(&p, "j", Part::Plug).is_ok());
+        p.tools[2] = wide(None);
+        let unknown = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(
+            unknown
+                .warnings
+                .iter()
+                .filter(|w| w.contains("flute length of \"6 mm upcut\" is unknown"))
+                .count(),
+            1
+        );
+
+        // It must be an end mill, in the project, with settings for the wood
+        // and a speed the spindle reaches.
+        p.jobs[0].cut_out_tool_id = Some("t-vbit".into());
+        assert!(reasons(&p).contains("is not an end mill to cut the plug out"));
+        p.jobs[0].cut_out_tool_id = Some("gone".into());
+        assert!(reasons(&p).contains("missing from the project"));
+        p.jobs[0].cut_out_tool_id = Some("t-wide".into());
+        p.tools[2] = wide(Some(20.0));
+        p.tools[2].cutting[0].rpm = 20000;
+        assert!(reasons(&p).contains("tops out at 13000 rpm"));
+        p.tools[2].cutting.clear();
+        assert!(reasons(&p).contains("no cutting settings for hardwood"));
     }
 
     #[test]

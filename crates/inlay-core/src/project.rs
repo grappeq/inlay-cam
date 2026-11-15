@@ -34,7 +34,8 @@ pub struct Project {
     /// The machine the files are for.
     #[serde(default)]
     pub machine: Machine,
-    /// Clearances and tabs used by every file of the project.
+    /// Clearances and tabs for an inlay that has none of its own: one from a
+    /// file written before each inlay had them.
     #[serde(default)]
     pub setup: Setup,
 }
@@ -131,6 +132,11 @@ impl Default for Setup {
 }
 
 impl Setup {
+    /// The clearances and tabs a job's files are cut with.
+    pub fn of(project: &Project, job: &Job) -> Setup {
+        job.setup.unwrap_or(project.setup)
+    }
+
     /// The thickness of the tabs on a board this thick.
     pub fn tab_thickness_on(&self, board: f64) -> f64 {
         (board / 2.0).min(self.tab_thickness)
@@ -270,7 +276,28 @@ pub struct Job {
     pub material: Material,
     /// The design regions this inlay covers.
     pub region_ids: Vec<u32>,
+    /// Clearances and tabs for this inlay's files. Without them the
+    /// project's are used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<Setup>,
+    /// The flat end mill that cuts a plug out of its board. Without one, the
+    /// largest of the inlay's end mills that reaches through the board does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut_out_tool_id: Option<String>,
     pub inlay: Inlay,
+}
+
+impl Job {
+    /// Ids of every tool this inlay refers to.
+    pub fn tool_ids(&self) -> Vec<&str> {
+        let mut ids = self.inlay.tool_ids();
+        if let Some(id) = &self.cut_out_tool_id {
+            if !ids.contains(&id.as_str()) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -544,6 +571,9 @@ impl Project {
                 return Err(fail("its id is missing or used twice".into()));
             }
             job.inlay.validate().map_err(fail)?;
+            if let Some(setup) = &job.setup {
+                setup.validate().map_err(fail)?;
+            }
             if let Some(missing) = job.region_ids.iter().find(|id| !region_ids.contains(id)) {
                 return Err(fail(format!(
                     "it refers to region {missing}, which is not in the design"
@@ -613,6 +643,8 @@ mod tests {
                     name: "Walnut square".into(),
                     material: Material::Hardwood,
                     region_ids: vec![0],
+                    setup: None,
+                    cut_out_tool_id: None,
                     inlay: Inlay::Vcarve {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
@@ -630,6 +662,8 @@ mod tests {
                     name: "Maple triangle".into(),
                     material: Material::Softwood,
                     region_ids: vec![1],
+                    setup: None,
+                    cut_out_tool_id: None,
                     inlay: Inlay::Flat {
                         pocket_depth: 2.5,
                         allowance: 0.1,
@@ -679,6 +713,29 @@ mod tests {
         let mut p = sample();
         p.machine.travel = [300.0, 0.0];
         assert!(p.validate().unwrap_err().contains("travel"));
+    }
+
+    #[test]
+    fn an_inlay_keeps_its_own_clearances_and_cut_out_tool() {
+        let mut p = sample();
+        // Nothing extra is written for an inlay that has neither.
+        let plain = project_to_file_json(&p);
+        assert!(!plain.contains("cutOutToolId") && !plain.contains("\"setup\":null"));
+
+        p.jobs[0].setup = Some(Setup {
+            safe_height: 9.0,
+            ..Setup::default()
+        });
+        p.jobs[0].cut_out_tool_id = Some("t-endmill".into());
+        let read = project_from_file_json(&project_to_file_json(&p)).unwrap();
+        assert_eq!(read, p);
+        assert_eq!(Setup::of(&read, &read.jobs[0]).safe_height, 9.0);
+        assert_eq!(Setup::of(&read, &read.jobs[1]), read.setup);
+        // A tool named twice is listed once.
+        assert_eq!(read.jobs[0].tool_ids(), vec!["t-endmill", "t-vbit"]);
+
+        p.jobs[0].setup.as_mut().unwrap().plunge_clearance = 20.0;
+        assert!(p.validate().unwrap_err().contains("plunge height"));
     }
 
     #[test]

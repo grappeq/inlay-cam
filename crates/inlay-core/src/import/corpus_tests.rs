@@ -209,6 +209,8 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             name: "Inlay".into(),
             material: Material::Hardwood,
             region_ids: region_ids.to_vec(),
+            setup: None,
+            cut_out_tool_id: None,
             inlay,
         }],
         tools: vec![end_mill(), vbit],

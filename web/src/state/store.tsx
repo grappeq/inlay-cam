@@ -3,12 +3,14 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Tool } from "../core/types";
+import type { FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
-import { DEFAULT_MACHINE, newProject, readMachine, regionOwners, toolSnapshots } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, newProject, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
 
-export type View = "design" | "tools";
+export type View = "design" | "settings";
+/** The pages of the settings view. */
+export type SettingsPage = "tools" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit";
 export type Notice = { kind: "info" | "error"; text: string };
@@ -19,9 +21,12 @@ export interface AppState {
   tools: Tool[];
   /** The machine the files are for. Like the tools, it is kept in this browser and copied into the open project. */
   machine: Machine;
+  /** The clearances and tabs a new inlay starts with. Kept in this browser. */
+  defaults: Setup;
   project: Project;
   projects: db.ProjectSummary[];
   view: View;
+  settingsPage: SettingsPage;
   /** Regions picked for a new inlay. */
   selection: number[];
   /** The inlay being edited; region clicks then add to or remove from it. */
@@ -59,14 +64,15 @@ export interface Output {
 }
 
 export type Action =
-  | { type: "loaded"; tools: Tool[]; machine: Machine; project: Project; projects: db.ProjectSummary[] }
+  | { type: "loaded"; tools: Tool[]; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
   | { type: "updateProject"; update: (project: Project) => Project }
   | { type: "updateJob"; id: string; update: (job: Job) => Job }
   | { type: "setTools"; tools: Tool[] }
   | { type: "setMachine"; machine: Machine }
+  | { type: "setDefaults"; defaults: Setup }
   | { type: "setProjects"; projects: db.ProjectSummary[] }
-  | { type: "setView"; view: View }
+  | { type: "setView"; view: View; page?: SettingsPage }
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
   | { type: "setActiveJob"; id: string | null }
@@ -85,9 +91,11 @@ const initial: AppState = {
   ready: false,
   tools: [],
   machine: DEFAULT_MACHINE,
+  defaults: DEFAULT_SETUP,
   project: newProject(),
   projects: [],
   view: "design",
+  settingsPage: "tools",
   selection: [],
   activeJobId: null,
   importReport: null,
@@ -113,7 +121,15 @@ function withSnapshots(state: AppState): AppState {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "loaded":
-      return withSnapshots({ ...state, ready: true, tools: action.tools, machine: action.machine, project: action.project, projects: action.projects });
+      return withSnapshots({
+        ...state,
+        ready: true,
+        tools: action.tools,
+        machine: action.machine,
+        defaults: action.defaults,
+        project: action.project,
+        projects: action.projects,
+      });
     case "openProject":
       return withSnapshots({
         ...state,
@@ -140,10 +156,12 @@ function reducer(state: AppState, action: Action): AppState {
       return withSnapshots({ ...state, tools: action.tools });
     case "setMachine":
       return withSnapshots({ ...state, machine: action.machine });
+    case "setDefaults":
+      return { ...state, defaults: action.defaults };
     case "setProjects":
       return { ...state, projects: action.projects };
     case "setView":
-      return { ...state, view: action.view };
+      return { ...state, view: action.view, settingsPage: action.page ?? state.settingsPage };
     case "clickRegion":
       return clickRegion(state, action.id, action.add ?? false);
     case "setSelection":
@@ -269,8 +287,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const projects = await db.listProjects().catch(() => []);
       const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
+      const defaults = readSetup(await db.getSetting("inlayDefaults").catch(() => undefined));
       if (cancelled) return;
-      dispatch({ type: "loaded", tools, machine, project, projects });
+      dispatch({ type: "loaded", tools, machine, defaults, project, projects });
       if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
     return () => {
@@ -324,6 +343,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } }),
     );
   }, [state.ready, state.machine]);
+
+  useEffect(() => {
+    if (!state.ready) return;
+    db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch((e) =>
+      dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } }),
+    );
+  }, [state.ready, state.defaults]);
 
   const value = useMemo(() => state, [state]);
   return (
