@@ -205,6 +205,18 @@ defaults" returns to them. The app's own values are in brackets.
 **Show in 3D** shows the simulated part. The simulation is run on the text of the G-code
 file itself, so what you see is what the file does.
 
+Tick **Show dimensions**, above the 3D view, to measure the part. All numbers are in mm.
+
+- The board's size in X and Y and its thickness are drawn along its edges.
+- Arrows mark the work origin and the directions of X, Y and Z, as the machine must be
+  zeroed.
+- On the surface: the extent of the shapes and what is left around them. On a plug that is
+  its margin; on the base board, the distance to each edge.
+- A plug cut out of a larger board also shows its own size, the border of board left
+  around it and the width of the cut that frees it.
+- Point at the board to read the position under the cursor and the depth of the simulated
+  surface there.
+
 Tick **Show tool path**, above the 3D view, to see where the tool goes:
 
 - Each tool's cutting moves have their own colour; moves in the air are red and can be

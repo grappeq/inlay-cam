@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PocketPreview } from "../core/types";
+import { dimensionMarks, surfaceHit, type Vec3 } from "./dimensions";
 
 /** Most vertices per side of the displayed surface; finer height maps are thinned for display only. */
 const MAX_DISPLAY = 600;
@@ -30,6 +31,12 @@ interface PathView {
   marker: THREE.Mesh;
 }
 
+/** The dimensions as drawn: lines in the scene, and where each label stands. */
+interface DimensionView {
+  group: THREE.Group;
+  labels: { at: THREE.Vector3; text: string; tone?: "x" | "y" | "z" | "quiet" }[];
+}
+
 interface Props {
   preview: PocketPreview;
   /** Thickness of the stock, mm, for drawing its sides. */
@@ -42,6 +49,10 @@ export function Viewer3D({ preview, thickness }: Props) {
   const pathView = useRef<PathView | null>(null);
   const stockGroup = useRef<THREE.Group | null>(null);
   const redraw = useRef<() => void>(() => {});
+  const dimensions = useRef<{ group: THREE.Group; labels: HTMLElement } | null>(null);
+  const [showDimensions, setShowDimensions] = useState(false);
+  // Read by the pointer handler, which outlives a change of the tick box.
+  const dimensionsOn = useRef(false);
   const [showPath, setShowPath] = useState(false);
   const [hideBoard, setHideBoard] = useState(false);
   const [showRapids, setShowRapids] = useState(true);
@@ -108,9 +119,69 @@ export function Viewer3D({ preview, thickness }: Props) {
     scene.add(path.group);
     pathView.current = path;
 
-    const render = () => renderer.render(scene, camera);
+    // Dimensions: lines in the scene, with labels laid over the canvas so that they stay upright.
+    const dims = buildDimensions(preview, reach, getComputedStyle(el).color);
+    dims.group.visible = dimensionsOn.current;
+    scene.add(dims.group);
+    const overlay = document.createElement("div");
+    overlay.className = "dim-labels";
+    overlay.style.display = dimensionsOn.current ? "" : "none";
+    el.appendChild(overlay);
+    const tags = dims.labels.map((label) => {
+      const tag = document.createElement("span");
+      tag.className = `dim-label${label.tone ? ` ${label.tone}` : ""}`;
+      tag.textContent = label.text;
+      overlay.appendChild(tag);
+      return { tag, at: label.at };
+    });
+    const readout = document.createElement("span");
+    readout.className = "dim-label readout";
+    readout.style.display = "none";
+    overlay.appendChild(readout);
+    dimensions.current = { group: dims.group, labels: overlay };
+
+    const seen = new THREE.Vector3();
+    const placeLabels = () => {
+      if (!dimensionsOn.current) return;
+      const { clientWidth: w, clientHeight: h } = el;
+      for (const { tag, at } of tags) {
+        seen.copy(at).project(camera);
+        const inFront = seen.z > -1 && seen.z < 1;
+        tag.style.display = inFront ? "" : "none";
+        if (inFront) tag.style.transform = `translate(${((seen.x + 1) / 2) * w}px, ${((1 - seen.y) / 2) * h}px) translate(-50%, -50%)`;
+      }
+    };
+    const render = () => {
+      renderer.render(scene, camera);
+      placeLabels();
+    };
     redraw.current = render;
     controls.addEventListener("change", render);
+
+    // The point of the simulated surface under the cursor, while no button is held.
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const onMove = (e: PointerEvent) => {
+      readout.style.display = "none";
+      if (!dimensionsOn.current || e.buttons !== 0) return;
+      const box = renderer.domElement.getBoundingClientRect();
+      pointer.set(((e.clientX - box.left) / box.width) * 2 - 1, 1 - ((e.clientY - box.top) / box.height) * 2);
+      raycaster.setFromCamera(pointer, camera);
+      const { origin, direction } = raycaster.ray;
+      const hit = surfaceHit(preview, origin.toArray() as Vec3, direction.toArray() as Vec3);
+      if (!hit) return;
+      readout.textContent = `X ${hit.x.toFixed(1)}   Y ${hit.y.toFixed(1)}   Z ${hit.z === 0 ? "0, surface" : hit.z.toFixed(2)}`;
+      // Beside the cursor, flipped to its other side near the right and bottom edges.
+      const [x, y] = [e.clientX - box.left, e.clientY - box.top];
+      const flipX = x > box.width - 190 ? "translate(-100%, 0) translate(-14px, 0)" : "translate(14px, 0)";
+      const flipY = y > box.height - 50 ? "translate(0, -100%) translate(0, -10px)" : "translate(0, 16px)";
+      readout.style.transform = `translate(${x}px, ${y}px) ${flipX} ${flipY}`;
+      readout.style.display = "";
+    };
+    const onLeave = () => (readout.style.display = "none");
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerdown", onLeave);
+    el.addEventListener("pointerleave", onLeave);
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
@@ -127,6 +198,11 @@ export function Viewer3D({ preview, thickness }: Props) {
 
     return () => {
       observer.disconnect();
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerdown", onLeave);
+      el.removeEventListener("pointerleave", onLeave);
+      overlay.remove();
+      dimensions.current = null;
       controls.dispose();
       scene.traverse((object) => {
         const item = object as THREE.Mesh | THREE.LineSegments;
@@ -164,12 +240,26 @@ export function Viewer3D({ preview, thickness }: Props) {
     redraw.current();
   }, [showPath, hideBoard, showRapids, shownMoves, count, preview]);
 
+  useEffect(() => {
+    dimensionsOn.current = showDimensions;
+    const view = dimensions.current;
+    if (view) {
+      view.group.visible = showDimensions;
+      view.labels.style.display = showDimensions ? "" : "none";
+    }
+    redraw.current();
+  }, [showDimensions, preview, thickness]);
+
   const last = shownMoves > 0 ? (shownMoves - 1) * PIECE : -1;
   const lastTool = last >= 0 ? tools.find((t) => t.number === preview.path[last + 7]) : undefined;
 
   return (
     <div className="viewer">
       <div className="viewer-bar">
+        <label className="check">
+          <input type="checkbox" checked={showDimensions} onChange={(e) => setShowDimensions(e.target.checked)} />
+          Show dimensions
+        </label>
         <label className="check">
           <input type="checkbox" checked={showPath} onChange={(e) => setShowPath(e.target.checked)} />
           Show tool path
@@ -226,9 +316,80 @@ export function Viewer3D({ preview, thickness }: Props) {
       )}
       <p className="viewer-hint muted">
         Drag to turn, scroll to zoom, right-drag to move. Simulated at {preview.cell} mm per cell from the G-code file.
+        {showDimensions && " Dimensions are in mm; point at the board to read a position and its depth."}
       </p>
     </div>
   );
+}
+
+const AXIS_COLORS = { x: "#c0392b", y: "#1d8a4c", z: "#2f5fd0" } as const;
+
+/**
+ * The dimension lines of the part and the axes at the work origin. Drawn over
+ * everything else, so that the wood never hides them.
+ */
+function buildDimensions(preview: PocketPreview, reach: number, ink: string): DimensionView {
+  const { marks, outlines } = dimensionMarks(preview.built);
+  const gap = reach * 0.07;
+  const points: number[] = [];
+  const labels: DimensionView["labels"] = [];
+  const v = (p: Vec3) => new THREE.Vector3(...p);
+  const segment = (a: THREE.Vector3, b: THREE.Vector3) => points.push(a.x, a.y, a.z, b.x, b.y, b.z);
+
+  // Neighbouring lines on the surface are often short: their labels go to alternate sides, so they do not sit on each other.
+  let side = 1;
+  for (const mark of marks) {
+    const [a, b, out] = [v(mark.a), v(mark.b), v(mark.out)];
+    if (out.lengthSq() > 0) {
+      // Clear of the board: the line stands off by the gap, joined to what it measures by two thin lines.
+      const [from, to] = [a.clone().addScaledVector(out, gap), b.clone().addScaledVector(out, gap)];
+      segment(from, to);
+      for (const end of [a, b]) segment(end.clone().addScaledVector(out, gap * 0.2), end.clone().addScaledVector(out, gap * 1.2));
+      labels.push({ at: from.clone().add(to).multiplyScalar(0.5).addScaledVector(out, gap * 0.45), text: mark.text });
+    } else {
+      // On the surface: a line with a short stroke across each end.
+      segment(a, b);
+      const along = b.clone().sub(a).normalize();
+      const across = new THREE.Vector3(-along.y, along.x, 0).multiplyScalar(gap * 0.18);
+      for (const end of [a, b]) segment(end.clone().add(across), end.clone().sub(across));
+      labels.push({ at: a.clone().add(b).multiplyScalar(0.5).addScaledVector(across, side * 3.2), text: mark.text });
+      side = -side;
+    }
+  }
+  for (const { rect, text, labelInside } of outlines) {
+    const [x0, y0, x1, y1] = rect;
+    const corners = [v([x0, y0, 0]), v([x1, y0, 0]), v([x1, y1, 0]), v([x0, y1, 0])];
+    corners.forEach((corner, i) => segment(corner, corners[(i + 1) % 4]));
+    labels.push({ at: v([(x0 + x1) / 2, y1 + (labelInside ? -1 : 1) * gap * 0.55, 0]), text, tone: "quiet" });
+  }
+
+  const group = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(points), 3));
+  const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: ink, depthTest: false, transparent: true }));
+  lines.renderOrder = 5;
+  group.add(lines);
+
+  // The work origin: the board's bottom-left corner, on its top face.
+  const length = reach * 0.16;
+  const axes: [keyof typeof AXIS_COLORS, Vec3][] = [
+    ["x", [1, 0, 0]],
+    ["y", [0, 1, 0]],
+    ["z", [0, 0, 1]],
+  ];
+  for (const [name, direction] of axes) {
+    const arrow = new THREE.ArrowHelper(v(direction), new THREE.Vector3(0, 0, 0), length, AXIS_COLORS[name], length * 0.22, length * 0.1);
+    for (const part of [arrow.line, arrow.cone]) {
+      const material = part.material as THREE.Material;
+      material.depthTest = false;
+      material.transparent = true;
+      part.renderOrder = 6;
+    }
+    group.add(arrow);
+    labels.push({ at: v(direction).multiplyScalar(length * 1.12), text: name.toUpperCase(), tone: name });
+  }
+  labels.push({ at: new THREE.Vector3(-gap * 0.5, -gap * 0.5, 0), text: "X0 Y0 Z0", tone: "quiet" });
+  return { group, labels };
 }
 
 /** The cut surface plus the four sides of the board. */

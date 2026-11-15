@@ -104,8 +104,12 @@ pub struct Built {
     pub frame: Option<PlugFrame>,
     /// For a plug cut out of a larger board: the plug itself on that board,
     /// as `[x0, y0, x1, y1]`.
-    #[serde(skip)]
     pub piece: Option<[f64; 4]>,
+    /// Width of the cut that frees that plug: the diameter of the tool.
+    pub cut_width: Option<f64>,
+    /// The extent of the shapes on the part's board, as `[x0, y0, x1, y1]`:
+    /// what is left around it is margin.
+    pub shapes: Option<[f64; 4]>,
     #[serde(skip)]
     pub program: Program,
     #[serde(skip)]
@@ -392,6 +396,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     let cuttable = cut.cuttable;
     let through = cut.through;
     let piece = cut.piece;
+    let cut_width = cut.cut_width;
+    let shapes = extent(&pocket);
 
     let (width, height) = cut.board.unwrap_or_else(|| design.placed_size());
     if part == Part::Pocket
@@ -460,6 +466,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         flat_fit,
         frame,
         piece,
+        cut_width,
+        shapes,
         file_name: format!(
             "{}.{}",
             file_stem(&format!("{} {} {}", project.name, job.name, name)),
@@ -523,6 +531,24 @@ struct Cut {
     through: f64,
     /// The plug on its board, when it is cut out of a larger one.
     piece: Option<[f64; 4]>,
+    /// Width of the cut that frees that plug.
+    cut_width: Option<f64>,
+}
+
+/// The smallest upright rectangle around some regions, as `[x0, y0, x1, y1]`.
+fn extent(regions: &[Region]) -> Option<[f64; 4]> {
+    let mut points = regions.iter().flat_map(|r| r.outer.iter());
+    let first = points.next()?;
+    Some(
+        points.fold([first[0], first[1], first[0], first[1]], |b, p| {
+            [
+                b[0].min(p[0]),
+                b[1].min(p[1]),
+                b[2].max(p[0]),
+                b[3].max(p[1]),
+            ]
+        }),
+    )
 }
 
 impl<'a> Context<'a> {
@@ -1384,6 +1410,7 @@ fn cut_piece_out(
     cut.board = Some((board_width, board_height));
     cut.through = setup.through_cut;
     cut.piece = Some([border, border, border + width, border + height]);
+    cut.cut_width = Some(tool.diameter);
     Some(cut)
 }
 
@@ -2851,6 +2878,17 @@ mod tests {
             assert!((b.width - a.width - GROWN).abs() < 1e-9);
             assert!((b.height - a.height - GROWN).abs() < 1e-9);
             assert_eq!(b.through, Setup::default().through_cut);
+            // Where things are on the board, for the view's dimensions: the
+            // plug 9 mm in, cut free with the 3.175 mm tool, and the shapes
+            // inside it by about the 6 mm margin.
+            let [x0, y0, x1, y1] = cut.built.piece.unwrap();
+            assert_eq!([x0, y0], [9.0, 9.0]);
+            assert_eq!(cut.built.cut_width, Some(3.175));
+            let shapes = cut.built.shapes.unwrap();
+            assert!(shapes[0] > x0 && shapes[1] > y0 && shapes[2] < x1 && shapes[3] < y1);
+            assert!((shapes[0] - x0 - 6.0).abs() < 1.5, "{shapes:?}");
+            assert_eq!(plain.built.piece, None);
+            assert_eq!(plain.built.cut_width, None);
             // The end mill comes back after the V-bit, under its own number.
             assert_eq!(cut.built.stats.tools, plain.built.stats.tools);
             assert_eq!(cut.built.stats.tool_changes, 3);

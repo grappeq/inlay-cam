@@ -199,6 +199,12 @@ export interface Built {
     removedArea: number;
     addedArea: number;
   } | null;
+  /** A plug cut out of a larger board: the plug on that board, as x0 y0 x1 y1. */
+  piece: [number, number, number, number] | null;
+  /** Width of the cut that frees that plug. */
+  cutWidth: number | null;
+  /** The extent of the shapes on the part's board, as x0 y0 x1 y1. */
+  shapes: [number, number, number, number] | null;
   /** Stretches of the design, as placed on the base board, too narrow for the plug to seat. */
   narrow: [[number, number], [number, number]][];
   fileName: string;

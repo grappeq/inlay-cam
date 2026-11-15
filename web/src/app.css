@@ -375,6 +375,7 @@ input[aria-invalid="true"] {
   gap: 8px;
 }
 .viewer-canvas {
+  position: relative;
   flex: 1;
   min-height: 240px;
   border: 1px solid var(--line);
@@ -386,6 +387,49 @@ input[aria-invalid="true"] {
   display: block;
   width: 100%;
   height: 100%;
+}
+/* Dimension labels laid over the 3D view. */
+.dim-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.dim-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dim-label.quiet {
+  color: var(--muted);
+}
+.dim-label.x,
+.dim-label.y,
+.dim-label.z {
+  background: none;
+  font-weight: 600;
+}
+.dim-label.x {
+  color: #c0392b;
+}
+.dim-label.y {
+  color: #1d8a4c;
+}
+.dim-label.z {
+  color: #2f5fd0;
+}
+.dim-label.readout {
+  padding: 2px 7px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  white-space: pre;
 }
 .fit-view {
   flex: 1;
