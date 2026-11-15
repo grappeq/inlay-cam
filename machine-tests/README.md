@@ -2,7 +2,7 @@
 
 Files to run on the real machine to confirm what the app assumes about the Carvera
 Community Firmware. The assumptions come from reading the firmware source and community
-post-processors; none of them has been run on a machine yet.
+post-processors. The air cut below confirmed them on a real machine.
 
 ## m0-air-cut.cnc
 
@@ -39,4 +39,22 @@ comment lines in its tool-change prompt.
 
 ### Result
 
-Not run yet.
+Run on 2026-11-15 on a Carvera Air with the Community Firmware. Everything went as
+expected: all eleven checks passed, so the post needs no changes.
+
+From the controller's log of the run (firmware 2.2.0c):
+
+- Every line was answered with `ok`; no errors or warnings from the firmware.
+- The tool-change prompt is "Please change the tool to: T1". It does not show the tool's
+  name from the comment lines.
+- `M6` measures the tool length itself, returns to the earlier X/Y at the top of Z and
+  reports "Done ATC" before the next line runs.
+- The controller did not read the tools from the `(T1 D=...)` comment lines ("0/2 used
+  tools have geometry from the tool table"), so its preview drew them with a default
+  pointed shape. Its parser wants two spaces after the tool number, as Fusion writes.
+  This affects only the controller's preview.
+
+Since that run the tool comment lines, in this file and in the app's files, have the
+layout the controller reads: `(T1  name  D=3.175 CR=0 SD=3.175 FL=22 - flat end mill)`.
+Nothing else in the file changed. Not yet checked in the controller: that it now logs
+"Detected T1" when the file is opened.

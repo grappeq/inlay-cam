@@ -1824,7 +1824,7 @@ mod tests {
     fn builds_a_file_that_obeys_the_firmware_rules_and_reads_back() {
         let built = build_pocket(&project(), "j").unwrap();
         assert_eq!(built.file_name, "Test-board-Flat-inlay-1-pocket.cnc");
-        assert!(built.gcode.starts_with("(Test board - Flat inlay 1 - pocket)\n(T1 D=3.175 - D3.175x22 1F Downcut)\nG90 G94\nG17\nG21\nM6 T1\nS12000 M3\nG54\n"));
+        assert!(built.gcode.starts_with("(Test board - Flat inlay 1 - pocket)\n(T1  D3.175x22 1F Downcut  D=3.175 CR=0 SD=3.175 FL=22 - flat end mill)\nG90 G94\nG17\nG21\nM6 T1\nS12000 M3\nG54\n"));
         assert!(built.gcode.ends_with("M5\nG28\nM30\n"));
         assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
         assert_eq!(built.stats.tools, ["Ø3.175×22 1F Downcut"]);

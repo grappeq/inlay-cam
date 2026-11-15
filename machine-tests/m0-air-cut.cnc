@@ -1,7 +1,7 @@
 (Wooden inlays app - milestone 0 air cut)
 (Every move stays 5 mm or more above Z0. Nothing should touch the stock.)
-(T1 D=3.175 CR=0 - ZMIN=5 - flat end mill)
-(T2 D=3.175 CR=0 - ZMIN=5 - flat end mill)
+(T1  Any bit  D=3.175 CR=0 SD=3.175 - flat end mill)
+(T2  Any bit  D=3.175 CR=0 SD=3.175 - flat end mill)
 G90 G94
 G17
 G21

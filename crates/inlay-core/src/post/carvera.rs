@@ -13,13 +13,69 @@
 //! - Comments on their own line: text after a comment is dropped.
 //! - `F` on the first cutting move after a rapid: a rapid's feed does not carry over.
 //! - No homing, probing or offset commands: the controller does those before the job.
+//!
+//! The header has one comment line per tool, laid out as the Fusion 360 post for
+//! the Carvera writes it. The community controller reads those lines to draw each
+//! tool in its preview; see [`tool_comment`].
 
 use std::fmt::Write;
 
-use crate::toolpath::{Move, Program};
+use crate::toolpath::{Move, Program, ProgramTool};
+use crate::tools::ToolKind;
 
 pub const MAX_LINE_LENGTH: usize = 128;
 pub const FILE_EXTENSION: &str = "cnc";
+
+/// Reduces text to characters that cannot upset the parser, single-spaced.
+fn comment_text(text: &str) -> String {
+    let clean: String = text
+        .chars()
+        .map(|c| match c {
+            'Ø' | 'ø' => 'D',
+            '×' => 'x',
+            '°' => ' ',
+            c if c.is_ascii_alphanumeric() || " .,=+-_/:".contains(c) => c,
+            _ => ' ',
+        })
+        .collect();
+    clean.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The header line that describes one tool, in the layout of the Fusion 360 post
+/// for the Carvera:
+///
+/// `(T<number>  <name>  D=<diameter> CR=0 SD=<shank> [TD=<tip flat>] [FL=<flutes>]
+/// [TAPER=<half angle>deg] - <tool type>)`
+///
+/// The community controller only recognises the line with two spaces on either
+/// side of the name, the fields in this order and one of Fusion's tool type names
+/// at the end. `TAPER` is the angle between the tool's axis and its cutting edge.
+fn tool_comment(t: &ProgramTool) -> String {
+    let tool = &t.tool;
+    let mut fields = format!(
+        "D={} CR=0 SD={}",
+        number(tool.diameter),
+        number(tool.shank_diameter)
+    );
+    let type_name = match tool.kind {
+        ToolKind::FlatEnd => "flat end mill",
+        ToolKind::VBit => "chamfer mill",
+    };
+    if tool.kind == ToolKind::VBit {
+        write!(fields, " TD={}", number(tool.tip_diameter.unwrap_or(0.0))).unwrap();
+    }
+    if let Some(flutes) = tool.flute_length {
+        write!(fields, " FL={}", number(flutes)).unwrap();
+    }
+    if let (ToolKind::VBit, Some(angle)) = (tool.kind, tool.tip_angle) {
+        write!(fields, " TAPER={}deg", number(angle / 2.0)).unwrap();
+    }
+    let head = format!("T{}  ", t.number);
+    let tail = format!("  {fields} - {type_name}");
+    let room = (MAX_LINE_LENGTH - 2).saturating_sub(head.len() + tail.len());
+    let name: String = comment_text(&tool.name).chars().take(room).collect();
+    format!("({head}{}{tail})", name.trim_end())
+}
 
 pub fn write(program: &Program) -> String {
     let mut out = Writer {
@@ -32,12 +88,7 @@ pub fn write(program: &Program) -> String {
 
     out.comment(&program.name);
     for t in &program.tools {
-        out.comment(&format!(
-            "T{} D={} - {}",
-            t.number,
-            number(t.tool.diameter),
-            t.tool.name
-        ));
+        out.line(&tool_comment(t));
     }
     out.line("G90 G94");
     out.line("G17");
@@ -114,18 +165,10 @@ impl Writer {
 
     /// Writes a comment line. Only characters that cannot upset the parser are kept.
     fn comment(&mut self, text: &str) {
-        let clean: String = text
+        let clean: String = comment_text(text)
             .chars()
-            .map(|c| match c {
-                'Ø' | 'ø' => 'D',
-                '×' => 'x',
-                '°' => ' ',
-                c if c.is_ascii_alphanumeric() || " .,=+-_/:".contains(c) => c,
-                _ => ' ',
-            })
+            .take(MAX_LINE_LENGTH - 2)
             .collect();
-        let clean: String = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-        let clean: String = clean.chars().take(MAX_LINE_LENGTH - 2).collect();
         self.line(&format!("({clean})"));
     }
 
@@ -258,7 +301,7 @@ pub fn lint(gcode: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::toolpath::ProgramTool;
-    use crate::tools::fixtures::end_mill;
+    use crate::tools::fixtures::{end_mill, v_bit};
 
     fn program(moves: Vec<Move>) -> Program {
         Program {
@@ -322,7 +365,7 @@ mod tests {
     fn writes_the_expected_file() {
         let expected = "\
 (Coaster - Flat inlay 1 - pocket)
-(T7 D=3.175 - D3.175x22 1F Downcut)
+(T7  D3.175x22 1F Downcut  D=3.175 CR=0 SD=3.175 FL=22 - flat end mill)
 G90 G94
 G17
 G21
@@ -407,6 +450,35 @@ M30
             to: [-0.0001, 0.0, 5.0],
         }]));
         assert!(text.contains("G0 X0.000 Y0.000 Z5.000"));
+    }
+
+    /// The pattern the community controller matches a tool line against
+    /// (`TOOL_LINE_RE` in its Fusion 360 parser), checked by hand here: two
+    /// spaces after the number, the fields in order, a tool type at the end.
+    #[test]
+    fn tool_lines_are_laid_out_as_the_controller_reads_them() {
+        let line = tool_comment(&ProgramTool {
+            number: 2,
+            tool: v_bit(),
+        });
+        assert_eq!(
+            line,
+            "(T2  60 V-groove D12 S6  D=12 CR=0 SD=6 TD=0.1 FL=15.5 TAPER=30deg - chamfer mill)"
+        );
+
+        // A long or odd name is cut to fit; the fields the controller needs stay whole.
+        let mut tool = end_mill();
+        tool.name = "Żółw (v2)  ".repeat(30);
+        tool.flute_length = None;
+        let line = tool_comment(&ProgramTool { number: 12, tool });
+        assert!(line.len() <= MAX_LINE_LENGTH);
+        assert!(line.is_ascii());
+        assert!(line.starts_with("(T12  "));
+        assert!(line.ends_with("  D=3.175 CR=0 SD=3.175 - flat end mill)"));
+        assert!(!line[1..line.len() - 1].contains(['(', ')']));
+        let name = &line[6..line.len() - "  D=3.175 CR=0 SD=3.175 - flat end mill)".len()];
+        assert!(!name.contains("  ") && !name.ends_with(' '));
+        assert_eq!(lint(&line), Vec::<String>::new());
     }
 
     #[test]
