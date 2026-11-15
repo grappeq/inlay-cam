@@ -164,15 +164,32 @@ pub enum Inlay {
         /// Thickness of the plug blank, mm.
         #[serde(default = "default_plug_thickness")]
         plug_thickness: f64,
+        /// Cut the finished plug out of a larger board, as one piece.
+        #[serde(default)]
+        cut_out: bool,
+        /// When cutting the plug out, hold it to the board with tabs.
+        #[serde(default)]
+        tabs: bool,
     },
     #[serde(rename_all = "camelCase")]
     Flat {
         pocket_depth: f64,
         /// Total gap between insert and pocket wall, split between the two, mm.
         allowance: f64,
-        /// Hold the insert to its stock with tabs while it is cut out.
+        /// Hold whatever is cut out of the insert board to it with tabs.
         #[serde(default)]
         tabs: bool,
+        /// How the insert is made: loose pieces, or one plug on a backer.
+        #[serde(default)]
+        insert_style: InsertStyle,
+        /// Backer plugs: space between the base board's surface and the
+        /// backer, for sawing it off, mm.
+        #[serde(default = "default_saw_gap")]
+        saw_gap: f64,
+        /// Backer plugs: cut the finished plug out of a larger board, as one
+        /// piece. Loose inserts are always cut out.
+        #[serde(default)]
+        cut_out: bool,
         /// Flat end mills that cut the pocket, in the order they are used.
         /// Each cuts only what those before it left. The smallest sets the
         /// corner radius and cuts the insert out. Files written when an inlay
@@ -187,6 +204,23 @@ pub enum Inlay {
         #[serde(default = "default_plug_margin")]
         insert_margin: f64,
     },
+}
+
+/// How the insert of a flat inlay is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InsertStyle {
+    /// Each shape is cut right out of the insert board as a loose piece,
+    /// the same way up as it goes in.
+    #[default]
+    Loose,
+    /// The shapes are left standing on a shared backer, mirrored, like a
+    /// V-carve plug: glued in face down, then the backer is removed.
+    Backer,
+}
+
+fn default_saw_gap() -> f64 {
+    1.5
 }
 
 /// Reads a list of tool ids, or the single optional id older files have.
@@ -223,6 +257,8 @@ impl Inlay {
             saw_gap: 1.5,
             plug_margin: 8.0,
             plug_thickness: 10.0,
+            cut_out: false,
+            tabs: false,
             clearing_tool_ids: Vec::new(),
             vbit_tool_id: None,
         }
@@ -236,6 +272,9 @@ impl Inlay {
             clearing_tool_ids: Vec::new(),
             insert_thickness: 4.0,
             insert_margin: 8.0,
+            insert_style: InsertStyle::Loose,
+            saw_gap: 1.5,
+            cut_out: false,
         }
     }
 
@@ -300,8 +339,13 @@ impl Inlay {
                 allowance,
                 insert_thickness,
                 insert_margin,
+                saw_gap,
                 ..
             } => {
+                check(
+                    saw_gap.is_finite() && saw_gap >= 0.0,
+                    "saw gap must be 0 or more",
+                )?;
                 check(
                     insert_thickness.is_finite() && insert_thickness > 0.0,
                     "insert board thickness must be greater than 0",
@@ -440,6 +484,8 @@ mod tests {
                         saw_gap: 1.5,
                         plug_margin: 8.0,
                         plug_thickness: 10.0,
+                        cut_out: false,
+                        tabs: false,
                         clearing_tool_ids: vec!["t-endmill".into()],
                         vbit_tool_id: Some("t-vbit".into()),
                     },
@@ -454,8 +500,11 @@ mod tests {
                         allowance: 0.1,
                         tabs: true,
                         clearing_tool_ids: vec!["t-endmill".into()],
-                        insert_thickness: 4.0,
+                        insert_thickness: 8.0,
                         insert_margin: 8.0,
+                        insert_style: InsertStyle::Backer,
+                        saw_gap: 1.0,
+                        cut_out: true,
                     },
                 },
             ],
@@ -508,6 +557,9 @@ mod tests {
             clearing_tool_ids: vec![],
             insert_thickness: 4.0,
             insert_margin: 8.0,
+            insert_style: InsertStyle::Loose,
+            saw_gap: 1.5,
+            cut_out: false,
         };
         assert!(project.validate().is_err());
     }
@@ -522,25 +574,48 @@ mod tests {
         assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
     }
 
-    /// Files from every released format version must keep loading.
+    /// Files from every released format version must keep loading, and
+    /// mean what they meant.
     #[test]
     fn version_1_fixture_loads() {
         let project =
             project_from_file_json(include_str!("../tests/fixtures/project-v1.json")).unwrap();
+        assert_eq!(project, sample());
+    }
+
+    /// A file written while version 1 was still growing: a flat inlay with a
+    /// single `toolId`, and none of the fields added later.
+    #[test]
+    fn early_version_1_fixture_loads_with_defaults() {
+        let project =
+            project_from_file_json(include_str!("../tests/fixtures/project-v1-early.json"))
+                .unwrap();
         assert_eq!(project.name, "Coaster");
         assert_eq!(project.jobs.len(), 2);
         assert_eq!(project.design.as_ref().unwrap().regions.len(), 2);
+        assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
         assert!(matches!(
             project.jobs[1].inlay,
-            Inlay::Flat { tabs: true, .. }
+            Inlay::Flat {
+                tabs: true,
+                insert_style: InsertStyle::Loose,
+                cut_out: false,
+                ..
+            }
         ));
-        // Written when a flat inlay had a single `toolId`.
-        assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
+        assert!(matches!(
+            project.jobs[0].inlay,
+            Inlay::Vcarve {
+                cut_out: false,
+                tabs: false,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn a_flat_inlay_without_a_tool_in_an_old_file_has_an_empty_list() {
-        let text = include_str!("../tests/fixtures/project-v1.json")
+        let text = include_str!("../tests/fixtures/project-v1-early.json")
             .replace("\"toolId\": \"t-endmill\"", "\"toolId\": null");
         assert!(text.contains("\"toolId\": null"));
         let project = project_from_file_json(&text).unwrap();

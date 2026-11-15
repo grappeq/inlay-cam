@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use inlay_core::build;
-use inlay_core::import::{svg, tools_yaml};
+use inlay_core::import::{dxf, svg, tools_yaml};
 use inlay_core::project::{self, Project};
 use inlay_core::tools::{self, Tool};
 use wasm_bindgen::prelude::*;
@@ -37,6 +37,14 @@ pub fn core_version() -> String {
 #[wasm_bindgen(js_name = importSvg)]
 pub fn import_svg(text: &str, source_name: &str) -> Result<String, JsError> {
     svg::import_svg(text, source_name)
+        .map(|v| to_json(&v))
+        .map_err(err)
+}
+
+/// Imports a DXF drawing (text form). Returns `SvgImport` as JSON.
+#[wasm_bindgen(js_name = importDxf)]
+pub fn import_dxf(text: &str, source_name: &str) -> Result<String, JsError> {
+    dxf::import_dxf(text, source_name)
         .map(|v| to_json(&v))
         .map_err(err)
 }

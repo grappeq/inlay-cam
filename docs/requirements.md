@@ -33,7 +33,8 @@ licence choice stays open.
   controller does those).
 
 ### Design input
-- SVG import; place, scale and mirror in the app. No drawing or text tools.
+- SVG import, and DXF import (added later at the user's request; text DXF only); place,
+  scale and mirror in the app. No drawing or text tools.
 - The user selects which shapes of the design become inlays. Each selection is cut as its
   own pocket + plug job, so several selections can use different materials.
 
@@ -100,7 +101,6 @@ licence choice stays open.
   and material.
 - Output profiles for other controllers: GRBL, LinuxCNC, Mach.
 - Carvera (C1) tool-rack support: tool numbers T1-T6 mapped to rack slots.
-- DXF import.
 - In-app drawing and text (fonts to outlines).
 - Sequenced multi-colour workflows: inlay into inlay, re-flattening between colours,
   shared boundaries between two inlay materials.

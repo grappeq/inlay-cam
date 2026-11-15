@@ -3,6 +3,9 @@
   "formatVersion": 1,
   "kind": "project",
   "project": {
+    "base": {
+      "thickness": 18.0
+    },
     "design": {
       "height": 100.0,
       "mirror": false,
@@ -80,9 +83,13 @@
           "clearingToolIds": [
             "t-endmill"
           ],
+          "cutOut": false,
           "engagementDepth": 3.0,
           "glueGap": 0.3,
+          "plugMargin": 8.0,
+          "plugThickness": 10.0,
           "sawGap": 1.5,
+          "tabs": false,
           "type": "vcarve",
           "vbitToolId": "t-vbit"
         },
@@ -96,9 +103,16 @@
         "id": "j2",
         "inlay": {
           "allowance": 0.1,
+          "clearingToolIds": [
+            "t-endmill"
+          ],
+          "cutOut": true,
+          "insertMargin": 8.0,
+          "insertStyle": "backer",
+          "insertThickness": 8.0,
           "pocketDepth": 2.5,
+          "sawGap": 1.0,
           "tabs": true,
-          "toolId": "t-endmill",
           "type": "flat"
         },
         "material": "softwood",

@@ -3,6 +3,7 @@ import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
+import { partName } from "./components/OutputPanel";
 import { StartGuide } from "./components/StartGuide";
 import { ToolsView } from "./components/ToolsView";
 import { Viewer3D } from "./components/Viewer3D";
@@ -48,7 +49,7 @@ function Shell() {
       <Header />
       <NoticeBar />
       {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <ToolsView />}
-      {dragging && <div className="drop-hint">Drop an SVG drawing, a project or tool file, or tools.yaml</div>}
+      {dragging && <div className="drop-hint">Drop an SVG or DXF drawing, a project or tool file, or tools.yaml</div>}
     </div>
   );
 }
@@ -80,7 +81,7 @@ function DesignView() {
           <nav className="tabs stage-tabs" aria-label="What to look at">
             {tab("drawing", "Drawing")}
             {pocket && tab("pocket", "Pocket in 3D")}
-            {plug && tab("plug", `${job.inlay.type === "vcarve" ? "Plug" : "Insert"} in 3D`)}
+            {plug && tab("plug", `${partName("plug", job).replace(/^./, (c) => c.toUpperCase())} in 3D`)}
             {fit && tab("fit", "Fit")}
           </nav>
         )}

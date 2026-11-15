@@ -3,20 +3,21 @@
 A web app that generates CNC toolpaths for wooden inlays (V-carve and flat pocket),
 writes G-code for the Carvera Community Firmware, and simulates the result.
 
-Status: milestone 8 (review of the screens). One button generates both parts of an
-inlay, with one or several end mills used in order, and checks how they fit. V-carve inlays have a simulated fit check; flat inlays a 2D one. See
-[docs/requirements.md](docs/requirements.md), [docs/plan.md](docs/plan.md) and
-[docs/formats.md](docs/formats.md).
+Status: all planned milestones are built and checked in simulation; nothing has been cut
+on the machine yet. To use the app, read [docs/guide.md](docs/guide.md). For what it is
+meant to do and how it is built, see [docs/requirements.md](docs/requirements.md),
+[docs/plan.md](docs/plan.md) and [docs/formats.md](docs/formats.md).
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `crates/inlay-core` | Rust core: geometry, data model, file formats, importers; toolpaths, G-code and simulation later |
+| `crates/inlay-core` | Rust core: geometry, data model, file formats, SVG and DXF import, toolpaths, G-code, simulation and fit check |
 | `crates/inlay-wasm` | WebAssembly wrapper around the core |
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
-| `docs` | Requirements, plan and file formats |
+| `docs` | User guide, requirements, plan and file formats |
+| `tools` | The script that writes the test drawings |
 
 ## Setup
 

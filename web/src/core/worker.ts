@@ -9,6 +9,7 @@ const ready = init();
 const api: CoreApi = {
   coreVersion: () => wasm.coreVersion(),
   importSvg: (text, sourceName) => JSON.parse(wasm.importSvg(text, sourceName)),
+  importDxf: (text, sourceName) => JSON.parse(wasm.importDxf(text, sourceName)),
   importToolsYaml: (text) => JSON.parse(wasm.importToolsYaml(text)),
   projectFromFile: (text) => JSON.parse(wasm.projectFromFile(text)),
   projectToFile: (project) => wasm.projectToFile(JSON.stringify(project)),

@@ -18,11 +18,12 @@ export function useFileActions() {
   const summary = (name: string, added: number, updated: number) => `${name}: ${added} added, ${updated} updated.`;
 
   async function importSvg(file: TextFile) {
-    const { design, report } = await core.call("importSvg", file.text, file.name);
+    const dxf = file.name.toLowerCase().endsWith(".dxf");
+    const { design, report } = await core.call(dxf ? "importDxf" : "importSvg", file.text, file.name);
     dispatch({ type: "setView", view: "design" });
     if (design.regions.length === 0) {
       dispatch({ type: "setImportReport", report });
-      throw new Error(`No closed shapes were found in ${file.name}. An inlay needs filled shapes or closed outlines.`);
+      throw new Error(`No closed shapes were found in ${file.name}. An inlay needs filled shapes, or lines that join into closed outlines.`);
     }
     const hadJobs = project.jobs.length > 0;
     // A new drawing has new shapes, so inlays made from the old one cannot be kept.
@@ -62,7 +63,7 @@ export function useFileActions() {
   /** Works out what a file is from its name and content, and brings it in. */
   async function importAny(file: TextFile) {
     const name = file.name.toLowerCase();
-    if (name.endsWith(".svg")) return importSvg(file);
+    if (name.endsWith(".svg") || name.endsWith(".dxf")) return importSvg(file);
     if (name.endsWith(".yaml") || name.endsWith(".yml")) return importToolsYaml(file);
     if (name.endsWith(".json")) {
       let kind: unknown;
@@ -73,7 +74,7 @@ export function useFileActions() {
       }
       return kind === "tool-library" ? importToolLibrary(file) : openProject(file);
     }
-    throw new Error(`${file.name} is not a file this app reads. It takes SVG drawings, project and tool files (.json) and tools.yaml.`);
+    throw new Error(`${file.name} is not a file this app reads. It takes SVG and DXF drawings, project and tool files (.json) and tools.yaml.`);
   }
 
   /** Wraps an action so that a failure is shown to the user. */

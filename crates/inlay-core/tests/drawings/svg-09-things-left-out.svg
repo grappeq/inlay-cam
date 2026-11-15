@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="80mm" viewBox="0 0 100 80">
+  <defs><rect id="unused" width="50" height="50" fill="red"/></defs>
+  <rect x="10" y="10" width="20" height="10" fill="#000"/>
+  <rect x="50" y="10" width="20" height="10" fill="#000" display="none"/>
+  <rect x="50" y="30" width="20" height="10" fill="none"/>
+  <rect x="10" y="40" width="0.05" height="0.05" fill="#000"/>
+  <text x="10" y="70" font-size="8">Not outlines</text>
+  <image x="60" y="50" width="10" height="10" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="/>
+</svg>

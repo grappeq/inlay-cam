@@ -28,7 +28,7 @@ export function StartGuide() {
     <main className="start">
       <h1>From a drawing to two files that fit</h1>
       <p className="start-lead">
-        This app turns the shapes of an SVG drawing into G-code for a Carvera Air: one file for the pocket, one for the piece that fills it. It
+        This app turns the shapes of an SVG or DXF drawing into G-code for a Carvera Air: one file for the pocket, one for the piece that fills it. It
         simulates both before you cut.
       </p>
       <ol className="steps">
@@ -47,11 +47,14 @@ export function StartGuide() {
         </li>
         <li>
           <h2>Bring in a drawing</h2>
-          <p>An SVG with filled shapes or closed outlines. Convert text to outlines first. You can also drop the file anywhere on this window.</p>
+          <p>
+            An SVG or DXF file with filled shapes, or lines that join into closed outlines. Convert text to outlines first. You can also drop the
+            file anywhere on this window.
+          </p>
           {importReport && <ReportNotes report={importReport} />}
           <div className="row start-actions">
             <button className={tools.length > 0 ? "primary" : ""} onClick={importSvg}>
-              Import SVG…
+              Import drawing…
             </button>
             <button onClick={trySample}>Try the sample drawing</button>
           </div>

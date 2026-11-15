@@ -10,7 +10,7 @@ import { GenerateBar, Results, useOutput } from "./OutputPanel";
 
 export function useImportSvg() {
   const { importSvg } = useFileActions();
-  return async () => importSvg(await pickTextFile(".svg,image/svg+xml"));
+  return async () => importSvg(await pickTextFile(".svg,.dxf,image/svg+xml"));
 }
 
 /** The panel beside the drawing: the drawing and its inlays, or the one inlay being worked on. */
@@ -35,8 +35,12 @@ export function ReportNotes({ report }: { report: ImportReport }) {
   if (report.openOutlines > 0) {
     const one = report.openOutlines === 1;
     notes.push(
-      `${report.openOutlines} outline${one ? " does" : "s do"} not close and ${one ? "was" : "were"} left out. An inlay needs closed shapes: join the lines into closed paths in the drawing program.`,
+      `${report.openOutlines} outline${one ? " does" : "s do"} not close and ${one ? "was" : "were"} left out. Lines are joined where their ends meet within 0.01 mm; close the gaps in the drawing program.`,
     );
+  }
+  if (report.unitNote) notes.push(`The drawing's unit: ${report.unitNote}. Check the size below.`);
+  if (report.unsupported.length > 0) {
+    notes.push(`Left out, because the app does not read ${report.unsupported.length === 1 ? "it" : "them"}: ${report.unsupported.join(", ")}.`);
   }
   if (report.hasText) notes.push("The drawing contains text, which was left out. Convert it to outlines first.");
   if (report.images > 0) notes.push(`${report.images} embedded image${report.images === 1 ? " was" : "s were"} left out.`);
@@ -105,7 +109,7 @@ function DrawingSection({ design, report, onReplace }: { design: Design; report:
             if (project.jobs.length === 0 || confirm("Replace the drawing? The inlays made from this one will be removed.")) onReplace();
           }}
         >
-          Replace with another SVG…
+          Replace the drawing…
         </button>
       </details>
     </section>
@@ -247,12 +251,14 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
             <>
               <div className="row">
                 <NumberField label="Pocket depth" unit="mm" min={0.01} value={inlay.pocketDepth} onChange={(v) => v !== undefined && setInlay({ pocketDepth: v })} />
-                <NumberField label="Insert thickness" unit="mm" min={0.01} value={inlay.insertThickness} onChange={(v) => v !== undefined && setInlay({ insertThickness: v })} />
+                <NumberField label={inlay.insertStyle === "backer" ? "Plug board" : "Insert thickness"} unit="mm" min={0.01} value={inlay.insertThickness} onChange={(v) => v !== undefined && setInlay({ insertThickness: v })} />
                 <NumberField label="Fit allowance" unit="mm" value={inlay.allowance} onChange={(v) => v !== undefined && setInlay({ allowance: v })} />
               </div>
               <p className="hint">
-                The allowance is the gap all round: half comes off the insert, half is added to the pocket. The insert is cut right through a board of
-                the thickness given.
+                The allowance is the gap all round: half comes off the insert, half is added to the pocket.{" "}
+                {inlay.insertStyle === "backer"
+                  ? "The plug board must be thicker than the pocket depth plus the saw gap, so that a backer is left."
+                  : "The insert is cut right through a board of the thickness given."}
               </p>
             </>
           )}
@@ -314,7 +320,7 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
 
         <section>
           <details className="more">
-            <summary>{inlay.type === "vcarve" ? "Plug blank" : "Insert board"}</summary>
+            <summary>{inlay.type === "vcarve" ? "Plug blank and cut-out" : "Insert: pieces or plug, board, cut-out"}</summary>
             {inlay.type === "vcarve" ? (
               <div className="row">
                 <NumberField label="Thickness" unit="mm" min={0.01} value={inlay.plugThickness} onChange={(v) => v !== undefined && setInlay({ plugThickness: v })} />
@@ -322,18 +328,68 @@ function JobEditor({ job, index }: { job: Job; index: number }) {
               </div>
             ) : (
               <>
-                <NumberField label="Margin" unit="mm" min={0.01} value={inlay.insertMargin} onChange={(v) => v !== undefined && setInlay({ insertMargin: v })} />
-                <label className="check">
-                  <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
-                  Hold the insert with tabs
+                <label className="field">
+                  <span className="field-label">The insert is made as</span>
+                  <select value={inlay.insertStyle} onChange={(e) => {
+                      const insertStyle = e.target.value as "loose" | "backer";
+                      // A plug needs board left over as its backer: make sure there is some.
+                      const needed = Math.ceil(inlay.pocketDepth + inlay.sawGap + 3);
+                      setInlay(insertStyle === "backer" && inlay.insertThickness < needed ? { insertStyle, insertThickness: needed } : { insertStyle });
+                    }}
+                  >
+                    <option value="loose">Loose pieces, cut right through the board</option>
+                    <option value="backer">One plug: the shapes on a shared backer</option>
+                  </select>
+                  <span className="hint">
+                    {inlay.insertStyle === "loose"
+                      ? "Each shape becomes its own piece, the same way up as it goes in."
+                      : "The shapes stay together on a backer, mirrored. Glue the plug in face down, then saw or plane the backer off."}
+                  </span>
                 </label>
-                <p className="hint">Tabs keep the insert attached to its board until you cut it free. Without them, hold it down with tape.</p>
+                <div className="row">
+                  <NumberField label="Margin" unit="mm" min={0.01} value={inlay.insertMargin} onChange={(v) => v !== undefined && setInlay({ insertMargin: v })} />
+                  {inlay.insertStyle === "backer" && (
+                    <NumberField label="Saw gap" unit="mm" value={inlay.sawGap} onChange={(v) => v !== undefined && setInlay({ sawGap: v })} />
+                  )}
+                </div>
               </>
             )}
-            <p className="hint">
-              The {inlay.type === "vcarve" ? "plug blank" : "insert board"} is the shapes' outer size plus the margin on every side. Its exact size
-              is given with the file.
-            </p>
+            {(() => {
+              const plug = inlay.type === "vcarve" || inlay.insertStyle === "backer";
+              const piece = plug ? "plug" : "inserts";
+              return (
+                <>
+                  {plug && (
+                    <label className="check">
+                      <input type="checkbox" checked={inlay.cutOut} onChange={(e) => setInlay({ cutOut: e.target.checked })} />
+                      Cut the plug out of a larger board
+                    </label>
+                  )}
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={inlay.tabs}
+                      disabled={plug && !inlay.cutOut}
+                      onChange={(e) => setInlay({ tabs: e.target.checked })}
+                    />
+                    Hold the {piece} with tabs while cutting {plug ? "it" : "them"} out
+                  </label>
+                  <p className="hint">
+                    {plug
+                      ? inlay.cutOut
+                        ? "The whole plug is cut out as one piece, round the edge of its blank, after it is carved. An end mill long enough to go through the board is needed."
+                        : "The file carves the plug into a blank cut to size beforehand: the shapes' outer size plus the margin on every side."
+                      : "The insert board is the shapes' outer size plus the margin on every side."}{" "}
+                    {inlay.tabs && (!plug || inlay.cutOut)
+                      ? "Tabs keep the wood attached until you cut it free."
+                      : !plug || inlay.cutOut
+                        ? "Without tabs it comes loose on the last pass: hold it down with tape."
+                        : ""}{" "}
+                    The exact board size is given with the file.
+                  </p>
+                </>
+              );
+            })()}
           </details>
         </section>
 

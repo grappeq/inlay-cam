@@ -7,7 +7,7 @@ import { downloadText } from "../util/files";
 
 /** What the second part of an inlay is called: a plug for a V-carve inlay, an insert for a flat one. */
 export function partName(part: Part, job: Job): string {
-  return part === "pocket" ? "pocket" : job.inlay.type === "vcarve" ? "plug" : "insert";
+  return part === "pocket" ? "pocket" : job.inlay.type === "vcarve" || job.inlay.insertStyle === "backer" ? "plug" : "insert";
 }
 
 function capital(text: string): string {
@@ -164,7 +164,7 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
           <header className="card-head">
             <h4>Fit</h4>
           </header>
-          <FlatFitNumbers fit={flatFit} />
+          <FlatFitNumbers fit={flatFit} backer={job.inlay.type === "flat" && job.inlay.insertStyle === "backer"} />
         </section>
       )}
     </div>
@@ -175,7 +175,9 @@ function PartCard(props: { name: string; job: Job; preview: PocketPreview; stale
   const { preview, name } = props;
   const { built } = preview;
   const tools = built.stats.perTool;
-  const board = built.part === "pocket" ? "Base board" : props.job.inlay.type === "vcarve" ? "Plug blank" : "Insert board";
+  const inlay = props.job.inlay;
+  const board =
+    built.part === "pocket" ? "Base board" : inlay.cutOut ? "Board, at least" : inlay.type === "vcarve" ? "Plug blank" : inlay.insertStyle === "backer" ? "Plug blank" : "Insert board";
   return (
     <section className="card">
       <header className="card-head">
@@ -207,7 +209,7 @@ function PartCard(props: { name: string; job: Job; preview: PocketPreview; stale
         </dd>
         <dt>Time</dt>
         <dd>
-          about {formatMinutes(built.stats.minutes)}, plus {tools.length === 1 ? "loading the tool" : `${tools.length} tool changes`}
+          about {formatMinutes(built.stats.minutes)}, plus {built.stats.toolChanges === 1 ? "loading the tool" : `${built.stats.toolChanges} tool changes`}
         </dd>
         <dt>{tools.length === 1 ? "Tool" : "Tools"}</dt>
         <dd>
@@ -261,9 +263,13 @@ function FitNumbers({ check }: { check: FitCheck }) {
         : `${mm(-r.proud)} mm lower than designed`;
   // A gap under a tenth of a millimetre is a hairline that glue and sanding dust fill.
   const seated = Math.abs(r.proud) < 0.03 && r.pressOverlap < 0.05 && check.problems === 0;
+  // Held off by a little wood in a few places, as the bit's tip flat leaves in sharp corners.
+  const pressesHome = check.problems === 0 && r.proud > 0 && r.pressOverlap < 0.2 && r.pressOverlapArea < 3;
   const good = seated && r.voidWidth < 0.1;
   const verdict = !seated
-    ? "The plug does not seat as designed. Check the numbers below."
+    ? pressesHome
+      ? `The plug seats once pressed: up to ${mm(r.pressOverlap)} mm of wood has to give, over ${mm(r.pressOverlapArea)} mm² in all. Sharp corners do this when the V-bit's tip is not a true point.`
+      : "The plug does not seat as designed. Check the numbers below."
     : r.voidArea < 0.005
       ? "The plug seats as designed, with no visible gaps."
       : good
@@ -301,7 +307,7 @@ function FitNumbers({ check }: { check: FitCheck }) {
   );
 }
 
-function FlatFitNumbers({ fit }: { fit: NonNullable<PocketPreview["built"]["flatFit"]> }) {
+function FlatFitNumbers({ fit, backer }: { fit: NonNullable<PocketPreview["built"]["flatFit"]>; backer: boolean }) {
   const even = Math.abs(fit.gapMax - fit.gapMin) < 0.02;
   return (
     <dl className="stats">
@@ -313,8 +319,8 @@ function FlatFitNumbers({ fit }: { fit: NonNullable<PocketPreview["built"]["flat
             ? `${mm(fit.gapMin)} mm all round`
             : `${mm(fit.gapMin)} to ${mm(fit.gapMax)} mm`}
       </dd>
-      <dt>Insert stands</dt>
-      <dd>{fit.proud < 0.005 ? "flush with the surface" : `${mm(fit.proud)} mm above the surface`}</dd>
+      <dt>{backer ? "Backer sits" : "Insert stands"}</dt>
+      <dd>{fit.proud < 0.005 ? (backer ? "on the surface" : "flush with the surface") : `${mm(fit.proud)} mm above the surface`}</dd>
       <dt>Against the drawing</dt>
       <dd>
         {fit.removedArea + fit.addedArea < 0.05

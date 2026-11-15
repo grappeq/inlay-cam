@@ -11,6 +11,9 @@ use super::{ring_area, Region, Ring};
 /// Largest allowed gap between a true arc and the polyline that replaces it, in mm.
 pub const ARC_TOLERANCE: f64 = 0.005;
 
+/// A region smaller than this is rounding, not wood. mm².
+const SCRAP_AREA: f64 = 1e-6;
+
 /// Offsets `regions` by `delta` mm with round joins: positive grows, negative
 /// shrinks. Regions that vanish are dropped; regions that split or merge come
 /// back as the resulting separate regions.
@@ -18,8 +21,27 @@ pub fn offset(regions: &[Region], delta: f64) -> Vec<Region> {
     if delta == 0.0 {
         return regions.to_vec();
     }
-    let shapes: Vec<Vec<Ring>> = regions.iter().map(oriented).collect();
     let radius = delta.abs();
+    // A region narrower than twice the distance cannot survive shrinking.
+    // Leaving it to the offset proper is correct but very slow: its outline
+    // turns inside out and every side crosses every other.
+    let survives = |region: &&Region| {
+        if delta > 0.0 {
+            return true;
+        }
+        let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+        for p in &region.outer {
+            for k in 0..2 {
+                low[k] = low[k].min(p[k]);
+                high[k] = high[k].max(p[k]);
+            }
+        }
+        (high[0] - low[0]).min(high[1] - low[1]) > 2.0 * radius
+    };
+    let shapes: Vec<Vec<Ring>> = regions.iter().filter(survives).map(oriented).collect();
+    if shapes.is_empty() {
+        return Vec::new();
+    }
     // The join parameter is segment length / radius; pick it from the chord error.
     let step = 2.0 * (1.0 - (ARC_TOLERANCE / radius).min(1.0)).acos();
     let style = OutlineStyle::new(delta).line_join(LineJoin::Round(step.max(0.01)));
@@ -31,6 +53,9 @@ pub fn offset(regions: &[Region], delta: f64) -> Vec<Region> {
             let outer = shape.remove(0);
             Region::with_holes(outer, shape)
         })
+        // Rounding leaves the odd sliver of a few points and no area behind,
+        // most often on outlines made of very many short pieces.
+        .filter(|region| region.area() > SCRAP_AREA)
         .collect()
 }
 
@@ -79,6 +104,21 @@ mod tests {
             (area - expected).abs() < 0.05,
             "area {area}, expected {expected}"
         );
+    }
+
+    #[test]
+    fn closing_a_many_sided_outline_leaves_no_slivers() {
+        // A circle of 1200 short sides, as a flattened spline gives.
+        let ring: Ring = (0..1200)
+            .map(|i| {
+                let a = i as f64 / 1200.0 * std::f64::consts::TAU;
+                [20.0 + 15.0 * a.cos(), 20.0 + 15.0 * a.sin()]
+            })
+            .collect();
+        let shrunk = offset(&[Region::new(ring)], -0.05);
+        let closed = close(&shrunk, 1.5875);
+        assert_eq!(closed.len(), 1);
+        assert!(closed[0].area() > 700.0);
     }
 
     #[test]

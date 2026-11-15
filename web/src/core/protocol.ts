@@ -6,6 +6,8 @@ import type { FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolsYaml
 export interface CoreApi {
   coreVersion(): string;
   importSvg(text: string, sourceName: string): SvgImport;
+  /** Reads a DXF drawing in its text form. */
+  importDxf(text: string, sourceName: string): SvgImport;
   importToolsYaml(text: string): ToolsYamlImport;
   /** Reads a project file of any supported format version. */
   projectFromFile(text: string): Project;

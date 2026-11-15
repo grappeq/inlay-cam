@@ -84,6 +84,40 @@ export function InlayDiagram({ inlay, halfAngle }: { inlay: Inlay; halfAngle: nu
     );
   }
 
+  if (inlay.insertStyle === "backer") {
+    const k = 56 / Math.max(inlay.pocketDepth + inlay.sawGap, 0.1);
+    const backer = 14;
+    const yBacker = 6 + backer;
+    const saw = Math.max(inlay.sawGap * k, inlay.sawGap > 0 ? 5 : 0);
+    const depth = Math.max(inlay.pocketDepth * k, 8);
+    const y0 = yBacker + saw;
+    const yFloor = y0 + depth;
+    const yBottom = yFloor + 14;
+    const half = 48;
+    const gap = inlay.allowance > 0 ? 3 : 0;
+    const base = `M${left} ${y0}H${middle - half}V${yFloor}H${middle + half}V${y0}H${right}V${yBottom}H${left}Z`;
+    const plug = `M${left + 10} 6H${right - 10}V${yBacker}H${middle + half - gap}V${yFloor}H${middle - half + gap}V${yBacker}H${left + 10}Z`;
+    return (
+      <figure className="diagram">
+        <svg viewBox={`0 0 300 ${yBottom + 4}`} role="img" aria-label="Cross-section: the plug on its backer sitting in the pocket">
+          <path className="wood-base" d={base} />
+          <path className="wood-plug" d={plug} />
+          <Dimensions
+            x={dimX}
+            items={[
+              { from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
+              { from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
+            ]}
+          />
+        </svg>
+        <figcaption>
+          Plug (dark) glued in face down, {fmt(inlay.allowance / 2)} mm clear on each side. Its backer is sawn or planed off afterwards. The plug
+          is cut {fmt(inlay.pocketDepth + inlay.sawGap)} mm deep into a {fmt(inlay.insertThickness)} mm board. Not to scale.
+        </figcaption>
+      </figure>
+    );
+  }
+
   const k = 46 / Math.max(inlay.pocketDepth, inlay.insertThickness, 0.1);
   const depth = Math.max(inlay.pocketDepth * k, 6);
   const thickness = Math.max(inlay.insertThickness * k, 6);

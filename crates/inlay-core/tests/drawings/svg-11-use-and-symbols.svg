@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100mm" height="80mm" viewBox="0 0 100 80">
+  <defs><rect id="tile" width="12" height="12" fill="#246"/></defs>
+  <use href="#tile" x="10" y="10"/>
+  <use href="#tile" x="40" y="10"/>
+  <use href="#tile" x="70" y="10" transform="rotate(45 76 16)"/>
+</svg>

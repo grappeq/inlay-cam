@@ -12,8 +12,8 @@ export function newProject(name = "Untitled inlay"): Project {
 
 export function defaultInlay(type: Inlay["type"]): Inlay {
   return type === "vcarve"
-    ? { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10 }
-    : { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8 };
+    ? { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true }
+    : { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
 }
 
 export function newJob(type: Inlay["type"], regionIds: number[], existing: Job[]): Job {

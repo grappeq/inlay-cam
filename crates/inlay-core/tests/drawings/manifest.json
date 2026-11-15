@@ -1,0 +1,190 @@
+[
+  {
+    "file": "svg-01-basic-shapes.svg",
+    "regions": 5,
+    "area": 2077.416,
+    "page": [
+      100,
+      80
+    ],
+    "build": "all"
+  },
+  {
+    "file": "svg-02-pixels-no-viewbox.svg",
+    "regions": 1,
+    "area": 645.16,
+    "page": [
+      100.0125,
+      50.00625
+    ],
+    "build": "all"
+  },
+  {
+    "file": "svg-03-inches-viewbox.svg",
+    "regions": 1,
+    "area": 645.16,
+    "page": [
+      101.6,
+      50.8
+    ]
+  },
+  {
+    "file": "svg-04-transforms.svg",
+    "regions": 3,
+    "area": 478.54
+  },
+  {
+    "file": "svg-05-path-commands.svg",
+    "regions": 4,
+    "area": 2777.466,
+    "tolerance": 0.002
+  },
+  {
+    "file": "svg-06-fill-rules.svg",
+    "regions": 7,
+    "area": 2400
+  },
+  {
+    "file": "svg-07-outlines-nested.svg",
+    "regions": 3,
+    "area": 2400,
+    "build": "all",
+    "simulate": true
+  },
+  {
+    "file": "svg-08-separate-segments.svg",
+    "regions": 1,
+    "area": 378.54,
+    "open": 1,
+    "build": "all"
+  },
+  {
+    "file": "svg-09-things-left-out.svg",
+    "regions": 1,
+    "area": 200,
+    "has_text": true,
+    "images": 1,
+    "specks": 1
+  },
+  {
+    "file": "svg-10-style-sheet-no-size.svg",
+    "regions": 2,
+    "area": 701.902,
+    "page": [
+      74.99879166666666,
+      37.49939583333333
+    ]
+  },
+  {
+    "file": "svg-11-use-and-symbols.svg",
+    "regions": 3,
+    "area": 432
+  },
+  {
+    "file": "svg-12-inkscape-layers.svg",
+    "regions": 2,
+    "area": 1353.982,
+    "build": "all"
+  },
+  {
+    "file": "svg-13-thin-letters.svg",
+    "regions": 3,
+    "area": 114.355
+  },
+  {
+    "file": "svg-14-full-bed.svg",
+    "regions": 40,
+    "area": 18727.787,
+    "page": [
+      290,
+      190
+    ]
+  },
+  {
+    "file": "dxf-01-lines-and-arcs.dxf",
+    "regions": 2,
+    "area": 1114.159,
+    "page": [
+      70,
+      30
+    ],
+    "unit": "no unit",
+    "build": "all",
+    "simulate": true
+  },
+  {
+    "file": "dxf-02-polylines-with-bulges.dxf",
+    "regions": 2,
+    "area": 1178.54,
+    "page": [
+      80,
+      30
+    ],
+    "build": "all"
+  },
+  {
+    "file": "dxf-03-circles-and-ellipse.dxf",
+    "regions": 3,
+    "area": 1335.177
+  },
+  {
+    "file": "dxf-04-splines.dxf",
+    "regions": 2,
+    "area": 1486.856,
+    "tolerance": 0.002,
+    "build": "all"
+  },
+  {
+    "file": "dxf-05-inches.dxf",
+    "regions": 1,
+    "area": 2580.64,
+    "page": [
+      60.8,
+      60.8
+    ],
+    "unit": "inches"
+  },
+  {
+    "file": "dxf-06-things-left-out.dxf",
+    "regions": 1,
+    "area": 400,
+    "open": 1,
+    "has_text": true,
+    "unsupported": [
+      "HATCH",
+      "INSERT"
+    ]
+  },
+  {
+    "file": "dxf-07-old-polylines.dxf",
+    "regions": 2,
+    "area": 514.159,
+    "unit": "no unit"
+  },
+  {
+    "file": "dxf-08-mirrored-arc.dxf",
+    "regions": 1,
+    "area": 78.54
+  },
+  {
+    "file": "dxf-09-centimetres-crlf.dxf",
+    "regions": 1,
+    "area": 600,
+    "unit": "centimetres",
+    "page": [
+      40,
+      30
+    ]
+  },
+  {
+    "file": "dxf-10-coaster-sketch.dxf",
+    "regions": 8,
+    "area": 6082.123,
+    "page": [
+      98,
+      98
+    ],
+    "build": "all",
+    "simulate": true
+  }
+]

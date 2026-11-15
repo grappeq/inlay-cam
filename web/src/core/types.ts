@@ -58,6 +58,10 @@ export interface VcarveInlay {
   sawGap: number;
   clearingToolIds: string[];
   vbitToolId: string | null;
+  /** Cut the finished plug out of a larger board, as one piece. */
+  cutOut: boolean;
+  /** When cutting the plug out, hold it to the board with tabs. */
+  tabs: boolean;
   /** Width of blank left around the shapes on the plug, mm. */
   plugMargin: number;
   /** Thickness of the plug blank, mm. */
@@ -71,6 +75,12 @@ export interface FlatInlay {
   tabs: boolean;
   /** End mills that cut the pocket, in the order they are used. The smallest cuts the insert out. */
   clearingToolIds: string[];
+  /** Loose pieces cut right through the board, or one mirrored plug on a backer. */
+  insertStyle: "loose" | "backer";
+  /** Backer plugs: space between the surface and the backer, mm. */
+  sawGap: number;
+  /** Backer plugs: cut the finished plug out of a larger board. */
+  cutOut: boolean;
   /** Thickness of the board the insert is cut from, mm. */
   insertThickness: number;
   /** Width of board left around the shapes on the insert board, mm. */
@@ -99,6 +109,10 @@ export interface Project {
 }
 
 export interface ImportReport {
+  /** Kinds of thing in the file that were not read, by the file's own names. */
+  unsupported: string[];
+  /** DXF: the unit the drawing was in, when it was not millimetres. */
+  unitNote: string | null;
   openOutlines: number;
   hasText: boolean;
   images: number;
@@ -124,6 +138,8 @@ export interface BuildStats {
   minutes: number;
   /** Tool names in the order they are loaded. */
   tools: string[];
+  /** How many times a tool is put in the spindle. */
+  toolChanges: number;
   /** What each tool does, in the order they are loaded. */
   perTool: { number: number; name: string; cuttingLength: number; minutes: number }[];
 }

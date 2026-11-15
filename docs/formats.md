@@ -27,6 +27,11 @@ Every file is a JSON object that starts with three fields:
 | `kind` | `project` or `tool-library`. |
 | `formatVersion` | Whole number, starting at 1. Each kind has its own counter. |
 
+Version 1 of both kinds is frozen: `tests/fixtures/project-v1.json` and
+`tool-library-v1.json` in `crates/inlay-core` are files written by the app with every
+field in use, and the tests require every later version of the app to read them back
+unchanged. `project-v1-early.json` is a project written before the later fields existed.
+
 ### Compatibility rule
 
 A file written by any released version of the app opens in every later version.
@@ -180,6 +185,8 @@ One inlay: a pocket and its matching plug or insert.
 | `vbitToolId` | The V-bit, or `null` when not chosen yet. |
 | `plugMargin` | Width of blank left around the shapes on the plug. Greater than 0. Default 8. The plug blank is the shapes' bounding box grown by this on every side. |
 | `plugThickness` | Thickness of the plug blank. Greater than 0. Default 10. Must exceed engagement depth + saw gap. |
+| `cutOut` | Cut the finished plug out of a larger board as one piece, round the edge of its blank. Default false. Needs an end mill in `clearingToolIds` with cutting edges at least 0.2 mm longer than the board is thick; the largest such is used. The board is then the blank plus that tool's diameter and 5 mm, rounded up to a whole millimetre, on every side. |
+| `tabs` | When cutting the plug out, leave tabs that hold it to the board. Default false. |
 
 `inlay` for a flat pocket inlay:
 
@@ -188,9 +195,12 @@ One inlay: a pocket and its matching plug or insert.
 | `type` | `flat` |
 | `pocketDepth` | Greater than 0. |
 | `allowance` | Gap between insert and pocket wall all round. 0 or more. Half is added to the pocket and half taken off the insert. |
-| `tabs` | Hold the insert to its stock with tabs while it is cut out. Default false. |
+| `tabs` | Leave tabs that hold whatever is cut out of the insert board (the loose inserts, or the plug) to it. Default false. |
+| `insertStyle` | `loose` (default): each shape is cut right through the board as its own piece, the same way up as it goes in. `backer`: the shapes are left standing on a shared backer as one plug, mirrored, to be glued in face down. |
+| `sawGap` | Backer plugs only: space between the base board's surface and the backer. 0 or more. Default 1.5. The plug is cut `pocketDepth` + `sawGap` deep. |
+| `cutOut` | Backer plugs only: cut the finished plug out of a larger board as one piece, as for a V-carve plug. Default false. Loose inserts are always cut out. |
 | `clearingToolIds` | Flat end mills that cut the pocket, in the order they are used. Each cuts only what those before it left. Corners of both parts cannot be sharper than the radius of the smallest, which also cuts the insert out. Files written before inlays took several tools have `toolId` instead (one id or `null`); it is read as a list of one or none. |
-| `insertThickness` | Thickness of the board the insert is cut from. Greater than 0. Default 4. Must be at least `pocketDepth`. |
+| `insertThickness` | Thickness of the board the insert or plug is cut from. Greater than 0. Default 4. Loose inserts: at least `pocketDepth`. Backer plugs: more than `pocketDepth` + `sawGap`. |
 | `insertMargin` | Width of board left around the shapes on the insert board. Greater than 0. Default 8. |
 
 ## SVG import
@@ -207,8 +217,9 @@ Read by `crates/inlay-core/src/import/svg.rs`.
 - A filled path that is not closed is closed, as a fill would paint it.
 - A path with a stroke but no fill, as CAD and DXF exports draw everything, becomes the
   area its closed outlines enclose. An outline counts as closed when the path closes it or
-  it ends within 0.001 mm of its start. Separate lines that only meet at their ends are
-  not joined.
+  it ends within 0.001 mm of its start. Outlines that do not close on their own are joined
+  end to end wherever two ends are within 0.01 mm, in either direction, so a shape drawn
+  as separate lines and arcs is read as one outline.
 - Outlines have no fill to say which side of a line belongs to which shape, so the shapes
   are the areas between the lines: every smaller outline is cut out of each larger one it
   overlaps. A circle drawn around six shapes becomes the web between them.
@@ -217,6 +228,34 @@ Read by `crates/inlay-core/src/import/svg.rs`.
   that has not been converted to outlines, embedded images, and filled areas under
   0.01 mm².
 - Clip paths and masks are ignored: the full shape is imported.
+
+## DXF import
+
+Read by `crates/inlay-core/src/import/dxf.rs`. Only the text (ASCII) form is read.
+
+- Entities read: `LINE`, `ARC`, `CIRCLE`, `ELLIPSE`, `LWPOLYLINE` and old-style
+  `POLYLINE` with their bulges, and `SPLINE` (any degree, with weights; a spline given
+  only by fit points is read as straight runs between them). Arcs and polylines drawn in a
+  mirrored plane (extrusion direction pointing down) are turned the right way.
+- Only the `ENTITIES` section is read. Blocks are not: an `INSERT` is left out and
+  reported, as are `HATCH`, dimensions and anything else not listed above. Text is
+  reported as text.
+- Units come from `$INSUNITS`: inches, feet, millimetres, centimetres and metres. Without
+  it the numbers are taken as millimetres and the import says so.
+- Lines, arcs and curves are joined end to end where their ends are within 0.01 mm, and
+  the shapes are the areas between the closed outlines, exactly as for an SVG drawing
+  made of outlines. Chains that do not close are left out and counted.
+- A DXF file has no page. The base board is the extent of the shapes plus 5 mm on every
+  side, with the work origin at its bottom-left corner.
+- Layers, colours and line types are ignored.
+
+## Test drawings
+
+`crates/inlay-core/tests/drawings` holds 14 SVG and 10 DXF files, each exercising one
+way real files differ, and `manifest.json`, which says what the import of each must find.
+Both are written by `tools/make_test_drawings.py`, which works the expected numbers out
+from the geometry. The tests in `crates/inlay-core/src/import/corpus_tests.rs` import
+every drawing, build every kind of inlay from its largest shapes, and simulate a few.
 
 ## `tools.yaml` import
 

@@ -425,6 +425,42 @@ sample drawing. No feature was removed.
 - Wider set of SVG test files (exports from Fusion, Inkscape, Illustrator and others;
   open paths, overlaps, transforms, units).
 - Documentation, performance on a full-bed job, format fixtures frozen as version 1.
+- Added at the user's request on 2026-11-15: DXF import; a set of generated test files
+  and the app tested against them; both kinds of plug can be cut out of their board as
+  one piece, with or without tabs.
+
+Results (2026-11-15): built and checked in simulation and in the browser; not cut on
+the machine.
+- DXF import (text DXF): lines, arcs, circles, ellipses, polylines with bulges and
+  splines; units from the file; separate pieces joined into closed outlines where their
+  ends meet within 0.01 mm. The same joining now applies to SVG outlines drawn as
+  separate segments. See docs/formats.md.
+- Test drawings: 14 SVG and 10 DXF files with a manifest of what each must import as,
+  both written by `tools/make_test_drawings.py`. All 24 import as expected. From the
+  three largest shapes of each, every kind of inlay is built (over 200 files): each
+  builds, or is refused with a plain reason (the thin letters, for the flat inlay).
+  Three drawings are simulated in full with no problems found.
+- Found and fixed through the test drawings: shrinking then growing an outline made of
+  very many short pieces (a spline) left slivers of no area that stopped a flat insert
+  from being cut out; shrinking a shape by more than its width was correct but very
+  slow.
+- Cut-out: a V-carve plug, or a flat inlay's plug, can be cut out of a larger board as
+  one piece after it is carved, round the edge of its blank, with or without tabs. The
+  largest chosen end mill that is long enough does it and keeps its tool number.
+- Flat inlays have a second way to make the insert: one plug with the shapes standing
+  on a shared backer, mirrored, glued in face down. The loose-pieces way remains.
+- Performance, full bed (290 x 190 mm, 40 shapes, natively compiled; the browser is
+  somewhat slower): 2 to 6 s per file to generate and simulate, 13 s for the flat plug
+  on a backer, whose file is 1.2 million lines because a 3.175 mm tool clears the whole
+  board. The flat pocket took 20 s before the slow shrinking was fixed.
+- File format version 1 is frozen, with fixtures that every later version must read.
+- User guide: docs/guide.md.
+- Known limits: the fit check works on a grid, so gaps and heights under about one cell
+  (0.05 to 0.2 mm, coarser for larger boards) are noise; a V-bit with a tip flat makes
+  a plug with sharp corners ride high by about 0.1 mm until pressed, which the fit
+  check reports; DXF blocks and binary DXF are not read; no arc fitting; no holder or
+  Z-travel checks; inserts are not packed to save wood.
+- Still to do by the user: the air cut in `machine-tests`, and a first real cut.
 
 ## 4. Risks
 

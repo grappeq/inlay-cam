@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="80mm" viewBox="0 0 100 80">
+  <path fill="#555" d="M5 5 H25 V25 H5 Z M10 10 H20 V20 H10 Z"/>
+  <path fill="#555" fill-rule="evenodd" d="M35 5 H55 V25 H35 Z M40 10 H50 V20 H40 Z"/>
+  <path fill="#555" d="M5 40 H25 V60 H5 Z M15 50 H35 V70 H15 Z"/>
+  <rect fill="#555" x="50" y="40" width="20" height="20"/>
+  <rect fill="#777" x="60" y="50" width="20" height="20"/>
+  <polygon fill="#555" fill-rule="evenodd" points="75,5 95,25 95,5 75,25"/>
+</svg>

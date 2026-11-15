@@ -12,6 +12,7 @@ use i_overlay::float::simplify::SimplifyShape;
 use serde::Serialize;
 use usvg::tiny_skia_path::{PathSegment, Point as SkPoint};
 
+use super::join::{join, JOIN_GAP};
 use crate::geom::boolean::difference;
 use crate::geom::{distance, ring_area, Point, Region, Ring};
 use crate::project::{Design, DesignRegion};
@@ -46,6 +47,24 @@ pub struct ImportReport {
     pub images: u32,
     /// Filled areas too small to cut.
     pub specks: u32,
+    /// Kinds of thing in the file that were not read, by the file's own names.
+    pub unsupported: Vec<String>,
+    /// DXF: the unit the drawing was in, when it was not millimetres.
+    pub unit_note: Option<String>,
+}
+
+/// The areas between outlines that carry no fill: every smaller outline is
+/// cut out of each larger one it overlaps.
+pub(crate) fn regions_between_outlines(regions: Vec<DesignRegion>) -> Vec<DesignRegion> {
+    let mut importer = Importer {
+        height_px: 0.0,
+        outlines: vec![true; regions.len()],
+        regions,
+        open: Vec::new(),
+        report: ImportReport::default(),
+    };
+    importer.split_nested_outlines();
+    importer.regions
 }
 
 pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
@@ -57,11 +76,13 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
         height_px,
         regions: Vec::new(),
         outlines: Vec::new(),
+        open: Vec::new(),
         report: ImportReport::default(),
     };
     // Without font support the parser drops text silently, so look for it in the source.
     importer.report.has_text = text.contains("<text");
     importer.group(tree.root());
+    importer.join_open_outlines();
     importer.split_nested_outlines();
 
     Ok(SvgImport {
@@ -82,6 +103,9 @@ struct Importer {
     regions: Vec<DesignRegion>,
     /// For each region, whether it came from an outline without a fill.
     outlines: Vec<bool>,
+    /// Outlines without a fill that do not close on their own. CAD exports
+    /// often draw each line and arc of a shape as a path of its own.
+    open: Vec<Ring>,
     report: ImportReport,
 }
 
@@ -122,12 +146,32 @@ impl Importer {
                 .rings(path)
                 .into_iter()
                 .partition(|(_, closed)| *closed);
-            self.report.open_outlines += open.len() as u32;
+            self.open.extend(open.into_iter().map(|(ring, _)| ring));
             let rings = closed.into_iter().map(|(ring, _)| ring);
             (rings.collect(), color(stroke.paint()), FillRule::EvenOdd)
         } else {
             return;
         };
+        self.add_shapes(rings, color, rule, outline);
+    }
+
+    /// Joins the outlines that do not close on their own end to end. Those
+    /// that close that way become shapes; the rest are reported.
+    fn join_open_outlines(&mut self) {
+        let joined = join(std::mem::take(&mut self.open), JOIN_GAP);
+        self.report.open_outlines += joined.open;
+        for ring in joined.closed {
+            self.add_shapes(vec![ring], None, FillRule::EvenOdd, true);
+        }
+    }
+
+    fn add_shapes(
+        &mut self,
+        rings: Vec<Ring>,
+        color: Option<String>,
+        rule: FillRule,
+        outline: bool,
+    ) {
         if rings.is_empty() {
             return;
         }
@@ -497,7 +541,8 @@ mod tests {
                 open_outlines: 1,
                 has_text: true,
                 images: 0,
-                specks: 1
+                specks: 1,
+                ..ImportReport::default()
             }
         );
     }
