@@ -187,9 +187,11 @@ One inlay: a pocket and its matching plug or insert.
 |---|---|
 | `type` | `flat` |
 | `pocketDepth` | Greater than 0. |
-| `allowance` | Total gap between insert and pocket wall. 0 or more. |
+| `allowance` | Gap between insert and pocket wall all round. 0 or more. Half is added to the pocket and half taken off the insert. |
 | `tabs` | Hold the insert to its stock with tabs while it is cut out. Default false. |
 | `toolId` | The flat end mill, or `null`. Inside corners of both parts cannot be sharper than its radius. |
+| `insertThickness` | Thickness of the board the insert is cut from. Greater than 0. Default 4. Must be at least `pocketDepth`. |
+| `insertMargin` | Width of board left around the shapes on the insert board. Greater than 0. Default 8. |
 
 ## SVG import
 

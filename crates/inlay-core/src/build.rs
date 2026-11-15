@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::{self, Fit, PlugFrame};
 use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
-use crate::geom::offset::{offset, total_area};
+use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
 use crate::ops::clear::{clear, ClearError, ClearParams};
+use crate::ops::profile::{profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{Inlay, Job, Project};
@@ -53,13 +54,35 @@ pub enum Part {
     Plug,
 }
 
-impl Part {
-    fn name(self) -> &'static str {
-        match self {
-            Part::Pocket => "pocket",
-            Part::Plug => "plug",
-        }
+/// What a part of this kind of inlay is called.
+fn part_name(part: Part, inlay: &Inlay) -> &'static str {
+    match (part, inlay) {
+        (Part::Pocket, _) => "pocket",
+        (Part::Plug, Inlay::Vcarve { .. }) => "plug",
+        (Part::Plug, Inlay::Flat { .. }) => "insert",
     }
+}
+
+/// How far past the bottom of its board an insert is cut, so that it comes
+/// free cleanly, mm.
+pub const THROUGH_CUT: f64 = 0.2;
+
+/// How a flat insert and its pocket go together, from the shapes the tool
+/// actually leaves. Lengths in mm, areas in mm².
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlatFit {
+    /// Smallest and largest gap between the insert's edge and the pocket's wall.
+    pub gap_min: f64,
+    pub gap_max: f64,
+    /// Area where the insert would overlap the base board.
+    pub interference_area: f64,
+    /// How far the insert stands above the base board's surface.
+    pub proud: f64,
+    /// Area of the drawing the tool cannot reproduce and leaves out, and
+    /// area it has to add, both before the allowance.
+    pub removed_area: f64,
+    pub added_area: f64,
 }
 
 /// The board a part is cut from. The work origin is its bottom-left corner
@@ -70,6 +93,8 @@ pub struct Stock {
     pub width: f64,
     pub height: f64,
     pub thickness: f64,
+    /// How far below the board's bottom the file cuts on purpose.
+    pub through: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -80,6 +105,12 @@ pub struct Built {
     /// Stretches of the design, as it sits on the base board, too narrow for
     /// the plug to seat. V-carve inlays only.
     pub narrow: Vec<[Point; 2]>,
+    /// Flat inlays: the outline both parts are cut to before the allowance,
+    /// as it sits on the base board: the drawing with every corner the tool
+    /// cannot cut rounded off. One list of points per closed outline.
+    pub cuttable: Vec<Vec<Point>>,
+    /// Flat inlays: how insert and pocket go together.
+    pub flat_fit: Option<FlatFit>,
     pub file_name: String,
     pub gcode: String,
     pub stats: Stats,
@@ -150,12 +181,20 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 ..
             },
         ) => (engagement_depth + saw_gap, *plug_thickness),
-        (Part::Plug, Inlay::Flat { .. }) => {
-            return Err(vec![
-                "The insert of a flat inlay cannot be generated yet.".into()
-            ])
-        }
+        (
+            Part::Plug,
+            Inlay::Flat {
+                insert_thickness, ..
+            },
+        ) => (insert_thickness + THROUGH_CUT, *insert_thickness),
     };
+    // An insert is cut right through its board on purpose.
+    let through = if matches!((part, &job.inlay), (Part::Plug, Inlay::Flat { .. })) {
+        THROUGH_CUT
+    } else {
+        0.0
+    };
+    let name = part_name(part, &job.inlay);
 
     let mut errors: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
@@ -164,7 +203,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     if regions.is_empty() {
         errors.push("The inlay has no shapes. Click shapes in the drawing to add them.".into());
     }
-    if depth >= thickness {
+    if depth >= thickness && through == 0.0 {
         errors.push(match part {
             Part::Pocket => format!(
                 "The pocket is {} mm deep but the base board is only {} mm thick.",
@@ -188,7 +227,44 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         warnings,
     };
     let cut = match (part, &job.inlay) {
-        (_, Inlay::Flat { tool_id, .. }) => flat_pocket(&mut ctx, &regions, tool_id.as_deref()),
+        (
+            Part::Pocket,
+            Inlay::Flat {
+                tool_id,
+                allowance,
+                pocket_depth,
+                insert_thickness,
+                ..
+            },
+        ) => flat_pocket(
+            &mut ctx,
+            &regions,
+            tool_id.as_deref(),
+            *allowance,
+            insert_thickness - pocket_depth,
+        ),
+        (
+            Part::Plug,
+            Inlay::Flat {
+                tool_id,
+                allowance,
+                tabs,
+                pocket_depth,
+                insert_thickness,
+                insert_margin,
+            },
+        ) => flat_insert(
+            &mut ctx,
+            &regions,
+            FlatInsert {
+                allowance: *allowance,
+                tabs: *tabs,
+                pocket_depth: *pocket_depth,
+                thickness: *insert_thickness,
+                margin: *insert_margin,
+            },
+            tool_id.as_deref(),
+        ),
         (
             Part::Pocket,
             Inlay::Vcarve {
@@ -264,6 +340,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     };
     let pocket = cut.pocket;
     let frame = cut.frame;
+    let flat_fit = cut.flat_fit;
+    let cuttable = cut.cuttable;
 
     let (width, height) = cut.board.unwrap_or_else(|| design.placed_size());
     if part == Part::Pocket
@@ -276,7 +354,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     }
 
     let program = Program {
-        name: format!("{} - {} - {}", project.name, job.name, part.name()),
+        name: format!("{} - {} - {}", project.name, job.name, name),
         tools: cut.tools,
         safe_z: SAFE_Z,
         moves: cut.moves,
@@ -311,7 +389,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         if high - low > machine.travel[axis] {
             return Err(vec![format!(
                 "The {} spans {} mm in {name}, more than the {} can travel ({} mm).",
-                part.name(),
+                name,
                 num((high - low).ceil()),
                 machine.name,
                 num(machine.travel[axis])
@@ -325,12 +403,15 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             width,
             height,
             thickness,
+            through,
         },
         narrow,
+        cuttable,
+        flat_fit,
         frame,
         file_name: format!(
             "{}.{}",
-            file_stem(&format!("{} {} {}", project.name, job.name, part.name())),
+            file_stem(&format!("{} {} {}", project.name, job.name, name)),
             carvera::FILE_EXTENSION
         ),
         stats: Stats {
@@ -360,6 +441,7 @@ struct Context<'a> {
 }
 
 /// The moves that cut one part, and the tools they use.
+#[derive(Default)]
 struct Cut {
     tools: Vec<ProgramTool>,
     moves: Vec<Move>,
@@ -368,6 +450,8 @@ struct Cut {
     board: Option<(f64, f64)>,
     /// For a plug: where its blank lies on the base board once turned over.
     frame: Option<PlugFrame>,
+    flat_fit: Option<FlatFit>,
+    cuttable: Vec<Vec<Point>>,
 }
 
 impl<'a> Context<'a> {
@@ -430,21 +514,257 @@ fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64) -> ClearPara
     }
 }
 
+/// The shapes of a flat inlay as an end mill can cut them.
+struct FlatShapes {
+    /// The drawing with every corner the tool cannot cut rounded to its
+    /// radius: inward corners for the pocket's sake, outward ones for the
+    /// insert's. Both parts are cut to this, less the allowance.
+    cuttable: Vec<Region>,
+    /// The pocket: the cuttable shape grown by half the allowance.
+    pocket: Vec<Region>,
+    /// The insert: the cuttable shape shrunk by half the allowance, as the
+    /// tool leaves it.
+    insert: Vec<Region>,
+}
+
+fn flat_shapes(regions: &[Region], radius: f64, allowance: f64) -> FlatShapes {
+    // One shape at a time: closing them together would join shapes that are
+    // closer than the tool is wide, which is a matter for laying the inserts
+    // out, not a reason to change the design.
+    let cuttable: Vec<Region> = regions
+        .iter()
+        .flat_map(|r| open(&close(std::slice::from_ref(r), radius), radius))
+        .collect();
+    let pocket = open(&offset(&cuttable, allowance / 2.0), radius);
+    // Cutting round the outside leaves inward corners rounded once more.
+    let insert: Vec<Region> = offset(&cuttable, -allowance / 2.0)
+        .iter()
+        .flat_map(|r| close(std::slice::from_ref(r), radius))
+        .collect();
+    FlatShapes {
+        cuttable,
+        pocket,
+        insert,
+    }
+}
+
+/// Measures how the insert sits in the pocket and how far both are from the
+/// drawing, and warns about what the user should know.
+fn flat_fit(
+    ctx: &mut Context,
+    regions: &[Region],
+    shapes: &FlatShapes,
+    tool: &Tool,
+    proud: f64,
+) -> FlatFit {
+    let area_outside = |of: &[Region], clip: &[Region]| -> f64 {
+        of.iter()
+            .flat_map(|r| difference(r, clip))
+            .map(|r| r.area())
+            .sum()
+    };
+    let removed_area = area_outside(regions, &shapes.cuttable);
+    let added_area = area_outside(&shapes.cuttable, regions);
+    // Overlap thinner than a hundredth is the rounding of curves, not wood.
+    let interference_area = area_outside(&offset(&shapes.insert, -0.01), &shapes.pocket);
+
+    // Walk the insert's edge and measure to the pocket's wall.
+    let (mut gap_min, mut gap_max) = (f64::INFINITY, f64::NEG_INFINITY);
+    for ring in shapes.insert.iter().flat_map(|r| r.rings()) {
+        for i in 0..ring.len() {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            let steps = (distance(a, b) / 0.5).ceil().max(1.0) as usize;
+            for k in 0..steps {
+                let t = k as f64 / steps as f64;
+                let q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                let to_wall = shapes
+                    .pocket
+                    .iter()
+                    .map(|r| r.distance_to_boundary(q))
+                    .fold(f64::INFINITY, f64::min);
+                let gap = if shapes.pocket.iter().any(|r| r.contains(q)) {
+                    to_wall
+                } else {
+                    -to_wall
+                };
+                gap_min = gap_min.min(gap);
+                gap_max = gap_max.max(gap);
+            }
+        }
+    }
+    if !gap_min.is_finite() {
+        (gap_min, gap_max) = (0.0, 0.0);
+    }
+
+    let wanted = total_area(regions);
+    if removed_area + added_area > 0.002 * wanted {
+        ctx.warnings.push(format!(
+            "The parts cannot follow the drawing exactly: \"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm. {} mm² of the drawing is left out and {} mm² is added. The outline that will be cut is dashed on the drawing.",
+            tool.name,
+            num(tool.diameter / 2.0),
+            num(tool.diameter),
+            num((removed_area * 10.0).round() / 10.0),
+            num((added_area * 10.0).round() / 10.0)
+        ));
+    }
+    if interference_area > 0.01 {
+        ctx.warnings.push(format!(
+            "The insert overlaps the base board by {} mm²: it will not go in without trimming.",
+            num((interference_area * 100.0).round() / 100.0)
+        ));
+    }
+    FlatFit {
+        gap_min,
+        gap_max,
+        interference_area,
+        proud,
+        removed_area,
+        added_area,
+    }
+}
+
+fn outlines(regions: &[Region]) -> Vec<Vec<Point>> {
+    regions.iter().flat_map(|r| r.rings().cloned()).collect()
+}
+
 /// A flat-floored pocket with upright walls, cut with one end mill.
-fn flat_pocket(ctx: &mut Context, regions: &[Region], tool_id: Option<&str>) -> Option<Cut> {
+fn flat_pocket(
+    ctx: &mut Context,
+    regions: &[Region],
+    tool_id: Option<&str>,
+    allowance: f64,
+    proud: f64,
+) -> Option<Cut> {
     let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
     if !ctx.errors.is_empty() {
         return None;
     }
+    let shapes = flat_shapes(regions, tool.diameter / 2.0, allowance);
 
     let number = carvera::FIRST_TOOL_NUMBER;
     let mut path = PathBuilder::new(SAFE_Z);
     path.start_tool(number, cutting.rpm);
-    let pocket = match clear(&mut path, regions, &clear_params(tool, cutting, ctx.depth)) {
-        Ok(pocket) => pocket,
-        Err(ClearError::ToolTooWide) => {
+    let cleared = clear(
+        &mut path,
+        &shapes.pocket,
+        &clear_params(tool, cutting, ctx.depth),
+    );
+    if cleared == Err(ClearError::ToolTooWide) || shapes.insert.is_empty() {
+        ctx.errors.push(format!(
+            "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
+            tool.name,
+            num(tool.diameter)
+        ));
+        return None;
+    }
+    let fit = flat_fit(ctx, regions, &shapes, tool, proud);
+    Some(Cut {
+        tools: vec![ProgramTool {
+            number,
+            tool: tool.clone(),
+        }],
+        moves: path.finish(),
+        pocket: shapes.pocket,
+        flat_fit: Some(fit),
+        cuttable: outlines(&shapes.cuttable),
+        ..Cut::default()
+    })
+}
+
+struct FlatInsert {
+    allowance: f64,
+    tabs: bool,
+    pocket_depth: f64,
+    thickness: f64,
+    margin: f64,
+}
+
+/// The insert of a flat inlay: the shapes, less the allowance, cut right out
+/// of their own board. Not mirrored: it goes into the pocket the way up it
+/// was cut.
+fn flat_insert(
+    ctx: &mut Context,
+    regions: &[Region],
+    insert: FlatInsert,
+    tool_id: Option<&str>,
+) -> Option<Cut> {
+    let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
+    if insert.thickness < insert.pocket_depth {
+        ctx.errors.push(format!(
+            "The insert board is {} mm thick but the pocket is {} mm deep, so the insert would sit below the surface.",
+            num(insert.thickness),
+            num(insert.pocket_depth)
+        ));
+    }
+    let needed = tool.diameter + 1.0;
+    if insert.margin < needed {
+        ctx.errors.push(format!(
+            "The insert margin of {} mm is too small: \"{}\" needs {} mm around the shapes to cut them out.",
+            num(insert.margin),
+            tool.name,
+            num((needed * 10.0).ceil() / 10.0)
+        ));
+    }
+    if !ctx.errors.is_empty() || regions.is_empty() {
+        return None;
+    }
+    let shapes = flat_shapes(regions, tool.diameter / 2.0, insert.allowance);
+    if shapes.insert.is_empty() || shapes.pocket.is_empty() {
+        ctx.errors.push(format!(
+            "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
+            tool.name,
+            num(tool.diameter)
+        ));
+        return None;
+    }
+
+    // The board is the inserts' bounding box plus the margin, with its
+    // bottom-left corner at the work origin.
+    let (mut x0, mut y0, mut x1, mut y1) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for q in shapes.insert.iter().flat_map(|r| r.outer.iter()) {
+        x0 = x0.min(q[0]);
+        y0 = y0.min(q[1]);
+        x1 = x1.max(q[0]);
+        y1 = y1.max(q[1]);
+    }
+    let (width, height) = (x1 - x0 + 2.0 * insert.margin, y1 - y0 + 2.0 * insert.margin);
+    let place = |ring: &Vec<Point>| -> Vec<Point> {
+        ring.iter()
+            .map(|q| [q[0] - (x0 - insert.margin), q[1] - (y0 - insert.margin)])
+            .collect()
+    };
+    let parts: Vec<Region> = shapes
+        .insert
+        .iter()
+        .map(|r| Region::with_holes(place(&r.outer), r.holes.iter().map(place).collect()))
+        .collect();
+
+    let number = carvera::FIRST_TOOL_NUMBER;
+    let mut path = PathBuilder::new(SAFE_Z);
+    path.start_tool(number, cutting.rpm);
+    let params = ProfileParams {
+        tool_diameter: tool.diameter,
+        depth: ctx.depth,
+        stepdown: cutting.stepdown,
+        feed: cutting.feed,
+        plunge: cutting.plunge,
+        tabs: insert.tabs.then_some(Tabs {
+            // A millimetre of wood, or half the board if it is thinner than two.
+            height: THROUGH_CUT + (insert.thickness / 2.0).min(1.0),
+            width: 4.0,
+            spacing: 40.0,
+        }),
+    };
+    let report = match profile(&mut path, &parts, &params) {
+        Ok(report) => report,
+        Err(ProfileError::PartsTooClose) => {
             ctx.errors.push(format!(
-                "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
+                "Some of the shapes are closer together than \"{}\" is wide ({} mm), so their inserts cannot be cut apart where they are drawn. Put them in separate inlays.",
                 tool.name,
                 num(tool.diameter)
             ));
@@ -452,25 +772,54 @@ fn flat_pocket(ctx: &mut Context, regions: &[Region], tool_id: Option<&str>) -> 
         }
     };
 
-    let (wanted, reached) = (total_area(regions), total_area(&pocket));
-    if wanted - reached > 0.005 * wanted {
-        ctx.warnings.push(format!(
-            "The tool cannot reach {} mm² of the shape ({}%): inside corners are rounded to its {} mm radius, and parts narrower than {} mm are left uncut.",
-            num(((wanted - reached) * 10.0).round() / 10.0),
-            num(((wanted - reached) / wanted * 1000.0).round() / 10.0),
-            num(tool.diameter / 2.0),
-            num(tool.diameter)
-        ));
+    let fit = flat_fit(
+        ctx,
+        regions,
+        &shapes,
+        tool,
+        insert.thickness - insert.pocket_depth,
+    );
+    if insert.tabs {
+        let without = report.tabs.iter().filter(|n| **n == 0).count();
+        if without > 0 {
+            ctx.warnings.push(format!(
+                "{} too small for tabs and will come loose on the last pass. Hold {} down with tape.",
+                if parts.len() == 1 {
+                    "The insert is".to_string()
+                } else {
+                    format!("{without} of the {} inserts are", parts.len())
+                },
+                if without == 1 { "it" } else { "them" }
+            ));
+        }
+        if without < parts.len() {
+            ctx.warnings.push(format!(
+                "Tabs {} mm wide and {} mm thick hold each insert to its board: {} in all. Cut them and sand the edge flush before fitting.",
+                num(4.0),
+                num((insert.thickness / 2.0).min(1.0)),
+                report.tabs.iter().sum::<usize>()
+            ));
+        }
+    } else {
+        ctx.warnings.push(
+            "Without tabs the inserts come loose on the last pass. Hold them down with tape or they can be thrown by the tool.".into(),
+        );
     }
+    ctx.warnings.push(format!(
+        "The cut goes {} mm past the bottom of the insert board: put a spoilboard under it.",
+        num(THROUGH_CUT)
+    ));
     Some(Cut {
         tools: vec![ProgramTool {
             number,
             tool: tool.clone(),
         }],
         moves: path.finish(),
-        pocket,
-        board: None,
-        frame: None,
+        pocket: parts,
+        board: Some((width, height)),
+        flat_fit: Some(fit),
+        cuttable: outlines(&shapes.cuttable),
+        ..Cut::default()
     })
 }
 
@@ -611,7 +960,7 @@ fn vcarve_pocket(
         moves: path.finish(),
         pocket: regions.to_vec(),
         board: None,
-        frame: None,
+        ..Cut::default()
     })
 }
 
@@ -705,6 +1054,7 @@ fn vcarve_plug_cut(
             mirror_x: x1 + plug.margin,
             offset_y: y0 - plug.margin,
         }),
+        ..Cut::default()
     })
 }
 
@@ -758,6 +1108,7 @@ pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, V
         width,
         height,
         thickness,
+        through,
     } = built.stock;
     let tools: HashMap<u32, Tool> = built
         .program
@@ -767,7 +1118,14 @@ pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, V
         .collect();
     let cell = HeightMap::cell_for(width, height, 2_000_000.0, 0.05);
     // Simulate what the file says, read back from its text.
-    let simulation = sim::simulate(&built.interpreted, &tools, width, height, thickness, cell);
+    let simulation = sim::simulate(
+        &built.interpreted,
+        &tools,
+        width,
+        height,
+        thickness + through,
+        cell,
+    );
     Ok(Preview {
         map: simulation.map,
         problems: simulation.problems,
@@ -840,7 +1198,6 @@ fn file_stem(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geom::offset::open;
     use crate::project::{BaseStock, Design, DesignRegion, Job};
     use crate::tools::fixtures::{end_mill, v_bit};
     use crate::tools::CuttingSettings;
@@ -888,6 +1245,8 @@ mod tests {
                     allowance: 0.1,
                     tabs: false,
                     tool_id: Some("t-endmill".into()),
+                    insert_thickness: 4.0,
+                    insert_margin: 8.0,
                 },
             }],
             tools: vec![end_mill(), v_bit()],
@@ -956,9 +1315,10 @@ mod tests {
         let preview = preview_pocket(&project, "j").unwrap();
         assert_eq!(preview.problems, []);
 
-        let design = project.design.as_ref().unwrap();
-        let wanted = union(&design.placed_regions(&[0, 1]));
-        let reachable = open(&wanted, 3.175 / 2.0);
+        // The pocket the tool is asked for: the cuttable shape plus half the
+        // allowance. Nothing may be cut outside it, and all of it must be cut.
+        let wanted = preview.built.pocket.clone();
+        let reachable = wanted.clone();
         let map = &preview.map;
         // A cell's centre can sit up to 0.71 cells from a boundary it straddles.
         let margin = map.cell;
@@ -992,15 +1352,128 @@ mod tests {
     }
 
     #[test]
-    fn warns_about_corners_the_tool_cannot_reach() {
+    fn flat_parts_are_cut_to_a_shape_the_tool_can_make_and_say_how_it_differs() {
         let built = build_pocket(&project(), "j").unwrap();
         assert!(
             built
                 .warnings
                 .iter()
-                .any(|w| w.contains("cannot reach") && w.contains("mm radius")),
+                .any(|w| w.contains("cannot follow the drawing exactly")
+                    && w.contains("1.588 mm radius")),
             "{:?}",
             built.warnings
+        );
+        let fit = built.flat_fit.unwrap();
+        // Five sharp outward corners of the rectangle and four of the L are
+        // rounded off; the L's one inward corner is filled in.
+        let corner = (1.0 - std::f64::consts::FRAC_PI_4) * 1.5875 * 1.5875;
+        assert!(
+            (fit.removed_area - 9.0 * corner).abs() < 0.1,
+            "removed {}",
+            fit.removed_area
+        );
+        assert!(
+            (fit.added_area - corner).abs() < 0.05,
+            "added {}",
+            fit.added_area
+        );
+        assert_eq!(built.cuttable.len(), 2);
+        // The insert is 0.1 mm smaller than the pocket all round and stands
+        // 2 mm proud of a 2 mm deep pocket in a 4 mm board.
+        assert!((fit.gap_min - 0.1).abs() < 0.02, "gap min {}", fit.gap_min);
+        assert!((fit.gap_max - 0.1).abs() < 0.02, "gap max {}", fit.gap_max);
+        assert!(fit.interference_area < 1e-6);
+        assert!((fit.proud - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn insert_is_cut_out_of_its_own_board_and_fits_the_pocket() {
+        let project = project();
+        let built = build(&project, "j", Part::Plug).unwrap();
+        assert_eq!(built.file_name, "Test-board-Flat-inlay-1-insert.cnc");
+        // Shapes span X 5..55 and Y 5..35, less 0.05 allowance each side,
+        // plus an 8 mm margin all round.
+        assert!((built.stock.width - 65.9).abs() < 0.01, "{:?}", built.stock);
+        assert!((built.stock.height - 45.9).abs() < 0.01);
+        assert_eq!(built.stock.thickness, 4.0);
+        assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
+        assert!(built.warnings.iter().any(|w| w.contains("Without tabs")));
+        assert!(built.warnings.iter().any(|w| w.contains("spoilboard")));
+        // The same fit either way round.
+        let pocket = build_pocket(&project, "j").unwrap();
+        assert_eq!(built.flat_fit, pocket.flat_fit);
+
+        // Simulated: the inserts stand untouched, the tool went right through
+        // around them, and going through is not reported as a problem.
+        let preview = preview(&project, "j", Part::Plug).unwrap();
+        assert_eq!(preview.problems, []);
+        let map = &preview.map;
+        let (mut kept, mut through) = (0, 0);
+        for iy in 0..map.ny {
+            for ix in 0..map.nx {
+                let p = map.centre(ix, iy);
+                let z = map.at(ix, iy) as f64;
+                let inside = built.pocket.iter().any(|r| r.contains(p));
+                let edge = built
+                    .pocket
+                    .iter()
+                    .map(|r| r.distance_to_boundary(p))
+                    .fold(f64::INFINITY, f64::min);
+                if inside && edge > map.cell {
+                    assert_eq!(z, 0.0, "insert cut into at {p:?}");
+                    kept += 1;
+                }
+                if !inside && edge > map.cell && edge < 3.175 - map.cell {
+                    assert!((z + 4.2).abs() < 1e-4, "not cut through at {p:?}: {z}");
+                    through += 1;
+                }
+            }
+        }
+        assert!(kept > 10_000 && through > 1_000);
+    }
+
+    #[test]
+    fn insert_tabs_and_reasons() {
+        let mut p = project();
+        if let Inlay::Flat { tabs, .. } = &mut p.jobs[0].inlay {
+            *tabs = true;
+        }
+        let built = build(&p, "j", Part::Plug).unwrap();
+        assert!(
+            built
+                .warnings
+                .iter()
+                .any(|w| w.contains("Tabs 4 mm wide and 1 mm thick")),
+            "{:?}",
+            built.warnings
+        );
+        // Tabs: level moves 1 mm above the bottom of the board.
+        assert!(built.gcode.contains("Z-3.000"));
+
+        let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
+        let mut p = project();
+        if let Inlay::Flat {
+            insert_thickness, ..
+        } = &mut p.jobs[0].inlay
+        {
+            *insert_thickness = 1.0;
+        }
+        assert!(reasons(&p).contains("would sit below the surface"));
+        let mut p = project();
+        if let Inlay::Flat { insert_margin, .. } = &mut p.jobs[0].inlay {
+            *insert_margin = 2.0;
+        }
+        assert!(reasons(&p).contains("insert margin of 2 mm is too small"));
+        // Rectangle and L are 5 mm apart: fine for a 3.175 mm tool, not for 6.
+        let mut p = project();
+        p.tools[0].diameter = 6.0;
+        if let Inlay::Flat { insert_margin, .. } = &mut p.jobs[0].inlay {
+            *insert_margin = 10.0;
+        }
+        assert!(
+            reasons(&p).contains("cannot be cut apart"),
+            "{}",
+            reasons(&p)
         );
     }
 
@@ -1013,6 +1486,8 @@ mod tests {
             allowance: 0.1,
             tabs: false,
             tool_id: None,
+            insert_thickness: 4.0,
+            insert_margin: 8.0,
         });
         assert!(reasons(&p).contains("Choose an end mill"));
 
@@ -1021,6 +1496,8 @@ mod tests {
             allowance: 0.1,
             tabs: false,
             tool_id: Some("t-vbit".into()),
+            insert_thickness: 4.0,
+            insert_margin: 8.0,
         });
         assert!(reasons(&p).contains("is not an end mill"));
 
@@ -1029,6 +1506,8 @@ mod tests {
             allowance: 0.1,
             tabs: false,
             tool_id: Some("t-endmill".into()),
+            insert_thickness: 4.0,
+            insert_margin: 8.0,
         });
         let text = reasons(&p);
         assert!(
@@ -1077,7 +1556,8 @@ mod tests {
             xs.iter().cloned().fold(f64::INFINITY, f64::min),
             xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         );
-        let r = 3.175 / 2.0;
+        // The pocket is half the 0.1 mm allowance larger all round.
+        let r = 3.175 / 2.0 - 0.05;
         assert!(
             (min - (50.0 + r)).abs() < 0.01 && (max - (110.0 - r)).abs() < 0.01,
             "cut spans X {min}..{max}"
@@ -1268,7 +1748,8 @@ mod tests {
             Stock {
                 width: 62.0,
                 height: 42.0,
-                thickness: 8.0
+                thickness: 8.0,
+                through: 0.0,
             }
         );
         // The rectangle is on the left of the design, so on the right of the plug.
@@ -1316,8 +1797,6 @@ mod tests {
             *plug_thickness = 3.0;
         }
         assert!(reasons(&p).contains("plug blank is only 3 mm thick"));
-
-        assert!(reasons(&project()).contains("cannot be generated yet"));
     }
 
     #[test]

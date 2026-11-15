@@ -175,7 +175,18 @@ pub enum Inlay {
         tabs: bool,
         #[serde(default)]
         tool_id: Option<String>,
+        /// Thickness of the board the insert is cut from, mm. The insert is
+        /// cut right through it.
+        #[serde(default = "default_insert_thickness")]
+        insert_thickness: f64,
+        /// Width of board left around the shapes on the insert board, mm.
+        #[serde(default = "default_plug_margin")]
+        insert_margin: f64,
     },
+}
+
+fn default_insert_thickness() -> f64 {
+    4.0
 }
 
 fn default_plug_margin() -> f64 {
@@ -205,6 +216,8 @@ impl Inlay {
             allowance: 0.1,
             tabs: false,
             tool_id: None,
+            insert_thickness: 4.0,
+            insert_margin: 8.0,
         }
     }
 
@@ -265,8 +278,18 @@ impl Inlay {
             Inlay::Flat {
                 pocket_depth,
                 allowance,
+                insert_thickness,
+                insert_margin,
                 ..
             } => {
+                check(
+                    insert_thickness.is_finite() && insert_thickness > 0.0,
+                    "insert board thickness must be greater than 0",
+                )?;
+                check(
+                    insert_margin.is_finite() && insert_margin > 0.0,
+                    "insert margin must be greater than 0",
+                )?;
                 check(
                     pocket_depth.is_finite() && pocket_depth > 0.0,
                     "pocket depth must be greater than 0",
@@ -411,6 +434,8 @@ mod tests {
                         allowance: 0.1,
                         tabs: true,
                         tool_id: Some("t-endmill".into()),
+                        insert_thickness: 4.0,
+                        insert_margin: 8.0,
                     },
                 },
             ],
@@ -461,6 +486,8 @@ mod tests {
             allowance: 0.1,
             tabs: false,
             tool_id: None,
+            insert_thickness: 4.0,
+            insert_margin: 8.0,
         };
         assert!(project.validate().is_err());
     }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { core } from "../core/client";
-import type { FitCheck, Job, Part } from "../core/types";
+import type { FitCheck, Job, Part, PocketPreview } from "../core/types";
 import { fmt } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
@@ -40,9 +40,11 @@ export function OutputPanel({ job }: { job: Job }) {
       setChecking(false);
     }
   };
+  // The second part is a plug for a V-carve inlay and an insert for a flat one.
+  const nameOf = (part: Part) => (part === "pocket" ? "pocket" : vcarve ? "plug" : "insert");
   const button = (part: Part) => (
     <button className={part === "pocket" || mine?.part === part ? "primary" : undefined} disabled={busy !== null} onClick={() => generate(part)}>
-      {busy === part ? "Generating…" : mine?.part === part ? `Generate ${part} again` : `Generate ${part}`}
+      {busy === part ? "Generating…" : mine?.part === part ? `Generate ${nameOf(part)} again` : `Generate ${nameOf(part)}`}
     </button>
   );
 
@@ -53,11 +55,11 @@ export function OutputPanel({ job }: { job: Job }) {
       <p className="hint">
         {vcarve
           ? "Each part is its own file, cut from its own board. Pocket: the end mill clears the flat floor, then the V-bit cuts the walls and corners. Plug: the same, mirrored, around the shapes."
-          : "Pocket only for now, cut to the tool's reach. The insert and the fit allowance come in a later version."}
+          : "Each part is its own file, cut from its own board. Pocket: cleared flat to the pocket depth. Insert: the same shapes, smaller by the allowance, cut right out of the insert board the same way up."}
       </p>
       <div className="row">
         {button("pocket")}
-        {vcarve && button("plug")}
+        {button("plug")}
       </div>
 
       {mine && stale && <p className="hint warn">The inlay or project has changed since this was generated.</p>}
@@ -72,9 +74,9 @@ export function OutputPanel({ job }: { job: Job }) {
 
       {preview && (
         <>
-          <h4>{preview.built.part === "plug" ? "Plug" : "Pocket"}</h4>
+          <h4>{nameOf(preview.built.part).replace(/^./, (c) => c.toUpperCase())}</h4>
           <dl className="stats">
-            <dt>{preview.built.part === "plug" ? "Plug blank" : "Base board"}</dt>
+            <dt>{preview.built.part === "pocket" ? "Base board" : vcarve ? "Plug blank" : "Insert board"}</dt>
             <dd>
               {fmt(Math.round(preview.built.stock.width * 100) / 100)} × {fmt(Math.round(preview.built.stock.height * 100) / 100)} mm,{" "}
               {fmt(preview.built.stock.thickness)} mm thick, work origin at its bottom-left corner
@@ -90,6 +92,8 @@ export function OutputPanel({ job }: { job: Job }) {
               {preview.built.fileName}, {preview.built.stats.lines} lines
             </dd>
           </dl>
+
+          {preview.built.flatFit && <FlatFitNumbers fit={preview.built.flatFit} />}
 
           {preview.problems.length > 0 ? (
             <>
@@ -181,6 +185,33 @@ function FitNumbers({ check }: { check: FitCheck }) {
             ? "no visible gaps"
             : `gaps of ${mm(r.voidArea)} mm² in total, up to ${mm(r.voidWidth)} mm wide`}
           , judged {mm(r.trimDepth)} mm below the surface
+        </dd>
+      </dl>
+    </>
+  );
+}
+
+function FlatFitNumbers({ fit }: { fit: NonNullable<PocketPreview["built"]["flatFit"]> }) {
+  const even = Math.abs(fit.gapMax - fit.gapMin) < 0.02;
+  return (
+    <>
+      <h4>Fit of insert in pocket</h4>
+      <dl className="stats">
+        <dt>Gap at the wall</dt>
+        <dd>
+          {fit.interferenceArea > 0.01
+            ? `the insert overlaps the base board by ${mm(fit.interferenceArea)} mm²`
+            : even
+              ? `${mm(fit.gapMin)} mm all round`
+              : `${mm(fit.gapMin)} to ${mm(fit.gapMax)} mm`}
+        </dd>
+        <dt>Insert stands</dt>
+        <dd>{fit.proud < 0.005 ? "flush with the surface" : `${mm(fit.proud)} mm above the surface`}</dd>
+        <dt>Against the drawing</dt>
+        <dd>
+          {fit.removedArea + fit.addedArea < 0.05
+            ? "as drawn"
+            : `${mm(fit.removedArea)} mm² left out, ${mm(fit.addedArea)} mm² added, where the tool cannot follow`}
         </dd>
       </dl>
     </>

@@ -312,6 +312,32 @@ with a real glue-up.
   check.
 - Done when: a flat inlay cut on the machine fits with the chosen allowance.
 
+Results (2026-11-15): built and checked in simulation; not cut on the machine.
+- A flat inlay generates an insert file as well as a pocket file.
+- Cuttable shape: each selected shape is closed then opened by the tool's radius, so
+  every corner the end mill cannot cut, inward or outward, is rounded to that radius, and
+  anything narrower than the tool is dropped. Both parts are cut to this shape: the
+  pocket grown by half the allowance, the insert shrunk by half.
+- The outline that will really be cut is drawn dashed on the design after generating,
+  and the output says how much of the drawing is left out and how much is added.
+- Insert: not mirrored, cut right through its own board (0.2 mm past the bottom) by
+  going round each shape in depth passes, holes first. The board is the shapes' outer
+  size plus the insert margin.
+- Tabs (optional): 4 mm wide, 1 mm thick, about every 40 mm round the outline, at least
+  two per insert; inserts too small for two get none and a warning.
+- Two new job settings with defaults: insert board thickness (4 mm) and insert margin
+  (8 mm).
+- 2D fit check, shown with either part: smallest and largest gap between the insert as
+  cut and the pocket as cut, any overlap, and how far the insert stands proud.
+- Checked by test: the simulated insert is untouched inside its outline and cut through
+  all round it; the gap equals the allowance all round on the fixtures; the tool stays
+  its radius from every part; tabs are left where expected. 143 core tests.
+- Shapes closer together than the tool is wide cannot have their inserts cut apart where
+  they are drawn; the job says so and asks for separate inlays.
+- Not done: no deviation picture beyond the dashed outline; inserts keep their drawing
+  positions (no packing); tabs are placed evenly, not steered onto straight stretches;
+  plunges are straight down, no ramping.
+
 **M7. Finish**
 - Error messages, empty states, documentation, performance on a full-bed job, format
   fixtures frozen as version 1.

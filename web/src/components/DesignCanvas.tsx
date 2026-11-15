@@ -39,9 +39,11 @@ interface Props {
   design: Design;
   /** Stretches too narrow for a plug to seat, in board coordinates, from the last generated output. */
   narrow: [[number, number], [number, number]][];
+  /** The outline a flat inlay will really be cut to, in board coordinates, from the last generated output. */
+  cuttable: [number, number][][];
 }
 
-export function DesignCanvas({ design, narrow }: Props) {
+export function DesignCanvas({ design, narrow, cuttable }: Props) {
   const { project, selection, activeJobId } = useApp();
   const dispatch = useDispatch();
 
@@ -97,6 +99,13 @@ export function DesignCanvas({ design, narrow }: Props) {
           </path>
         );
       })}
+      {cuttable.length > 0 && (
+        <g className="cuttable" aria-label="The outline that will be cut">
+          {cuttable.map((ring, i) => (
+            <path key={i} d={ring.map(([x, y], k) => `${k === 0 ? "M" : "L"}${x.toFixed(3)} ${(height - y).toFixed(3)}`).join("") + "Z"} />
+          ))}
+        </g>
+      )}
       {narrow.length > 0 && (
         <g className="narrow" aria-label="Parts too narrow for the plug to seat">
           {narrow.map(([a, b], i) => (

@@ -93,7 +93,7 @@ function DesignView() {
         ) : preview && mode === "preview" ? (
           <Viewer3D preview={preview} thickness={preview.built.stock.thickness} />
         ) : project.design ? (
-          <DesignCanvas design={project.design} narrow={preview?.built.narrow ?? []} />
+          <DesignCanvas design={project.design} narrow={preview?.built.narrow ?? []} cuttable={preview?.built.cuttable ?? []} />
         ) : (
           <div className="empty">
             <p>No design yet.</p>

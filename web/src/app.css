@@ -368,6 +368,14 @@ h3 {
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
+.cuttable path {
+  fill: none;
+  stroke: #12414f;
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
 .narrow line {
   stroke: #d21f3c;
   stroke-width: 3px;

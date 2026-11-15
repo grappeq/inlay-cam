@@ -70,6 +70,10 @@ export interface FlatInlay {
   allowance: number;
   tabs: boolean;
   toolId: string | null;
+  /** Thickness of the board the insert is cut from, mm. */
+  insertThickness: number;
+  /** Width of board left around the shapes on the insert board, mm. */
+  insertMargin: number;
 }
 
 export type Inlay = VcarveInlay | FlatInlay;
@@ -127,7 +131,18 @@ export type Part = "pocket" | "plug";
 export interface Built {
   part: Part;
   /** The board the part is cut from, mm. */
-  stock: { width: number; height: number; thickness: number };
+  stock: { width: number; height: number; thickness: number; through: number };
+  /** Flat inlays: the outline both parts are cut to before the allowance, on the base board. */
+  cuttable: [number, number][][];
+  /** Flat inlays: how insert and pocket go together. Lengths in mm, areas in mm². */
+  flatFit: {
+    gapMin: number;
+    gapMax: number;
+    interferenceArea: number;
+    proud: number;
+    removedArea: number;
+    addedArea: number;
+  } | null;
   /** Stretches of the design, as placed on the base board, too narrow for the plug to seat. */
   narrow: [[number, number], [number, number]][];
   fileName: string;

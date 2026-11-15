@@ -288,7 +288,23 @@ function JobEditor({ job }: { job: Job }) {
             unit="mm"
             value={inlay.allowance}
             onChange={(v) => v !== undefined && setInlay({ allowance: v })}
-            hint="Total gap between insert and pocket wall."
+            hint="Gap between insert and pocket wall all round. Half comes off the insert, half is added to the pocket."
+          />
+          <NumberField
+            label="Insert board thickness"
+            unit="mm"
+            min={0.01}
+            value={inlay.insertThickness}
+            onChange={(v) => v !== undefined && setInlay({ insertThickness: v })}
+            hint="The insert is cut right through this board. Thicker than the pocket is deep, it stands proud to be sanded flush."
+          />
+          <NumberField
+            label="Insert margin"
+            unit="mm"
+            min={0.01}
+            value={inlay.insertMargin}
+            onChange={(v) => v !== undefined && setInlay({ insertMargin: v })}
+            hint="Board left around the shapes. The insert board is the shapes' outer size plus this on every side."
           />
           <label className="check">
             <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
