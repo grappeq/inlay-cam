@@ -514,7 +514,6 @@ input[aria-invalid="true"] {
 }
 .canvas.dragging {
   user-select: none;
-  touch-action: none;
 }
 
 /* Side panel */
@@ -1076,6 +1075,89 @@ legend .check {
   display: flex;
   gap: 8px;
 }
-.arrange-bar button:first-child {
-  flex: 0 0 34%;
+.arrange-bar button {
+  flex: 1 1 0;
+}
+.arrange-bar button.primary {
+  flex: 2 1 0;
+}
+.row.tools {
+  align-items: flex-end;
+}
+.row.tools > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.keys {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.keys li {
+  margin-bottom: 3px;
+}
+.canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.canvas {
+  touch-action: none;
+}
+.canvas.zoomed {
+  cursor: grab;
+}
+.canvas.arranging {
+  cursor: crosshair;
+}
+.canvas-zoom {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+}
+.canvas-zoom button {
+  min-width: 30px;
+  padding: 3px 8px;
+}
+.canvas-readout {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.region.overlap {
+  stroke: var(--danger);
+  stroke-width: 3;
+}
+.canvas.arranging .region.selected {
+  fill: var(--select);
+  fill-opacity: 1;
+}
+.selection-box {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.band {
+  fill: var(--accent-soft);
+  fill-opacity: 0.4;
+  stroke: var(--accent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }

@@ -10,13 +10,18 @@ interface Props {
   /** Allow the field to be left empty (the value is then undefined). */
   optional?: boolean;
   hint?: string;
+  /**
+   * Report the number only when the user is done with it (Enter, or leaving
+   * the field) instead of at every keystroke. Escape puts the old value back.
+   */
+  deferred?: boolean;
 }
 
 /**
  * A number input that only reports complete, in-range numbers. While the text
  * is not a usable number the field is marked invalid and the last good value stays.
  */
-export function NumberField({ label, value, onChange, unit, min = 0, optional, hint }: Props) {
+export function NumberField({ label, value, onChange, unit, min = 0, optional, hint, deferred }: Props) {
   const [text, setText] = useState(value === undefined ? "" : fmt(value));
   const [invalid, setInvalid] = useState(false);
 
@@ -47,8 +52,21 @@ export function NumberField({ label, value, onChange, unit, min = 0, optional, h
       setInvalid(true);
     } else {
       setInvalid(false);
-      onChange(parsed);
+      if (!deferred) onChange(parsed);
     }
+  }
+
+  function revert() {
+    setText(value === undefined ? "" : fmt(value));
+    setInvalid(false);
+  }
+
+  /** Deferred fields: hands over what was typed, if it is a usable number and a new one. */
+  function commit() {
+    const parsed = parse(text);
+    if (parsed === undefined || Number.isNaN(parsed) || parsed < min) return revert();
+    if (parsed !== value && fmt(parsed) !== (value === undefined ? "" : fmt(value))) onChange(parsed);
+    else revert();
   }
 
   return (
@@ -62,11 +80,24 @@ export function NumberField({ label, value, onChange, unit, min = 0, optional, h
           aria-invalid={invalid}
           onChange={(e) => change(e.target.value)}
           onBlur={() => {
-            if (invalid) {
-              setText(value === undefined ? "" : fmt(value));
-              setInvalid(false);
-            }
+            if (deferred) commit();
+            else if (invalid) revert();
           }}
+          onKeyDown={
+            deferred
+              ? (e) => {
+                  if (e.key === "Enter") commit();
+                  else if (e.key === "Escape") {
+                    revert();
+                    e.stopPropagation();
+                  } else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "y" || e.key === "Z")) {
+                    // Undo belongs to the drawing here, not to the text in this box.
+                    e.preventDefault();
+                    revert();
+                  }
+                }
+              : undefined
+          }
         />
         {unit && <span className="unit">{unit}</span>}
       </span>

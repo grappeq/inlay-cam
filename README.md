@@ -17,6 +17,7 @@ meant to do and how it is built, see [docs/requirements.md](docs/requirements.md
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
 | `docs` | User guide, requirements, plan and file formats |
+| `web` tests | `npm test` in `web` runs the tests of the drawing-arranging logic |
 | `tools` | The script that writes the test drawings |
 
 ## Setup

@@ -481,7 +481,29 @@ Found on the way, with a new test drawing of several parts (`dxf-11-several-part
 Added at the user's request: arranging the drawing. Parts or single shapes can be
 selected, moved (dragging, arrow keys or typed position), resized, mirrored and deleted,
 with undo; the board grows with the shapes and can be trimmed to them. See docs/guide.md.
-Not checked: shapes placed on top of each other.
+
+The first version was tested hands-on by a separate agent, which found it clumsy and
+limited (2026-11-15). Reworked from its report:
+- It edited filled areas, so deleting or moving an inner outline left a hole behind. It
+  now works on outlines: an outline takes along what is inside it, the hole it makes in
+  the shape around it follows, closes when the outline is deleted, and opens where the
+  outline is dropped wholly inside another shape. Parts are found from these links, not
+  from bounding boxes.
+- Selection: a click replaces it, Shift-click adds or removes, empty board or Escape
+  clears, dragging across empty board selects what the box encloses. Shapes that belong
+  to an inlay show as selected too.
+- Typed numbers apply on Enter or on leaving the field, as one undo step. Undo and redo
+  (50 steps, kept after "Done"), the arrow keys, Delete, Ctrl+A and Ctrl+D work wherever
+  the focus is; a run of arrow keys is one undo step. The Delete key asks and refuses
+  exactly as the button does, and an inlay left without shapes is removed.
+- New: turn (90° and any angle), scale by percent, centre on the board, copy, "keep only
+  this" (one part on a board of its own), zoom and pan, a live read-out of size and
+  position while dragging, Shift to drag straight, Escape to abandon a drag.
+- Shapes stop at the board's left and bottom edges instead of shifting everything else.
+  Shapes lying partly on each other are outlined in red and listed.
+- Not done: snapping, aligning or spacing parts against each other, resizing from other
+  corners or by dragging handles.
+- The logic is in `web/src/state/arrange.ts` with tests (`npm test` in `web`).
 
 ## 4. Risks
 

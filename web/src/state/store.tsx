@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type
 import { core } from "../core/client";
 import type { FitCheck, ImportReport, Job, Part, PocketPreview, Project, Tool } from "../core/types";
 import * as db from "../storage/db";
-import { partOf } from "./arrange";
+import { partOf, withInside } from "./arrange";
 import { newProject, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "tools";
@@ -36,6 +36,10 @@ export interface AppState {
   wholeParts: boolean;
   /** Projects as they were before each change to the drawing, oldest first. */
   undo: Project[];
+  /** Projects as they were before each undo, oldest first. */
+  redo: Project[];
+  /** The kind and time of the last change to the drawing, to fold a run of small ones into one undo step. */
+  lastEdit: { tag: string; at: number } | null;
 }
 
 /** Everything generated for one inlay in one go: both files and their fit. */
@@ -60,7 +64,7 @@ export type Action =
   | { type: "setTools"; tools: Tool[] }
   | { type: "setProjects"; projects: db.ProjectSummary[] }
   | { type: "setView"; view: View }
-  | { type: "clickRegion"; id: number }
+  | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
   | { type: "setActiveJob"; id: string | null }
   | { type: "setImportReport"; report: ImportReport | null }
@@ -70,8 +74,9 @@ export type Action =
   | { type: "setStage"; stage: Stage }
   | { type: "setArranging"; on: boolean }
   | { type: "setWholeParts"; on: boolean }
-  | { type: "editDrawing"; update: (project: Project) => Project }
-  | { type: "undoDrawing" };
+  | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[] }
+  | { type: "undoDrawing" }
+  | { type: "redoDrawing" };
 
 const initial: AppState = {
   ready: false,
@@ -89,6 +94,8 @@ const initial: AppState = {
   arranging: false,
   wholeParts: true,
   undo: [],
+  redo: [],
+  lastEdit: null,
 };
 
 /** Keeps the project's tool copies in step with its jobs and the tool list. */
@@ -114,6 +121,8 @@ function reducer(state: AppState, action: Action): AppState {
         view: "design",
         arranging: false,
         undo: [],
+        redo: [],
+        lastEdit: null,
       });
     case "updateProject":
       return withSnapshots({ ...state, project: action.update(state.project) });
@@ -129,7 +138,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "setView":
       return { ...state, view: action.view };
     case "clickRegion":
-      return clickRegion(state, action.id);
+      return clickRegion(state, action.id, action.add ?? false);
     case "setSelection":
       return { ...state, selection: action.ids };
     case "setActiveJob":
@@ -145,36 +154,51 @@ function reducer(state: AppState, action: Action): AppState {
     case "setStage":
       return { ...state, stage: action.stage };
     case "setArranging":
-      return { ...state, arranging: action.on, selection: [], activeJobId: null, stage: "drawing", undo: [] };
+      return { ...state, arranging: action.on, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
     case "setWholeParts":
       return { ...state, wholeParts: action.on };
     case "editDrawing": {
       const project = action.update(state.project);
-      if (project === state.project || project.design === state.project.design) return state;
+      if (project === state.project) return state;
+      const at = action.at ?? 0;
+      // A run of the same small change, such as nudging with the arrow keys, is one step to undo.
+      const folds =
+        action.tag !== undefined && state.lastEdit?.tag === action.tag && at - state.lastEdit.at < 1000 && state.undo.length > 0;
       const left = new Set(project.design?.regions.map((r) => r.id));
       return withSnapshots({
         ...state,
         project,
-        undo: [...state.undo.slice(-29), state.project],
-        selection: state.selection.filter((id) => left.has(id)),
+        undo: folds ? state.undo : [...state.undo.slice(-49), state.project],
+        redo: [],
+        lastEdit: action.tag !== undefined ? { tag: action.tag, at } : null,
+        selection: (action.select ?? state.selection).filter((id) => left.has(id)),
       });
     }
-    case "undoDrawing": {
-      const before = state.undo[state.undo.length - 1];
-      if (!before) return state;
+    case "undoDrawing":
+    case "redoDrawing": {
+      const [from, to] = action.type === "undoDrawing" ? [state.undo, state.redo] : [state.redo, state.undo];
+      const other = from[from.length - 1];
+      if (!other) return state;
+      const rest = from.slice(0, -1);
+      const kept = [...to, state.project];
       return withSnapshots({
         ...state,
-        project: { ...state.project, design: before.design, jobs: before.jobs },
-        undo: state.undo.slice(0, -1),
-        selection: state.selection.filter((id) => before.design?.regions.some((r) => r.id === id)),
+        project: { ...state.project, design: other.design, jobs: other.jobs },
+        undo: action.type === "undoDrawing" ? rest : kept,
+        redo: action.type === "undoDrawing" ? kept : rest,
+        lastEdit: null,
+        activeJobId: other.jobs.some((j) => j.id === state.activeJobId) ? state.activeJobId : null,
+        selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id)),
       });
     }
   }
 }
 
-function clickRegion(state: AppState, id: number): AppState {
+function clickRegion(state: AppState, id: number, add: boolean): AppState {
   if (state.arranging && state.project.design) {
-    const ids = state.wholeParts ? partOf(state.project.design, id) : [id];
+    // A shape is picked with everything inside it; a whole part, from its outermost outline in.
+    const ids = state.wholeParts ? partOf(state.project.design, id) : withInside(state.project.design, [id]);
+    if (!add) return { ...state, selection: ids };
     const selection = state.selection.includes(id)
       ? state.selection.filter((r) => !ids.includes(r))
       : [...state.selection, ...ids.filter((r) => !state.selection.includes(r))];

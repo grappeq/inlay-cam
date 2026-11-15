@@ -47,20 +47,46 @@ the app took it for: type the right width.
 ### Arranging the drawing
 
 A drawing often holds several parts, or parts you do not want. "Move, resize or delete
-shapes" under "Drawing and base board" lets you change that:
+shapes" under "Drawing and base board" lets you change that. The app treats the drawing
+as outlines here: an outline takes along everything inside it, the hole it makes in the
+shape around it moves with it, and the hole closes when the outline is deleted.
 
-- Click a part to select it. A part is an outer outline with everything inside it; untick
-  "Select whole parts" to pick single shapes.
-- Drag the selection, nudge it with the arrow keys (1 mm, or 0.1 mm with Shift), or type
-  its distance from the board's left and bottom edges.
-- Type a width or height to resize it; the other follows.
-- Mirror it left to right or top to bottom, or delete it.
-- The board grows when shapes are moved past its edge. "Trim the board to the shapes"
-  makes it the shapes' extent plus a margin.
-- "Undo" takes back the last change, up to 30 of them, until you press "Done".
+Selecting:
 
-Shapes keep their inlays when they are moved or resized. The app does not stop you from
-putting one shape on top of another.
+- Click a part to select it. A part is an outer outline with everything inside it. Untick
+  "Select whole parts" to pick an outline inside a part, such as a hole or a letter.
+- Shift-click adds to the selection or takes away from it. Drag across empty board to
+  select what the box encloses. Click empty board, or press Escape, to clear it.
+- The size and position of the selection are shown under the drawing.
+
+Changing the selection:
+
+- Drag it; hold Shift to keep the move straight. The arrow keys move it by 1 mm, or by
+  0.1 mm with Shift. Or type its distance from the board's left and bottom edges.
+- Type a width or height, or a percentage; the shape keeps its proportions.
+- Turn it by 90° either way or by any angle, or mirror it.
+- Centre it on the board, across or up and down.
+- "Copy beside" (Ctrl+D) puts a copy to its right.
+- "Keep only this" deletes every other shape and fits the board to what is left: the way
+  to put one part of a sketch on a board of its own.
+- Delete it (Delete key). An inlay that loses all its shapes is removed; the app asks
+  first.
+
+Typed numbers apply when you press Enter or leave the field. Ctrl+Z undoes and Ctrl+Y
+redoes, up to 50 steps, also after "Done".
+
+The board and the view:
+
+- The work origin stays at the board's bottom-left corner, so shapes stop at its left and
+  bottom edges. The board grows when shapes are moved past its right or top edge. "Fit
+  board to shapes" makes it the shapes' extent plus a margin.
+- The mouse wheel zooms, also outside arranging. Drag with the middle button to move the
+  view; double-click empty board, or press "Whole board", to see all of it.
+
+Shapes keep their inlays when they are moved, resized or turned. A shape dropped wholly
+inside another becomes a hole in it, as if it had been drawn there. Shapes that lie
+partly on top of each other are outlined in red and listed; move them apart before making
+inlays from them. There is no snapping or aligning of one part to another.
 
 ## 3. Make an inlay
 
