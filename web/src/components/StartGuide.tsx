@@ -31,6 +31,9 @@ export function StartGuide() {
         This app turns the shapes of an SVG or DXF drawing into G-code for a Carvera Air: one file for the pocket, one for the piece that fills it. It
         simulates both before you cut.
       </p>
+      <p className="hint start-caution">
+        The app is new and comes with no warranty. Check every file in the simulation and run it above the board before you cut wood with it.
+      </p>
       <ol className="steps">
         <li className={tools.length > 0 ? "done" : ""}>
           <h2>List your tools</h2>

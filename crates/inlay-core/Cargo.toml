@@ -2,6 +2,9 @@
 name = "inlay-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Toolpaths, G-code and simulation for CNC wooden inlays"
 
 [dependencies]
 boostvoronoi = "0.12.1"

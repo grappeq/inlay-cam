@@ -288,6 +288,10 @@ input[aria-invalid="true"] {
   max-width: 62ch;
   margin-bottom: 26px;
 }
+.start-caution {
+  max-width: 62ch;
+  margin: -14px 0 26px;
+}
 .steps {
   list-style: none;
   counter-reset: step;

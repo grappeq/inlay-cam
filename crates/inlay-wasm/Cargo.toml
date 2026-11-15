@@ -2,7 +2,9 @@
 name = "inlay-wasm"
 version.workspace = true
 edition.workspace = true
-description = "WebAssembly bindings for the wooden inlays core"
+license.workspace = true
+repository.workspace = true
+description = "WebAssembly bindings for inlay-core"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

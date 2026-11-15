@@ -5,13 +5,18 @@ Community Firmware. For each inlay it writes two files: one cuts the pocket into
 board, the other cuts the piece that fills it. It simulates both files and reports how the
 two parts will fit.
 
+**Check every file before you run it.** The app is new: its G-code has been run on a real
+machine only as an air cut, and no inlay has been cut with it yet. Look at the simulation,
+read the file, and run it above the board first. You use the app and its files at your own
+risk; see [Before you cut](#5-cut).
+
 Everything runs in the browser. Projects and tools are stored in that browser only; use
 "Save to file" to keep a copy or move a project to another computer.
 
 ## 1. List your tools
 
-Open **Tools and machine**. Add each end mill and V-bit you will use, or import the `tools.yaml` of
-your tooling library (only end mills and V-bits are taken from it).
+Open **Tools and machine**. Add each end mill and V-bit you will use. A `tools.yaml` tool
+list can also be imported; its layout is in [formats.md](formats.md).
 
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
   that. Leave it empty if unknown and the app warns instead.
@@ -223,6 +228,12 @@ Download each file and run it on its own board.
 
 Before the first real cut, run `machine-tests/m0-air-cut.cnc` as an air cut. It confirms
 that the machine reads this app's G-code as intended.
+
+The simulation checks the file against the board and the tools you described, not against
+your machine as it stands. It cannot see clamps, a wrong work origin, a tool that differs
+from its entry in the tool list, or a board of another size. Run a new file once with Z0
+set well above the board, keep a hand near the stop button, and wear eye protection. The
+app comes with no warranty: what a file does on your machine is your responsibility.
 
 ## What the app does not do
 

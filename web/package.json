@@ -1,6 +1,9 @@
 {
-  "name": "wooden-inlays-web",
+  "name": "inlay-cam-web",
   "private": true,
+  "description": "Web UI of inlay-cam: CNC toolpaths for wooden inlays",
+  "license": "MIT",
+  "repository": "github:grappeq/inlay-cam",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

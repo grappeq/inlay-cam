@@ -1,6 +1,6 @@
-# Wooden inlays app: requirements
+# Requirements (v1)
 
-Status: v1 requirements agreed (2026-11-14).
+The requirements the app was built to, agreed 2026-11-14 and kept as a record.
 
 ## Purpose
 
@@ -8,8 +8,8 @@ A web app that generates CNC toolpaths for wooden inlays (V-carve and flat pocke
 outputs G-code for a Carvera Air running the Carvera Community Firmware, and simulates
 the toolpaths against a stock to check that the inlay will fit.
 
-Personal tool, possibly released as open source later. Avoid copying GPL code so the
-licence choice stays open.
+Started as a personal tool. No GPL code is copied, so that the licence could be chosen
+freely; the app is released under the MIT licence.
 
 ## V1 scope
 
@@ -42,8 +42,8 @@ licence choice stays open.
 - The app keeps its own tool list, which the user manages in the app (add, edit, delete).
   It is stored with the app's data in the browser and can be exported to and imported
   from a file. That file format is documented and versioned like the project file.
-- Limited import from the `cnc-tooling-library` `tools.yaml`: only what inlays need, the
-  rest is skipped.
+- Limited import from the `tools.yaml` of `cnc-tooling-library` (the author's own tool
+  list, not published): only what inlays need, the rest is skipped.
   - Tools: `flat_end` and `v_bit` (not corner-rounding cutters). Drills, thread mills and
     ball noses are skipped.
   - Per tool: name, type, and geometry (diameter, tip diameter, tip angle, flute length,

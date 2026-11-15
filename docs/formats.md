@@ -1,7 +1,7 @@
 # File formats
 
 The app writes two kinds of file, both JSON, and reads two foreign formats (SVG drawings
-and the tooling library's `tools.yaml`).
+and a `tools.yaml` tool list).
 
 Lengths are millimetres, angles are degrees, feeds are mm/min.
 
@@ -258,6 +258,10 @@ from the geometry. The tests in `crates/inlay-core/src/import/corpus_tests.rs` i
 every drawing, build every kind of inlay from its largest shapes, and simulate a few.
 
 ## `tools.yaml` import
+
+`tools.yaml` is the tool list of `cnc-tooling-library`, a separate project of the author's
+that is not published. The import is of use to others only as a way to bring in tools from
+a YAML file laid out as below; "the tooling library" in the table means that project.
 
 Read by `crates/inlay-core/src/import/tools_yaml.rs`. Only the fields below are read;
 everything else in the file is ignored.

@@ -1,6 +1,8 @@
-# Wooden inlays app: architecture and build plan (v1)
+# Architecture and build plan (v1)
 
-Draft, 2026-11-14. Requirements are in [requirements.md](requirements.md).
+The plan the app was built to, kept as a record of how it is put together and why, with
+the results of each milestone. Written 2026-11-14. Requirements are in
+[requirements.md](requirements.md).
 
 Library choices marked "to verify" come from research, not from use; milestone 0 exists
 to confirm them before anything is built on top.
