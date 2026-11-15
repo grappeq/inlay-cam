@@ -171,6 +171,10 @@ how large the board must be.
 - With tabs, the plug stays attached until you cut the tabs.
 - Without tabs it comes loose on the last pass: hold it down with tape.
 - Either way the cut goes 0.2 mm past the bottom of the board. Put a spoilboard under it.
+- The end mills clear the floor out over the plug's edge, into the border, which is waste.
+  So a margin narrower than an end mill is still cleared by it and not left to a smaller
+  tool or the V-bit, and no thin wall of wood is left standing along the edge. The board
+  the file asks for allows for this.
 - **End mill for the cut-out**: left alone, the largest of the inlay's end mills that
   reaches through the board does it. Choose another to cut the plug out with a tool the
   inlay does not otherwise use, such as a longer one. The app shows how deep the cut is

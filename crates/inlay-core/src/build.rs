@@ -533,6 +533,22 @@ struct Cut {
     piece: Option<[f64; 4]>,
     /// Width of the cut that frees that plug.
     cut_width: Option<f64>,
+    /// How far beyond the plug's edge the end mills cleared, when the plug
+    /// is cut out of a larger board.
+    overrun: f64,
+}
+
+/// How far beyond the edge of a plug an end mill this wide may clear when the
+/// plug is cut out of a larger board. The wood there is waste, and the cut
+/// that frees the plug goes through it anyway.
+///
+/// Half the tool is always enough to take the blank's corners. More is needed
+/// where the strip between the shapes and the edge is narrower than the tool:
+/// then the tool hangs over the edge by what it lacks, so that it clears the
+/// strip instead of leaving it to a smaller tool or the V-bit, and no sliver
+/// of wood is left standing along the edge.
+fn edge_overrun(diameter: f64, strip: f64) -> f64 {
+    (diameter - strip + 0.25).clamp(diameter / 2.0, diameter)
 }
 
 /// The smallest upright rectangle around some regions, as `[x0, y0, x1, y1]`.
@@ -1153,8 +1169,14 @@ fn flat_backer(
         [0.0, height],
     ]);
     // The blank's edge is not a wall: the tools run over it, so that no
-    // corner of the blank is left standing as high as the inserts.
-    let reach = offset(std::slice::from_ref(&blank), largest / 2.0);
+    // corner of the blank is left standing as high as the inserts. Further
+    // still on a plug that is cut out of a larger board, where needed.
+    let overrun = if cut_out {
+        edge_overrun(largest, insert.margin)
+    } else {
+        largest / 2.0
+    };
+    let reach = offset(std::slice::from_ref(&blank), overrun);
     let floor: Vec<Region> = reach
         .iter()
         .flat_map(|r| difference(r, &standing))
@@ -1210,6 +1232,7 @@ fn flat_backer(
         board: Some((width, height)),
         flat_fit: Some(fit),
         cuttable: outlines(&shapes.cuttable),
+        overrun: if cut_out { overrun } else { 0.0 },
         ..Cut::default()
     })
 }
@@ -1307,7 +1330,8 @@ fn cut_piece_out(
 
     // A whole number of millimetres, so the plug keeps its place on the
     // simulation's grid and its fit reads the same cut out or not.
-    let border = (tool.diameter + setup.cut_out_border).ceil();
+    // The border starts beyond the widest thing cut outside the plug.
+    let border = (tool.diameter.max(cut.overrun) + setup.cut_out_border).ceil();
     let shift = |q: &mut [f64]| {
         q[0] += border;
         q[1] += border;
@@ -1616,7 +1640,28 @@ fn vcarve_plug_cut(
         [0.0, height],
     ]);
 
-    let floor = difference(&blank, &offset(&shapes, plug.saw_gap * p.tan()));
+    // On a plug cut out of a larger board, the end mills clear out over its
+    // edge: see `edge_overrun`.
+    let largest = setup
+        .end_mills
+        .iter()
+        .map(|(tool, _)| tool.diameter)
+        .fold(0.0, f64::max);
+    let overrun = if plug.cut_out && largest > 0.0 {
+        edge_overrun(largest, plug.margin - plug.saw_gap * p.tan())
+    } else {
+        0.0
+    };
+    let ground = if overrun > 0.0 {
+        offset(std::slice::from_ref(&blank), overrun)
+    } else {
+        vec![blank.clone()]
+    };
+    let standing = offset(&shapes, plug.saw_gap * p.tan());
+    let floor: Vec<Region> = ground
+        .iter()
+        .flat_map(|r| difference(r, &standing))
+        .collect();
     let mut path = ctx.path();
     let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "plug's");
     if let Err(e) = vcarve_plug(&mut path, &shapes, &blank, &cleared, plug.engagement, p) {
@@ -1640,6 +1685,7 @@ fn vcarve_plug_cut(
             mirror_x: x1 + plug.margin,
             offset_y: y0 - plug.margin,
         }),
+        overrun,
         ..Cut::default()
     })
 }
@@ -2597,6 +2643,93 @@ mod tests {
             ..Setup::default()
         });
         assert!(p.validate().unwrap_err().contains("tab width"));
+    }
+
+    #[test]
+    fn end_mills_clear_over_the_edge_of_a_plug_that_is_cut_out() {
+        assert_eq!(edge_overrun(6.0, 10.0), 3.0);
+        assert_eq!(edge_overrun(6.0, 2.0), 4.25);
+        assert_eq!(edge_overrun(6.0, 0.1), 6.0);
+
+        // A margin too narrow for the end mill: 2 mm, less the 0.87 mm the
+        // shapes' walls spread at the floor.
+        let narrow = |cut_out: bool| {
+            let mut p = vcarve_project(true);
+            if let Inlay::Vcarve { plug_margin, .. } = &mut p.jobs[0].inlay {
+                *plug_margin = 2.0;
+            }
+            set_cut_out(&mut p, cut_out, false);
+            p
+        };
+        let vbit_length = |b: &Built| b.stats.per_tool.last().unwrap().cutting_length;
+
+        // Cut to size beforehand, the blank's edge bounds every tool, so the
+        // strip along it is left to the V-bit.
+        let plain = build(&narrow(false), "j", Part::Plug).unwrap();
+        // Cut out of a larger board, the end mill takes the strip, hanging
+        // over the edge into wood that is waste.
+        let p = narrow(true);
+        let cut = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(cut.problems, vec![]);
+        assert!(
+            vbit_length(&cut.built) < 0.8 * vbit_length(&plain),
+            "{} against {}",
+            vbit_length(&cut.built),
+            vbit_length(&plain)
+        );
+
+        // Nothing is left standing along the plug's edge: from 2 mm outside
+        // it to well into the strip, all is down to the floor or below.
+        let [x0, y0, x1, _] = cut.built.piece.unwrap();
+        let map = &cut.map;
+        let floor = -(2.0 + 1.5) as f32;
+        let mut checked = 0;
+        for iy in 0..map.ny {
+            for ix in 0..map.nx {
+                let [x, y] = map.centre(ix, iy);
+                if x > x0 + 1.0 && x < x1 - 1.0 && y > y0 - 2.0 && y < y0 + 0.8 {
+                    assert!(
+                        map.at(ix, iy) <= floor + 0.02,
+                        "{} at {x}, {y}",
+                        map.at(ix, iy)
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 1000);
+        // The plug still seats.
+        let check = check_fit(&p, "j").unwrap();
+        assert!(
+            check.fit.report.proud.abs() < 0.03,
+            "{:?}",
+            check.fit.report
+        );
+        assert!(check.fit.report.wall_contact > 0.95);
+
+        // A wide end mill hangs further over the edge than the cut that frees
+        // the plug is wide. The border then starts beyond its reach.
+        let mut q = narrow(true);
+        let mut wide = end_mill();
+        wide.id = "t-wide".into();
+        wide.name = "6 mm".into();
+        wide.diameter = 6.0;
+        q.tools.push(wide);
+        if let Inlay::Vcarve {
+            clearing_tool_ids, ..
+        } = &mut q.jobs[0].inlay
+        {
+            *clearing_tool_ids = vec!["t-wide".into(), "t-endmill".into()];
+        }
+        q.jobs[0].cut_out_tool_id = Some("t-endmill".into());
+        let wide_cut = preview(&q, "j", Part::Plug).unwrap();
+        assert_eq!(wide_cut.problems, vec![]);
+        assert_eq!(wide_cut.built.cut_width, Some(3.175));
+        // 6 - (2 - 0.87) + 0.25 = 5.12 mm over the edge, plus the 5 mm border, rounded up.
+        assert_eq!(wide_cut.built.piece.unwrap()[0], 11.0);
+        assert_eq!(wide_cut.built.stock.width, plain.stock.width + 22.0);
+        // The board's outermost millimetres are untouched.
+        assert_eq!(wide_cut.map.at(2, 2), 0.0);
     }
 
     #[test]
