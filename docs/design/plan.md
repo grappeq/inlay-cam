@@ -692,3 +692,41 @@ good first cut. All of it is in the core.
   pass goes round every wall, also walls an earlier tool never touched; relief treats a
   corner edge as it does a ridge, which lowers it somewhat more than needed; nothing here
   has been cut in wood.
+
+### One tool model with the tooling library (2026-11-16)
+
+The first step towards making this app and `cnc-tooling-library` one: the app holds, reads
+and writes everything that project's `tools.yaml` holds. The feeds model, the libraries for
+Makera CAM, Makera Studio and Fusion 360, and a server with an API are later steps.
+
+- **Tool model** (`tools.rs`). Three more kinds, which no operation accepts. A material is
+  a key, not one of two woods. A cutting row can belong to a toolpath profile, remembers
+  whether its stepover was given in mm or percent, and carries a field log; its current
+  result is the newest entry cut at its present numbers. Tools gain group, number,
+  coating, style, note, recommended materials, source, inventory, things to verify and
+  Makera ids. A tool file also holds materials, profiles and groups, and is refused when
+  a tool refers to one it lacks. Everything is additive: both file versions stay at 1,
+  and a tool that uses none of it is written as before.
+- **`tools.yaml`** (`import/tools_yaml.rs`). Read whole and strictly; written one key per
+  line. Comments directly above a tool go into its note. A percentage is kept as mm to six
+  decimals, which gives the same percentage back at three.
+- **Row choice** (`Job.row_profiles`, `Project.profiles`). Per tool and job. Any profile
+  may be chosen for any operation, since the tooling library's own flags do not say which
+  cuts a profile suits; only adaptive clearing is refused. A cut-out keeps the plain row.
+- **Materials**. A job takes any material; outside wood the build warns. The list has a
+  page of its own in the settings.
+- **Project files** leave out what is the owner's: source, inventory, logs, ids.
+- Checked by test: a made-up `tools.yaml` with every key read, written and read again to
+  the same library; mistakes reported with their place; the frozen tool file read and
+  written unchanged; a chosen row's feed in the G-code; an adaptive row refused. 227 core
+  tests, 35 UI tests. Checked outside the repository, on the author's real file: 98 tools
+  and 530 rows in, none left out, and the tooling library's generator makes byte-identical
+  Makera CAM, Makera Studio (with the clock held) and Fusion 360 libraries from the
+  original and from the file written by this app. Looked at in the browser with a pocket:
+  import, export, the row list, a job in aluminium, the materials page.
+- Known limits: the tool editor edits plain rows only, and none of the new tool fields;
+  field logs and inventory are kept and not shown; the simulator would draw the three new
+  kinds as cylinders, which nothing can reach yet; a material added in the app has no
+  record in the Makera apps, and the tooling library refuses a `tools.yaml` that lists
+  it; a corner-rounding bit's radius is not in a `tools.yaml`; nothing has been cut in a
+  material other than wood, and no row of a profile has been run.

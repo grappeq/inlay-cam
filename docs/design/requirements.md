@@ -42,18 +42,28 @@ freely; the app is released under the MIT licence.
 - The app keeps its own tool list, which the user manages in the app (add, edit, delete).
   It is stored with the app's data in the browser and can be exported to and imported
   from a file. That file format is documented and versioned like the project file.
-- Limited import from the `tools.yaml` of `cnc-tooling-library` (the author's own tool
-  list, not published): only what inlays need, the rest is skipped.
-  - Tools: `flat_end` and `v_bit` (not corner-rounding cutters). Drills, thread mills and
-    ball noses are skipped.
-  - Per tool: name, type, and geometry (diameter, tip diameter, tip angle, flute length,
-    shank diameter, overall length, flutes).
-  - Cutting settings: the plain rows for hardwood and softwood (rpm, feed, plunge,
-    stepover, stepdown). Toolpath-profile rows (e.g. adaptive) and other materials are
-    skipped.
-  - Skipped entirely: ids, source, inventory, coating, style, recommended_for, verify,
-    groups, material records.
-  - The documentation states which `tools.yaml` fields are read.
+- The tool list holds everything the `tools.yaml` of `cnc-tooling-library` (the author's
+  own tool list, not published) holds, so that the two can become one application:
+  - Every kind of tool: flat end mills, V-bits and corner-rounding bits, which the app's
+    operations cut with, and ball end mills, drills and thread mills, which it keeps and
+    writes back out and cuts nothing with.
+  - Per tool: geometry, group, number, coating, style, note, recommended materials,
+    source, inventory with a log of broken and worn cutters, things to verify, and its
+    ids in the Makera apps.
+  - Cutting rows: one plain row per material, safe for any toolpath, and one more per
+    material for each toolpath profile, each with its field log.
+  - The materials, toolpath profiles and groups the tools refer to.
+- A `tools.yaml` is read whole and written back without loss of anything but its comments.
+  A mistake in the file stops the import and says where. The documentation states how
+  each key is read and written.
+- The author's own `tools.yaml` is never part of the repository. Tests use made-up files.
+- The materials are a list the user edits. Hardwood and softwood are always in it.
+- A job is cut in any material of the list. Outside wood the app says that its toolpaths
+  are unproven.
+- A job can name, per tool, the profile whose row the tool runs. Without one the tool runs
+  its plain row. A row for adaptive clearing is refused: the app has no such toolpath.
+- A project file is made to be passed on: its copies of tools leave out the source,
+  inventory, logs and ids, which belong to the owner's tool list.
 - V-bits are modelled with their tip flat (`tip_diameter`), not as a perfect point.
 - Cut depth is checked against the tool's flute length (cone height for V-bits).
 

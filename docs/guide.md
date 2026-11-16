@@ -16,12 +16,18 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 
 ## 1. List your tools
 
-Open **Tools and settings**. It has three pages, listed on the left: your tools, your
-machine, and what a new inlay starts with. All three are kept in this browser and used by
-every project.
+Open **Tools and settings**. It has four pages, listed on the left: your tools, your
+materials, your machine, and what a new inlay starts with. All four are kept in this
+browser and used by every project.
 
-On the **Tools** page, add each end mill, V-bit and corner-rounding bit you will use. A
-`tools.yaml` tool list can also be imported; its layout is in [formats.md](formats.md).
+On the **Tools** page, add each end mill, V-bit and corner-rounding bit you will use.
+"Export tool file" saves the whole list, with its materials, to a file you can keep or
+bring into another browser with "Import tool file…".
+
+A `tools.yaml` tool list can be imported and exported too; its layout, and what is and is
+not kept, is in [formats.md](formats.md#toolsyaml). Such a list can hold ball end mills,
+drills and thread mills. They are kept in your list and written back out, and no operation
+of this app cuts with them.
 
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
@@ -31,13 +37,25 @@ On the **Tools** page, add each end mill, V-bit and corner-rounding bit you will
   that. Leave it empty if unknown and the app warns instead.
 - **Tip flat diameter** of a V-bit: measure it. A bit sold as pointed often has a flat of
   0.1 mm or more, and the app's geometry depends on it.
-- **Cutting settings** are per wood (hardwood, softwood). A tool cannot be used on a wood
-  it has no settings for.
+- **Cutting settings** are per material. A tool cannot be used on a material it has no
+  settings for. The editor shows one set per material: the tool's *plain* settings, safe
+  for any cut. An imported tool can have further rows made for one kind of toolpath, such
+  as a finishing pass; the editor lists them and leaves them as they are.
 - A V-bit's **stepover** spaces its passes over a flat floor, where only the tip cuts.
   The app caps it so that ridges stay under 0.1 mm.
 
 Tools are shared by all projects. A project keeps its own copy of the tools it uses, so it
 opens correctly elsewhere.
+
+### Your materials
+
+The **Materials** page lists what you cut. Hardwood and softwood are always there. Add a
+material by name, such as oak or acrylic, then give your tools cutting settings for it. A
+material can be renamed at any time, and deleted once no cutting settings, tool or part
+of the open project uses it. Materials that came with an imported tool list are here too.
+
+The app's toolpaths have only been proven in wood. A part in any other material builds
+with a warning that says so: check its simulation with care and cut a test piece first.
 
 ### Your machine
 
@@ -163,7 +181,15 @@ inlays from them. There is no snapping or aligning of one part to another.
 Click the shapes that will be cut from one wood, then choose the kind of inlay. Each
 inlay is edited in its own panel; "All inlays and operations" takes you back.
 
-Under "Wood and tools" an inlay has a **colour** for its wood: one of the woods offered, or
+Under "Material and tools", **Material** picks which of each tool's cutting settings are
+used. When a chosen tool has rows for a kind of toolpath in that material, a **Cutting
+row** list appears under it: the plain row, or one of those. The numbers of the row are
+shown below the list, and the generated file's notes say which row each tool ran. Leave
+it on the plain row unless you know the other suits the cut: the app does not check a row
+against the kind of cut, except that it refuses rows for adaptive clearing, which it has
+no toolpath for. Cutting a plug or insert out of its board always uses the plain row.
+
+There too, an inlay has a **colour** for its wood: one of the woods offered, or
 any other colour. The drawing shows each inlay in its colour on the colour of the stock, so
 it previews the finished piece; the 3D view of the plug and the fit view use the same
 colours. Colours change nothing in the files.
