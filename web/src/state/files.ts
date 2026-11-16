@@ -3,7 +3,7 @@
 import { core } from "../core/client";
 import * as db from "../storage/db";
 import type { ImportReport } from "../core/types";
-import { mergeTools, newId } from "./model";
+import { mergeLists, mergeTools, newId } from "./model";
 import { message, useApp, useDispatch } from "./store";
 
 export interface TextFile {
@@ -12,7 +12,7 @@ export interface TextFile {
 }
 
 export function useFileActions() {
-  const { project, tools } = useApp();
+  const { project, tools, lists } = useApp();
   const dispatch = useDispatch();
   const info = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
@@ -88,17 +88,23 @@ export function useFileActions() {
   async function importToolsYaml(file: TextFile) {
     const result = await core.call("importToolsYaml", file.text);
     const merged = mergeTools(tools, result.tools);
-    dispatch({ type: "setTools", tools: merged.tools });
+    dispatch({ type: "setTools", tools: merged.tools, lists: mergeLists(lists, result) });
     dispatch({ type: "setView", view: "settings", page: "tools" });
     const reasons = new Map<string, number>();
     for (const s of result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     const skipped = [...reasons].map(([reason, n]) => `${n} × ${reason}`).join("; ");
-    info(summary(file.name, merged.added, merged.updated) + (result.skipped.length ? ` Left out ${result.skipped.length}: ${skipped}.` : ""));
+    const lines = (n: number) => `${n} comment line${n === 1 ? "" : "s"}`;
+    const comments =
+      result.commentsMoved + result.commentsDropped === 0
+        ? ""
+        : ` Comments are not kept as such: ${lines(result.commentsMoved)} above tools went into their notes, ${lines(result.commentsDropped)} ${result.commentsDropped === 1 ? "was" : "were"} dropped.`;
+    info(summary(file.name, merged.added, merged.updated) + (result.skipped.length ? ` Left out ${result.skipped.length}: ${skipped}.` : "") + comments);
   }
 
   async function importToolLibrary(file: TextFile) {
-    const merged = mergeTools(tools, await core.call("toolsFromFile", file.text));
-    dispatch({ type: "setTools", tools: merged.tools });
+    const library = await core.call("libraryFromFile", file.text);
+    const merged = mergeTools(tools, library.tools);
+    dispatch({ type: "setTools", tools: merged.tools, lists: mergeLists(lists, library) });
     dispatch({ type: "setView", view: "settings", page: "tools" });
     info(summary(file.name, merged.added, merged.updated));
   }

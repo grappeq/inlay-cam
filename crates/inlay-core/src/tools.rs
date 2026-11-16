@@ -803,6 +803,14 @@ impl ToolLibrary {
 
     /// Checks the tools, and that everything they refer to is in the library.
     pub fn validate(&self) -> Result<(), String> {
+        validate_tools(&self.tools)?;
+        self.validate_lists()
+    }
+
+    /// Checks the materials, profiles and groups, and that every material
+    /// and profile a tool refers to is among them. The tools themselves are
+    /// not checked.
+    pub fn validate_lists(&self) -> Result<(), String> {
         for (i, material) in self.materials.iter().enumerate() {
             let key = material.key.key();
             if key.trim().is_empty() || key != key.trim() {
@@ -840,7 +848,6 @@ impl ToolLibrary {
                 return Err(format!("the group \"{}\" is listed twice", group.path));
             }
         }
-        validate_tools(&self.tools)?;
         for tool in &self.tools {
             let wear = tool.inventory.iter().flat_map(|inventory| &inventory.log);
             let materials = tool

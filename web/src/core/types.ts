@@ -2,18 +2,47 @@
 // crates/inlay-core (tools.rs, project.rs, import/) are the source of truth;
 // keep these in step with them. Lengths are mm, angles degrees, feeds mm/min.
 
-export type Material = "hardwood" | "softwood";
-export type ToolKind = "flat_end" | "v_bit" | "corner_round";
+/** What is cut, as a key. Hardwood and softwood are always known; others come from the tool library's material list. */
+export type Material = string;
+/** Ball end mills, drills and thread mills are kept in the tool list; no operation cuts with them. */
+export type ToolKind = "flat_end" | "v_bit" | "corner_round" | "ball_end" | "drill" | "thread_mill";
 
-export interface CuttingSettings {
-  material: Material;
+/** Ids a group, tool or cutting row has in the Makera apps. */
+export interface AppIds {
+  cam?: string;
+  studio?: string;
+}
+
+/** The numbers of a cutting row, as they were for one cut. */
+export interface CutValues {
   rpm: number;
   feed: number;
   plunge: number;
-  /** Sideways distance between passes, mm. */
+  /** mm, whatever the unit. */
   stepover: number;
-  /** Depth per pass, mm. */
+  /** How the stepover was entered. Absent means mm. */
+  stepoverUnit?: "mm" | "percent";
   stepdown: number;
+  passes?: number;
+}
+
+export interface CutResult {
+  /** YYYY-MM-DD. */
+  date: string;
+  outcome?: "ok" | "provisional" | "failed";
+  at?: CutValues;
+  text: string;
+}
+
+export interface CuttingSettings extends CutValues {
+  material: Material;
+  /** Key of the toolpath profile the row is tuned for. Absent for the plain row, which any toolpath may use. */
+  profile?: string;
+  log?: CutResult[];
+  ids?: AppIds;
+  camFlag?: number;
+  camExtra?: string;
+  modified?: string;
 }
 
 export interface Tool {
@@ -31,7 +60,68 @@ export interface Tool {
   shankDiameter: number;
   length?: number;
   flutes?: number;
+  shoulderLength?: number;
+  threadDiameter?: number;
+  pitch?: number;
+  drillDiameter?: number;
+  studioUnknown1?: number;
+  /** Where the tool is filed, with "/" between nested groups. */
+  group?: string;
+  number?: number;
+  coating?: string;
+  style?: string;
+  note?: string;
+  recommendedFor?: Material[];
+  /** The Makera libraries the tool goes into. Absent means both. */
+  apps?: ("cam" | "studio")[];
+  fusionType?: "chamfer_mill" | "radius_mill";
+  ids?: AppIds;
+  source?: { url?: string; invoice?: string; sizeNote?: string };
+  inventory?: {
+    quantity?: number;
+    price?: number;
+    currency?: string;
+    purchased?: string;
+    log?: { date: string; kind: "broken" | "worn"; material?: Material; note?: string }[];
+  };
+  verify?: { field: string; note?: string }[];
+  /** At most one row per material and profile. */
   cutting: CuttingSettings[];
+}
+
+export interface MaterialInfo {
+  key: Material;
+  cam?: { id: string; name: string };
+  studio?: { id: string; categoryId: string; name: string; builtin?: boolean; modified?: string }[];
+}
+
+/** A kind of toolpath a tool can keep a second row per material for, such as adaptive clearing. */
+export interface Profile {
+  key: string;
+  label: string;
+  note?: string;
+  level?: "gentle" | "slot_safe" | "standard" | "firm" | "aggressive";
+  ramping?: boolean;
+  adaptive?: boolean;
+  lubricated?: boolean;
+  slot?: boolean;
+}
+
+export interface Group {
+  path: string;
+  ids?: AppIds;
+}
+
+/** What a tool library holds besides its tools. */
+export interface ToolLists {
+  materials?: MaterialInfo[];
+  profiles?: Profile[];
+  groups?: Group[];
+}
+
+/** Everything a tool-library file holds. */
+export interface ToolLibrary extends ToolLists {
+  tools: Tool[];
 }
 
 export type Point = [number, number];
@@ -226,10 +316,14 @@ export interface SvgImport {
   report: ImportReport;
 }
 
-export interface ToolsYamlImport {
-  /** Ids are empty; the caller assigns them. */
-  tools: Tool[];
+/** A whole tools.yaml. The tools' ids are empty; the caller assigns them. */
+export interface ToolsYamlImport extends ToolLibrary {
+  /** Tools the app cannot hold as written, and why. */
   skipped: { name: string; reason: string }[];
+  /** Comment lines that were directly above a tool and are now in its note. */
+  commentsMoved: number;
+  /** Comment lines that were not kept. */
+  commentsDropped: number;
 }
 
 export interface BuildStats {

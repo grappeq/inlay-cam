@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { Design, Inlay, Job, JobType, Machine, Material, Project, Ring, Setup, Tool, ToolKind, TrueInlay } from "../core/types";
+import type { CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -361,7 +361,54 @@ export function blankTool(kind: ToolKind): Tool {
 }
 
 /** What each kind of tool is called. */
-export const TOOL_KIND_LABELS: Record<ToolKind, string> = { flat_end: "Flat end mill", v_bit: "V-bit", corner_round: "Corner-rounding bit" };
+export const TOOL_KIND_LABELS: Record<ToolKind, string> = {
+  flat_end: "Flat end mill",
+  v_bit: "V-bit",
+  corner_round: "Corner-rounding bit",
+  ball_end: "Ball end mill",
+  drill: "Drill",
+  thread_mill: "Thread mill",
+};
+
+/** The kinds of tool an operation of this app can cut with. The others are only kept. */
+export const CUTTING_KINDS: ToolKind[] = ["flat_end", "v_bit", "corner_round"];
+
+/**
+ * Merges the materials, profiles and groups of an imported library into the
+ * ones held: an entry with the same key (or path) is replaced in its place,
+ * a new one goes to the end.
+ */
+export function mergeLists(current: ToolLists, incoming: ToolLists): ToolLists {
+  const merge = <T,>(a: T[] = [], b: T[] = [], key: (item: T) => string): T[] => {
+    const out = [...a];
+    for (const item of b) {
+      const index = out.findIndex((o) => key(o) === key(item));
+      if (index >= 0) out[index] = item;
+      else out.push(item);
+    }
+    return out;
+  };
+  return {
+    materials: merge(current.materials, incoming.materials, (m) => m.key),
+    profiles: merge(current.profiles, incoming.profiles, (p) => p.key),
+    groups: merge(current.groups, incoming.groups, (g) => g.path),
+  };
+}
+
+/** What a material is called: its name in the Makera apps when the library has one, else its key. */
+export function materialLabel(material: Material, lists: ToolLists): string {
+  const known = MATERIALS.find((m) => m.value === material);
+  if (known) return known.label;
+  const info = lists.materials?.find((m) => m.key === material);
+  return info?.cam?.name ?? info?.studio?.[0]?.name ?? material;
+}
+
+/** A cutting row's material, with its profile when it has one: "Aluminum · Adaptive". */
+export function rowLabel(row: CuttingSettings, lists: ToolLists): string {
+  const material = materialLabel(row.material, lists);
+  if (row.profile === undefined) return material;
+  return `${material} · ${lists.profiles?.find((p) => p.key === row.profile)?.label ?? row.profile}`;
+}
 
 export const MATERIALS: { value: Material; label: string }[] = [
   { value: "hardwood", label: "Hardwood" },
@@ -374,7 +421,7 @@ export function describeTool(tool: Tool): string {
     return `${fmt(tool.tipAngle ?? 0)}° V-bit, Ø${fmt(tool.diameter)} mm${tip}`;
   }
   if (tool.kind === "corner_round") return `Corner-rounding bit, radius ${fmt(tool.cornerRadius ?? 0)} mm, ${fmt(tool.tipDiameter ?? 0)} mm tip`;
-  return `Flat end mill, Ø${fmt(tool.diameter)} mm`;
+  return `${TOOL_KIND_LABELS[tool.kind]}, Ø${fmt(tool.diameter)} mm`;
 }
 
 /** Up to 3 decimals, no trailing zeros. */

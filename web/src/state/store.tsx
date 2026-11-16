@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool } from "../core/types";
+import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
@@ -19,6 +19,8 @@ export interface AppState {
   /** False until stored data has been loaded. */
   ready: boolean;
   tools: Tool[];
+  /** The materials, profiles and groups the tools refer to. Kept with the tools. */
+  lists: ToolLists;
   /** The machine the files are for. Like the tools, it is kept in this browser and copied into the open project. */
   machine: Machine;
   /** The clearances and tabs a new inlay starts with. Kept in this browser. */
@@ -77,11 +79,11 @@ export interface Combined {
 }
 
 export type Action =
-  | { type: "loaded"; tools: Tool[]; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
+  | { type: "loaded"; tools: Tool[]; lists: ToolLists; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
   | { type: "updateProject"; update: (project: Project) => Project }
   | { type: "updateJob"; id: string; update: (job: Job) => Job }
-  | { type: "setTools"; tools: Tool[] }
+  | { type: "setTools"; tools: Tool[]; lists?: ToolLists }
   | { type: "setMachine"; machine: Machine }
   | { type: "setDefaults"; defaults: Setup }
   | { type: "setProjects"; projects: db.ProjectSummary[] }
@@ -107,6 +109,7 @@ export type Action =
 const initial: AppState = {
   ready: false,
   tools: [],
+  lists: {},
   machine: DEFAULT_MACHINE,
   defaults: DEFAULT_SETUP,
   project: newProject(),
@@ -144,6 +147,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         ready: true,
         tools: action.tools,
+        lists: action.lists,
         machine: action.machine,
         defaults: action.defaults,
         project: normalised(action.project),
@@ -174,7 +178,7 @@ function reducer(state: AppState, action: Action): AppState {
         project: { ...state.project, jobs: state.project.jobs.map((j) => (j.id === action.id ? action.update(j) : j)) },
       });
     case "setTools":
-      return withSnapshots({ ...state, tools: action.tools });
+      return withSnapshots({ ...state, tools: action.tools, lists: action.lists ?? state.lists });
     case "setMachine":
       return withSnapshots({ ...state, machine: action.machine });
     case "setDefaults":
@@ -338,11 +342,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       let tools: Tool[] = [];
+      let lists: ToolLists = {};
       let project = newProject();
       let problem: string | null = null;
       try {
         const toolsText = await db.getSetting("tools");
-        if (toolsText) tools = await core.call("toolsFromFile", toolsText);
+        if (toolsText) ({ tools, ...lists } = await core.call("libraryFromFile", toolsText));
       } catch (e) {
         problem = `Your stored tool list could not be read: ${message(e)}`;
       }
@@ -356,7 +361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
       const defaults = readSetup(await db.getSetting("inlayDefaults").catch(() => undefined));
       if (cancelled) return;
-      dispatch({ type: "loaded", tools, machine, defaults, project, projects });
+      dispatch({ type: "loaded", tools, lists, machine, defaults, project, projects });
       if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
     return () => {
@@ -394,15 +399,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!state.ready) return;
-    const tools = state.tools;
+    const library = { ...state.lists, tools: state.tools };
     (async () => {
       try {
-        await db.putSetting("tools", await core.call("toolsToFile", tools));
+        await db.putSetting("tools", await core.call("libraryToFile", library));
       } catch (e) {
         dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
       }
     })();
-  }, [state.ready, state.tools]);
+  }, [state.ready, state.tools, state.lists]);
 
   useEffect(() => {
     if (!state.ready) return;

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { core } from "../core/client";
 import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { MATERIALS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools } from "../state/model";
+import { CUTTING_KINDS, MATERIALS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText, pickTextFile, useEscape } from "../util/files";
 import { NumberField } from "./NumberField";
@@ -11,12 +11,14 @@ const KIND_LABEL: Record<ToolKind, string> = TOOL_KIND_LABELS;
 
 /** The tool list: the first page of the settings view. */
 export function ToolsPage() {
-  const { tools, project } = useApp();
+  const { tools, lists, project } = useApp();
   const dispatch = useDispatch();
   const actions = useFileActions();
   const [editing, setEditing] = useState<{ tool: Tool; isNew: boolean } | null>(null);
   const notify = (kind: "info" | "error", text: string) => dispatch({ type: "notice", notice: { kind, text } });
-  const sorted = [...tools].sort((a, b) => a.kind.localeCompare(b.kind) || a.diameter - b.diameter || a.name.localeCompare(b.name));
+  const kindOrder = Object.keys(KIND_LABEL);
+  const sorted = [...tools].sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind) || a.diameter - b.diameter || a.name.localeCompare(b.name));
+  const kept = tools.filter((t) => !CUTTING_KINDS.includes(t.kind)).length;
   const extra = projectOnlyTools(project, tools);
   const usedIds = new Set(project.jobs.flatMap(jobToolIds));
 
@@ -25,7 +27,7 @@ export function ToolsPage() {
 
   const exportLibrary = async () => {
     try {
-      downloadText("tools.inlay-tools.json", await core.call("toolsToFile", tools));
+      downloadText("tools.inlay-tools.json", await core.call("libraryToFile", { ...lists, tools }));
     } catch (e) {
       notify("error", message(e));
     }
@@ -71,12 +73,13 @@ export function ToolsPage() {
       <p className="muted lead">
         A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it time. Pockets, contours and facing use end mills; a
         chamfer uses a V-bit, or a corner-rounding (fillet) bit to round the edge over. Each tool needs cutting settings for the wood you cut.
+        {kept > 0 && ` ${kept} of your tools ${kept === 1 ? "is a ball end mill, drill or thread mill" : "are ball end mills, drills or thread mills"}: kept here, not used by any operation yet.`}
       </p>
 
       {tools.length === 0 ? (
         <div className="empty-card">
           <p>No tools yet.</p>
-          <p className="muted">Add them by hand, or import the tools.yaml of your tooling library. Only end mills, V-bits and corner-rounding bits are taken from it.</p>
+          <p className="muted">Add them by hand, or import the tools.yaml of your tooling library.</p>
           <div className="row center">
             <button className="primary" onClick={() => setEditing({ tool: blankTool("flat_end"), isNew: true })}>
               Add end mill
@@ -109,11 +112,15 @@ export function ToolsPage() {
                   <td>{KIND_LABEL[tool.kind]}</td>
                   <td className="num">{fmt(tool.diameter)}</td>
                   <td className="num">
-                    {tool.kind === "corner_round" ? `R ${fmt(tool.cornerRadius ?? 0)}` : tool.tipAngle !== undefined ? `${fmt(tool.tipAngle)}°` : ""}
+                    {tool.kind === "corner_round"
+                      ? `R ${fmt(tool.cornerRadius ?? 0)}`
+                      : (tool.kind === "v_bit" || tool.kind === "drill") && tool.tipAngle !== undefined
+                        ? `${fmt(tool.tipAngle)}°`
+                        : ""}
                   </td>
-                  <td className="num">{tool.kind !== "flat_end" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
+                  <td className="num">{tool.kind === "v_bit" || tool.kind === "corner_round" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
                   <td className="num">{tool.fluteLength !== undefined ? fmt(tool.fluteLength) : "unknown"}</td>
-                  <td>{tool.cutting.length ? tool.cutting.map((c) => c.material).join(", ") : <span className="warn">none yet: edit to add</span>}</td>
+                  <td>{tool.cutting.length ? tool.cutting.map((c) => rowLabel(c, lists)).join(", ") : <span className="warn">none yet: edit to add</span>}</td>
                   <td className="row-actions">
                     <button onClick={() => setEditing({ tool, isNew: false })}>Edit</button>
                     <button className="danger" onClick={() => remove(tool)}>
@@ -134,15 +141,19 @@ export function ToolsPage() {
 
 function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
   const [tool, setTool] = useState<Tool>(props.initial);
+  const { lists } = useApp();
+  // Rows the fields below do not show: other materials, and rows for a toolpath profile.
+  const others = tool.cutting.filter((c) => c.profile !== undefined || !MATERIALS.some((m) => m.value === c.material));
   useEscape(props.onCancel);
   const [error, setError] = useState<string | null>(null);
   const set = (change: Partial<Tool>) => setTool((t) => ({ ...t, ...change }));
 
   const setCutting = (material: Material, change: Partial<CuttingSettings> | null) =>
     setTool((t) => {
-      const others = t.cutting.filter((c) => c.material !== material);
-      if (change === null) return { ...t, cutting: others };
-      const current = t.cutting.find((c) => c.material === material) ?? {
+      // Only the plain row of the material is edited here; rows for a toolpath profile stay as they are, in their place.
+      const plain = (c: CuttingSettings) => c.material === material && c.profile === undefined;
+      if (change === null) return { ...t, cutting: t.cutting.filter((c) => !plain(c)) };
+      const current = t.cutting.find(plain) ?? {
         material,
         rpm: 12000,
         feed: 500,
@@ -151,7 +162,8 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
         stepover: t.kind === "v_bit" ? 0.2 : t.kind === "corner_round" ? 0.5 : Math.round(t.diameter * 400) / 1000,
         stepdown: 0.5,
       };
-      return { ...t, cutting: [...others, { ...current, ...change }].sort((a, b) => a.material.localeCompare(b.material)) };
+      const row = { ...current, ...change };
+      return { ...t, cutting: t.cutting.some(plain) ? t.cutting.map((c) => (plain(c) ? row : c)) : [...t.cutting, row] };
     });
 
   const submit = async () => {
@@ -241,7 +253,7 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
         </div>
 
         {MATERIALS.map(({ value: material, label }) => {
-          const row = tool.cutting.find((c) => c.material === material);
+          const row = tool.cutting.find((c) => c.material === material && c.profile === undefined);
           return (
             <fieldset key={material}>
               <legend>
@@ -262,6 +274,12 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
             </fieldset>
           );
         })}
+
+        {others.length > 0 && (
+          <p className="muted">
+            Also kept, as imported: {others.map((c) => rowLabel(c, lists)).join(", ")}. These rows are not edited here yet.
+          </p>
+        )}
 
         {error && (
           <p className="form-error" role="alert">

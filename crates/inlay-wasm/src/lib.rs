@@ -11,7 +11,7 @@ use std::rc::Rc;
 use inlay_core::build;
 use inlay_core::import::{dxf, svg, tools_yaml};
 use inlay_core::project::{self, Project};
-use inlay_core::tools::{self, Tool};
+use inlay_core::tools::{self, Tool, ToolLibrary};
 use wasm_bindgen::prelude::*;
 
 fn to_json<T: serde::Serialize>(value: &T) -> String {
@@ -49,8 +49,8 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<String, JsError> {
         .map_err(err)
 }
 
-/// Imports the useful part of a tooling-library `tools.yaml`. Returns
-/// `ToolsYamlImport` as JSON; the tools have empty ids.
+/// Imports a tooling-library `tools.yaml`. Returns `ToolsYamlImport` as
+/// JSON; the tools have empty ids.
 #[wasm_bindgen(js_name = importToolsYaml)]
 pub fn import_tools_yaml(text: &str) -> Result<String, JsError> {
     tools_yaml::import_tools_yaml(text)
@@ -74,20 +74,21 @@ pub fn project_to_file(project_json: &str) -> Result<String, JsError> {
     Ok(project::project_to_file_json(&project))
 }
 
-/// Reads a tool-library file of any supported version. Returns `Tool[]` as JSON.
-#[wasm_bindgen(js_name = toolsFromFile)]
-pub fn tools_from_file(text: &str) -> Result<String, JsError> {
-    tools::tools_from_file_json(text)
+/// Reads a tool-library file of any supported version. Returns
+/// `ToolLibrary` as JSON.
+#[wasm_bindgen(js_name = libraryFromFile)]
+pub fn library_from_file(text: &str) -> Result<String, JsError> {
+    tools::library_from_file_json(text)
         .map(|v| to_json(&v))
         .map_err(err)
 }
 
-/// Validates a tool list and writes it as a tool-library file.
-#[wasm_bindgen(js_name = toolsToFile)]
-pub fn tools_to_file(tools_json: &str) -> Result<String, JsError> {
-    let list: Vec<Tool> = from_json(tools_json, "tool list")?;
-    tools::validate_tools(&list).map_err(err)?;
-    Ok(tools::tools_to_file_json(&list))
+/// Validates a tool library and writes it as a tool-library file.
+#[wasm_bindgen(js_name = libraryToFile)]
+pub fn library_to_file(library_json: &str) -> Result<String, JsError> {
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    library.validate().map_err(err)?;
+    Ok(tools::library_to_file_json(&library))
 }
 
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.

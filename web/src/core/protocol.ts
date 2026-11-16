@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolsYamlImport } from "./types";
+import type { FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -13,8 +13,10 @@ export interface CoreApi {
   projectFromFile(text: string): Project;
   /** Validates the project and returns the file text. */
   projectToFile(project: Project): string;
-  toolsFromFile(text: string): Tool[];
-  toolsToFile(tools: Tool[]): string;
+  /** Reads a tool-library file of any supported format version. */
+  libraryFromFile(text: string): ToolLibrary;
+  /** Validates the tools and what they refer to, and returns the file text. */
+  libraryToFile(library: ToolLibrary): string;
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**
