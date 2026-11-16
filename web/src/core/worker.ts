@@ -16,6 +16,7 @@ const api: CoreApi = {
   libraryFromFile: (text) => JSON.parse(wasm.libraryFromFile(text)),
   libraryToFile: (library) => wasm.libraryToFile(JSON.stringify(library)),
   libraryToToolsYaml: (library) => wasm.libraryToToolsYaml(JSON.stringify(library)),
+  suggestFeeds: (tool, material, options) => JSON.parse(wasm.suggestFeeds(JSON.stringify(tool), material, JSON.stringify(options))),
   validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
   previewPart: (project, jobId, part) => {
     const preview = wasm.previewPart(JSON.stringify(project), jobId, part);

@@ -9,6 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use inlay_core::build;
+use inlay_core::feeds;
 use inlay_core::import::{dxf, svg, tools_yaml};
 use inlay_core::project::{self, Project};
 use inlay_core::tools::{self, Tool, ToolLibrary};
@@ -97,6 +98,20 @@ pub fn library_to_tools_yaml(library_json: &str) -> Result<String, JsError> {
     let library: ToolLibrary = from_json(library_json, "tool library")?;
     library.validate().map_err(err)?;
     Ok(tools_yaml::write_tools_yaml(&library))
+}
+
+/// A starting point for a tool's cutting settings in a material, from the
+/// feeds model. `options_json` is `FeedOptions`; returns `FeedSuggestion` as
+/// JSON, whose status says whether there are values and whether to trust them.
+#[wasm_bindgen(js_name = suggestFeeds)]
+pub fn suggest_feeds(
+    tool_json: &str,
+    material: &str,
+    options_json: &str,
+) -> Result<String, JsError> {
+    let tool: Tool = from_json(tool_json, "tool")?;
+    let options: feeds::Options = from_json(options_json, "feed options")?;
+    Ok(to_json(&feeds::suggest_for(&tool, material, &options)))
 }
 
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.

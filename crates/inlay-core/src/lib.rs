@@ -4,6 +4,7 @@
 
 pub mod analysis;
 pub mod build;
+pub mod feeds;
 pub mod file;
 pub mod gcode;
 pub mod geom;

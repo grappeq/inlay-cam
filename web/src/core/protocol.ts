@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { FeedOptions, FeedSuggestion, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -19,6 +19,8 @@ export interface CoreApi {
   libraryToFile(library: ToolLibrary): string;
   /** Validates the library and returns it as a tooling-library tools.yaml. */
   libraryToToolsYaml(library: ToolLibrary): string;
+  /** A starting point for a tool's cutting settings in a material. Its status says whether there are values, and whether to trust them. */
+  suggestFeeds(tool: Tool, material: string, options: FeedOptions): FeedSuggestion;
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**

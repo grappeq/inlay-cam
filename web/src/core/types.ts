@@ -114,6 +114,41 @@ export interface Group {
   ids?: AppIds;
 }
 
+/** How hard a suggested cut is: the feeds model's five stops. */
+export type FeedLevel = "gentle" | "slot_safe" | "standard" | "firm" | "aggressive";
+
+/** Which suggestion is asked of the feeds model. */
+export interface FeedOptions {
+  level: FeedLevel;
+  /** The tool goes down along a ramp, not straight. */
+  ramping: boolean;
+  /** For adaptive clearing, which this app has no toolpath for. */
+  adaptive: boolean;
+  /** The cut gets light lubrication. */
+  lubricated: boolean;
+}
+
+/** The feeds model's starting point for one tool and material. */
+export interface FeedSuggestion {
+  /** "none": no values, and `reason` says why. "caution": values, and `reason` says why to distrust them. */
+  status: "ok" | "caution" | "none";
+  reason: string | null;
+  values: { rpm: number; feed: number; plunge: number; stepoverPct: number; stepoverMm: number; stepdown: number } | null;
+  /** Which of the values the model stands behind: a drill's are only spindle and plunge. */
+  fields: ("rpm" | "feed" | "plunge" | "stepover" | "stepdown")[];
+  classLabel: string | null;
+  /** mm per tooth. */
+  chipLoad: number | null;
+  /** m/min. */
+  surfaceSpeed: number | null;
+  powerW: number | null;
+  powerLimitW: number | null;
+  spindleW: number;
+  notes: string[];
+  untested: boolean;
+  options: FeedOptions;
+}
+
 /** What a tool library holds besides its tools. */
 export interface ToolLists {
   materials?: MaterialInfo[];
