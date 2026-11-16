@@ -7,7 +7,8 @@ import { loadStoredProject, message, useApp, useDispatch } from "../state/store"
 import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
 
 export function Header() {
-  const { project, view, saveError, ready } = useApp();
+  const { project, view, settingsPage, saveError, ready } = useApp();
+  const machine = view === "settings" && (settingsPage === "machine" || settingsPage === "defaults");
   const dispatch = useDispatch();
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
@@ -31,8 +32,15 @@ export function Header() {
         <button aria-pressed={view === "design"} onClick={() => dispatch({ type: "setView", view: "design" })}>
           Design
         </button>
-        <button aria-pressed={view === "settings"} onClick={() => dispatch({ type: "setView", view: "settings" })}>
-          Tools and settings
+        <button
+          aria-pressed={view === "settings" && !machine}
+          onClick={() => dispatch({ type: "setView", view: "settings", page: machine || view !== "settings" ? "tools" : settingsPage })}
+          title="Your tools, with their materials and profiles"
+        >
+          Tools
+        </button>
+        <button aria-pressed={machine} onClick={() => dispatch({ type: "setView", view: "settings", page: "machine" })} title="Your machine, and what a new inlay starts with">
+          Machine
         </button>
       </nav>
       <input

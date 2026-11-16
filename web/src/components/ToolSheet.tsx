@@ -1,24 +1,13 @@
-// One tool, whole: its shape, what it is and where it came from, and every
-// cutting row with what the feeds model makes of it.
+// The editor of one tool: its shape, its cutting rows, what it is, and its
+// stock and source. Nothing is kept until it is saved.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { CutResult, CuttingSettings, FeedFlags, FeedLevel, FeedSuggestion, Material, RowCheck, Tool, ToolLists } from "../core/types";
-import { OUTCOMES, TOOL_KIND_LABELS, allMaterials, currentResult, feedMaterial, fmt, materialLabel, rowLabel, today } from "../state/model";
+import type { CuttingSettings, FeedLevel, Material, Tool, ToolLists } from "../core/types";
+import { TOOL_KIND_LABELS, allMaterials, fmt, rowLabel, today } from "../state/model";
 import { message, useApp } from "../state/store";
 import { NumberField } from "./NumberField";
-
-const LEVELS: { key: FeedLevel; label: string }[] = [
-  { key: "gentle", label: "Gentle" },
-  { key: "slot_safe", label: "Slot-safe" },
-  { key: "standard", label: "Standard" },
-  { key: "firm", label: "Firm" },
-  { key: "aggressive", label: "Aggressive" },
-];
-
-/** Six decimals: fine enough that a percentage kept as mm is the same percentage when turned back. */
-const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
-const percentOf = (row: CuttingSettings, diameter: number) => Math.round((row.stepover / diameter) * 100000) / 1000;
+import { RowFacts, Ruler, Suggestions, percentOf, placeOf, profileFlags, round6, useInsight, type Flags } from "./RowInsight";
 
 export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
   const { lists } = useApp();
@@ -39,7 +28,7 @@ export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[];
   const removeRow = (index: number) => setTool((t) => ({ ...t, cutting: t.cutting.filter((_, i) => i !== index) }));
   const addRow = () =>
     setTool((t) => {
-      // The first material and profile the tool has no row for yet.
+      // The first material, then the first profile, the tool has no row for yet.
       const taken = (material: Material, profile?: string) => t.cutting.some((c) => c.material === material && c.profile === profile);
       const free = materials.find((m) => !taken(m.value));
       const material = free?.value ?? materials[0].value;
@@ -61,13 +50,6 @@ export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[];
     }
   };
 
-  const kept = [
-    tool.ids && "its ids in the Makera apps",
-    tool.apps && "which Makera libraries it goes into",
-    tool.fusionType && "its Fusion 360 type",
-    tool.studioUnknown1 !== undefined && "a value Makera Studio stores",
-    tool.cutting.some((c) => c.ids || c.camFlag !== undefined || c.camExtra !== undefined || c.modified) && "what the Makera apps store with its rows",
-  ].filter((item): item is string => typeof item === "string");
   const inventory = tool.inventory ?? {};
   const setInventory = (change: Partial<NonNullable<Tool["inventory"]>>) => {
     const next = { ...inventory, ...change };
@@ -81,213 +63,192 @@ export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[];
 
   return (
     <form
-      className="sheet"
+      className="card editing"
       aria-label={props.isNew ? "Add tool" : "Edit tool"}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
-      <div className="toolbar">
-        <button type="button" onClick={props.onCancel}>
-          ← All tools
-        </button>
-        <h2>{tool.name.trim() === "" ? `New ${TOOL_KIND_LABELS[tool.kind].toLowerCase()}` : tool.name}</h2>
-        <span className="muted">{TOOL_KIND_LABELS[tool.kind]}</span>
-        <span className="spacer" />
-        <button type="button" onClick={props.onCancel}>
-          Cancel
-        </button>
-        <button type="submit" className="primary">
-          Save tool
-        </button>
-      </div>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <Section title="Shape">
-        <TextField label="Name" value={tool.name} onChange={(name) => set({ name: name ?? "" })} wide keepEmpty />
-        <div className="grid">
-          <NumberField
-            label={tool.kind === "flat_end" || tool.kind === "ball_end" || tool.kind === "drill" ? "Diameter" : "Body diameter"}
-            unit="mm"
-            min={0.001}
-            value={tool.diameter}
-            onChange={(v) => v !== undefined && setDiameter(v)}
-          />
-          <NumberField label="Shank diameter" unit="mm" min={0.001} value={tool.shankDiameter} onChange={(v) => v !== undefined && set({ shankDiameter: v })} />
-          {(tool.kind === "v_bit" || tool.kind === "drill") && (
-            <NumberField
-              label={tool.kind === "drill" ? "Point angle" : "Angle"}
-              unit="°"
-              min={0.1}
-              value={tool.tipAngle}
-              onChange={(v) => v !== undefined && set({ tipAngle: v })}
-              hint="Full angle between the two edges."
-            />
-          )}
-          {tool.kind === "v_bit" && (
-            <NumberField label="Tip flat diameter" unit="mm" value={tool.tipDiameter ?? 0} onChange={(v) => v !== undefined && set({ tipDiameter: v })} hint="Measure it: 0 for a true point." />
-          )}
-          {tool.kind === "corner_round" && (
-            <>
-              <NumberField label="Corner radius" unit="mm" min={0.001} value={tool.cornerRadius} onChange={(v) => v !== undefined && set({ cornerRadius: v })} hint="Radius of the rounded edge it cuts." />
-              <NumberField
-                label="Tip diameter"
-                unit="mm"
-                value={tool.tipDiameter ?? 0}
-                onChange={(v) => v !== undefined && set({ tipDiameter: v })}
-                hint="Across the tip, below the rounded edge. The body is at least this plus twice the radius."
-              />
-            </>
-          )}
-          <NumberField label="Flute length" unit="mm" min={0.001} optional value={tool.fluteLength} onChange={(v) => set({ fluteLength: v })} hint="Deepest it can cut. Empty if unknown." />
-          <NumberField
-            label="Shoulder length"
-            unit="mm"
-            min={0.001}
-            optional
-            value={tool.shoulderLength}
-            onChange={(v) => set({ shoulderLength: v })}
-            hint="From the tip to where the body widens to the shank. Empty if it is the flute length."
-          />
-          <NumberField label="Overall length" unit="mm" min={0.001} optional value={tool.length} onChange={(v) => set({ length: v })} />
-          <NumberField label="Flutes" min={1} whole optional value={tool.flutes} onChange={(v) => set({ flutes: v })} hint="Needed for suggested feeds." />
-          {tool.kind === "thread_mill" && (
-            <>
-              <NumberField label="Thread diameter" unit="mm" min={0.001} optional value={tool.threadDiameter} onChange={(v) => set({ threadDiameter: v })} hint="Such as 3 for M3." />
-              <NumberField label="Pitch" unit="mm" min={0.001} optional value={tool.pitch} onChange={(v) => set({ pitch: v })} />
-              <NumberField label="Drill diameter" unit="mm" min={0.001} optional value={tool.drillDiameter} onChange={(v) => set({ drillDiameter: v })} hint="The hole drilled before threading." />
-            </>
-          )}
-        </div>
-      </Section>
-
-      <Section
-        title="Cutting settings"
-        note="One plain row per material, safe for any cut, a full-width slot included. A further row per material can be kept for one kind of toolpath. Under each row is what the feeds model would start from: a rough starting point, never applied unless you choose it."
-      >
-        {tool.cutting.length === 0 && <p className="warn">No cutting settings yet. A tool cannot be used on a material it has none for.</p>}
-        {tool.cutting.map((row, index) => (
-          <RowEditor key={index} tool={tool} row={row} lists={lists} materials={materials} onChange={(next) => setRow(index, next)} onRemove={() => removeRow(index)} />
-        ))}
-        <div className="row">
-          <button type="button" onClick={addRow}>
-            Add cutting settings
+      <header className="card-head">
+        <p className="card-path">{props.isNew ? "A new tool" : "Editing"}</p>
+        <div className="card-title">
+          <h2>{tool.name.trim() === "" ? `New ${TOOL_KIND_LABELS[tool.kind].toLowerCase()}` : tool.name}</h2>
+          <button type="button" onClick={props.onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="primary">
+            Save tool
           </button>
         </div>
-      </Section>
-
-      <Section title="What it is" note="For finding the tool and telling it from its neighbours. None of this changes a file.">
-        <div className="grid">
-          <TextField label="Group" value={tool.group} onChange={(group) => set({ group })} hint='Where it is filed. "/" separates nested groups.' />
-          <NumberField label="Tool number" min={1} whole optional value={tool.number} onChange={(v) => set({ number: v })} hint="As other CAM programs list it." />
-          <TextField label="Coating" value={tool.coating} onChange={(coating) => set({ coating })} hint="Such as DLC, or uncoated." />
-          <TextField label="Style" value={tool.style} onChange={(style) => set({ style })} hint="A word or two: Downcut, Alu." />
-        </div>
-        <TextField label="Note" value={tool.note} onChange={(note) => set({ note })} wide hint="One line about the whole tool." />
-        <div className="field" role="group" aria-label="Recommended for">
-          <span className="field-label">Recommended for</span>
-          <div className="check-list">
-            {materials.map((m) => {
-              const on = tool.recommendedFor?.includes(m.value) ?? false;
-              const next = materials.map((x) => x.value).filter((key) => (key === m.value ? !on : (tool.recommendedFor?.includes(key) ?? false)));
-              return (
-                <label key={m.value} className="check">
-                  <input type="checkbox" checked={on} onChange={() => set({ recommendedFor: next.length > 0 ? next : undefined })} />
-                  {m.label}
-                </label>
-              );
-            })}
-          </div>
-        </div>
-        {(tool.verify?.length ?? 0) > 0 && (
-          <div className="field" role="group" aria-label="Still to check">
-            <span className="field-label">Still to check</span>
-            <ul className="plain-list">
-              {tool.verify?.map((item) => (
-                <li key={item.field}>
-                  <strong>{item.field}</strong>
-                  {item.note ? `: ${item.note}` : ""}{" "}
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => {
-                      const left = tool.verify?.filter((v) => v.field !== item.field) ?? [];
-                      set({ verify: left.length > 0 ? left : undefined });
-                    }}
-                  >
-                    Checked
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
         )}
-      </Section>
+      </header>
 
-      <Section title="Stock and source" note="Yours alone: a project file passed on leaves all of this out.">
-        <div className="grid">
-          <NumberField label="On hand" min={0} whole optional value={inventory.quantity} onChange={(v) => setInventory({ quantity: v })} />
-          <NumberField label="Price each" min={0} optional value={inventory.price} onChange={(v) => setInventory({ price: v, currency: v === undefined ? undefined : (inventory.currency ?? "EUR") })} />
-          <TextField
-            label="Currency"
-            value={inventory.currency}
-            onChange={(currency) => setInventory({ currency: currency?.toUpperCase() })}
-            hint="Three letters, such as EUR. Goes with a price."
-          />
-          <TextField label="Last bought" value={inventory.purchased} onChange={(purchased) => setInventory({ purchased })} hint="A date: 2026-01-31." />
-        </div>
-        <TextField label="Product page" value={source.url} onChange={(url) => setSource({ url })} wide />
-        <div className="grid">
-          <TextField label="Invoice" value={source.invoice} onChange={(invoice) => setSource({ invoice })} />
-          <TextField label="Size as the shop lists it" value={source.sizeNote} onChange={(sizeNote) => setSource({ sizeNote })} />
-        </div>
-        <LogWear
-          materials={materials}
-          canTakeOne={(inventory.quantity ?? 0) > 0}
-          onAdd={(entry, takeOne) =>
-            setInventory({
-              log: [...(inventory.log ?? []), entry],
-              quantity: takeOne && inventory.quantity !== undefined ? Math.max(0, inventory.quantity - 1) : inventory.quantity,
-            })
-          }
-        />
-        {(inventory.log?.length ?? 0) > 0 && (
-          <div className="field" role="group" aria-label="Broken and worn">
-            <span className="field-label">Broken and worn</span>
-            <ul className="plain-list">
-              {inventory.log?.map((entry, i) => (
-                <li key={i}>
-                  <span className="mono">{entry.date}</span> {entry.kind}
-                  {entry.material ? ` in ${materialLabel(entry.material, lists).toLowerCase()}` : ""}
-                  {entry.note ? `: ${entry.note}` : ""}
-                </li>
-              ))}
-            </ul>
+      <Block title="Shape">
+        <div className="form-body">
+          <TextField label="Name" value={tool.name} onChange={(name) => set({ name: name ?? "" })} wide keepEmpty />
+          <div className="grid">
+            <NumberField
+              label={tool.kind === "v_bit" || tool.kind === "corner_round" ? "Body diameter" : "Diameter"}
+              unit="mm"
+              min={0.001}
+              value={tool.diameter}
+              onChange={(v) => v !== undefined && setDiameter(v)}
+            />
+            <NumberField label="Shank diameter" unit="mm" min={0.001} value={tool.shankDiameter} onChange={(v) => v !== undefined && set({ shankDiameter: v })} />
+            {(tool.kind === "v_bit" || tool.kind === "drill") && (
+              <NumberField
+                label={tool.kind === "drill" ? "Point angle" : "Angle"}
+                unit="°"
+                min={0.1}
+                value={tool.tipAngle}
+                onChange={(v) => v !== undefined && set({ tipAngle: v })}
+                hint="Full angle between the two edges."
+              />
+            )}
+            {tool.kind === "v_bit" && (
+              <NumberField label="Tip flat diameter" unit="mm" value={tool.tipDiameter ?? 0} onChange={(v) => v !== undefined && set({ tipDiameter: v })} hint="Measure it: 0 for a true point." />
+            )}
+            {tool.kind === "corner_round" && (
+              <>
+                <NumberField label="Corner radius" unit="mm" min={0.001} value={tool.cornerRadius} onChange={(v) => v !== undefined && set({ cornerRadius: v })} hint="Radius of the rounded edge it cuts." />
+                <NumberField
+                  label="Tip diameter"
+                  unit="mm"
+                  value={tool.tipDiameter ?? 0}
+                  onChange={(v) => v !== undefined && set({ tipDiameter: v })}
+                  hint="Across the tip, below the rounded edge. The body is at least this plus twice the radius."
+                />
+              </>
+            )}
+            <NumberField label="Flute length" unit="mm" min={0.001} optional value={tool.fluteLength} onChange={(v) => set({ fluteLength: v })} hint="Deepest it can cut. Empty if unknown." />
+            <NumberField label="Shoulder length" unit="mm" min={0.001} optional value={tool.shoulderLength} onChange={(v) => set({ shoulderLength: v })} hint="Tip to where the body widens. Empty if it is the flute length." />
+            <NumberField label="Overall length" unit="mm" min={0.001} optional value={tool.length} onChange={(v) => set({ length: v })} />
+            <NumberField label="Flutes" min={1} whole optional value={tool.flutes} onChange={(v) => set({ flutes: v })} hint="Needed for suggested feeds." />
+            {tool.kind === "thread_mill" && (
+              <>
+                <NumberField label="Thread diameter" unit="mm" min={0.001} optional value={tool.threadDiameter} onChange={(v) => set({ threadDiameter: v })} hint="Such as 3 for M3." />
+                <NumberField label="Pitch" unit="mm" min={0.001} optional value={tool.pitch} onChange={(v) => set({ pitch: v })} />
+                <NumberField label="Drill diameter" unit="mm" min={0.001} optional value={tool.drillDiameter} onChange={(v) => set({ drillDiameter: v })} hint="The hole drilled before threading." />
+              </>
+            )}
           </div>
+        </div>
+      </Block>
+
+      <Block title="Cutting settings">
+        <div className="form-body">
+          <p className="muted">
+            One plain row per material, safe for any cut, a full-width slot included. A further row per material can be kept for one kind of toolpath, chosen under "For".
+          </p>
+          {tool.cutting.map((row, index) => (
+            <RowEditor key={index} tool={tool} row={row} lists={lists} materials={materials} onChange={(next) => setRow(index, next)} onRemove={() => removeRow(index)} />
+          ))}
+          <div>
+            <button type="button" onClick={addRow}>
+              Add a row
+            </button>
+          </div>
+        </div>
+      </Block>
+
+      <Block title="What it is">
+        <div className="form-body">
+          <div className="grid">
+            <TextField label="Group" value={tool.group} onChange={(group) => set({ group })} hint='Where it is filed. "/" separates nested groups.' />
+            <NumberField label="Tool number" min={1} whole optional value={tool.number} onChange={(v) => set({ number: v })} hint="As other CAM programs list it." />
+            <TextField label="Coating" value={tool.coating} onChange={(coating) => set({ coating })} hint="Such as DLC, or uncoated." />
+            <TextField label="Style" value={tool.style} onChange={(style) => set({ style })} hint="A word or two: Downcut, Alu." />
+          </div>
+          <TextField label="Note" value={tool.note} onChange={(note) => set({ note })} wide hint="One line about the whole tool." />
+          <div className="field" role="group" aria-label="Suits">
+            <span className="field-label">Suits</span>
+            <div className="check-list">
+              {materials.map((m) => {
+                const on = tool.recommendedFor?.includes(m.value) ?? false;
+                const next = materials.map((x) => x.value).filter((key) => (key === m.value ? !on : (tool.recommendedFor?.includes(key) ?? false)));
+                return (
+                  <label key={m.value} className="check">
+                    <input type="checkbox" checked={on} onChange={() => set({ recommendedFor: next.length > 0 ? next : undefined })} />
+                    {m.label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          {(tool.verify?.length ?? 0) > 0 && (
+            <div className="field" role="group" aria-label="Still to check">
+              <span className="field-label">Still to check</span>
+              <ul className="plain-list">
+                {tool.verify?.map((item) => (
+                  <li key={item.field}>
+                    <strong>{item.field}</strong>
+                    {item.note ? `: ${item.note}` : ""}{" "}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => {
+                        const left = tool.verify?.filter((v) => v.field !== item.field) ?? [];
+                        set({ verify: left.length > 0 ? left : undefined });
+                      }}
+                    >
+                      Checked
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </Block>
+
+      <Block title="Stock and source">
+        <div className="form-body">
+          <p className="muted">Yours alone: a project file passed on leaves all of this out.</p>
+          <div className="grid">
+            <NumberField label="On hand" min={0} whole optional value={inventory.quantity} onChange={(v) => setInventory({ quantity: v })} />
+            <NumberField label="Price each" min={0} optional value={inventory.price} onChange={(v) => setInventory({ price: v, currency: v === undefined ? undefined : (inventory.currency ?? "EUR") })} />
+            <TextField label="Currency" value={inventory.currency} onChange={(currency) => setInventory({ currency: currency?.toUpperCase() })} hint="Three letters, such as EUR." />
+            <label className="field">
+              <span className="field-label">Last bought</span>
+              <input type="date" value={inventory.purchased ?? ""} onChange={(e) => setInventory({ purchased: e.target.value === "" ? undefined : e.target.value })} />
+            </label>
+          </div>
+          <TextField label="Product page" value={source.url} onChange={(url) => setSource({ url })} wide />
+          <div className="grid">
+            <TextField label="Invoice" value={source.invoice} onChange={(invoice) => setSource({ invoice })} />
+            <TextField label="Size as the shop lists it" value={source.sizeNote} onChange={(sizeNote) => setSource({ sizeNote })} />
+          </div>
+        </div>
+      </Block>
+
+      <footer className="card-foot">
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
         )}
-      </Section>
-
-      {kept.length > 0 && <p className="muted">Also kept with this tool, for other programs, and not shown here: {kept.join("; ")}.</p>}
-
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="row end">
         <button type="button" onClick={props.onCancel}>
           Cancel
         </button>
         <button type="submit" className="primary">
           Save tool
         </button>
-      </div>
+      </footer>
     </form>
+  );
+}
+
+function Block(props: { title: string; children: ReactNode }) {
+  return (
+    <section className="block">
+      <h3>{props.title}</h3>
+      {props.children}
+    </section>
   );
 }
 
@@ -302,78 +263,10 @@ function TextField(p: { label: string; value: string | undefined; onChange: (val
   );
 }
 
-/** Adds what happened on a cut to a row's log, at the numbers the row has now. */
-function LogResult(props: { onAdd: (entry: CutResult) => void }) {
-  const [open, setOpen] = useState(false);
-  const [outcome, setOutcome] = useState<NonNullable<CutResult["outcome"]>>("ok");
-  const [text, setText] = useState("");
-  const [date, setDate] = useState(today());
-  if (!open) {
-    return (
-      <div className="row">
-        <button type="button" onClick={() => setOpen(true)}>
-          Log a result…
-        </button>
-      </div>
-    );
-  }
-  const add = () => {
-    if (text.trim() === "" || date === "") return;
-    props.onAdd({ date, outcome, text: text.trim() });
-    setText("");
-    setOpen(false);
-  };
-  return (
-    <div className="log-form" role="group" aria-label="Log a result">
-      <div className="row">
-        {(Object.keys(OUTCOMES) as (keyof typeof OUTCOMES)[]).map((key) => (
-          <label key={key} className="check">
-            <input type="radio" checked={outcome === key} onChange={() => setOutcome(key)} />
-            <span className={`mark ${OUTCOMES[key].tone}`}>
-              {OUTCOMES[key].mark} {OUTCOMES[key].text}
-            </span>
-          </label>
-        ))}
-      </div>
-      <div className="row">
-        <label className="field wide grow">
-          <span className="field-label">What happened</span>
-          <input
-            type="text"
-            autoFocus
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter adds the entry; it must not save the whole tool.
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-          />
-        </label>
-        <label className="field">
-          <span className="field-label">Date</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-      </div>
-      <div className="row">
-        <button type="button" className="primary" disabled={text.trim() === "" || date === ""} onClick={add}>
-          Add to the log
-        </button>
-        <button type="button" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-        <span className="hint">Recorded at the numbers the row has now, and kept when you save the tool.</span>
-      </div>
-    </div>
-  );
-}
-
 type WearEntry = NonNullable<NonNullable<Tool["inventory"]>["log"]>[number];
 
 /** Notes a cutter that broke or wore out, and takes it off the count. */
-function LogWear(props: { materials: { value: Material; label: string }[]; canTakeOne: boolean; onAdd: (entry: WearEntry, takeOne: boolean) => void }) {
+export function LogWear(props: { materials: { value: Material; label: string }[]; canTakeOne: boolean; onAdd: (entry: WearEntry, takeOne: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<WearEntry["kind"]>("broken");
   const [material, setMaterial] = useState("");
@@ -382,11 +275,9 @@ function LogWear(props: { materials: { value: Material; label: string }[]; canTa
   const [takeOne, setTakeOne] = useState(true);
   if (!open) {
     return (
-      <div className="row">
-        <button type="button" onClick={() => setOpen(true)}>
-          A cutter broke or wore out…
-        </button>
-      </div>
+      <button type="button" onClick={() => setOpen(true)}>
+        A cutter broke or wore out…
+      </button>
     );
   }
   const add = () => {
@@ -453,17 +344,7 @@ function LogWear(props: { materials: { value: Material; label: string }[]; canTa
   );
 }
 
-function Section(props: { title: string; note?: string; children: ReactNode }) {
-  return (
-    <section className="sheet-section">
-      <h3>{props.title}</h3>
-      {props.note && <p className="muted">{props.note}</p>}
-      {props.children}
-    </section>
-  );
-}
-
-/** One cutting row: its numbers, what they come to, and what the feeds model would start from. */
+/** One cutting row being edited: what it is for, its numbers, and what the feeds model makes of them. */
 function RowEditor(props: {
   tool: Tool;
   row: CuttingSettings;
@@ -475,89 +356,18 @@ function RowEditor(props: {
   const { tool, row, lists } = props;
   const set = (change: Partial<CuttingSettings>) => props.onChange({ ...row, ...change });
   const profile = lists.profiles?.find((p) => p.key === row.profile);
-  const adaptive = row.profile !== undefined && (profile?.adaptive ?? row.profile === "adaptive");
-  const [level, setLevel] = useState<FeedLevel>(profile?.level ?? "slot_safe");
-  const [ramping, setRamping] = useState(profile?.ramping ?? false);
-  const [lubricated, setLubricated] = useState(profile?.lubricated ?? false);
-  const [stops, setStops] = useState<FeedSuggestion[] | null>(null);
-  const [check, setCheck] = useState<RowCheck | null>(null);
-  const [open, setOpen] = useState(false);
-
-  // The model reads the tool's shape and name only: its rows are left out, so one being edited cannot trip it.
-  const shape = JSON.stringify({ ...tool, id: tool.id || "new", name: tool.name || "Tool", cutting: [], verify: undefined, inventory: undefined, source: undefined });
-  const material = feedMaterial(row.material, lists);
-  useEffect(() => {
-    let stale = false;
-    const timer = setTimeout(async () => {
-      try {
-        const bare: Tool = JSON.parse(shape);
-        const flags: FeedFlags = { ramping, adaptive, lubricated };
-        const [nextStops, nextCheck] = await Promise.all([
-          core.call("suggestStops", bare, material, flags),
-          core.call("checkRow", bare, material, { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepdown: row.stepdown, adaptive }),
-        ]);
-        if (!stale) {
-          setStops(nextStops);
-          setCheck(nextCheck);
-        }
-      } catch {
-        // A shape the core cannot read yet, mid-edit: say nothing until it can.
-        if (!stale) {
-          setStops(null);
-          setCheck(null);
-        }
-      }
-    }, 150);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [shape, material, ramping, adaptive, lubricated, row.rpm, row.feed, row.plunge, row.stepover, row.stepdown]);
-
+  const start = profileFlags(row, lists);
+  const [flags, setFlags] = useState<Flags>({ ramping: start.ramping, lubricated: start.lubricated });
+  const [level, setLevel] = useState<FeedLevel>(start.level);
+  const insight = useInsight(tool, row, lists, flags);
+  const place = placeOf(row, insight.stops);
   const percent = row.stepoverUnit === "percent";
-  const current = currentResult(row);
-  const logged = row.log ?? [];
-  const chosen = stops?.[LEVELS.findIndex((l) => l.key === level)];
-  // A profile for full-width cuts takes the whole diameter as its stepover.
-  const slot = profile?.slot === true && !adaptive && (tool.kind === "flat_end" || tool.kind === "ball_end");
-  const suggested = chosen?.values ? (slot ? { ...chosen.values, stepoverPct: 100, stepoverMm: tool.diameter } : chosen.values) : null;
-
-  const use = () => {
-    if (!chosen || !suggested) return;
-    const change: Partial<CuttingSettings> = {};
-    if (chosen.fields.includes("rpm")) change.rpm = suggested.rpm;
-    if (chosen.fields.includes("feed")) change.feed = suggested.feed;
-    if (chosen.fields.includes("plunge")) change.plunge = suggested.plunge;
-    if (chosen.fields.includes("stepdown")) change.stepdown = suggested.stepdown;
-    if (chosen.fields.includes("stepover")) {
-      change.stepover = round6((suggested.stepoverPct / 100) * tool.diameter);
-      change.stepoverUnit = "percent";
-    }
-    set(change);
-  };
-
-  // Where the row sits among the stops, by how much it removes: feed times depth.
-  const rate = row.feed * row.stepdown;
-  const rates = stops?.map((s) => (s.values ? s.values.feed * s.values.stepdown : null)) ?? [];
-  const exact = stops?.findIndex((s) => s.values && s.values.rpm === row.rpm && s.values.feed === row.feed && s.values.plunge === row.plunge && s.values.stepdown === row.stepdown) ?? -1;
-  const above = rates.filter((r): r is number => r !== null && r < rate).length;
-  const place =
-    !stops || rates.some((r) => r === null)
-      ? null
-      : exact >= 0
-        ? `These are the ${LEVELS[exact].label} values.`
-        : above === 0
-          ? "Removes less than the Gentle stop."
-          : above === LEVELS.length
-            ? "Removes more than the Aggressive stop."
-            : `Removes about as much as between ${LEVELS[above - 1].label} and ${LEVELS[above].label}.`;
-
   const rowTaken = (m: Material, p: string | undefined) => tool.cutting.some((c) => c !== row && c.material === m && c.profile === p);
 
   return (
     <fieldset className="cut-row">
       <legend>{rowLabel(row, lists)}</legend>
-      <div className="grid">
+      <div className="cut-row-for">
         <label className="field">
           <span className="field-label">Material</span>
           <select value={row.material} onChange={(e) => set({ material: e.target.value })}>
@@ -582,8 +392,13 @@ function RowEditor(props: {
             ))}
             {row.profile !== undefined && !profile && <option value={row.profile}>{row.profile} (not in your profiles)</option>}
           </select>
-          {profile?.note && <span className="hint">{profile.note}</span>}
         </label>
+        <span className="cut-row-place">
+          <Ruler place={place} />
+        </span>
+        <button type="button" className="danger small" onClick={props.onRemove}>
+          Delete row
+        </button>
       </div>
       <div className="grid five">
         <NumberField label="Speed" unit="rpm" min={1} whole value={row.rpm} onChange={(v) => v !== undefined && set({ rpm: v })} />
@@ -605,150 +420,12 @@ function RowEditor(props: {
         <NumberField label="Stepdown" unit="mm" min={0.001} value={row.stepdown} onChange={(v) => v !== undefined && set({ stepdown: v })} />
         {tool.kind === "thread_mill" && <NumberField label="Passes" min={1} whole optional value={row.passes} onChange={(v) => set({ passes: v })} />}
       </div>
-
-      <p className="readouts">
-        {current?.outcome ? (
-          <span className={`mark ${OUTCOMES[current.outcome].tone}`}>
-            {OUTCOMES[current.outcome].mark} {OUTCOMES[current.outcome].text}
-          </span>
-        ) : logged.length > 0 ? (
-          <span className="mark warn">▲ untested at these numbers</span>
-        ) : (
-          <span className="mark muted">No result logged</span>
-        )}
-        {check?.chipLoad != null && (
-          <span>
-            chip <b>{fmt(check.chipLoad)}</b> mm/tooth
-            {check.chipFloor != null && check.chipMax != null ? ` (${fmt(check.chipFloor)} to ${fmt(check.chipMax)})` : ""}
-          </span>
-        )}
-        {check?.surfaceSpeed != null && (
-          <span>
-            <b>{fmt(check.surfaceSpeed)}</b> m/min at the edge
-          </span>
-        )}
-        {check?.powerW != null && (
-          <span>
-            about <b>{fmt(check.powerW)}</b> W {adaptive ? "at this stepover" : "as a full slot"}{check.powerCapW != null ? ` (cap ${fmt(check.powerCapW)})` : ""}
-          </span>
-        )}
-      </p>
-      {check?.warnings.map((warning) => (
-        <p key={warning} className="hint warn">
-          {warning}
-        </p>
-      ))}
-
-      {check && !check.covered ? (
-        <p className="hint">
-          The feeds model does not know {materialLabel(row.material, lists).toLowerCase()}. On the Materials page, say which material it cuts like to get suggestions.
-        </p>
-      ) : (
-        stops && (
-          <details className="suggest" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-            <summary>
-              Suggested starting values{place ? `. ${place}` : ""}
-            </summary>
-            <div className="stops" role="radiogroup" aria-label="How hard a cut">
-              {LEVELS.map((l, i) => (
-                <button type="button" key={l.key} role="radio" aria-checked={level === l.key} className={exact === i ? "stop is-row" : "stop"} onClick={() => setLevel(l.key)}>
-                  <span>{l.label}</span>
-                  <span className="mono">{stops[i].values ? `${stops[i].values?.feed} × ${fmt(stops[i].values?.stepdown ?? 0)}` : "none"}</span>
-                </button>
-              ))}
-            </div>
-            <div className="row">
-              <label className="check">
-                <input type="checkbox" checked={ramping} onChange={(e) => setRamping(e.target.checked)} />
-                Ramped entry
-              </label>
-              {check?.lubricationMatters && (
-                <label className="check">
-                  <input type="checkbox" checked={lubricated} onChange={(e) => setLubricated(e.target.checked)} />
-                  Lubricated
-                </label>
-              )}
-              {adaptive && <span className="muted">Shaped for adaptive clearing.</span>}
-            </div>
-            {chosen && suggested ? (
-              <>
-                <p className="suggested">
-                  <span className="mono">
-                    {suggested.rpm} rpm · feed {suggested.feed} · plunge {suggested.plunge} · stepover {fmt(suggested.stepoverPct)} % ({fmt(suggested.stepoverMm)} mm) ·{" "}
-                    {fmt(suggested.stepdown)} mm deep
-                  </span>{" "}
-                  <button type="button" onClick={use}>
-                    Use these values
-                  </button>
-                </p>
-                <p className="hint">
-                  Chip {fmt(chosen.chipLoad ?? 0)} mm/tooth, {fmt(chosen.surfaceSpeed ?? 0)} m/min, about {fmt(chosen.powerW ?? 0)} W of a {fmt(chosen.powerLimitW ?? 0)} W cap
-                  {chosen.classLabel ? `, as ${chosen.classLabel.toLowerCase()}` : ""}.
-                  {chosen.fields.length < 5 ? " Only the spindle speed and plunge are the model's; the rest stays as it is." : ""}
-                </p>
-                {chosen.reason && <p className="hint warn">{chosen.reason}</p>}
-                {chosen.notes.map((note) => (
-                  <p key={note} className="hint">
-                    {note}
-                  </p>
-                ))}
-              </>
-            ) : (
-              <p className="hint warn">{chosen?.reason ?? "No suggestion."}</p>
-            )}
-          </details>
-        )
-      )}
-
-      {logged.length > 0 && (
-        <details className="suggest">
-          <summary>
-            Field log: {logged.length} {logged.length === 1 ? "entry" : "entries"}
-          </summary>
-          <ul className="plain-list">
-            {[...logged]
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map((entry, i) => (
-                <li key={i}>
-                  <span className="mono">{entry.date}</span>{" "}
-                  {entry.outcome && (
-                    <span className={`mark ${OUTCOMES[entry.outcome].tone}`}>
-                      {OUTCOMES[entry.outcome].mark} {OUTCOMES[entry.outcome].text}
-                    </span>
-                  )}{" "}
-                  {entry.text}
-                  <span className="hint">
-                    {entry.at
-                      ? entry === current || (current && JSON.stringify(entry.at) === JSON.stringify(current.at))
-                        ? "At the row's present numbers."
-                        : `At ${entry.at.rpm} rpm, feed ${fmt(entry.at.feed)}, plunge ${fmt(entry.at.plunge)}, ${fmt(entry.at.stepdown)} mm deep: not the row's present numbers.`
-                      : "Numbers not recorded."}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </details>
-      )}
-
-      <LogResult
-        onAdd={(entry) =>
-          set({
-            log: [
-              ...logged,
-              {
-                ...entry,
-                at: { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepoverUnit: row.stepoverUnit, stepdown: row.stepdown, passes: row.passes },
-              },
-            ],
-          })
-        }
-      />
-
-      <div className="row end">
-        <button type="button" className="danger" onClick={props.onRemove}>
-          Delete this row
-        </button>
-      </div>
+      <RowFacts insight={insight} />
+      {(row.log?.length ?? 0) > 0 && <p className="hint">Changing these numbers leaves the row's logged results behind: it is untested again at the new ones.</p>}
+      <details className="fold">
+        <summary>What the feeds model would start from</summary>
+        <Suggestions tool={tool} row={row} lists={lists} insight={insight} flags={flags} setFlags={setFlags} level={level} setLevel={setLevel} onUse={set} />
+      </details>
     </fieldset>
   );
 }

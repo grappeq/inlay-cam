@@ -16,26 +16,72 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 
 ## 1. List your tools
 
-Open **Tools and settings**. It has four pages, listed on the left: your tools, your
-materials, your machine, and what a new inlay starts with. All four are kept in this
-browser and used by every project.
+The header has three tabs. **Design** is the project you are working on. **Tools** holds
+your tools with the materials and profiles they refer to, and **Machine** your machine and
+what a new inlay starts with. What is under Tools and Machine is kept in this browser and
+used by every project.
 
-On the **Tools** page, add each end mill, V-bit and corner-rounding bit you will use.
-"Export tool file" saves the whole list, with its materials, to a file you can keep or
-bring into another browser with "Import tool file…".
+### The list
 
-A `tools.yaml` tool list can be imported and exported too; its layout, and what is and is
-not kept, is in [formats.md](formats.md#toolsyaml). Such a list can hold ball end mills,
-drills and thread mills. They are kept in your list and written back out, and no operation
-of this app cuts with them.
+Under **Tools** your tools are listed on the left, in their groups, and the one you pick
+is shown on the right.
 
-"Edit" opens a tool's sheet: its shape, its cutting settings, what it is, and its stock
-and source.
+- **Find a tool** takes any words from a tool's name, size, group, coating or kind:
+  `1/8 2f`, `60 v`, `upcut`. Every word must match.
+- **Needs attention** shows only the tools with something to look at: a cutting row whose
+  latest result is a failure or still to confirm, something noted as still to check, no
+  cutting settings at all, or no known flute length. A mark after a tool's name counts
+  them, in red when a row failed. A failed row stops counting when a later cut at the
+  same numbers is logged as ok, or when its numbers are changed.
+- The chips narrow the list to kinds of tool, and the choice beside them to tools with
+  cutting settings for one material.
+- A group's heading folds it away. "in use" marks the tools the open project cuts with.
+
+**Add a tool** offers an end mill, a V-bit and a corner-rounding bit, which the app cuts
+with, and a ball end mill, a drill and a thread mill, which it keeps and writes for other
+programs and cuts nothing with.
+
+**Import and export**, at the top right, brings in and saves whole tool lists. A tool file
+is this app's own: everything under Tools, to keep or to move to another browser. A
+`tools.yaml` is the tooling library's list; its layout, and what is and is not kept, is in
+[formats.md](formats.md#toolsyaml). Either can also be dropped onto the window. An
+imported tool with the name of one you have replaces it.
+
+### A tool's sheet
+
+Picking a tool shows it drawn to scale from the side, with what is known about it. A
+length that is not known is drawn dashed, at a guess.
+
+**Cutting settings** has one line per row: what it is for, its speed, feed, plunge,
+stepover and depth, and **How hard** it cuts: a small scale of the feeds model's five
+stops, from Gentle to Aggressive, with a mark where the row sits by how much it removes.
+The taller tick is Slot-safe, the reviewed stop. Clicking a line opens it:
+
+- what its numbers come to: the chip per tooth with the band it should stay in, the speed
+  at the edge, and the power a full-width cut would take, with a warning when the chip is
+  thin enough to rub or the power is over what the spindle gives. A "!" on the line says
+  there is such a warning;
+- its **field log**: the latest result and the entries behind it. A result counts only for
+  the numbers it was cut at: change the row and it is untested again;
+- **Log a result…**, for after a cut: ok, worked but still to confirm, or failed, with a
+  line on what happened. It is recorded at the numbers the row has at that moment, and
+  kept at once;
+- **What the feeds model would start from**: the five stops, and "Use these values" to
+  copy one into the row. They are rough starting points for a dry Carvera Air with a
+  spindle of about 200 W, where any cut may be a full slot. The model knows nothing of
+  your coating, workholding or coolant, and several stops are marked untested: read the
+  notes under them.
+
+Under **Stock and source**, "A cutter broke or wore out…" notes the loss and takes one off
+the count on hand.
+
+### Editing a tool
+
+**Edit** turns the sheet into a form; nothing is kept until you press "Save tool".
 
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
   rounded edge.
-
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
   that. Leave it empty if unknown and the app warns instead.
 - **Tip flat diameter** of a V-bit: measure it. A bit sold as pointed often has a flat of
@@ -43,36 +89,16 @@ and source.
 - **Cutting settings** are per material. A tool cannot be used on a material it has no
   settings for. Each material has one *plain* row, safe for any cut, and can have further
   rows made for one kind of toolpath, such as a finishing pass ("For").
-- Under each row the sheet says what its numbers come to: the chip per tooth with the band
-  it should stay in, the speed at the edge, and the power a full-width cut would take. It
-  warns when the chip is thin enough to rub or the power is over what the spindle gives.
-- **Suggested starting values** opens what the feeds model would start from, at five stops
-  from Gentle to Aggressive, and says where the row's own numbers sit among them.
-  Slot-safe is the reviewed stop: values for a dry Carvera Air where any cut may be a full
-  slot. "Use these values" copies a stop into the row. They are rough starting points for
-  a spindle of about 200 W, with no knowledge of your coating, workholding or coolant, and
-  several are marked untested: read the notes under them.
-- A row with a **field log** shows its latest result and the entries behind it. A result
-  counts only for the numbers it was cut at: change the row and it is untested again.
-  "Log a result…" adds an entry after a cut: ok, worked but still to confirm, or failed,
-  with a line on what happened. It is recorded at the numbers the row has at that moment.
-- Under **Stock and source**, "A cutter broke or wore out…" notes the loss and takes one
-  off the count on hand.
-
-Above the list of tools, **Needs attention** gathers what wants looking at: rows whose
-latest result is a failure or still to confirm, things noted as still to check, and tools
-the app cuts with that have no cutting settings or no known flute length. A name there
-opens the tool. A failed row leaves the list when a later cut at the same numbers is
-logged as ok, or when its numbers are changed.
-- A V-bit's **stepover** spaces its passes over a flat floor, where only the tip cuts.
-  The app caps it so that ridges stay under 0.1 mm.
+- A **stepover** can be given in mm or in percent of the diameter. A V-bit's spaces its
+  passes over a flat floor, where only the tip cuts; the app caps it so that ridges stay
+  under 0.1 mm.
 
 Tools are shared by all projects. A project keeps its own copy of the tools it uses, so it
-opens correctly elsewhere.
+opens correctly elsewhere; the copy leaves out your stock, prices, sources and logs.
 
 ### Your materials
 
-The **Materials** page lists what you cut. Hardwood and softwood are always there. Add a
+**Materials**, beside the tools, lists what you cut. Hardwood and softwood are always there. Add a
 material by name, such as oak or acrylic, then give your tools cutting settings for it. A
 material can be renamed at any time, and deleted once no cutting settings, tool or part
 of the open project uses it. Materials that came with an imported tool list are here too.
@@ -81,6 +107,17 @@ so that the tool sheet can suggest starting values for it.
 
 The app's toolpaths have only been proven in wood. A part in any other material builds
 with a warning that says so: check its simulation with care and cut a test piece first.
+
+### Your profiles
+
+A profile names one kind of toolpath, such as a finishing pass or a slot, so that a tool
+can keep a further cutting row tuned for it beside its plain one. You need none to cut.
+**Profiles**, beside the tools, adds, renames and deletes them; deleting one also deletes its rows
+from your tools, after asking. The ticks on a profile and its starting stop only say where
+the suggested values on a tool's sheet begin for its rows.
+
+A profile ticked **Adaptive clearing** is for other CAM programs: this app has no such
+toolpath and does not cut with its rows.
 
 ### Your machine
 
@@ -287,7 +324,7 @@ how large the board must be.
 ### Clearances and tabs
 
 "Clearances and tabs", at the bottom of an inlay's panel, holds how that inlay's two files
-are cut. A new inlay starts with your defaults from **Tools and settings**; "Back to your
+are cut. A new inlay starts with your defaults from the **Machine** tab; "Back to your
 defaults" returns to them. The app's own values are in brackets.
 
 - **Travel height** (5 mm): how high above the board the tool moves between cuts. Raise it

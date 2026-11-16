@@ -353,11 +353,36 @@ export function mergeTools(current: Tool[], incoming: Tool[]): MergeResult {
 }
 
 export function blankTool(kind: ToolKind): Tool {
-  return kind === "v_bit"
-    ? { id: newId(), name: "", kind, diameter: 6, tipDiameter: 0.1, tipAngle: 60, shankDiameter: 6, cutting: [] }
-    : kind === "corner_round"
-      ? { id: newId(), name: "", kind, diameter: 8, tipDiameter: 2, cornerRadius: 3, shankDiameter: 6, cutting: [] }
-      : { id: newId(), name: "", kind, diameter: 3.175, shankDiameter: 3.175, cutting: [] };
+  const base = { id: newId(), name: "", kind, cutting: [] };
+  switch (kind) {
+    case "v_bit":
+      return { ...base, diameter: 6, tipDiameter: 0.1, tipAngle: 60, shankDiameter: 6 };
+    case "corner_round":
+      return { ...base, diameter: 8, tipDiameter: 2, cornerRadius: 3, shankDiameter: 6 };
+    case "drill":
+      return { ...base, diameter: 3, tipAngle: 118, shankDiameter: 3 };
+    case "thread_mill":
+      return { ...base, diameter: 2.4, shankDiameter: 4 };
+    default:
+      return { ...base, diameter: 3.175, shankDiameter: 3.175 };
+  }
+}
+
+/** A tool's size in a few characters, as its kind is told apart by: Ø6 × 18, 60° Ø12, R1 Ø4, M3×0.5. */
+export function toolSize(tool: Tool): string {
+  const d = `Ø${fmt(tool.diameter)}`;
+  switch (tool.kind) {
+    case "v_bit":
+      return `${fmt(tool.tipAngle ?? 0)}° ${d}`;
+    case "corner_round":
+      return `R${fmt(tool.cornerRadius ?? 0)} ${d}`;
+    case "ball_end":
+      return `${d} ball`;
+    case "thread_mill":
+      return tool.threadDiameter !== undefined && tool.pitch !== undefined ? `M${fmt(tool.threadDiameter)}×${fmt(tool.pitch)}` : d;
+    default:
+      return tool.fluteLength !== undefined ? `${d} × ${fmt(tool.fluteLength)}` : d;
+  }
 }
 
 /** What each kind of tool is called. */
@@ -437,9 +462,32 @@ export function materialKey(label: string, taken: Material[]): Material {
   const base =
     label
       .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
+      .replace(/ł/g, "l")
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "material";
+  let key = base;
+  for (let n = 2; taken.includes(key); n++) key = `${base}_${n}`;
+  return key;
+}
+
+/**
+ * A key for a new profile, made from its name: lowercase letters and digits
+ * joined by "_", at most 40 characters, and not one already taken. A key a
+ * YAML reader would take for a number or a truth value gets "tp_" in front.
+ */
+export function profileKey(label: string, taken: string[]): string {
+  let base = label
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ł/g, "l")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (base === "") base = "profile";
+  if (/^[0-9_]+$/.test(base) || ["yes", "no", "on", "off", "y", "n", "true", "false", "null"].includes(base)) base = `tp_${base}`;
+  base = base.slice(0, 36).replace(/_+$/, "");
   let key = base;
   for (let n = 2; taken.includes(key); n++) key = `${base}_${n}`;
   return key;

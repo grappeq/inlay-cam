@@ -529,7 +529,7 @@ function OpEditor({ job }: { job: Job }) {
             <p className="hint">
               For the file of this operation. A new one starts with your defaults, which are set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
-                Tools and settings
+                Machine
               </button>
               .
             </p>
@@ -916,7 +916,7 @@ function JobEditor({ job }: { job: InlayJob }) {
             <p className="hint">
               For the files of this inlay. A new inlay starts with your defaults, which are set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
-                Tools and settings
+                Machine
               </button>
               .
             </p>

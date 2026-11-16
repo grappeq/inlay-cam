@@ -10,7 +10,7 @@ import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normal
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
-export type SettingsPage = "tools" | "materials" | "machine" | "defaults";
+export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock";
 export type Notice = { kind: "info" | "error"; text: string };

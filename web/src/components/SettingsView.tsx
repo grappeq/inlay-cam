@@ -1,64 +1,29 @@
-// What is kept in this browser and shared by all projects: the tools, the
-// machine, and what a new inlay starts with. One page each, with a list of
-// the pages beside them.
+// What is kept in this browser and shared by all projects. The header's
+// Tools tab shows the tools with their materials and profiles; its Machine
+// tab shows the machine and what a new inlay starts with.
 
 import { useState, type ReactNode } from "react";
 import type { Machine, Setup } from "../core/types";
-import { DEFAULT_SETUP, MACHINE_PRESETS, allMaterials, fmt, sameSetup } from "../state/model";
-import { useApp, useDispatch, type SettingsPage } from "../state/store";
+import { DEFAULT_SETUP, MACHINE_PRESETS, sameSetup } from "../state/model";
+import { useApp, useDispatch } from "../state/store";
 import { NumberField } from "./NumberField";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
-import { MaterialsPage } from "./MaterialsView";
-import { ToolsPage } from "./ToolsView";
+import { ToolsArea } from "./ToolsView";
 
 export function SettingsView() {
-  const { settingsPage, tools, lists, machine, defaults } = useApp();
-  const dispatch = useDispatch();
-
-  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-  const endMills = tools.filter((t) => t.kind === "flat_end").length;
-  const vBits = tools.filter((t) => t.kind === "v_bit" || t.kind === "corner_round").length;
-  const pages: { id: SettingsPage; title: string; note: string }[] = [
-    {
-      id: "tools",
-      title: "Tools",
-      note:
-        tools.length === 0
-          ? "None yet"
-          : `${count(endMills, "end mill", "end mills")}, ${count(vBits, "V-bit", "V-bits")}${tools.length > endMills + vBits ? `, ${tools.length - endMills - vBits} more` : ""}`,
-    },
-    { id: "materials", title: "Materials", note: allMaterials(lists).map((m) => m.label).slice(0, 3).join(", ") + (allMaterials(lists).length > 3 ? ` and ${allMaterials(lists).length - 3} more` : "") },
-    { id: "machine", title: "Machine", note: `${machine.name}, ${fmt(machine.travel[0])} × ${fmt(machine.travel[1])} mm` },
-    {
-      id: "defaults",
-      title: "New inlays",
-      note: sameSetup(defaults, DEFAULT_SETUP) ? "The app's clearances and tabs" : "Your own clearances and tabs",
-    },
-  ];
-
+  const { settingsPage } = useApp();
+  if (settingsPage !== "machine" && settingsPage !== "defaults") return <ToolsArea />;
   return (
-    <div className="settings">
-      <nav className="settings-nav" aria-label="Tools and settings">
-        {pages.map((page) => (
-          <button
-            key={page.id}
-            aria-current={settingsPage === page.id ? "page" : undefined}
-            onClick={() => dispatch({ type: "setView", view: "settings", page: page.id })}
-          >
-            <span className="settings-nav-title">{page.title}</span>
-            <span className="settings-nav-note">{page.note}</span>
-          </button>
-        ))}
-        <p className="settings-nav-foot">Kept in this browser and used by all your projects.</p>
-      </nav>
-      <main className="settings-page">
-        {settingsPage === "tools" ? <ToolsPage /> : settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "machine" ? <MachinePage /> : <DefaultsPage />}
-      </main>
-    </div>
+    <main className="plain-page">
+      <div>
+        <MachinePage />
+        <DefaultsPage />
+      </div>
+    </main>
   );
 }
 
-/** One topic of a settings page: what it is about on the left, its fields on the right. */
+/** One topic of a page: what it is about on the left, its fields on the right. */
 function Group(props: { title: string; note: ReactNode; children: ReactNode }) {
   return (
     <section className="setting-group">
@@ -158,16 +123,16 @@ function DefaultsPage() {
 
   return (
     <>
-      <div className="toolbar">
-        <h2>Defaults for new inlays</h2>
+      <div className="toolbar second">
+        <h2>What a new inlay starts with</h2>
         <span className="spacer" />
         <button disabled={!own} onClick={() => dispatch({ type: "setDefaults", defaults: DEFAULT_SETUP })}>
           Back to the app's values
         </button>
       </div>
       <p className="muted lead">
-        The clearances and tabs a new inlay starts with. Each inlay keeps its own, which you can change in the inlay under "Clearances and tabs".
-        Changing a value here does not alter inlays you have already made.
+        Clearances and tabs. Each inlay keeps its own, which you can change in the inlay under "Clearances and tabs". Changing a value here does not alter inlays you have
+        already made.
       </p>
       <div className="setting-card">
         <Group title="Heights" note="Where the tool travels between cuts, and where it slows down on the way into the wood.">
