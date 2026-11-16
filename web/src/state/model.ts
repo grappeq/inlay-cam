@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -400,7 +400,50 @@ export function materialLabel(material: Material, lists: ToolLists): string {
   const known = MATERIALS.find((m) => m.value === material);
   if (known) return known.label;
   const info = lists.materials?.find((m) => m.key === material);
-  return info?.cam?.name ?? info?.studio?.[0]?.name ?? material;
+  return info?.label ?? info?.cam?.name ?? info?.studio?.[0]?.name ?? material;
+}
+
+/** Hardwood and softwood are always there and cannot be renamed or deleted. */
+export function isBuiltInMaterial(material: Material): boolean {
+  return MATERIALS.some((m) => m.value === material);
+}
+
+/** Every material there is to choose from: the two woods, then the tool library's own, in its order. */
+export function allMaterials(lists: ToolLists): { value: Material; label: string }[] {
+  const own = (lists.materials ?? []).filter((m) => !isBuiltInMaterial(m.key));
+  return [...MATERIALS, ...own.map((m) => ({ value: m.key, label: materialLabel(m.key, lists) }))];
+}
+
+/** A key for a new material, made from its name: lowercase letters and digits joined by "_", and not one already taken. */
+export function materialKey(label: string, taken: Material[]): Material {
+  const base =
+    label
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "material";
+  let key = base;
+  for (let n = 2; taken.includes(key); n++) key = `${base}_${n}`;
+  return key;
+}
+
+/** A profile by its key: the tool library's, else the copy the project carries. */
+export function findProfile(key: string, lists: ToolLists, project: Project): Profile | undefined {
+  return lists.profiles?.find((p) => p.key === key) ?? project.profiles?.find((p) => p.key === key);
+}
+
+/** Whether a profile's rows are for adaptive clearing, which this app has no toolpath for. */
+export function isAdaptive(key: string, profile: Profile | undefined): boolean {
+  return profile?.adaptive ?? key === "adaptive";
+}
+
+/** The copies of profiles a project should carry: one per profile its jobs' row choices name. */
+export function profileSnapshots(project: Project, lists: ToolLists): Profile[] {
+  const keys = new Set(project.jobs.flatMap((j) => Object.values(j.rowProfiles ?? {})));
+  return [...keys]
+    .sort()
+    .map((key) => findProfile(key, lists, project))
+    .filter((p): p is Profile => p !== undefined);
 }
 
 /** A cutting row's material, with its profile when it has one: "Aluminum · Adaptive". */

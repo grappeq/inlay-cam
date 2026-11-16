@@ -2,7 +2,7 @@ import { useState } from "react";
 import { core } from "../core/client";
 import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { CUTTING_KINDS, MATERIALS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
+import { CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText, pickTextFile, useEscape } from "../util/files";
 import { NumberField } from "./NumberField";
@@ -33,6 +33,14 @@ export function ToolsPage() {
     }
   };
 
+  const exportYaml = async () => {
+    try {
+      downloadText("tools.yaml", await core.call("libraryToToolsYaml", { ...lists, tools }), "text/yaml");
+    } catch (e) {
+      notify("error", message(e));
+    }
+  };
+
   const remove = (tool: Tool) => {
     const used = usedIds.has(tool.id) ? " The open project uses it and will keep its own copy." : "";
     if (!confirm(`Delete "${tool.name}" from your tool list?${used}`)) return;
@@ -58,6 +66,9 @@ export function ToolsPage() {
         <button onClick={exportLibrary} disabled={tools.length === 0}>
           Export tool file
         </button>
+        <button onClick={exportYaml} disabled={tools.length === 0} title="For the tooling library. It has no comments.">
+          Export tools.yaml
+        </button>
       </div>
 
       {extra.length > 0 && (
@@ -72,7 +83,7 @@ export function ToolsPage() {
 
       <p className="muted lead">
         A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end mill saves it time. Pockets, contours and facing use end mills; a
-        chamfer uses a V-bit, or a corner-rounding (fillet) bit to round the edge over. Each tool needs cutting settings for the wood you cut.
+        chamfer uses a V-bit, or a corner-rounding (fillet) bit to round the edge over. Each tool needs cutting settings for the material you cut.
         {kept > 0 && ` ${kept} of your tools ${kept === 1 ? "is a ball end mill, drill or thread mill" : "are ball end mills, drills or thread mills"}: kept here, not used by any operation yet.`}
       </p>
 
@@ -142,8 +153,8 @@ export function ToolsPage() {
 function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
   const [tool, setTool] = useState<Tool>(props.initial);
   const { lists } = useApp();
-  // Rows the fields below do not show: other materials, and rows for a toolpath profile.
-  const others = tool.cutting.filter((c) => c.profile !== undefined || !MATERIALS.some((m) => m.value === c.material));
+  // Rows the fields below do not show: those for a toolpath profile.
+  const others = tool.cutting.filter((c) => c.profile !== undefined);
   useEscape(props.onCancel);
   const [error, setError] = useState<string | null>(null);
   const set = (change: Partial<Tool>) => setTool((t) => ({ ...t, ...change }));
@@ -252,7 +263,7 @@ function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSav
           <NumberField label="Flutes" min={1} optional value={tool.flutes} onChange={(v) => set({ flutes: v === undefined ? undefined : Math.round(v) })} />
         </div>
 
-        {MATERIALS.map(({ value: material, label }) => {
+        {allMaterials(lists).map(({ value: material, label }) => {
           const row = tool.cutting.find((c) => c.material === material && c.profile === undefined);
           return (
             <fieldset key={material}>

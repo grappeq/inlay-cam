@@ -4,14 +4,15 @@
 
 import { useState, type ReactNode } from "react";
 import type { Machine, Setup } from "../core/types";
-import { DEFAULT_SETUP, MACHINE_PRESETS, fmt, sameSetup } from "../state/model";
+import { DEFAULT_SETUP, MACHINE_PRESETS, allMaterials, fmt, sameSetup } from "../state/model";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { NumberField } from "./NumberField";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
+import { MaterialsPage } from "./MaterialsView";
 import { ToolsPage } from "./ToolsView";
 
 export function SettingsView() {
-  const { settingsPage, tools, machine, defaults } = useApp();
+  const { settingsPage, tools, lists, machine, defaults } = useApp();
   const dispatch = useDispatch();
 
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -22,6 +23,7 @@ export function SettingsView() {
       title: "Tools",
       note: tools.length === 0 ? "None yet" : `${count(endMills, "end mill", "end mills")}, ${count(tools.length - endMills, "V-bit", "V-bits")}`,
     },
+    { id: "materials", title: "Materials", note: allMaterials(lists).map((m) => m.label).slice(0, 3).join(", ") + (allMaterials(lists).length > 3 ? ` and ${allMaterials(lists).length - 3} more` : "") },
     { id: "machine", title: "Machine", note: `${machine.name}, ${fmt(machine.travel[0])} × ${fmt(machine.travel[1])} mm` },
     {
       id: "defaults",
@@ -46,7 +48,7 @@ export function SettingsView() {
         <p className="settings-nav-foot">Kept in this browser and used by all your projects.</p>
       </nav>
       <main className="settings-page">
-        {settingsPage === "tools" ? <ToolsPage /> : settingsPage === "machine" ? <MachinePage /> : <DefaultsPage />}
+        {settingsPage === "tools" ? <ToolsPage /> : settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "machine" ? <MachinePage /> : <DefaultsPage />}
       </main>
     </div>
   );

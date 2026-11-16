@@ -91,6 +91,14 @@ pub fn library_to_file(library_json: &str) -> Result<String, JsError> {
     Ok(tools::library_to_file_json(&library))
 }
 
+/// Validates a tool library and writes it as a tooling-library `tools.yaml`.
+#[wasm_bindgen(js_name = libraryToToolsYaml)]
+pub fn library_to_tools_yaml(library_json: &str) -> Result<String, JsError> {
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    library.validate().map_err(err)?;
+    Ok(tools_yaml::write_tools_yaml(&library))
+}
+
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.
 #[wasm_bindgen(js_name = validateTool)]
 pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {

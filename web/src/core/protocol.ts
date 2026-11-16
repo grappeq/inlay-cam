@@ -17,6 +17,8 @@ export interface CoreApi {
   libraryFromFile(text: string): ToolLibrary;
   /** Validates the tools and what they refer to, and returns the file text. */
   libraryToFile(library: ToolLibrary): string;
+  /** Validates the library and returns it as a tooling-library tools.yaml. */
+  libraryToToolsYaml(library: ToolLibrary): string;
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**

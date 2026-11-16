@@ -4,7 +4,10 @@ import { boxOf, trimBoard } from "../state/arrange";
 import {
   DEFAULT_STOCK_COLOR,
   JOB_LABELS,
-  MATERIALS,
+  allMaterials,
+  findProfile,
+  isAdaptive,
+  materialLabel,
   SETUP_LIMITS,
   WOODS,
   cutOutDepth,
@@ -487,16 +490,10 @@ function OpEditor({ job }: { job: Job }) {
         </section>
 
         <section>
-          <h3>Wood and tool</h3>
+          <h3>Material and tool</h3>
           <label className="field">
-            <span className="field-label">Wood</span>
-            <select value={job.material} onChange={(e) => update({ material: e.target.value as Material })}>
-              {MATERIALS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            <span className="field-label">Material</span>
+            <MaterialSelect value={job.material} onChange={(material) => update({ material })} />
             <span className="hint">Picks which of the tool's cutting settings are used.</span>
           </label>
           {inlay.type === "pocket" && (
@@ -790,16 +787,10 @@ function JobEditor({ job }: { job: InlayJob }) {
         </section>
 
         <section>
-          <h3>Wood and tools</h3>
+          <h3>Material and tools</h3>
           <label className="field">
-            <span className="field-label">Wood</span>
-            <select value={job.material} onChange={(e) => update({ material: e.target.value as Material })}>
-              {MATERIALS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            <span className="field-label">Material</span>
+            <MaterialSelect value={job.material} onChange={(material) => update({ material })} />
             <span className="hint">Picks which of each tool's cutting settings are used.</span>
           </label>
           <ColorField
@@ -1022,7 +1013,7 @@ function CutOutTool({ job, onChange }: { job: InlayJob; onChange: (id: string | 
 
 /** An ordered list of end mills: add, remove, and move up or down. */
 function ClearingTools(props: { label: string; ids: string[]; material: Material; hint: string; onChange: (ids: string[]) => void }) {
-  const { tools, project } = useApp();
+  const { tools, lists, project } = useApp();
   const dispatch = useDispatch();
   const { ids } = props;
   const choices = toolChoices("flat_end", tools, project);
@@ -1053,8 +1044,9 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
                 {tool ? tool.name : "Missing tool"}
                 <span className="muted"> {tool ? `Ø${fmt(tool.diameter)} mm` : "no longer in the tool list or the project"}</span>
                 {tool && !tool.cutting.some((c) => c.material === props.material) && (
-                  <span className="hint warn">No cutting settings for {props.material}. Add them in the tool list.</span>
+                  <span className="hint warn">No cutting settings for {materialLabel(props.material, lists).toLowerCase()}. Add them in the tool list.</span>
                 )}
+                {tool && <RowPicker tool={tool} material={props.material} />}
               </span>
               <button type="button" className="small" onClick={() => props.onChange(ids.filter((other) => other !== id))} aria-label={`Remove ${tool?.name ?? "tool"}`} title="Remove">
                 ×
@@ -1100,13 +1092,14 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
 }
 
 function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: string | null; material: Material; hint?: string; onChange: (id: string | null) => void }) {
-  const { tools, project } = useApp();
+  const { tools, lists, project } = useApp();
   const dispatch = useDispatch();
   const choices = toolChoices(props.kind, tools, project);
   const chosen: Tool | undefined = resolveTool(props.value, tools, project);
   const inList = (tool: Tool) => tools.some((t) => t.id === tool.id);
 
   return (
+    <>
     <label className="field">
       <span className="field-label">{props.label}</span>
       <select value={chosen ? chosen.id : ""} onChange={(e) => props.onChange(e.target.value === "" ? null : e.target.value)}>
@@ -1129,8 +1122,79 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
       {chosen && <span className="hint">{describeTool(chosen)}</span>}
       {props.hint && <span className="hint">{props.hint}</span>}
       {chosen && !chosen.cutting.some((c) => c.material === props.material) && (
-        <span className="hint warn">This tool has no cutting settings for {props.material}. Add them in the tool list.</span>
+        <span className="hint warn">This tool has no cutting settings for {materialLabel(props.material, lists).toLowerCase()}. Add them in the tool list.</span>
       )}
     </label>
+    {chosen && <RowPicker tool={chosen} material={props.material} />}
+    </>
+  );
+}
+
+/**
+ * Which of a tool's cutting rows the open part runs it with: the plain row,
+ * or one made for a kind of toolpath. Shown only when the tool has such rows
+ * for the material.
+ */
+function RowPicker(props: { tool: Tool; material: Material }) {
+  const { lists, project, activeJobId } = useApp();
+  const dispatch = useDispatch();
+  const job = project.jobs.find((j) => j.id === activeJobId);
+  if (!job) return null;
+  const { tool } = props;
+  const value = job.rowProfiles?.[tool.id] ?? "";
+  const rows = tool.cutting.filter((c) => c.material === props.material && c.profile !== undefined);
+  if (rows.length === 0 && value === "") return null;
+  const label = (key: string) => findProfile(key, lists, project)?.label ?? key;
+  const adaptive = (key: string) => isAdaptive(key, findProfile(key, lists, project));
+  const row = tool.cutting.find((c) => c.material === props.material && (c.profile ?? "") === value);
+  const set = (key: string) =>
+    dispatch({
+      type: "updateJob",
+      id: job.id,
+      update: (j) => {
+        const next = { ...(j.rowProfiles ?? {}) };
+        if (key === "") delete next[tool.id];
+        else next[tool.id] = key;
+        return { ...j, rowProfiles: Object.keys(next).length > 0 ? next : undefined };
+      },
+    });
+
+  return (
+    <label className="field">
+      <span className="field-label">Cutting row of {tool.name}</span>
+      <select value={value} onChange={(e) => set(e.target.value)}>
+        <option value="">Plain row: safe for any cut</option>
+        {rows.map((c) => (
+          <option key={c.profile} value={c.profile} disabled={adaptive(c.profile ?? "")}>
+            {label(c.profile ?? "")}
+            {adaptive(c.profile ?? "") ? " (adaptive clearing: this app has no such toolpath)" : ""}
+          </option>
+        ))}
+        {value !== "" && !rows.some((c) => c.profile === value) && <option value={value}>{label(value)} (the tool has no such row for this material)</option>}
+      </select>
+      {row && (
+        <span className="hint">
+          {row.rpm} rpm, feed {fmt(row.feed)}, plunge {fmt(row.plunge)} mm/min, stepover {fmt(row.stepover)} mm, {fmt(row.stepdown)} mm per pass.
+          {value !== "" && findProfile(value, lists, project)?.note ? ` ${findProfile(value, lists, project)?.note}` : ""}
+        </span>
+      )}
+      {value !== "" && (job.inlay.type === "vcarve" || job.inlay.type === "flat") && <span className="hint">Cutting the plug or insert out of its board always uses the plain row.</span>}
+    </label>
+  );
+}
+
+/** The material a part is cut in: any the tool list knows. */
+function MaterialSelect(props: { value: Material; onChange: (material: Material) => void }) {
+  const { lists } = useApp();
+  const choices = allMaterials(lists);
+  return (
+    <select value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+      {choices.map((m) => (
+        <option key={m.value} value={m.value}>
+          {m.label}
+        </option>
+      ))}
+      {!choices.some((m) => m.value === props.value) && <option value={props.value}>{props.value} (not in your material list)</option>}
+    </select>
   );
 }

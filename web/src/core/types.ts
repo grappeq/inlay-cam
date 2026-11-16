@@ -91,6 +91,8 @@ export interface Tool {
 
 export interface MaterialInfo {
   key: Material;
+  /** What the material is called. Without one, its name in the Makera apps is shown, or its key. */
+  label?: string;
   cam?: { id: string; name: string };
   studio?: { id: string; categoryId: string; name: string; builtin?: boolean; modified?: string }[];
 }
@@ -249,6 +251,8 @@ export interface Job {
   setup?: Setup;
   /** The end mill that cuts a plug out of its board. Without one, the largest of the inlay's end mills that reaches through. */
   cutOutToolId?: string;
+  /** By tool id: the toolpath profile whose cutting row the tool runs in this job. A tool without an entry runs its plain row. */
+  rowProfiles?: Record<string, string>;
   inlay: Inlay;
 }
 
@@ -292,6 +296,8 @@ export interface Project {
   jobs: Job[];
   /** Copies of the tools the jobs use. */
   tools: Tool[];
+  /** Copies of the toolpath profiles the jobs' row choices name. */
+  profiles?: Profile[];
   /** The stock: the board the pockets and other operations are cut into. Its outline is the design's page. */
   base: { thickness: number; color?: string };
   /** A copy of the machine set under Tools and settings. */

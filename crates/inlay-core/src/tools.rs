@@ -711,6 +711,10 @@ pub struct StudioMaterial {
 #[serde(rename_all = "camelCase")]
 pub struct MaterialInfo {
     pub key: Material,
+    /// What the material is called. Without one, its name in the Makera
+    /// apps is shown, or its key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cam: Option<CamMaterial>,
     /// Makera Studio splits some materials into several.
@@ -1060,6 +1064,7 @@ pub(crate) mod fixtures {
         ToolLibrary {
             materials: vec![MaterialInfo {
                 key: aluminum,
+                label: None,
                 cam: Some(CamMaterial {
                     id: "{00000000-0000-4000-8000-0000000000b1}".into(),
                     name: "Aluminum".into(),

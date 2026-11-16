@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::file::{self, FileError, Migration};
 use crate::geom::{Region, Ring};
-use crate::tools::{validate_tools, Material, Tool};
+use std::collections::BTreeMap;
+
+use crate::tools::{validate_tools, Material, Profile, Tool};
 
 /// Current version of the project file. Raise it, and add a migration,
 /// whenever an old file could no longer be read as written.
@@ -28,6 +30,10 @@ pub struct Project {
     /// on a machine with a different tool list.
     #[serde(default)]
     pub tools: Vec<Tool>,
+    /// Copies of the toolpath profiles the jobs' row choices name, so the
+    /// project knows what each is for wherever it is opened.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<Profile>,
     /// The board the pockets are cut into.
     #[serde(default)]
     pub base: BaseStock,
@@ -319,6 +325,11 @@ pub struct Job {
     /// largest of the inlay's end mills that reaches through the board does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cut_out_tool_id: Option<String>,
+    /// By tool id: the toolpath profile whose cutting row the tool runs in
+    /// this job. A tool without an entry runs its plain row. Cutting a plug
+    /// out of its board is a full-width slot and always runs the plain row.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub row_profiles: BTreeMap<String, String>,
     pub inlay: Inlay,
 }
 
@@ -843,6 +854,7 @@ mod tests {
                     color: None,
                     setup: None,
                     cut_out_tool_id: None,
+                    row_profiles: Default::default(),
                     inlay: Inlay::Vcarve {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
@@ -864,6 +876,7 @@ mod tests {
                     color: None,
                     setup: None,
                     cut_out_tool_id: None,
+                    row_profiles: Default::default(),
                     inlay: Inlay::Flat {
                         pocket_depth: 2.5,
                         allowance: 0.1,
@@ -878,6 +891,7 @@ mod tests {
                 },
             ],
             tools: vec![end_mill(), v_bit()],
+            profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),
             setup: Setup::default(),
@@ -952,6 +966,7 @@ mod tests {
                 color: None,
                 setup: None,
                 cut_out_tool_id: None,
+                row_profiles: Default::default(),
                 inlay,
             })
         };
@@ -1047,6 +1062,7 @@ mod tests {
             design: None,
             jobs: vec![],
             tools: vec![],
+            profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),
             setup: Setup::default(),

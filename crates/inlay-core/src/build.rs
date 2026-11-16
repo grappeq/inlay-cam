@@ -19,7 +19,7 @@ use crate::post::carvera;
 use crate::project::{Inlay, InsertStyle, Job, Machine, Pattern, Project, Setup, Side};
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
-use crate::tools::{CuttingSettings, Material, Tool, ToolKind};
+use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
 
 /// Highest ridge the V-bit may leave between passes on a flat floor, mm.
 pub const MAX_FLOOR_RIDGE: f64 = 0.1;
@@ -288,6 +288,12 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         errors,
         warnings,
     };
+    if !job.material.is_built_in() {
+        ctx.warnings.push(format!(
+            "This is cut in {}. The app's toolpaths have only been proven in wood: check the simulation, and cut a test piece first.",
+            material_name(&job.material)
+        ));
+    }
     let cut = match (part, &job.inlay) {
         (
             _,
@@ -705,14 +711,50 @@ impl<'a> Context<'a> {
         what: &str,
     ) -> Option<(&'a Tool, &'a CuttingSettings)> {
         let tool = checked_tool(self.project, id, kind, what, &mut self.errors)?;
-        let Some(cutting) = tool.cutting_for(&self.job.material) else {
-            self.errors.push(format!(
-                "\"{}\" has no cutting settings for {}. Add them in the tool list.",
-                tool.name,
-                material_name(&self.job.material)
-            ));
+        let profile = self.job.row_profiles.get(&tool.id).map(String::as_str);
+        let label = profile.map(|key| {
+            let known = self.project.profiles.iter().find(|p| p.key == key);
+            known.map_or(key, |p| p.label.as_str())
+        });
+        if let (Some(key), Some(label)) = (profile, label) {
+            let known = self.project.profiles.iter().find(|p| p.key == key);
+            // The app has no adaptive toolpath: its pockets start with a
+            // full-width cut, which is what such a row must never be run as.
+            if known.map_or(key == "adaptive", Profile::is_adaptive) {
+                self.errors.push(format!(
+                    "\"{}\" is set to its {label} row, which is for adaptive clearing. This app has no such toolpath and would bury the tool at full width. Choose another row.",
+                    tool.name
+                ));
+                return None;
+            }
+        }
+        let Some(cutting) = tool.cutting_row(&self.job.material, profile) else {
+            self.errors.push(match label {
+                None => format!(
+                    "\"{}\" has no cutting settings for {}. Add them in the tool list.",
+                    tool.name,
+                    material_name(&self.job.material)
+                ),
+                Some(label) => format!(
+                    "\"{}\" has no {label} row for {}. Choose another row, or add it in the tool list.",
+                    tool.name,
+                    material_name(&self.job.material)
+                ),
+            });
             return None;
         };
+        if let Some(label) = label {
+            let note = format!(
+                "\"{}\" runs its {label} row: {} rpm, feed {} mm/min, {} mm per pass.",
+                tool.name,
+                cutting.rpm,
+                num(cutting.feed),
+                num(cutting.stepdown)
+            );
+            if !self.warnings.contains(&note) {
+                self.warnings.push(note);
+            }
+        }
         if cutting.rpm > self.machine.max_rpm {
             self.errors.push(format!(
                 "\"{}\" is set to {} rpm, but the {} spindle tops out at {} rpm.",
@@ -2730,6 +2772,7 @@ mod tests {
                 setup: None,
                 color: None,
                 cut_out_tool_id: None,
+                row_profiles: Default::default(),
                 inlay: Inlay::Flat {
                     pocket_depth: 2.0,
                     allowance: 0.1,
@@ -2743,6 +2786,7 @@ mod tests {
                 },
             }],
             tools: vec![end_mill(), v_bit()],
+            profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),
             setup: Setup::default(),
@@ -4082,6 +4126,118 @@ mod tests {
     /// The rectangle of the test board.
     fn rectangle() -> Region {
         Region::new(vec![[5.0, 5.0], [35.0, 5.0], [35.0, 25.0], [5.0, 25.0]])
+    }
+
+    /// A pocket whose end mill also has a row for the profile `key`, with a
+    /// feed of 250, and is set to run it.
+    fn pocket_on_profile(key: &str, adaptive: Option<bool>) -> Project {
+        let mut p = op_project(Inlay::Pocket {
+            pattern: Pattern::Offset,
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        let mut row = p.tools[0].cutting[0].clone();
+        row.profile = Some(key.into());
+        row.feed = 250.0;
+        p.tools[0].cutting.push(row);
+        p.profiles = vec![Profile {
+            key: key.into(),
+            label: "Face finish".into(),
+            note: None,
+            level: None,
+            ramping: false,
+            adaptive,
+            lubricated: false,
+            slot: false,
+        }];
+        p.jobs[0]
+            .row_profiles
+            .insert("t-endmill".into(), key.into());
+        p
+    }
+
+    #[test]
+    fn a_tool_runs_the_row_of_the_profile_chosen_for_it() {
+        let chosen = pocket_on_profile("face_finish", None);
+        let built = build(&chosen, "j", Part::Pocket).unwrap();
+        assert!(built.gcode.contains("F250") && !built.gcode.contains("F600"));
+        assert!(built
+            .warnings
+            .iter()
+            .any(|w| w.contains("runs its Face finish row") && w.contains("feed 250")));
+
+        // Without a choice it runs the plain row, as before.
+        let mut plain = chosen.clone();
+        plain.jobs[0].row_profiles.clear();
+        let built = build(&plain, "j", Part::Pocket).unwrap();
+        assert!(built.gcode.contains("F600") && !built.gcode.contains("F250"));
+        assert!(!built.warnings.iter().any(|w| w.contains("runs its")));
+
+        // A choice for a tool the job does not use changes nothing.
+        let key = "t-endmill".to_string();
+        let choice = plain.jobs[0].row_profiles.insert("t-other".into(), key);
+        assert_eq!(choice, None);
+        assert!(build(&plain, "j", Part::Pocket)
+            .unwrap()
+            .gcode
+            .contains("F600"));
+
+        // The file keeps the choice and the profile it names.
+        let read =
+            crate::project::project_from_file_json(&crate::project::project_to_file_json(&chosen))
+                .unwrap();
+        assert_eq!(read.jobs[0].row_profiles, chosen.jobs[0].row_profiles);
+        assert_eq!(read.profiles, chosen.profiles);
+    }
+
+    #[test]
+    fn a_row_for_adaptive_clearing_is_refused() {
+        // Told by the profile, or by its key when the project has no copy.
+        let by_flag = pocket_on_profile("fast", Some(true));
+        let mut by_key = pocket_on_profile("adaptive", None);
+        by_key.profiles.clear();
+        for p in [by_flag, by_key] {
+            let errors = build(&p, "j", Part::Pocket).unwrap_err();
+            assert!(errors[0].contains("adaptive clearing"), "{errors:?}");
+        }
+        // A profile called adaptive that says it is not one may be used.
+        let allowed = pocket_on_profile("adaptive", Some(false));
+        assert!(build(&allowed, "j", Part::Pocket).is_ok());
+    }
+
+    #[test]
+    fn a_chosen_row_the_tool_lacks_is_an_error_that_names_it() {
+        let mut p = pocket_on_profile("face_finish", None);
+        p.tools[0].cutting.pop();
+        let errors = build(&p, "j", Part::Pocket).unwrap_err();
+        assert!(
+            errors[0].contains("has no Face finish row for hardwood"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_job_in_another_material_uses_its_rows_and_says_it_is_unproven() {
+        let mut p = op_project(Inlay::Pocket {
+            pattern: Pattern::Offset,
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        let aluminum = Material::new("aluminum");
+        p.jobs[0].material = aluminum.clone();
+        let errors = build(&p, "j", Part::Pocket).unwrap_err();
+        assert!(errors[0].contains("no cutting settings for aluminum"));
+
+        let mut row = p.tools[0].cutting[0].clone();
+        row.material = aluminum;
+        row.feed = 180.0;
+        p.tools[0].cutting.push(row);
+        let built = build(&p, "j", Part::Pocket).unwrap();
+        assert!(built.gcode.contains("F180") && !built.gcode.contains("F600"));
+        assert!(built
+            .warnings
+            .iter()
+            .any(|w| w.contains("cut in aluminum") && w.contains("only been proven in wood")));
     }
 
     #[test]

@@ -1627,3 +1627,20 @@ button.tool.danger {
 .arrange-bar button.primary {
   flex: 1 1 auto;
 }
+
+/* The materials page. */
+.material-name {
+  width: 100%;
+  min-width: 12rem;
+}
+.materials-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 12px 0;
+}
+.materials-add .field {
+  flex: 0 1 20rem;
+  margin: 0;
+}

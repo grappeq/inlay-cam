@@ -6,11 +6,11 @@ import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
-export type SettingsPage = "tools" | "machine" | "defaults";
+export type SettingsPage = "tools" | "materials" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock";
 export type Notice = { kind: "info" | "error"; text: string };
@@ -135,9 +135,10 @@ const initial: AppState = {
 /** Keeps the project's copies of the tools and the machine in step with its jobs, the tool list and the machine. */
 function withSnapshots(state: AppState): AppState {
   const tools = toolSnapshots(state.project, state.tools);
+  const profiles = profileSnapshots(state.project, state.lists);
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  if (same(tools, state.project.tools) && same(state.machine, state.project.machine)) return state;
-  return { ...state, project: { ...state.project, tools, machine: state.machine } };
+  if (same(tools, state.project.tools) && same(profiles, state.project.profiles ?? []) && same(state.machine, state.project.machine)) return state;
+  return { ...state, project: { ...state.project, tools, profiles: profiles.length > 0 ? profiles : undefined, machine: state.machine } };
 }
 
 function reducer(state: AppState, action: Action): AppState {

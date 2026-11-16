@@ -257,6 +257,7 @@ pub fn import_tools_yaml(text: &str) -> Result<ToolsYamlImport, String> {
         let material: YMaterial = from_value(value, &format!("materials.{key}"))?;
         library.materials.push(MaterialInfo {
             key: Material::new(key),
+            label: None,
             cam: material.cam.map(|c| CamMaterial {
                 id: c.id,
                 name: c.name,
@@ -601,6 +602,427 @@ impl Comments {
             above.clear();
         }
         Comments { above, total }
+    }
+}
+
+/// A piece of YAML to write. Maps keep the order they are built in.
+enum Node {
+    Map(Vec<(String, Node)>),
+    List(Vec<Node>),
+    /// A list of short texts on one line: `[a, b]`.
+    Flow(Vec<String>),
+    Text(String),
+    Number(f64),
+    Bool(bool),
+}
+
+/// Collects the keys of one map, leaving out what has no value.
+#[derive(Default)]
+struct Keys(Vec<(String, Node)>);
+
+impl Keys {
+    fn put(&mut self, key: &str, node: Node) {
+        self.0.push((key.to_string(), node));
+    }
+
+    fn text(&mut self, key: &str, value: &Option<String>) {
+        if let Some(value) = value {
+            self.put(key, Node::Text(value.clone()));
+        }
+    }
+
+    fn number(&mut self, key: &str, value: Option<f64>) {
+        if let Some(value) = value {
+            self.put(key, Node::Number(value));
+        }
+    }
+
+    fn map(&mut self, key: &str, keys: Keys) {
+        if !keys.0.is_empty() {
+            self.put(key, keys.node());
+        }
+    }
+
+    fn list(&mut self, key: &str, items: Vec<Node>) {
+        if !items.is_empty() {
+            self.put(key, Node::List(items));
+        }
+    }
+
+    fn node(self) -> Node {
+        Node::Map(self.0)
+    }
+}
+
+/// Writes a tool library as a tooling-library `tools.yaml`: one key per
+/// line, in the order the format's description gives them. Reading the
+/// result gives the same library back. The file has no comments, and a
+/// corner-rounding bit's radius is not written: the format has no key for
+/// it, and takes it from the body and tip diameters.
+pub fn write_tools_yaml(library: &ToolLibrary) -> String {
+    let mut root = Keys::default();
+    root.put("format_version", Node::Number(1.0));
+
+    let mut materials = Keys::default();
+    for material in &library.materials {
+        let mut m = Keys::default();
+        if let Some(cam) = &material.cam {
+            let mut c = Keys::default();
+            c.put("id", Node::Text(cam.id.clone()));
+            c.put("name", Node::Text(cam.name.clone()));
+            m.map("cam", c);
+        }
+        let mut studio: Vec<Node> = material
+            .studio
+            .iter()
+            .map(|s| {
+                let mut k = Keys::default();
+                k.put("id", Node::Text(s.id.clone()));
+                k.put("category_id", Node::Text(s.category_id.clone()));
+                k.put("name", Node::Text(s.name.clone()));
+                if let Some(builtin) = s.builtin {
+                    k.put("builtin", Node::Bool(builtin));
+                }
+                k.text("modified", &s.modified);
+                k.node()
+            })
+            .collect();
+        // One record is written as a record, several as a list.
+        if studio.len() == 1 {
+            m.put("studio", studio.remove(0));
+        } else {
+            m.list("studio", studio);
+        }
+        // A material without a record in either app is still written:
+        // its rows refer to it.
+        materials.put(material.key.key(), m.node());
+    }
+    root.map("materials", materials);
+
+    let mut toolpaths = Keys::default();
+    for profile in &library.profiles {
+        let mut p = Keys::default();
+        p.put("label", Node::Text(profile.label.clone()));
+        p.text("note", &profile.note);
+        if let Some(level) = profile.level {
+            p.put("level", Node::Text(snake(&level)));
+        }
+        let flags = [
+            ("ramping", profile.ramping.then_some(true)),
+            ("adaptive", profile.adaptive),
+            ("lubricated", profile.lubricated.then_some(true)),
+            ("slot", profile.slot.then_some(true)),
+        ];
+        for (key, value) in flags {
+            if let Some(value) = value {
+                p.put(key, Node::Bool(value));
+            }
+        }
+        toolpaths.put(&profile.key, p.node());
+    }
+    root.map("toolpaths", toolpaths);
+
+    root.list(
+        "groups",
+        library
+            .groups
+            .iter()
+            .map(|group| {
+                let mut g = Keys::default();
+                g.put("path", Node::Text(group.path.clone()));
+                g.map("ids", ids_keys(&group.ids));
+                g.node()
+            })
+            .collect(),
+    );
+    root.put(
+        "tools",
+        Node::List(library.tools.iter().map(tool_node).collect()),
+    );
+
+    let mut out = String::new();
+    if let Node::Map(entries) = root.node() {
+        write_map(&mut out, &entries, 0);
+    }
+    out
+}
+
+/// The name an enum value has in the app's files, which is also its name
+/// in a tools.yaml.
+fn snake<T: Serialize>(value: &T) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
+    }
+}
+
+fn ids_keys(ids: &Option<AppIds>) -> Keys {
+    let mut k = Keys::default();
+    if let Some(ids) = ids {
+        k.text("cam", &ids.cam);
+        k.text("studio", &ids.studio);
+    }
+    k
+}
+
+/// The numbers of a row or of a logged cut, in the unit they were given in.
+fn put_values(k: &mut Keys, values: &CutValues, diameter: f64) {
+    k.put("rpm", Node::Number(values.rpm as f64));
+    k.put("feed", Node::Number(values.feed));
+    k.put("plunge", Node::Number(values.plunge));
+    match values.stepover_unit {
+        StepoverUnit::Mm => k.put("stepover_mm", Node::Number(values.stepover)),
+        StepoverUnit::Percent => {
+            let percent = (values.stepover / diameter * 100_000.0).round() / 1000.0;
+            k.put("stepover_pct", Node::Number(percent));
+        }
+    }
+    k.put("stepdown", Node::Number(values.stepdown));
+    k.number("passes", values.passes.map(f64::from));
+}
+
+fn tool_node(tool: &Tool) -> Node {
+    let mut t = Keys::default();
+    t.put("name", Node::Text(tool.name.clone()));
+    t.text("group", &tool.group);
+    let kind = match tool.kind {
+        ToolKind::FlatEnd => "flat_end",
+        // The format has no kind for it: it is a v_bit told by its name or
+        // its Fusion type.
+        ToolKind::VBit | ToolKind::CornerRound => "v_bit",
+        ToolKind::BallEnd => "ball_end",
+        ToolKind::Drill => "drill",
+        ToolKind::ThreadMill => "thread_mill",
+    };
+    t.put("type", Node::Text(kind.into()));
+    t.number("number", tool.number.map(f64::from));
+    t.text("coating", &tool.coating);
+    t.text("style", &tool.style);
+    if !tool.recommended_for.is_empty() {
+        let keys = tool.recommended_for.iter().map(|m| m.key().to_string());
+        t.put("recommended_for", Node::Flow(keys.collect()));
+    }
+    t.text("note", &tool.note);
+    if let Some(apps) = &tool.apps {
+        t.put("apps", Node::Flow(apps.iter().map(snake).collect()));
+    }
+    if let Some(fusion) = tool.fusion_type {
+        let mut f = Keys::default();
+        let name = match fusion {
+            FusionType::ChamferMill => "chamfer mill",
+            FusionType::RadiusMill => "radius mill",
+        };
+        f.put("type", Node::Text(name.into()));
+        t.map("fusion", f);
+    }
+    t.map("ids", ids_keys(&tool.ids));
+    if let Some(source) = &tool.source {
+        let mut s = Keys::default();
+        s.text("url", &source.url);
+        s.text("invoice", &source.invoice);
+        s.text("size_note", &source.size_note);
+        t.map("source", s);
+    }
+    if let Some(inventory) = &tool.inventory {
+        let mut i = Keys::default();
+        i.number("quantity", inventory.quantity.map(f64::from));
+        i.number("price", inventory.price);
+        i.text("currency", &inventory.currency);
+        i.text("purchased", &inventory.purchased);
+        i.list(
+            "log",
+            inventory
+                .log
+                .iter()
+                .map(|entry| {
+                    let mut e = Keys::default();
+                    e.put("date", Node::Text(entry.date.clone()));
+                    e.put("kind", Node::Text(snake(&entry.kind)));
+                    if let Some(material) = &entry.material {
+                        e.put("material", Node::Text(material.key().into()));
+                    }
+                    e.text("note", &entry.note);
+                    e.node()
+                })
+                .collect(),
+        );
+        t.map("inventory", i);
+    }
+
+    let mut g = Keys::default();
+    g.put("diameter", Node::Number(tool.diameter));
+    g.number("tip_diameter", tool.tip_diameter);
+    g.number("tip_angle", tool.tip_angle);
+    g.number("length", tool.length);
+    g.number("flutes", tool.flutes.map(f64::from));
+    g.number(
+        "shank_diameter",
+        Some(tool.shank_diameter).filter(|s| *s != tool.diameter),
+    );
+    g.number("flute_length", tool.flute_length);
+    g.number("shoulder_length", tool.shoulder_length);
+    g.number("studio_unknown_1", tool.studio_unknown_1);
+    g.number("thread_diameter", tool.thread_diameter);
+    g.number("pitch", tool.pitch);
+    g.number("drill_diameter", tool.drill_diameter);
+    t.map("geometry", g);
+
+    t.list(
+        "verify",
+        tool.verify
+            .iter()
+            .map(|item| {
+                let mut v = Keys::default();
+                v.put("field", Node::Text(item.field.clone()));
+                v.text("note", &item.note);
+                v.node()
+            })
+            .collect(),
+    );
+    t.list(
+        "cutting",
+        tool.cutting
+            .iter()
+            .map(|row| {
+                let mut r = Keys::default();
+                r.put("material", Node::Text(row.material.key().into()));
+                r.text("toolpath", &row.profile);
+                put_values(&mut r, &row.values(), tool.diameter);
+                r.number("cam_flag", row.cam_flag.map(|flag| flag as f64));
+                r.text("cam_extra", &row.cam_extra);
+                r.map("ids", ids_keys(&row.ids));
+                r.text("modified", &row.modified);
+                r.list(
+                    "log",
+                    row.log
+                        .iter()
+                        .map(|entry| {
+                            let mut e = Keys::default();
+                            e.put("date", Node::Text(entry.date.clone()));
+                            if let Some(outcome) = entry.outcome {
+                                e.put("outcome", Node::Text(snake(&outcome)));
+                            }
+                            if let Some(at) = &entry.at {
+                                let mut a = Keys::default();
+                                put_values(&mut a, at, tool.diameter);
+                                e.map("at", a);
+                            }
+                            e.put("text", Node::Text(entry.text.clone()));
+                            e.node()
+                        })
+                        .collect(),
+                );
+                r.node()
+            })
+            .collect(),
+    );
+    t.node()
+}
+
+/// A whole number without a decimal point, anything else as short as it
+/// reads back the same.
+fn number_text(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+/// Text as a YAML scalar. Only plain words stay bare; anything a YAML
+/// reader of any version could take for a number, a date, a truth value or
+/// punctuation is put in double quotes.
+fn text_scalar(text: &str) -> String {
+    const WORDS: [&str; 11] = [
+        "yes", "no", "on", "off", "y", "n", "true", "false", "null", "nan", "inf",
+    ];
+    let starts_plain = text.chars().next().is_some_and(char::is_alphabetic);
+    let plain_inside = text.chars().all(|c| {
+        c.is_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-' | '/' | '°' | '×' | '(' | ')')
+    });
+    let bare = starts_plain
+        && plain_inside
+        && !text.ends_with(' ')
+        && !text.contains("  ")
+        && !WORDS.contains(&text.to_lowercase().as_str());
+    if bare {
+        return text.to_string();
+    }
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn scalar(node: &Node) -> Option<String> {
+    match node {
+        Node::Text(text) => Some(text_scalar(text)),
+        Node::Number(value) => Some(number_text(*value)),
+        Node::Bool(value) => Some(value.to_string()),
+        Node::Flow(items) => {
+            let items: Vec<String> = items.iter().map(|item| text_scalar(item)).collect();
+            Some(format!("[{}]", items.join(", ")))
+        }
+        Node::Map(_) | Node::List(_) => None,
+    }
+}
+
+fn write_map(out: &mut String, entries: &[(String, Node)], indent: usize) {
+    for (key, value) in entries {
+        out.push_str(&" ".repeat(indent));
+        write_entry(out, key, value, indent);
+    }
+}
+
+/// Writes `key: value`, the indentation of the first line already written.
+fn write_entry(out: &mut String, key: &str, value: &Node, indent: usize) {
+    out.push_str(&text_scalar(key));
+    out.push(':');
+    match value {
+        Node::Map(entries) if entries.is_empty() => out.push_str(" {}\n"),
+        Node::Map(entries) => {
+            out.push('\n');
+            write_map(out, entries, indent + 2);
+        }
+        Node::List(items) => {
+            out.push('\n');
+            for item in items {
+                out.push_str(&" ".repeat(indent + 2));
+                out.push_str("- ");
+                match item {
+                    Node::Map(entries) => {
+                        // The first key follows the dash; the others line up under it.
+                        let mut entries = entries.iter();
+                        if let Some((key, value)) = entries.next() {
+                            write_entry(out, key, value, indent + 4);
+                        }
+                        for (key, value) in entries {
+                            out.push_str(&" ".repeat(indent + 4));
+                            write_entry(out, key, value, indent + 4);
+                        }
+                    }
+                    other => {
+                        out.push_str(&scalar(other).unwrap_or_default());
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+        other => {
+            out.push(' ');
+            out.push_str(&scalar(other).unwrap_or_default());
+            out.push('\n');
+        }
     }
 }
 
@@ -1010,6 +1432,105 @@ tools:
     }
 
     #[test]
+    fn what_is_written_reads_back_the_same() {
+        let first = import().library;
+        let text = write_tools_yaml(&first);
+        let again = import_tools_yaml(&text).unwrap();
+        assert_eq!(again.library, first);
+        assert!(again.skipped.is_empty());
+        assert_eq!((again.comments_moved, again.comments_dropped), (0, 0));
+        // Writing what was read gives the same text: nothing drifts.
+        assert_eq!(write_tools_yaml(&again.library), text);
+    }
+
+    #[test]
+    fn the_file_is_written_one_key_per_line_in_the_formats_order() {
+        let text = write_tools_yaml(&import().library);
+        let at = |needle: &str| {
+            text.find(needle)
+                .unwrap_or_else(|| panic!("{needle} is not in:\n{text}"))
+        };
+        let order = [
+            "format_version: 1\n",
+            "materials:\n  hardwood:\n    cam:\n      id: \"{00000000-0000-4000-8000-00000000000a}\"\n",
+            "toolpaths:\n  adaptive:\n    label: Adaptive\n",
+            "groups:\n  - path: End mills\n    ids:\n",
+            "tools:\n  - name: Ø3.175×22 1F Downcut\n    group: End mills\n    type: flat_end\n    number: 1\n",
+            "    recommended_for: [hardwood, softwood]\n",
+            "    apps: [cam]\n",
+            "    geometry:\n      diameter: 3.175\n      tip_angle: 60\n",
+            "    cutting:\n      - material: hardwood\n        rpm: 12000\n        feed: 600\n        plunge: 90\n        stepover_pct: 40\n        stepdown: 0.62\n",
+        ];
+        let places: Vec<usize> = order.iter().map(|needle| at(needle)).collect();
+        assert!(places.windows(2).all(|pair| pair[0] < pair[1]), "{text}");
+
+        // One Studio record is a record, several are a list.
+        at("    studio:\n      id: \"00000000-0000-7000-8000-00000000000b\"\n");
+        at("    studio:\n      - id: \"00000000-0000-7000-8000-00000000002b\"\n");
+        // A percentage comes back as the percentage it was.
+        at("stepover_pct: 33.333\n");
+        at("        stepover_mm: 0.3\n");
+        // Dates, times and text that looks like a number are quoted.
+        at("purchased: \"2026-01-15\"\n");
+        at("modified: \"2026-01-02T03:04:05Z\"\n");
+        at("cam_extra: \"1\"\n");
+        at("invoice: \"1/2026\"\n");
+        at("apps: []\n");
+        // A corner-rounding bit goes back to the kind the format has for it.
+        at("  - name: Odd cutter\n    type: v_bit\n    fusion:\n      type: radius mill\n");
+        at("  - name: R1 Corner Round Ø4\n    type: v_bit\n    geometry:\n");
+        assert!(!text.contains("corner"), "{text}");
+    }
+
+    #[test]
+    fn a_material_added_in_the_app_is_written_and_read_back_without_its_name() {
+        let mut library = import().library;
+        library.materials.push(MaterialInfo {
+            key: Material::new("oak"),
+            label: Some("Oak, quarter-sawn".into()),
+            cam: None,
+            studio: Vec::new(),
+        });
+        let mut row = library.tools[0].cutting[2].clone();
+        row.material = Material::new("oak");
+        library.tools[0].cutting.push(row);
+
+        let text = write_tools_yaml(&library);
+        assert!(text.contains("  oak: {}\n"), "{text}");
+        // The format has nowhere to keep the name; the rest comes back.
+        let again = import_tools_yaml(&text).unwrap().library;
+        library.materials[3].label = None;
+        assert_eq!(again, library);
+    }
+
+    #[test]
+    fn text_that_a_yaml_reader_could_misread_is_quoted() {
+        for (text, written) in [
+            ("Adaptive", "Adaptive"),
+            ("Ø6×18 3F Alu", "Ø6×18 3F Alu"),
+            ("6061 Aluminum", "\"6061 Aluminum\""),
+            ("End mills/Metal", "End mills/Metal"),
+            ("yes", "\"yes\""),
+            ("No", "\"No\""),
+            ("12", "\"12\""),
+            ("2026-01-15", "\"2026-01-15\""),
+            ("a: b", "\"a: b\""),
+            ("a #b", "\"a #b\""),
+            ("say \"hi\"", "\"say \\\"hi\\\"\""),
+            ("", "\"\""),
+            ("trailing ", "\"trailing \""),
+        ] {
+            assert_eq!(text_scalar(text), written);
+            // Whatever is written reads back as the text it was.
+            let read: String = serde_yaml_ng::from_str(&text_scalar(text)).unwrap();
+            assert_eq!(read, text);
+        }
+        assert_eq!(number_text(600.0), "600");
+        assert_eq!(number_text(0.62), "0.62");
+        assert_eq!(number_text(3.175), "3.175");
+    }
+
+    #[test]
     fn rejects_files_that_are_not_a_tool_spec() {
         assert!(import_tools_yaml("just: a map").is_err());
         assert!(import_tools_yaml(": : :").is_err());
@@ -1054,5 +1575,16 @@ tools:
             println!("  left out {}: {}", skipped.name, skipped.reason);
         }
         assert!(!library.tools.is_empty());
+
+        // Written and read again, it is the same library. With
+        // `INLAY_TOOLS_YAML_OUT=path` the written file is kept, to run the
+        // tooling library's own checks on it.
+        let text = write_tools_yaml(library);
+        let again = import_tools_yaml(&text).unwrap();
+        assert_eq!(&again.library, library);
+        assert!(again.skipped.is_empty());
+        if let Ok(out) = std::env::var("INLAY_TOOLS_YAML_OUT") {
+            std::fs::write(out, text).unwrap();
+        }
     }
 }
