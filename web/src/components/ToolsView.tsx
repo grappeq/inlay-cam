@@ -1,7 +1,7 @@
 // The Tools area: the list of tools beside the sheet of the one picked, and
 // the materials and profiles they refer to.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Attention, Material, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
@@ -11,7 +11,6 @@ import { downloadText, pickTextFile } from "../util/files";
 import { MaterialsPage } from "./MaterialsView";
 import { ProfilesPage } from "./ProfilesView";
 import { ToolCard } from "./ToolCard";
-import { ToolSheet } from "./ToolSheet";
 
 /** What a group of tools is called when the tools name none of their own. */
 const KIND_GROUPS: Record<ToolKind, string> = {
@@ -121,7 +120,7 @@ function LibraryMenu() {
   );
 }
 
-type Mode = { kind: "read" } | { kind: "edit" } | { kind: "new"; tool: Tool };
+type Mode = { kind: "read" } | { kind: "new"; tool: Tool };
 
 function ToolsPage() {
   const { tools, lists, project } = useApp();
@@ -134,6 +133,12 @@ function ToolsPage() {
   const [kinds, setKinds] = useState<ToolKind[]>([]);
   const [material, setMaterial] = useState<Material | "">("");
   const [closed, setClosed] = useState<string[]>([]);
+  // Whether the sheet holds changes that are not saved, so that leaving it can ask first.
+  const dirty = useRef(false);
+  const onDirty = useCallback((value: boolean) => {
+    dirty.current = value;
+  }, []);
+  const mayLeave = () => !dirty.current || confirm("Leave this tool without saving your changes to it?");
 
   // What wants looking at, worked out by the core whenever the tools change.
   const [attention, setAttention] = useState<Attention[]>([]);
@@ -197,7 +202,7 @@ function ToolsPage() {
     dispatch({ type: "setTools", tools: tools.filter((other) => other.id !== t.id) });
     setSelected(null);
   };
-  const add = (kind: ToolKind) => setMode({ kind: "new", tool: blankTool(kind) });
+  const add = (kind: ToolKind) => mayLeave() && setMode({ kind: "new", tool: blankTool(kind) });
   const addMenu = (primary: boolean) => (
     <Menu
       label="Add a tool"
@@ -304,6 +309,8 @@ function ToolsPage() {
                         className="tl-row"
                         aria-current={t.id === selected && mode.kind !== "new" ? "true" : undefined}
                         onClick={() => {
+                          if (t.id === selected && mode.kind === "read") return;
+                          if (!mayLeave()) return;
                           setSelected(t.id);
                           setMode({ kind: "read" });
                         }}
@@ -355,18 +362,30 @@ function ToolsPage() {
 
       <main className="tool-pane">
         {mode.kind === "new" ? (
-          <ToolSheet key={mode.tool.id} initial={mode.tool} isNew taken={tools} onSave={save} onCancel={() => setMode({ kind: "read" })} />
-        ) : tool && mode.kind === "edit" ? (
-          <ToolSheet key={tool.id} initial={tool} isNew={false} taken={tools} onSave={save} onCancel={() => setMode({ kind: "read" })} />
+          <ToolCard
+            key={mode.tool.id}
+            tool={mode.tool}
+            isNew
+            taken={tools}
+            attention={[]}
+            onSave={save}
+            onDirty={onDirty}
+            onDiscard={() => setMode({ kind: "read" })}
+            onDelete={() => setMode({ kind: "read" })}
+            onBack={() => setMode({ kind: "read" })}
+          />
         ) : tool ? (
           <ToolCard
             key={tool.id}
             tool={tool}
+            isNew={false}
+            taken={tools}
             attention={attentionOf.get(tool.id) ?? []}
-            onEdit={() => setMode({ kind: "edit" })}
+            onSave={save}
+            onDirty={onDirty}
+            onDiscard={() => setMode({ kind: "read" })}
             onDelete={() => remove(tool)}
-            onSave={(next) => dispatch({ type: "setTools", tools: tools.map((t) => (t.id === next.id ? next : t)) })}
-            onBack={() => setSelected(null)}
+            onBack={() => mayLeave() && setSelected(null)}
           />
         ) : tools.length === 0 ? (
           <div className="pane-empty">

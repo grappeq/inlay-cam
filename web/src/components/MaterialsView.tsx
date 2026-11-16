@@ -48,20 +48,20 @@ export function MaterialsPage() {
 
   return (
     <>
-      <div className="toolbar">
-        <h2>Materials</h2>
-      </div>
       <p className="muted lead">
-        What you cut. Each tool has its own cutting settings per material, and a part of a project is cut with the settings for its material. Hardwood and
-        softwood are always here. The app's toolpaths have only been proven in wood: treat any other material as untested.
+        What you cut. Each tool has its own cutting settings per material, and a part of a project is cut with the settings for its material. The app's toolpaths have only
+        been proven in wood: treat any other material as untested.
       </p>
 
-      <div className="table-wrap">
-        <table>
+      <section className="block">
+        <h3>
+          Materials <span className="muted">{materials.length}</span>
+        </h3>
+        <div className="cut-wrap">
+        <table className="cut-table">
           <thead>
             <tr>
               <th>Name</th>
-              <th>Key</th>
               <th>Name in Makera CAM</th>
               <th>Suggested feeds as</th>
               <th className="num">Cutting rows</th>
@@ -79,11 +79,9 @@ export function MaterialsPage() {
                     {fixed ? (
                       label
                     ) : (
-                      <input type="text" className="material-name" style={{ width: "100%", minWidth: "12rem" }} aria-label={`Name of ${label}`} value={info?.label ?? label} onChange={(e) => rename(key, e.target.value)} />
-                    )}
-                  </td>
-                  <td>
-                    <code>{key}</code>
+                      <input type="text" className="cell-in" style={{ width: "12rem" }} aria-label={`Name of ${label}`} value={info?.label ?? label} onChange={(e) => rename(key, e.target.value)} />
+                    )}{" "}
+                    <code className="muted">{key}</code>
                   </td>
                   <td>{info?.cam?.name ?? <span className="muted">none</span>}</td>
                   <td>
@@ -107,10 +105,10 @@ export function MaterialsPage() {
                   <td className="num">{rows(key)}</td>
                   <td className="row-actions">
                     {fixed ? (
-                      <span className="muted">Always here</span>
+                      <span className="muted">always here</span>
                     ) : (
                       <button
-                        className="danger"
+                        className="danger small"
                         disabled={used.length > 0}
                         title={used.length > 0 ? `Still used by ${used.join(", ")}.` : undefined}
                         onClick={() => remove(key, label)}
@@ -124,28 +122,25 @@ export function MaterialsPage() {
             })}
           </tbody>
         </table>
-      </div>
-
-      <form
-        className="materials-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add();
-        }}
-      >
-        <label className="field">
-          <span className="field-label">New material</span>
-          <input type="text" value={name} placeholder="Such as Oak or Acrylic" onChange={(e) => setName(e.target.value)} />
-        </label>
-        <button type="submit">Add material</button>
-      </form>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-      <p className="muted">
-        "Suggested feeds as" says which material a material of yours cuts like, so that the tool sheet can suggest starting values for it; it changes nothing else. The key is how files refer to a material; it does not change when you rename it. A material can be deleted once no cutting row, tool or part of the
+        </div>
+        <form
+          className="block-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <input className="cell-in" type="text" aria-label="New material" value={name} placeholder="A new material, such as Oak or Acrylic" onChange={(e) => setName(e.target.value)} />
+          <button type="submit">Add material</button>
+          {error && (
+            <span className="form-error" role="alert">
+              {error}
+            </span>
+          )}
+        </form>
+      </section>
+      <p className="muted lead">
+        "Suggested feeds as" says which material a material of yours cuts like, so that the tool sheet can suggest starting values for it; it changes nothing else. The name in grey is the key files refer to a material by; it does not change when you rename it. A material can be deleted once no cutting row, tool or part of the
         open project uses it. A material you add here has no record in the Makera apps, so libraries written for them leave its rows out.
       </p>
     </>

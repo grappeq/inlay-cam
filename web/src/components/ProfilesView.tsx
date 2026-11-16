@@ -11,7 +11,7 @@ const LEVELS: { value: FeedLevel; label: string }[] = [
   { value: "aggressive", label: "Aggressive" },
 ];
 
-/** The kinds of toolpath a tool can keep a further cutting row for: a page of the settings view. */
+/** The kinds of toolpath a tool can keep a further cutting row for. */
 export function ProfilesPage() {
   const { tools, lists, project } = useApp();
   const dispatch = useDispatch();
@@ -54,113 +54,99 @@ export function ProfilesPage() {
     );
   };
 
+  const tick = (profile: Profile, label: string, title: string, checked: boolean, set: (on: boolean) => void) => (
+    <label className="check" title={title}>
+      <input type="checkbox" aria-label={`${profile.label}: ${label}`} checked={checked} onChange={(e) => set(e.target.checked)} />
+      {label}
+    </label>
+  );
+
   return (
     <>
-      <div className="toolbar">
-        <h2>Profiles</h2>
-      </div>
       <p className="muted lead">
-        A tool's plain cutting settings are safe for any cut. A profile names one kind of toolpath, such as a finishing pass or a slot, so that a tool can keep
-        a further row tuned for it. On a tool's sheet a row is given to a profile under "For"; in a project, a tool can then be told to run that row.
+        A tool's plain cutting settings are safe for any cut. A profile names one kind of toolpath, such as a finishing pass or a slot, so that a tool can keep a further row
+        tuned for it. On a tool's sheet a row is given to a profile under "For"; in a project, a tool can then be told to run that row.
       </p>
 
-      {profiles.length === 0 && (
-        <div className="empty-card">
-          <p>No profiles yet.</p>
-          <p className="muted">You need none to cut: every tool has its plain settings. Add one when a tool should cut differently for one kind of toolpath.</p>
-        </div>
-      )}
-
-      {profiles.map((profile) => {
-        const adaptive = isAdaptive(profile.key, profile);
-        return (
-          <section key={profile.key} className="sheet-section">
-            <div className="row">
-              <label className="field grow">
-                <span className="field-label">Name</span>
+      <section className="block">
+        <h3>
+          Profiles <span className="muted">{profiles.length === 0 ? "none: plain settings only" : profiles.length}</span>
+        </h3>
+        {profiles.length === 0 && <p className="block-empty">You need none to cut. Add one when a tool should cut differently for one kind of toolpath.</p>}
+        {profiles.map((profile) => {
+          const adaptive = isAdaptive(profile.key, profile);
+          return (
+            <div key={profile.key} className="profile-row">
+              <div className="profile-main">
                 <NameField value={profile.label} onChange={(label) => rename(profile, label)} taken={(label) => taken(label, profile.key)} />
-              </label>
-              <label className="field">
-                <span className="field-label">Suggestions start at</span>
-                <select value={profile.level ?? ""} onChange={(e) => change(profile.key, { level: e.target.value === "" ? undefined : (e.target.value as FeedLevel) })}>
-                  <option value="">Slot-safe, as a plain row</option>
-                  {LEVELS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <input
+                  className="cell-in"
+                  type="text"
+                  maxLength={200}
+                  aria-label={`Note on ${profile.label}`}
+                  placeholder="A note, shown where the profile is chosen"
+                  value={profile.note ?? ""}
+                  onChange={(e) => change(profile.key, { note: e.target.value === "" ? undefined : e.target.value })}
+                />
+              </div>
+              <div className="profile-starts">
+                <label>
+                  <span className="muted">Suggestions start at</span>
+                  <select aria-label={`${profile.label}: suggestions start at`} value={profile.level ?? ""} onChange={(e) => change(profile.key, { level: e.target.value === "" ? undefined : (e.target.value as FeedLevel) })}>
+                    <option value="">Slot-safe, as a plain row</option>
+                    {LEVELS.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {tick(profile, "Ramped entry", "The suggested plunge is for a tool that goes down along a ramp, not straight.", profile.ramping ?? false, (on) => change(profile.key, { ramping: on || undefined }))}
+                {tick(profile, "Lubricated", "The cut gets light lubrication. It changes the suggestions for titanium and for adaptive cuts in aluminium.", profile.lubricated ?? false, (on) =>
+                  change(profile.key, { lubricated: on || undefined }),
+                )}
+                {tick(profile, "Full-width cut", "A cut as wide as the tool, such as a slot or a contour: suggested with the whole diameter as its stepover.", profile.slot ?? false, (on) =>
+                  change(profile.key, { slot: on || undefined }),
+                )}
+                {tick(profile, "Adaptive clearing", "A light sideways cut taken deep, as other CAM programs' adaptive clearing makes.", adaptive, (on) => change(profile.key, { adaptive: on }))}
+              </div>
+              <div className="profile-foot">
+                <span className="muted">
+                  <code>{profile.key}</code>, {rows(profile.key)} cutting row{rows(profile.key) === 1 ? "" : "s"}
+                  {jobs(profile.key) > 0 ? `, used by ${jobs(profile.key)} part${jobs(profile.key) === 1 ? "" : "s"} of the open project` : ""}
+                </span>
+                <button type="button" className="danger small" onClick={() => remove(profile)}>
+                  Delete
+                </button>
+              </div>
+              {adaptive && (
+                <p className="hint warn">
+                  This app has no adaptive toolpath, so it does not cut with this profile's rows: run as its pockets are, they would bury the tool at full width. The rows are kept,
+                  and written for other programs.
+                </p>
+              )}
             </div>
-            <label className="field wide">
-              <span className="field-label">Note</span>
-              <input
-                type="text"
-                maxLength={200}
-                value={profile.note ?? ""}
-                onChange={(e) => change(profile.key, { note: e.target.value === "" ? undefined : e.target.value })}
-              />
-              <span className="hint">Shown where the profile is chosen.</span>
-            </label>
-            <div className="check-list">
-              <label className="check" title="The suggested plunge is for a tool that goes down along a ramp, not straight.">
-                <input type="checkbox" checked={profile.ramping ?? false} onChange={(e) => change(profile.key, { ramping: e.target.checked || undefined })} />
-                Ramped entry
-              </label>
-              <label className="check" title="The cut gets light lubrication. It changes the suggestions for titanium and for adaptive cuts in aluminium.">
-                <input type="checkbox" checked={profile.lubricated ?? false} onChange={(e) => change(profile.key, { lubricated: e.target.checked || undefined })} />
-                Lubricated
-              </label>
-              <label className="check" title="A cut as wide as the tool, such as a slot or a contour: suggested with the whole diameter as its stepover.">
-                <input type="checkbox" checked={profile.slot ?? false} onChange={(e) => change(profile.key, { slot: e.target.checked || undefined })} />
-                Full-width cut
-              </label>
-              <label className="check" title="A light sideways cut taken deep, as other CAM programs' adaptive clearing makes.">
-                <input type="checkbox" checked={adaptive} onChange={(e) => change(profile.key, { adaptive: e.target.checked })} />
-                Adaptive clearing
-              </label>
-            </div>
-            {adaptive && (
-              <p className="hint warn">
-                This app has no adaptive toolpath, so it does not cut with this profile's rows: run as its pockets are, they would bury the tool at full width.
-                The rows are kept, and written for other programs.
-              </p>
-            )}
-            <div className="row">
-              <span className="muted">
-                Key <code>{profile.key}</code> · {rows(profile.key)} cutting row{rows(profile.key) === 1 ? "" : "s"}
-                {jobs(profile.key) > 0 ? ` · used by ${jobs(profile.key)} part${jobs(profile.key) === 1 ? "" : "s"} of the open project` : ""}
-              </span>
-              <span className="spacer" />
-              <button type="button" className="danger" onClick={() => remove(profile)}>
-                Delete
-              </button>
-            </div>
-          </section>
-        );
-      })}
-
-      <form
-        className="materials-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add();
-        }}
-      >
-        <label className="field">
-          <span className="field-label">New profile</span>
-          <input type="text" value={name} maxLength={40} placeholder="Such as Finishing or Slot" onChange={(e) => setName(e.target.value)} />
-        </label>
-        <button type="submit">Add profile</button>
-      </form>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-      <p className="muted">
-        The four ticks and the starting stop only say where the suggested values on a tool's sheet begin for this profile's rows. They change no row and no
-        file. The key is how files refer to a profile; it does not change when you rename it.
+          );
+        })}
+        <form
+          className="block-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <input className="cell-in" type="text" aria-label="New profile" value={name} maxLength={40} placeholder="A new profile, such as Finishing or Slot" onChange={(e) => setName(e.target.value)} />
+          <button type="submit">Add profile</button>
+          {error && (
+            <span className="form-error" role="alert">
+              {error}
+            </span>
+          )}
+        </form>
+      </section>
+      <p className="muted lead">
+        The starting stop and the four ticks only say where the suggested values on a tool's sheet begin for this profile's rows. They change no row and no file. The name in
+        grey is the key files refer to a profile by; it does not change when you rename it.
       </p>
     </>
   );
@@ -171,10 +157,12 @@ function NameField(props: { value: string; onChange: (value: string) => void; ta
   const [text, setText] = useState(props.value);
   const problem = text.trim() === "" ? "A profile needs a name." : props.taken(text) ? "Another profile has this name." : null;
   return (
-    <>
+    <span className="profile-name">
       <input
+        className="cell-in"
         type="text"
         maxLength={40}
+        aria-label="Name"
         value={text}
         aria-invalid={problem !== null}
         onChange={(e) => {
@@ -184,6 +172,6 @@ function NameField(props: { value: string; onChange: (value: string) => void; ta
         onBlur={() => problem && setText(props.value)}
       />
       {problem && <span className="hint warn">{problem} The old name is kept.</span>}
-    </>
+    </span>
   );
 }

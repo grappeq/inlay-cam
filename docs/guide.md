@@ -49,8 +49,10 @@ imported tool with the name of one you have replaces it.
 
 ### A tool's sheet
 
-Picking a tool shows it drawn to scale from the side, with what is known about it. A
-length that is not known is drawn dashed, at a guess.
+Picking a tool shows it drawn to scale, from the side and from its tip, with what is
+known about it. A length that is not known is drawn dashed, at a guess. The style word
+(Upcut, Downcut, Compression, Straight, Roughing, Corn, PCB) sets how the flutes are
+drawn.
 
 **Cutting settings** has one line per row: what it is for, its speed, feed, plunge,
 stepover and depth, and **How hard** it cuts: a small scale of the feeds model's five
@@ -77,7 +79,16 @@ the count on hand.
 
 ### Editing a tool
 
-**Edit** turns the sheet into a form; nothing is kept until you press "Save tool".
+**Edit tool** turns the sheet's values into fields where they stand: the name, the facts,
+every cell of the cutting rows, the stock and the source. The drawing follows as you type.
+A bar at the bottom counts what you have changed; nothing is kept until you press "Save
+changes", and "Cancel" puts everything back. Picking another tool with unsaved changes
+asks first.
+
+In a cutting row, the two choices at the left say which material the row is for and which
+kind of cut ("any cut" is the plain row). The button beside the stepover switches it
+between mm and percent of the diameter. The × at the right deletes the row, and "Add a
+row" adds one for the next material without settings.
 
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
@@ -89,9 +100,8 @@ the count on hand.
 - **Cutting settings** are per material. A tool cannot be used on a material it has no
   settings for. Each material has one *plain* row, safe for any cut, and can have further
   rows made for one kind of toolpath, such as a finishing pass ("For").
-- A **stepover** can be given in mm or in percent of the diameter. A V-bit's spaces its
-  passes over a flat floor, where only the tip cuts; the app caps it so that ridges stay
-  under 0.1 mm.
+- A V-bit's **stepover** spaces its passes over a flat floor, where only the tip cuts;
+  the app caps it so that ridges stay under 0.1 mm.
 
 Tools are shared by all projects. A project keeps its own copy of the tools it uses, so it
 opens correctly elsewhere; the copy leaves out your stock, prices, sources and logs.

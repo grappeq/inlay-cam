@@ -2409,3 +2409,361 @@ button.cut-toggle {
   padding-left: 4px;
   line-height: 1.1;
 }
+
+/* ---- The drawing of a tool (toolProfile.ts), on squared paper. ---- */
+.draw {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(#e3e7eb 1px, transparent 1px), linear-gradient(90deg, #e3e7eb 1px, transparent 1px),
+    linear-gradient(#eef1f4 1px, transparent 1px), linear-gradient(90deg, #eef1f4 1px, transparent 1px);
+  background-size:
+    50px 50px,
+    50px 50px,
+    10px 10px,
+    10px 10px;
+}
+.draw svg {
+  display: block;
+  width: 100%;
+  max-height: 230px;
+}
+.draw figcaption {
+  padding: 0 12px 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.draw .cl {
+  stroke: #8c939a;
+  stroke-width: 0.6;
+  stroke-dasharray: 14 3 2 3;
+  fill: none;
+}
+.draw .shank {
+  stroke: none;
+}
+.draw .outline,
+.draw .cutline {
+  fill: none;
+  stroke: #3a4148;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.draw .shade .g0 {
+  stop-color: #d9dde1;
+}
+.draw .shade .g1 {
+  stop-color: #f6f7f8;
+}
+.draw .shade .g2 {
+  stop-color: #c4cad0;
+}
+.draw .cutshade .g0 {
+  stop-color: #c3c9cf;
+}
+.draw .cutshade .g1 {
+  stop-color: #e4e7ea;
+}
+.draw .cutshade .g2 {
+  stop-color: #aeb5bc;
+}
+.draw .gully {
+  fill: #9fa7af;
+  opacity: 0.75;
+}
+.draw .edge {
+  fill: none;
+  stroke: #3a4148;
+  stroke-width: 0.8;
+}
+.draw .edge.heel {
+  stroke-width: 0.5;
+  opacity: 0.55;
+}
+.draw .teeth {
+  fill: none;
+  stroke: #3a4148;
+}
+.draw .cutend.unk {
+  opacity: 0.55;
+}
+.draw .dim,
+.draw .dm {
+  stroke: #8c939a;
+  fill: none;
+}
+.draw .dim.unk {
+  stroke: var(--warn);
+}
+.draw .dl {
+  font-size: 11px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  fill: #4a5057;
+}
+.draw .dl.unk {
+  fill: var(--warn);
+}
+
+/* ---- Editing in place: the sheet's values become fields where they stand. ---- */
+.card.editing .block {
+  border-style: solid;
+}
+.card-title .title-input {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 3px 8px;
+}
+.card-title .coating-input {
+  flex: 0 1 120px;
+  min-width: 0;
+  font-size: 16px;
+  padding: 6px 8px;
+}
+.note-input {
+  width: 100%;
+  margin-top: 8px;
+}
+.cell-in,
+input[type="text"].cell-in {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.cell-in:focus {
+  border-color: var(--accent);
+}
+.cell-in[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.num-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+.num-in .cell-in {
+  text-align: right;
+}
+.num-in .unit {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.card.editing .fact {
+  align-items: center;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.card.editing .fact dd {
+  font-weight: 400;
+}
+.pair {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.cut-table td .num-in {
+  min-width: 64px;
+}
+.cut-table td .pair .num-in {
+  min-width: 56px;
+}
+.for-in {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.for-in select {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 96px;
+  padding: 3px 4px;
+  font-weight: 400;
+}
+.card.editing .cut-line {
+  cursor: default;
+}
+.card.editing .cut-line:hover {
+  background: none;
+}
+.card.editing .cut-line.open {
+  background: var(--accent-soft);
+}
+button.unit-toggle {
+  flex: none;
+  padding: 2px 5px;
+  font-size: 12px;
+  min-width: 34px;
+}
+button.row-x {
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+button.row-x:hover {
+  background: var(--danger-soft);
+}
+.save-bar {
+  position: sticky;
+  bottom: -40px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 -22px -40px;
+  padding: 10px 22px;
+  background: var(--surface);
+  border-top: 1px solid var(--line-strong);
+  box-shadow: 0 -4px 12px rgb(26 31 37 / 0.08);
+}
+.save-bar .form-error {
+  margin: 0;
+}
+
+/* The list: plain weight, as a parts list reads; the picked tool stands out. */
+.tl-name {
+  font-weight: 400;
+}
+button.tl-row[aria-current="true"] .tl-name {
+  font-weight: 600;
+}
+button.tl-row {
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .save-bar {
+    margin: 0 -12px -32px;
+    padding: 10px 12px;
+    bottom: -32px;
+  }
+}
+
+/* Editing a cutting table in place: narrower cells, the ruler without its words. */
+.card.editing .cut-table th,
+.card.editing .cut-table td {
+  padding: 5px 5px;
+}
+.card.editing .cut-table th:first-child {
+  padding-left: 10px;
+}
+.card.editing .cut-table .ruler-text {
+  display: none;
+}
+.card.editing .cut-table .ruler svg {
+  width: 92px;
+}
+.card.editing .cut-table td .num-in {
+  min-width: 58px;
+}
+.card.editing .cut-table td .pair .num-in {
+  min-width: 46px;
+}
+
+/* Materials, profiles and the machine: the same ruled blocks as a tool's sheet. */
+.plain-page .block + .lead {
+  margin-top: 12px;
+}
+.plain-page code {
+  font-size: 12px;
+}
+.block-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-strong);
+  background: var(--surface-2);
+}
+.block-add .cell-in {
+  flex: 0 1 300px;
+  padding: 5px 8px;
+}
+.block-add .form-error {
+  margin: 0;
+}
+.plain-page .cut-table td {
+  vertical-align: middle;
+}
+.plain-page .cut-table select {
+  width: auto;
+  padding: 3px 6px;
+}
+.profile-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(0, 3fr);
+  gap: 8px 18px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.profile-row:last-of-type {
+  border-bottom: 0;
+}
+.profile-row p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.profile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.profile-name .cell-in {
+  font-weight: 600;
+  font-size: 15px;
+  padding: 4px 8px;
+}
+.profile-name .hint {
+  display: block;
+}
+.profile-starts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+}
+.profile-starts label:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 0 100%;
+}
+.profile-starts select {
+  width: auto;
+  padding: 3px 6px;
+}
+.profile-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.plain-page .setting-card {
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.plain-page .toolbar h2 {
+  font-size: 20px;
+}
+@media (max-width: 700px) {
+  .profile-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
