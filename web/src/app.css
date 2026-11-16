@@ -1779,3 +1779,29 @@ button.tool.danger {
   flex-wrap: wrap;
   gap: 4px 16px;
 }
+
+/* Logging a result or a lost cutter, and the list of what needs attention. */
+.log-form {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.field.grow {
+  flex: 1 1 260px;
+}
+.attention {
+  background: var(--warn-soft);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warn);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+}
+.attention h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}

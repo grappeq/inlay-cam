@@ -4,7 +4,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { core } from "../core/client";
 import type { CutResult, CuttingSettings, FeedFlags, FeedLevel, FeedSuggestion, Material, RowCheck, Tool, ToolLists } from "../core/types";
-import { TOOL_KIND_LABELS, allMaterials, feedMaterial, fmt, materialLabel, rowLabel } from "../state/model";
+import { OUTCOMES, TOOL_KIND_LABELS, allMaterials, currentResult, feedMaterial, fmt, materialLabel, rowLabel, today } from "../state/model";
 import { message, useApp } from "../state/store";
 import { NumberField } from "./NumberField";
 
@@ -16,34 +16,9 @@ const LEVELS: { key: FeedLevel; label: string }[] = [
   { key: "aggressive", label: "Aggressive" },
 ];
 
-const OUTCOMES: Record<NonNullable<CutResult["outcome"]>, { mark: string; text: string; tone: string }> = {
-  ok: { mark: "✓", text: "ok", tone: "ok" },
-  provisional: { mark: "○", text: "worked, still to confirm", tone: "warn" },
-  failed: { mark: "✕", text: "failed", tone: "danger" },
-};
-
 /** Six decimals: fine enough that a percentage kept as mm is the same percentage when turned back. */
 const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
 const percentOf = (row: CuttingSettings, diameter: number) => Math.round((row.stepover / diameter) * 100000) / 1000;
-
-/** The newest log entry cut at the row's present numbers; of one date, the one written last. */
-function currentResult(row: CuttingSettings): CutResult | undefined {
-  let best: CutResult | undefined;
-  for (const entry of row.log ?? []) {
-    const at = entry.at;
-    const same =
-      at !== undefined &&
-      at.rpm === row.rpm &&
-      at.feed === row.feed &&
-      at.plunge === row.plunge &&
-      at.stepover === row.stepover &&
-      (at.stepoverUnit ?? "mm") === (row.stepoverUnit ?? "mm") &&
-      at.stepdown === row.stepdown &&
-      at.passes === row.passes;
-    if (same && (best === undefined || entry.date >= best.date)) best = entry;
-  }
-  return best;
-}
 
 export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
   const { lists } = useApp();
@@ -271,6 +246,16 @@ export function ToolSheet(props: { initial: Tool; isNew: boolean; taken: Tool[];
           <TextField label="Invoice" value={source.invoice} onChange={(invoice) => setSource({ invoice })} />
           <TextField label="Size as the shop lists it" value={source.sizeNote} onChange={(sizeNote) => setSource({ sizeNote })} />
         </div>
+        <LogWear
+          materials={materials}
+          canTakeOne={(inventory.quantity ?? 0) > 0}
+          onAdd={(entry, takeOne) =>
+            setInventory({
+              log: [...(inventory.log ?? []), entry],
+              quantity: takeOne && inventory.quantity !== undefined ? Math.max(0, inventory.quantity - 1) : inventory.quantity,
+            })
+          }
+        />
         {(inventory.log?.length ?? 0) > 0 && (
           <div className="field" role="group" aria-label="Broken and worn">
             <span className="field-label">Broken and worn</span>
@@ -314,6 +299,157 @@ function TextField(p: { label: string; value: string | undefined; onChange: (val
       <input type="text" value={p.value ?? ""} onChange={(e) => p.onChange(p.keepEmpty || e.target.value.trim() !== "" ? e.target.value : undefined)} />
       {p.hint && <span className="hint">{p.hint}</span>}
     </label>
+  );
+}
+
+/** Adds what happened on a cut to a row's log, at the numbers the row has now. */
+function LogResult(props: { onAdd: (entry: CutResult) => void }) {
+  const [open, setOpen] = useState(false);
+  const [outcome, setOutcome] = useState<NonNullable<CutResult["outcome"]>>("ok");
+  const [text, setText] = useState("");
+  const [date, setDate] = useState(today());
+  if (!open) {
+    return (
+      <div className="row">
+        <button type="button" onClick={() => setOpen(true)}>
+          Log a result…
+        </button>
+      </div>
+    );
+  }
+  const add = () => {
+    if (text.trim() === "" || date === "") return;
+    props.onAdd({ date, outcome, text: text.trim() });
+    setText("");
+    setOpen(false);
+  };
+  return (
+    <div className="log-form" role="group" aria-label="Log a result">
+      <div className="row">
+        {(Object.keys(OUTCOMES) as (keyof typeof OUTCOMES)[]).map((key) => (
+          <label key={key} className="check">
+            <input type="radio" checked={outcome === key} onChange={() => setOutcome(key)} />
+            <span className={`mark ${OUTCOMES[key].tone}`}>
+              {OUTCOMES[key].mark} {OUTCOMES[key].text}
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="row">
+        <label className="field wide grow">
+          <span className="field-label">What happened</span>
+          <input
+            type="text"
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter adds the entry; it must not save the whole tool.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Date</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+      </div>
+      <div className="row">
+        <button type="button" className="primary" disabled={text.trim() === "" || date === ""} onClick={add}>
+          Add to the log
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <span className="hint">Recorded at the numbers the row has now, and kept when you save the tool.</span>
+      </div>
+    </div>
+  );
+}
+
+type WearEntry = NonNullable<NonNullable<Tool["inventory"]>["log"]>[number];
+
+/** Notes a cutter that broke or wore out, and takes it off the count. */
+function LogWear(props: { materials: { value: Material; label: string }[]; canTakeOne: boolean; onAdd: (entry: WearEntry, takeOne: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<WearEntry["kind"]>("broken");
+  const [material, setMaterial] = useState("");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(today());
+  const [takeOne, setTakeOne] = useState(true);
+  if (!open) {
+    return (
+      <div className="row">
+        <button type="button" onClick={() => setOpen(true)}>
+          A cutter broke or wore out…
+        </button>
+      </div>
+    );
+  }
+  const add = () => {
+    if (date === "") return;
+    props.onAdd({ date, kind, material: material === "" ? undefined : material, note: note.trim() === "" ? undefined : note.trim() }, takeOne && props.canTakeOne);
+    setNote("");
+    setOpen(false);
+  };
+  return (
+    <div className="log-form" role="group" aria-label="A cutter broke or wore out">
+      <div className="row">
+        <label className="field">
+          <span className="field-label">It</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value as WearEntry["kind"])}>
+            <option value="broken">broke</option>
+            <option value="worn">wore out</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Cutting</span>
+          <select value={material} onChange={(e) => setMaterial(e.target.value)}>
+            <option value="">Not noted</option>
+            {props.materials.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Date</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+      </div>
+      <label className="field wide">
+        <span className="field-label">Note</span>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+      </label>
+      <div className="row">
+        {props.canTakeOne && (
+          <label className="check">
+            <input type="checkbox" checked={takeOne} onChange={(e) => setTakeOne(e.target.checked)} />
+            Take one off the count on hand
+          </label>
+        )}
+        <button type="button" className="primary" disabled={date === ""} onClick={add}>
+          Add
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -593,6 +729,20 @@ function RowEditor(props: {
           </ul>
         </details>
       )}
+
+      <LogResult
+        onAdd={(entry) =>
+          set({
+            log: [
+              ...logged,
+              {
+                ...entry,
+                at: { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepoverUnit: row.stepoverUnit, stepdown: row.stepdown, passes: row.passes },
+              },
+            ],
+          })
+        }
+      />
 
       <div className="row end">
         <button type="button" className="danger" onClick={props.onRemove}>

@@ -916,6 +916,99 @@ pub fn tools_from_file_json(text: &str) -> Result<Vec<Tool>, FileError> {
     library_from_file_json(text).map(|library| library.tools)
 }
 
+/// Why a tool is on the list of things to look at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttentionKind {
+    /// A row whose latest result at its present numbers is a failure.
+    Failed,
+    /// A row whose latest result at its present numbers is still to confirm.
+    Provisional,
+    /// Something noted as still to check.
+    Verify,
+    /// A tool this app cuts with that has no cutting settings at all.
+    NoCutting,
+    /// A tool this app cuts with whose flute length is unknown, so no depth
+    /// can be checked against it.
+    FluteLength,
+}
+
+/// One thing about one tool that wants looking at.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attention {
+    pub tool_id: String,
+    pub tool_name: String,
+    pub kind: AttentionKind,
+    /// For a row's result: the row.
+    pub material: Option<Material>,
+    pub profile: Option<String>,
+    /// For a row's result: when it was logged.
+    pub date: Option<String>,
+    /// For a row's result, what was logged; for something to check, the
+    /// field and its note.
+    pub text: Option<String>,
+}
+
+/// What wants looking at in a tool list: failures first, then results still
+/// to confirm, things to check, and what is missing. Within a kind, in the
+/// order of the list.
+///
+/// A failed or provisional result counts only while the row still has the
+/// numbers it was cut at: change them and the row is untested, which is not
+/// by itself something to look at.
+pub fn needs_attention(tools: &[Tool]) -> Vec<Attention> {
+    let mut out = Vec::new();
+    for tool in tools {
+        let item = |kind| Attention {
+            tool_id: tool.id.clone(),
+            tool_name: tool.name.clone(),
+            kind,
+            material: None,
+            profile: None,
+            date: None,
+            text: None,
+        };
+        for row in &tool.cutting {
+            let Some(result) = row.current_result() else {
+                continue;
+            };
+            let kind = match result.outcome {
+                Some(Outcome::Failed) => AttentionKind::Failed,
+                Some(Outcome::Provisional) => AttentionKind::Provisional,
+                Some(Outcome::Ok) | None => continue,
+            };
+            out.push(Attention {
+                material: Some(row.material.clone()),
+                profile: row.profile.clone(),
+                date: Some(result.date.clone()),
+                text: Some(result.text.clone()),
+                ..item(kind)
+            });
+        }
+        for check in &tool.verify {
+            out.push(Attention {
+                text: Some(match &check.note {
+                    Some(note) => format!("{}: {note}", check.field),
+                    None => check.field.clone(),
+                }),
+                ..item(AttentionKind::Verify)
+            });
+        }
+        if tool.kind.is_used_by_operations() {
+            if tool.cutting.is_empty() {
+                out.push(item(AttentionKind::NoCutting));
+            }
+            if tool.flute_length.is_none() {
+                out.push(item(AttentionKind::FluteLength));
+            }
+        }
+    }
+    // Stable: tools keep their order within a kind.
+    out.sort_by_key(|item| item.kind);
+    out
+}
+
 #[cfg(test)]
 pub(crate) mod fixtures {
     use super::*;
@@ -1208,6 +1301,68 @@ mod tests {
         assert_eq!(row.current_result().unwrap().text, "other numbers");
         row.stepover_unit = StepoverUnit::Percent;
         assert_eq!(row.current_result(), None);
+    }
+
+    #[test]
+    fn what_needs_attention_is_listed_worst_first() {
+        // The full library's end mill has an adaptive row whose latest result
+        // at its present numbers is provisional, and a length to verify.
+        let mut tools = full_library().tools;
+        let mut bare = Tool::new("Bare V", ToolKind::VBit, 6.0);
+        bare.id = "t-bare".into();
+        bare.tip_angle = Some(60.0);
+        tools.insert(0, bare);
+        let mut drill = Tool::new("Drill", ToolKind::Drill, 2.0);
+        drill.id = "t-drill".into();
+        tools.push(drill);
+
+        let list = needs_attention(&tools);
+        let kinds: Vec<(AttentionKind, &str)> =
+            list.iter().map(|a| (a.kind, a.tool_id.as_str())).collect();
+        assert_eq!(
+            kinds,
+            [
+                (AttentionKind::Provisional, "t-alu"),
+                (AttentionKind::Verify, "t-alu"),
+                (AttentionKind::NoCutting, "t-bare"),
+                (AttentionKind::NoCutting, "t-chamfer"),
+                (AttentionKind::FluteLength, "t-bare"),
+                (AttentionKind::FluteLength, "t-chamfer"),
+            ],
+            "a drill is not cut with here, so what it lacks is not listed"
+        );
+        let provisional = &list[0];
+        assert_eq!(provisional.material, Some(Material::new("aluminum")));
+        assert_eq!(provisional.profile.as_deref(), Some("adaptive"));
+        assert_eq!(provisional.date.as_deref(), Some("2026-02-02"));
+        assert_eq!(provisional.text.as_deref(), Some("Edges clean."));
+        assert!(list[1].text.as_deref().unwrap().starts_with("length: "));
+
+        // A failure comes first; a later ok at the same numbers clears it;
+        // changing the row's numbers leaves it untested, and off the list.
+        fn row(tools: &mut [Tool]) -> &mut CuttingSettings {
+            &mut tools[1].cutting[1]
+        }
+        let at = row(&mut tools).values();
+        row(&mut tools).log.push(CutResult {
+            date: "2026-02-03".into(),
+            outcome: Some(Outcome::Failed),
+            at: Some(at.clone()),
+            text: "Welded a flute.".into(),
+        });
+        let list = needs_attention(&tools);
+        assert_eq!(list[0].kind, AttentionKind::Failed);
+        assert_eq!(list[0].text.as_deref(), Some("Welded a flute."));
+        row(&mut tools).log.push(CutResult {
+            date: "2026-02-04".into(),
+            outcome: Some(Outcome::Ok),
+            at: Some(at),
+            text: "Fine with lubricant.".into(),
+        });
+        assert_eq!(needs_attention(&tools)[0].kind, AttentionKind::Verify);
+        row(&mut tools).log.pop();
+        row(&mut tools).feed += 50.0;
+        assert_eq!(needs_attention(&tools)[0].kind, AttentionKind::Verify);
     }
 
     #[test]

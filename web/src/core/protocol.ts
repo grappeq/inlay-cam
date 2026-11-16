@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Attention, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -25,6 +25,8 @@ export interface CoreApi {
   suggestStops(tool: Tool, material: string, flags: FeedFlags): FeedSuggestion[];
   /** Holds a cutting row's numbers against the feeds model. */
   checkRow(tool: Tool, material: string, values: { rpm: number; feed: number; plunge: number; stepover: number; stepdown: number; adaptive: boolean }): RowCheck;
+  /** What wants looking at in a tool list, worst first. */
+  needsAttention(tools: Tool[]): Attention[];
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**

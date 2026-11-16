@@ -159,6 +159,14 @@ pub fn check_row(tool_json: &str, material: &str, values_json: &str) -> Result<S
     )))
 }
 
+/// What wants looking at in a tool list: failed and unconfirmed results,
+/// things to check, and what is missing. Returns `Attention[]` as JSON.
+#[wasm_bindgen(js_name = needsAttention)]
+pub fn needs_attention(tools_json: &str) -> Result<String, JsError> {
+    let list: Vec<Tool> = from_json(tools_json, "tool list")?;
+    Ok(to_json(&tools::needs_attention(&list)))
+}
+
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.
 #[wasm_bindgen(js_name = validateTool)]
 pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {

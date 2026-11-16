@@ -730,3 +730,31 @@ Makera CAM, Makera Studio and Fusion 360, and a server with an API are later ste
   record in the Makera apps, and the tooling library refuses a `tools.yaml` that lists
   it; a corner-rounding bit's radius is not in a `tools.yaml`; nothing has been cut in a
   material other than wood, and no row of a profile has been run.
+
+### The feeds model and the tool sheet (2026-11-16)
+
+The second step of joining with `cnc-tooling-library`: its feeds model and its tool sheet.
+
+- **Feeds model** (`feeds.rs`). The tooling library's model, number for number: nine
+  material classes, five stops, the power cap that falls with spindle speed, the
+  long-reach rules, the field rules for aluminium, the reshaping for adaptive clearing and
+  the cautions. `tests/fixtures/feeds-reference.json` holds that model's answers for 38
+  made-up tools in 11 materials at every stop, 3002 cases, and the test requires the same
+  here; with one constant changed on purpose, 170 of them fail.
+- **Row check** (`feeds::check_row`). A row's chip load against the material's band and a
+  full slot's power against the hardest stop's cap, with a warning in words. An adaptive
+  row is judged at its own stepover. The limits are the tooling library's; the wording
+  and what is flagged are this app's.
+- **Tool sheet** (`ToolSheet.tsx`). A page per tool in place of the dialog: every field,
+  every row, the row check, the five stops with "Use these values", the field log, stock
+  and source. A result or a lost cutter can be logged.
+- **Needs attention** (`tools::needs_attention`). Failed and unconfirmed rows, things to
+  check, tools without cutting settings or flute length, worst first.
+- A material of the user's can name the material it cuts like (`feedsAs`).
+- Checked by test: the reference cases; a suggested row passing its own check; the chip
+  band and the cap; the attention list through a failure, a later ok and changed numbers.
+  235 core tests, 35 UI tests. Looked at in the browser with made-up tools: the sheet,
+  taking a suggestion, logging a failure and a broken cutter, the list.
+- Known limits: profiles cannot be added or edited yet; the stops are a row of buttons,
+  not the tooling library's ruler; no drawing of the cutter; the suggestions are for a
+  Carvera Air and say nothing of the machine set in the app; nothing here has been cut.

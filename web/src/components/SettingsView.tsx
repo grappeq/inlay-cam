@@ -17,11 +17,15 @@ export function SettingsView() {
 
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const endMills = tools.filter((t) => t.kind === "flat_end").length;
+  const vBits = tools.filter((t) => t.kind === "v_bit" || t.kind === "corner_round").length;
   const pages: { id: SettingsPage; title: string; note: string }[] = [
     {
       id: "tools",
       title: "Tools",
-      note: tools.length === 0 ? "None yet" : `${count(endMills, "end mill", "end mills")}, ${count(tools.length - endMills, "V-bit", "V-bits")}`,
+      note:
+        tools.length === 0
+          ? "None yet"
+          : `${count(endMills, "end mill", "end mills")}, ${count(vBits, "V-bit", "V-bits")}${tools.length > endMills + vBits ? `, ${tools.length - endMills - vBits} more` : ""}`,
     },
     { id: "materials", title: "Materials", note: allMaterials(lists).map((m) => m.label).slice(0, 3).join(", ") + (allMaterials(lists).length > 3 ? ` and ${allMaterials(lists).length - 3} more` : "") },
     { id: "machine", title: "Machine", note: `${machine.name}, ${fmt(machine.travel[0])} × ${fmt(machine.travel[1])} mm` },

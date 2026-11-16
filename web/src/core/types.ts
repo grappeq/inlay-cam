@@ -173,6 +173,19 @@ export interface FeedSuggestion {
   options: FeedOptions;
 }
 
+/** One thing about one tool that wants looking at. */
+export interface Attention {
+  toolId: string;
+  toolName: string;
+  /** Worst first: a failed row, one still to confirm, something to check, no cutting settings, an unknown flute length. */
+  kind: "failed" | "provisional" | "verify" | "no_cutting" | "flute_length";
+  /** For a row's result: the row. */
+  material: Material | null;
+  profile: string | null;
+  date: string | null;
+  text: string | null;
+}
+
 /** What a tool library holds besides its tools. */
 export interface ToolLists {
   materials?: MaterialInfo[];

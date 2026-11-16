@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutResult, CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -465,9 +465,9 @@ export function profileSnapshots(project: Project, lists: ToolLists): Profile[] 
 }
 
 /** A cutting row's material, with its profile when it has one: "Aluminum · Adaptive". */
-export function rowLabel(row: CuttingSettings, lists: ToolLists): string {
+export function rowLabel(row: Pick<CuttingSettings, "material" | "profile">, lists: ToolLists): string {
   const material = materialLabel(row.material, lists);
-  if (row.profile === undefined) return material;
+  if (row.profile === undefined || row.profile === null) return material;
   return `${material} · ${lists.profiles?.find((p) => p.key === row.profile)?.label ?? row.profile}`;
 }
 
@@ -488,4 +488,41 @@ export function describeTool(tool: Tool): string {
 /** Up to 3 decimals, no trailing zeros. */
 export function fmt(value: number): string {
   return String(Math.round(value * 1000) / 1000);
+}
+
+/**
+ * The result that counts for a cutting row: the newest log entry cut at the
+ * row's present numbers (of one date, the one written last). Entries at other
+ * numbers, or without numbers, say nothing about the row as it is now.
+ */
+export function currentResult(row: CuttingSettings): CutResult | undefined {
+  let best: CutResult | undefined;
+  for (const entry of row.log ?? []) {
+    const at = entry.at;
+    const same =
+      at !== undefined &&
+      at.rpm === row.rpm &&
+      at.feed === row.feed &&
+      at.plunge === row.plunge &&
+      at.stepover === row.stepover &&
+      (at.stepoverUnit ?? "mm") === (row.stepoverUnit ?? "mm") &&
+      at.stepdown === row.stepdown &&
+      at.passes === row.passes;
+    if (same && (best === undefined || entry.date >= best.date)) best = entry;
+  }
+  return best;
+}
+
+/** How a result is shown: its mark, what it is called, and its tone. */
+export const OUTCOMES: Record<NonNullable<CutResult["outcome"]>, { mark: string; text: string; tone: string }> = {
+  ok: { mark: "✓", text: "ok", tone: "ok" },
+  provisional: { mark: "○", text: "worked, still to confirm", tone: "warn" },
+  failed: { mark: "✕", text: "failed", tone: "danger" },
+};
+
+/** Today as YYYY-MM-DD, by the clock of this computer. */
+export function today(): string {
+  const now = new Date();
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
 }

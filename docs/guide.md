@@ -54,6 +54,16 @@ and source.
   several are marked untested: read the notes under them.
 - A row with a **field log** shows its latest result and the entries behind it. A result
   counts only for the numbers it was cut at: change the row and it is untested again.
+  "Log a result…" adds an entry after a cut: ok, worked but still to confirm, or failed,
+  with a line on what happened. It is recorded at the numbers the row has at that moment.
+- Under **Stock and source**, "A cutter broke or wore out…" notes the loss and takes one
+  off the count on hand.
+
+Above the list of tools, **Needs attention** gathers what wants looking at: rows whose
+latest result is a failure or still to confirm, things noted as still to check, and tools
+the app cuts with that have no cutting settings or no known flute length. A name there
+opens the tool. A failed row leaves the list when a later cut at the same numbers is
+logged as ok, or when its numbers are changed.
 - A V-bit's **stepover** spaces its passes over a flat floor, where only the tip cuts.
   The app caps it so that ridges stay under 0.1 mm.
 

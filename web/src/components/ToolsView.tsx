@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { core } from "../core/client";
-import type { Tool, ToolKind } from "../core/types";
+import type { Attention, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { CUTTING_KINDS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
+import { CUTTING_KINDS, OUTCOMES, TOOL_KIND_LABELS, blankTool, currentResult, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { downloadText, pickTextFile } from "../util/files";
 import { ToolSheet } from "./ToolSheet";
@@ -21,6 +21,25 @@ export function ToolsPage() {
   const kept = tools.filter((t) => !CUTTING_KINDS.includes(t.kind)).length;
   const extra = projectOnlyTools(project, tools);
   const usedIds = new Set(project.jobs.flatMap(jobToolIds));
+
+  // What wants looking at, worked out by the core whenever the tools change.
+  const [attention, setAttention] = useState<Attention[]>([]);
+  useEffect(() => {
+    let stale = false;
+    core
+      .call("needsAttention", tools)
+      .then((list) => !stale && setAttention(list))
+      .catch(() => !stale && setAttention([]));
+    return () => {
+      stale = true;
+    };
+  }, [tools]);
+  const open = (id: string) => {
+    const tool = tools.find((t) => t.id === id);
+    if (tool) setEditing({ tool, isNew: false });
+  };
+  const results = attention.filter((a) => a.kind === "failed" || a.kind === "provisional" || a.kind === "verify");
+  const lacking = (kind: Attention["kind"]) => attention.filter((a) => a.kind === kind);
 
   const importYaml = async () => actions.importToolsYaml(await pickTextFile(".yaml,.yml"));
   const importLibrary = async () => actions.importToolLibrary(await pickTextFile(".json,application/json"));
@@ -89,6 +108,52 @@ export function ToolsPage() {
         {kept > 0 && ` ${kept} of your tools ${kept === 1 ? "is a ball end mill, drill or thread mill" : "are ball end mills, drills or thread mills"}: kept here, not used by any operation yet.`}
       </p>
 
+      {attention.length > 0 && (
+        <section className="attention" aria-label="Needs attention">
+          <h3>
+            Needs attention <span className="muted">{attention.length}</span>
+          </h3>
+          <ul className="plain-list">
+            {results.map((a, i) => (
+              <li key={i}>
+                <button type="button" className="link" onClick={() => open(a.toolId)}>
+                  {a.toolName}
+                </button>{" "}
+                {a.kind === "verify" ? (
+                  <>to check: {a.text}</>
+                ) : (
+                  <>
+                    <span className={`mark ${OUTCOMES[a.kind === "failed" ? "failed" : "provisional"].tone}`}>
+                      {OUTCOMES[a.kind === "failed" ? "failed" : "provisional"].mark} {a.material ? rowLabel({ material: a.material, profile: a.profile ?? undefined }, lists) : ""}{" "}
+                      {a.kind === "failed" ? "failed" : "worked, still to confirm"}
+                    </span>{" "}
+                    <span className="mono">{a.date}</span>: {a.text}
+                  </>
+                )}
+              </li>
+            ))}
+            {(["no_cutting", "flute_length"] as const).map((kind) => {
+              const list = lacking(kind);
+              if (list.length === 0) return null;
+              return (
+                <li key={kind}>
+                  {kind === "no_cutting" ? "No cutting settings, so they cannot be used yet: " : "Flute length unknown, so no depth can be checked against it: "}
+                  {list.map((a, i) => (
+                    <span key={a.toolId}>
+                      {i > 0 ? ", " : ""}
+                      <button type="button" className="link" onClick={() => open(a.toolId)}>
+                        {a.toolName}
+                      </button>
+                    </span>
+                  ))}
+                  .
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {tools.length === 0 ? (
         <div className="empty-card">
           <p>No tools yet.</p>
@@ -133,7 +198,27 @@ export function ToolsPage() {
                   </td>
                   <td className="num">{tool.kind === "v_bit" || tool.kind === "corner_round" ? fmt(tool.tipDiameter ?? 0) : ""}</td>
                   <td className="num">{tool.fluteLength !== undefined ? fmt(tool.fluteLength) : "unknown"}</td>
-                  <td>{tool.cutting.length ? tool.cutting.map((c) => rowLabel(c, lists)).join(", ") : <span className="warn">none yet: edit to add</span>}</td>
+                  <td>
+                    {tool.cutting.length ? (
+                      tool.cutting.map((c, i) => {
+                        const outcome = currentResult(c)?.outcome;
+                        return (
+                          <span key={i}>
+                            {i > 0 ? ", " : ""}
+                            {rowLabel(c, lists)}
+                            {outcome && (
+                              <span className={`mark ${OUTCOMES[outcome].tone}`} title={OUTCOMES[outcome].text}>
+                                {" "}
+                                {OUTCOMES[outcome].mark}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="warn">none yet: edit to add</span>
+                    )}
+                  </td>
                   <td className="row-actions">
                     <button onClick={() => setEditing({ tool, isNew: false })}>Edit</button>
                     <button className="danger" onClick={() => remove(tool)}>

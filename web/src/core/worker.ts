@@ -19,6 +19,7 @@ const api: CoreApi = {
   suggestFeeds: (tool, material, options) => JSON.parse(wasm.suggestFeeds(JSON.stringify(tool), material, JSON.stringify(options))),
   suggestStops: (tool, material, flags) => JSON.parse(wasm.suggestStops(JSON.stringify(tool), material, JSON.stringify(flags))),
   checkRow: (tool, material, values) => JSON.parse(wasm.checkRow(JSON.stringify(tool), material, JSON.stringify(values))),
+  needsAttention: (tools) => JSON.parse(wasm.needsAttention(JSON.stringify(tools))),
   validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
   previewPart: (project, jobId, part) => {
     const preview = wasm.previewPart(JSON.stringify(project), jobId, part);
