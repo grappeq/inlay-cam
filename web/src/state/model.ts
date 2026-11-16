@@ -403,6 +403,24 @@ export function materialLabel(material: Material, lists: ToolLists): string {
   return info?.label ?? info?.cam?.name ?? info?.studio?.[0]?.name ?? material;
 }
 
+/** The materials the feeds model knows by their own key, for a material of yours to cut like. */
+export const FEED_MATERIALS: { value: Material; label: string }[] = [
+  { value: "softwood", label: "Softwood" },
+  { value: "hardwood", label: "Hardwood" },
+  { value: "plastic", label: "Plastic" },
+  { value: "pcb", label: "Laminate (PCB, carbon fibre, Bakelite)" },
+  { value: "synthetic_stone", label: "Synthetic stone" },
+  { value: "aluminum", label: "Aluminium" },
+  { value: "brass", label: "Brass" },
+  { value: "copper", label: "Copper" },
+  { value: "titanium", label: "Titanium" },
+];
+
+/** The key the feeds model is asked about for a material: the one it is said to cut like, else its own. */
+export function feedMaterial(material: Material, lists: ToolLists): Material {
+  return lists.materials?.find((m) => m.key === material)?.feedsAs ?? material;
+}
+
 /** Hardwood and softwood are always there and cannot be renamed or deleted. */
 export function isBuiltInMaterial(material: Material): boolean {
   return MATERIALS.some((m) => m.value === material);

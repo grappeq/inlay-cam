@@ -93,6 +93,8 @@ export interface MaterialInfo {
   key: Material;
   /** What the material is called. Without one, its name in the Makera apps is shown, or its key. */
   label?: string;
+  /** The material whose suggested feeds and speeds this one takes, when the feeds model does not know it by its own key. */
+  feedsAs?: Material;
   cam?: { id: string; name: string };
   studio?: { id: string; categoryId: string; name: string; builtin?: boolean; modified?: string }[];
 }
@@ -117,15 +119,37 @@ export interface Group {
 /** How hard a suggested cut is: the feeds model's five stops. */
 export type FeedLevel = "gentle" | "slot_safe" | "standard" | "firm" | "aggressive";
 
-/** Which suggestion is asked of the feeds model. */
-export interface FeedOptions {
-  level: FeedLevel;
+/** What shapes a suggestion besides its stop. */
+export interface FeedFlags {
   /** The tool goes down along a ramp, not straight. */
   ramping: boolean;
   /** For adaptive clearing, which this app has no toolpath for. */
   adaptive: boolean;
   /** The cut gets light lubrication. */
   lubricated: boolean;
+}
+
+/** Which suggestion is asked of the feeds model. */
+export interface FeedOptions extends FeedFlags {
+  level: FeedLevel;
+}
+
+/** What a cutting row's own numbers come to, and what the feeds model has against them. */
+export interface RowCheck {
+  /** Whether the model knows the material at all. */
+  covered: boolean;
+  lubricationMatters: boolean;
+  classLabel: string | null;
+  /** mm per tooth. */
+  chipLoad: number | null;
+  /** m/min. */
+  surfaceSpeed: number | null;
+  /** W, were the row run as a full-width slot; for an adaptive row, at its own stepover. */
+  powerW: number | null;
+  chipFloor: number | null;
+  chipMax: number | null;
+  powerCapW: number | null;
+  warnings: string[];
 }
 
 /** The feeds model's starting point for one tool and material. */

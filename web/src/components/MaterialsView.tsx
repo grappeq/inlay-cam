@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { MaterialInfo } from "../core/types";
-import { allMaterials, isBuiltInMaterial, materialKey } from "../state/model";
+import { FEED_MATERIALS, allMaterials, isBuiltInMaterial, materialKey } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
 /** The materials cutting settings can be given for: a page of the settings view. */
@@ -63,6 +63,7 @@ export function MaterialsPage() {
               <th>Name</th>
               <th>Key</th>
               <th>Name in Makera CAM</th>
+              <th>Suggested feeds as</th>
               <th className="num">Cutting rows</th>
               <th />
             </tr>
@@ -85,6 +86,24 @@ export function MaterialsPage() {
                     <code>{key}</code>
                   </td>
                   <td>{info?.cam?.name ?? <span className="muted">none</span>}</td>
+                  <td>
+                    {FEED_MATERIALS.some((m) => m.value === key) ? (
+                      <span className="muted">its own</span>
+                    ) : (
+                      <select
+                        aria-label={`${label} cuts like`}
+                        value={info?.feedsAs ?? ""}
+                        onChange={(e) => setMaterials(own.map((m) => (m.key === key ? { ...m, feedsAs: e.target.value === "" ? undefined : e.target.value } : m)))}
+                      >
+                        <option value="">None: no suggestions</option>
+                        {FEED_MATERIALS.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
                   <td className="num">{rows(key)}</td>
                   <td className="row-actions">
                     {fixed ? (
@@ -126,7 +145,7 @@ export function MaterialsPage() {
         </p>
       )}
       <p className="muted">
-        The key is how files refer to a material; it does not change when you rename it. A material can be deleted once no cutting row, tool or part of the
+        "Suggested feeds as" says which material a material of yours cuts like, so that the tool sheet can suggest starting values for it; it changes nothing else. The key is how files refer to a material; it does not change when you rename it. A material can be deleted once no cutting row, tool or part of the
         open project uses it. A material you add here has no record in the Makera apps, so libraries written for them leave its rows out.
       </p>
     </>

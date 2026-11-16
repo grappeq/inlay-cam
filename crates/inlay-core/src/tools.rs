@@ -715,6 +715,10 @@ pub struct MaterialInfo {
     /// apps is shown, or its key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// The material whose suggested feeds and speeds this one takes, for a
+    /// material the feeds model does not know by its own key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feeds_as: Option<Material>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cam: Option<CamMaterial>,
     /// Makera Studio splits some materials into several.
@@ -1065,6 +1069,7 @@ pub(crate) mod fixtures {
             materials: vec![MaterialInfo {
                 key: aluminum,
                 label: None,
+                feeds_as: None,
                 cam: Some(CamMaterial {
                     id: "{00000000-0000-4000-8000-0000000000b1}".into(),
                     name: "Aluminum".into(),

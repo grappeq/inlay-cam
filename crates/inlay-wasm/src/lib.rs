@@ -114,6 +114,51 @@ pub fn suggest_feeds(
     Ok(to_json(&feeds::suggest_for(&tool, material, &options)))
 }
 
+/// The feeds model's suggestion for a tool and material at each of its five
+/// stops, gentlest first. `flags_json` is `{ ramping, adaptive, lubricated }`.
+/// Returns `FeedSuggestion[]` as JSON.
+#[wasm_bindgen(js_name = suggestStops)]
+pub fn suggest_stops(tool_json: &str, material: &str, flags_json: &str) -> Result<String, JsError> {
+    #[derive(serde::Deserialize)]
+    struct Flags {
+        ramping: bool,
+        adaptive: bool,
+        lubricated: bool,
+    }
+    let tool: Tool = from_json(tool_json, "tool")?;
+    let flags: Flags = from_json(flags_json, "feed flags")?;
+    Ok(to_json(&feeds::suggest_stops(
+        &tool,
+        material,
+        flags.ramping,
+        flags.adaptive,
+        flags.lubricated,
+    )))
+}
+
+/// Holds a cutting row's numbers against the feeds model. `values_json` is
+/// `{ rpm, feed, plunge, stepover, stepdown, adaptive }`. Returns `RowCheck`
+/// as JSON.
+#[wasm_bindgen(js_name = checkRow)]
+pub fn check_row(tool_json: &str, material: &str, values_json: &str) -> Result<String, JsError> {
+    #[derive(serde::Deserialize)]
+    struct Numbers {
+        rpm: u32,
+        feed: f64,
+        plunge: f64,
+        /// mm.
+        stepover: f64,
+        stepdown: f64,
+        /// The row is for adaptive clearing.
+        adaptive: bool,
+    }
+    let tool: Tool = from_json(tool_json, "tool")?;
+    let v: Numbers = from_json(values_json, "row values")?;
+    Ok(to_json(&feeds::check_row(
+        &tool, material, v.rpm, v.feed, v.plunge, v.stepover, v.stepdown, v.adaptive,
+    )))
+}
+
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.
 #[wasm_bindgen(js_name = validateTool)]
 pub fn validate_tool(tool_json: &str) -> Result<Option<String>, JsError> {

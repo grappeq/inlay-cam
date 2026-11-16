@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { FeedOptions, FeedSuggestion, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -21,6 +21,10 @@ export interface CoreApi {
   libraryToToolsYaml(library: ToolLibrary): string;
   /** A starting point for a tool's cutting settings in a material. Its status says whether there are values, and whether to trust them. */
   suggestFeeds(tool: Tool, material: string, options: FeedOptions): FeedSuggestion;
+  /** The suggestion at each of the five stops, gentlest first. */
+  suggestStops(tool: Tool, material: string, flags: FeedFlags): FeedSuggestion[];
+  /** Holds a cutting row's numbers against the feeds model. */
+  checkRow(tool: Tool, material: string, values: { rpm: number; feed: number; plunge: number; stepover: number; stepdown: number; adaptive: boolean }): RowCheck;
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**

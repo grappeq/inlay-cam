@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { core } from "../core/client";
-import type { CuttingSettings, Material, Tool, ToolKind } from "../core/types";
+import type { Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
+import { CUTTING_KINDS, TOOL_KIND_LABELS, blankTool, fmt, jobToolIds, projectOnlyTools, rowLabel } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
-import { downloadText, pickTextFile, useEscape } from "../util/files";
-import { NumberField } from "./NumberField";
+import { downloadText, pickTextFile } from "../util/files";
+import { ToolSheet } from "./ToolSheet";
 
 const KIND_LABEL: Record<ToolKind, string> = TOOL_KIND_LABELS;
 
@@ -52,6 +52,8 @@ export function ToolsPage() {
     dispatch({ type: "setTools", tools: exists ? tools.map((t) => (t.id === tool.id ? tool : t)) : [...tools, tool] });
     setEditing(null);
   };
+
+  if (editing) return <ToolSheet initial={editing.tool} isNew={editing.isNew} taken={tools} onSave={save} onCancel={() => setEditing(null)} />;
 
   return (
     <>
@@ -145,167 +147,6 @@ export function ToolsPage() {
         </div>
       )}
 
-      {editing && <ToolEditor initial={editing.tool} isNew={editing.isNew} taken={tools} onSave={save} onCancel={() => setEditing(null)} />}
     </>
-  );
-}
-
-function ToolEditor(props: { initial: Tool; isNew: boolean; taken: Tool[]; onSave: (tool: Tool) => void; onCancel: () => void }) {
-  const [tool, setTool] = useState<Tool>(props.initial);
-  const { lists } = useApp();
-  // Rows the fields below do not show: those for a toolpath profile.
-  const others = tool.cutting.filter((c) => c.profile !== undefined);
-  useEscape(props.onCancel);
-  const [error, setError] = useState<string | null>(null);
-  const set = (change: Partial<Tool>) => setTool((t) => ({ ...t, ...change }));
-
-  const setCutting = (material: Material, change: Partial<CuttingSettings> | null) =>
-    setTool((t) => {
-      // Only the plain row of the material is edited here; rows for a toolpath profile stay as they are, in their place.
-      const plain = (c: CuttingSettings) => c.material === material && c.profile === undefined;
-      if (change === null) return { ...t, cutting: t.cutting.filter((c) => !plain(c)) };
-      const current = t.cutting.find(plain) ?? {
-        material,
-        rpm: 12000,
-        feed: 500,
-        plunge: 150,
-        // A V-bit's stepover spaces its passes over a flat floor, where only the tip cuts. A corner-rounding bit never steps over.
-        stepover: t.kind === "v_bit" ? 0.2 : t.kind === "corner_round" ? 0.5 : Math.round(t.diameter * 400) / 1000,
-        stepdown: 0.5,
-      };
-      const row = { ...current, ...change };
-      return { ...t, cutting: t.cutting.some(plain) ? t.cutting.map((c) => (plain(c) ? row : c)) : [...t.cutting, row] };
-    });
-
-  const submit = async () => {
-    const candidate = { ...tool, name: tool.name.trim() };
-    if (props.taken.some((t) => t.id !== candidate.id && t.name === candidate.name)) {
-      return setError("Another tool already has this name.");
-    }
-    try {
-      const problem = await core.call("validateTool", candidate);
-      if (problem) return setError(problem.charAt(0).toUpperCase() + problem.slice(1) + ".");
-      props.onSave(candidate);
-    } catch (e) {
-      setError(message(e));
-    }
-  };
-
-  return (
-    <div className="backdrop" onClick={props.onCancel}>
-      <form
-        className="dialog wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label={props.isNew ? "Add tool" : "Edit tool"}
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <h2>
-          {props.isNew ? "Add" : "Edit"} {KIND_LABEL[tool.kind].toLowerCase()}
-        </h2>
-        <label className="field">
-          <span className="field-label">Name</span>
-          <input type="text" value={tool.name} autoFocus onChange={(e) => set({ name: e.target.value })} />
-        </label>
-        <div className="grid">
-          <NumberField
-            label={tool.kind === "flat_end" ? "Diameter" : "Body diameter"}
-            unit="mm"
-            min={0.001}
-            value={tool.diameter}
-            onChange={(v) => v !== undefined && set({ diameter: v })}
-          />
-          <NumberField label="Shank diameter" unit="mm" min={0.001} value={tool.shankDiameter} onChange={(v) => v !== undefined && set({ shankDiameter: v })} />
-          {tool.kind === "v_bit" && (
-            <>
-              <NumberField
-                label="Angle"
-                unit="°"
-                min={0.1}
-                value={tool.tipAngle}
-                onChange={(v) => v !== undefined && set({ tipAngle: v })}
-                hint="Full angle between the two edges."
-              />
-              <NumberField
-                label="Tip flat diameter"
-                unit="mm"
-                value={tool.tipDiameter ?? 0}
-                onChange={(v) => v !== undefined && set({ tipDiameter: v })}
-                hint="Measure it: 0 for a true point."
-              />
-            </>
-          )}
-          {tool.kind === "corner_round" && (
-            <>
-              <NumberField
-                label="Corner radius"
-                unit="mm"
-                min={0.001}
-                value={tool.cornerRadius}
-                onChange={(v) => v !== undefined && set({ cornerRadius: v })}
-                hint="Radius of the rounded edge it cuts."
-              />
-              <NumberField
-                label="Tip diameter"
-                unit="mm"
-                value={tool.tipDiameter ?? 0}
-                onChange={(v) => v !== undefined && set({ tipDiameter: v })}
-                hint="Across the tip, below the rounded edge. The body is at least this plus twice the radius."
-              />
-            </>
-          )}
-          <NumberField label="Flute length" unit="mm" min={0.001} optional value={tool.fluteLength} onChange={(v) => set({ fluteLength: v })} hint="Deepest it can cut. Empty if unknown." />
-          <NumberField label="Overall length" unit="mm" min={0.001} optional value={tool.length} onChange={(v) => set({ length: v })} />
-          <NumberField label="Flutes" min={1} optional value={tool.flutes} onChange={(v) => set({ flutes: v === undefined ? undefined : Math.round(v) })} />
-        </div>
-
-        {allMaterials(lists).map(({ value: material, label }) => {
-          const row = tool.cutting.find((c) => c.material === material && c.profile === undefined);
-          return (
-            <fieldset key={material}>
-              <legend>
-                <label className="check">
-                  <input type="checkbox" checked={row !== undefined} onChange={(e) => setCutting(material, e.target.checked ? {} : null)} />
-                  Cutting settings for {label.toLowerCase()}
-                </label>
-              </legend>
-              {row && (
-                <div className="grid five">
-                  <NumberField label="Speed" unit="rpm" min={1} value={row.rpm} onChange={(v) => v !== undefined && setCutting(material, { rpm: Math.round(v) })} />
-                  <NumberField label="Feed" unit="mm/min" min={0.001} value={row.feed} onChange={(v) => v !== undefined && setCutting(material, { feed: v })} />
-                  <NumberField label="Plunge" unit="mm/min" min={0.001} value={row.plunge} onChange={(v) => v !== undefined && setCutting(material, { plunge: v })} />
-                  <NumberField label="Stepover" unit="mm" min={0.001} value={row.stepover} onChange={(v) => v !== undefined && setCutting(material, { stepover: v })} />
-                  <NumberField label="Stepdown" unit="mm" min={0.001} value={row.stepdown} onChange={(v) => v !== undefined && setCutting(material, { stepdown: v })} />
-                </div>
-              )}
-            </fieldset>
-          );
-        })}
-
-        {others.length > 0 && (
-          <p className="muted">
-            Also kept, as imported: {others.map((c) => rowLabel(c, lists)).join(", ")}. These rows are not edited here yet.
-          </p>
-        )}
-
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="row end">
-          <button type="button" onClick={props.onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary">
-            Save tool
-          </button>
-        </div>
-      </form>
-    </div>
   );
 }

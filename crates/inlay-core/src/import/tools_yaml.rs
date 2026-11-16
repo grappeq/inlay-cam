@@ -258,6 +258,7 @@ pub fn import_tools_yaml(text: &str) -> Result<ToolsYamlImport, String> {
         library.materials.push(MaterialInfo {
             key: Material::new(key),
             label: None,
+            feeds_as: None,
             cam: material.cam.map(|c| CamMaterial {
                 id: c.id,
                 name: c.name,
@@ -1488,6 +1489,7 @@ tools:
         library.materials.push(MaterialInfo {
             key: Material::new("oak"),
             label: Some("Oak, quarter-sawn".into()),
+            feeds_as: Some(Material::HARDWOOD),
             cam: None,
             studio: Vec::new(),
         });
@@ -1500,6 +1502,7 @@ tools:
         // The format has nowhere to keep the name; the rest comes back.
         let again = import_tools_yaml(&text).unwrap().library;
         library.materials[3].label = None;
+        library.materials[3].feeds_as = None;
         assert_eq!(again, library);
     }
 

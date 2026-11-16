@@ -1301,10 +1301,344 @@ pub fn as_slot(mut suggestion: Suggestion, geometry: &Geometry) -> Suggestion {
     suggestion
 }
 
+/// The suggestion at each of the five stops, gentlest first.
+pub fn suggest_stops(
+    tool: &Tool,
+    material: &str,
+    ramping: bool,
+    adaptive: bool,
+    lubricated: bool,
+) -> Vec<Suggestion> {
+    [
+        Level::Gentle,
+        Level::SlotSafe,
+        Level::Standard,
+        Level::Firm,
+        Level::Aggressive,
+    ]
+    .into_iter()
+    .map(|level| {
+        let options = Options {
+            level,
+            ramping,
+            adaptive,
+            lubricated,
+        };
+        suggest_for(tool, material, &options)
+    })
+    .collect()
+}
+
+/// What a row's own numbers come to, and what the model has against them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowCheck {
+    /// Whether the model knows the material at all.
+    pub covered: bool,
+    /// Whether lubrication changes this material's suggestions.
+    pub lubrication_matters: bool,
+    pub class_label: Option<&'static str>,
+    /// mm per tooth.
+    pub chip_load: Option<f64>,
+    /// m/min.
+    pub surface_speed: Option<f64>,
+    /// W, were the row run as a full-width slot.
+    pub power_w: Option<f64>,
+    /// The band a chip load should stay in. `None` for drills, thread mills
+    /// and engravers, which follow one fixed rule, and where the model has
+    /// nothing to say about the geometry.
+    pub chip_floor: Option<f64>,
+    pub chip_max: Option<f64>,
+    /// The most a full-width slot may take at the row's spindle speed: the
+    /// cap of the hardest stop.
+    pub power_cap_w: Option<f64>,
+    /// What is wrong with the numbers, in plain words.
+    pub warnings: Vec<String>,
+}
+
+/// Holds a cutting row of a tool against the model: its chip load against
+/// the material's band, and a full slot's power against the hardest stop's
+/// cap. A row within both may still be far from any suggestion; the stops
+/// say where it sits.
+///
+/// A row for adaptive clearing (`adaptive`) is never run as a full slot: its
+/// power is that of its own `stepover` (mm), and its chip, thinned by the
+/// light sideways cut, is not held to the band.
+#[allow(clippy::too_many_arguments)]
+pub fn check_row(
+    tool: &Tool,
+    material: &str,
+    rpm: u32,
+    feed: f64,
+    plunge: f64,
+    stepover: f64,
+    stepdown: f64,
+    adaptive: bool,
+) -> RowCheck {
+    let (cutter, geometry) = cutter_of(tool);
+    let name = Some(tool.name.as_str());
+    let mut check = RowCheck {
+        covered: covers(material),
+        lubrication_matters: lubrication_matters(material),
+        class_label: None,
+        chip_load: None,
+        surface_speed: None,
+        power_w: None,
+        chip_floor: None,
+        chip_max: None,
+        power_cap_w: None,
+        warnings: Vec::new(),
+    };
+    let Some(cls) = class_of(material) else {
+        return check;
+    };
+    check.class_label = Some(cls.label);
+    if rpm == 0 || geometry_problem(cutter, &geometry, name).is_some() {
+        return check;
+    }
+    let Some(out) = readouts(
+        cutter,
+        &geometry,
+        material,
+        i64::from(rpm),
+        feed,
+        plunge,
+        stepdown,
+        name,
+    ) else {
+        return check;
+    };
+    let finite = [out.chip_load, out.surface_speed, out.power_w]
+        .iter()
+        .all(|n| n.is_finite());
+    if !finite {
+        return check;
+    }
+    check.chip_load = Some(out.chip_load);
+    check.surface_speed = Some(out.surface_speed);
+    let power = if adaptive {
+        round_to(cls.energy * stepover * stepdown * feed / 60.0, 1)
+    } else {
+        out.power_w
+    };
+    if !power.is_finite() {
+        return check;
+    }
+    check.power_w = Some(power);
+
+    let judged = matches!(cutter, Cutter::FlatEnd | Cutter::BallEnd | Cutter::VBit)
+        && !is_engraver(cutter, &geometry, name);
+    if !judged {
+        return check;
+    }
+    let v_bit = cutter == Cutter::VBit;
+    let cut_d = if v_bit {
+        (geometry.diameter + geometry.tip_diameter) / 2.0
+    } else {
+        geometry.diameter
+    };
+    let one_flute = !v_bit
+        && geometry.flutes as i64 == 1
+        && ONE_FLUTE_D.0 <= geometry.diameter
+        && geometry.diameter <= ONE_FLUTE_D.1;
+    let floor = round_to(chip_floor(cls, cut_d), 4);
+    // What the 1-flute suggestion may reach, where it applies.
+    let max = cls
+        .one_flute_chip
+        .filter(|_| one_flute)
+        .map_or(cls.chip_max, |(_, one_max)| one_max);
+    let cap = round_to(power_limit(&stop(Level::Aggressive), i64::from(rpm)), 1);
+    check.power_cap_w = Some(cap);
+    if adaptive {
+        if power > cap {
+            check.warnings.push(format!(
+                "At this stepover and depth the cut takes about {} W, over the {} W the hardest stop allows at {rpm} rpm. Cut shallower or feed slower.",
+                g(power),
+                g(cap)
+            ));
+        }
+        return check;
+    }
+    check.chip_floor = Some(floor);
+    check.chip_max = Some(max);
+
+    if out.chip_load < floor {
+        check.warnings.push(format!(
+            "The chip is {} mm per tooth, under the {} mm this tool needs in {}: it may rub and burn. Feed faster, or turn the spindle slower.",
+            g(out.chip_load),
+            g(floor),
+            cls.label.to_lowercase()
+        ));
+    } else if out.chip_load > max {
+        check.warnings.push(format!(
+            "The chip is {} mm per tooth, over the {} mm the model allows in {}. Feed slower.",
+            g(out.chip_load),
+            g(max),
+            cls.label.to_lowercase()
+        ));
+    }
+    if power > cap {
+        check.warnings.push(format!(
+            "As a full-width cut this takes about {} W, over the {} W the hardest stop allows at {rpm} rpm. Cut shallower or feed slower.",
+            g(power),
+            g(cap)
+        ));
+    }
+    check
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    fn end_mill() -> Tool {
+        let mut tool = Tool::new("Ø6×18 3F", ToolKind::FlatEnd, 6.0);
+        tool.flutes = Some(3);
+        tool.flute_length = Some(18.0);
+        tool
+    }
+
+    #[test]
+    fn the_stops_run_from_gentle_to_aggressive() {
+        let stops = suggest_stops(&end_mill(), "hardwood", false, false, false);
+        let feeds: Vec<i64> = stops
+            .iter()
+            .map(|s| s.values.as_ref().unwrap().feed)
+            .collect();
+        assert_eq!(stops.len(), 5);
+        assert!(feeds.windows(2).all(|pair| pair[0] <= pair[1]), "{feeds:?}");
+        assert_eq!(stops[1].status, Status::Ok);
+        assert_eq!(stops[1].options.level, Level::SlotSafe);
+        assert_eq!(stops[0].status, Status::Caution);
+        // A material the model does not know has no stops to offer.
+        let none = suggest_stops(&end_mill(), "oak", false, false, false);
+        assert!(none.iter().all(|s| s.status == Status::None));
+    }
+
+    #[test]
+    fn a_suggested_row_passes_its_own_check() {
+        for material in ["softwood", "hardwood", "plastic", "aluminum", "brass"] {
+            for s in suggest_stops(&end_mill(), material, false, false, false) {
+                let v = s.values.unwrap();
+                let check = check_row(
+                    &end_mill(),
+                    material,
+                    v.rpm as u32,
+                    v.feed as f64,
+                    v.plunge as f64,
+                    2.4,
+                    v.stepdown,
+                    false,
+                );
+                assert_eq!(check.warnings, Vec::<String>::new(), "{material}");
+                assert_eq!(check.chip_load, s.chip_load);
+                assert_eq!(check.power_w, s.power_w);
+            }
+        }
+    }
+
+    #[test]
+    fn a_row_is_held_to_the_chip_band_and_the_power_cap() {
+        let tool = end_mill();
+        let rubbing = check_row(&tool, "hardwood", 12000, 300.0, 100.0, 2.4, 1.0, false);
+        assert_eq!(rubbing.chip_load, Some(0.0083));
+        assert_eq!(
+            (rubbing.chip_floor, rubbing.chip_max),
+            (Some(0.02), Some(0.1))
+        );
+        assert!(rubbing.warnings[0].contains("may rub"), "{rubbing:?}");
+
+        let heavy = check_row(&tool, "hardwood", 12000, 2400.0, 200.0, 2.4, 12.0, false);
+        assert_eq!(heavy.power_cap_w, Some(120.0));
+        assert!(heavy.warnings.iter().any(|w| w.contains("over the 120 W")));
+
+        // At a lower speed the spindle has less to give.
+        let slow = check_row(&tool, "hardwood", 6000, 1200.0, 200.0, 2.4, 1.0, false);
+        assert_eq!(slow.power_cap_w, Some(60.0));
+
+        let thick = check_row(&tool, "aluminum", 12000, 2000.0, 200.0, 2.4, 0.1, false);
+        assert!(thick.warnings[0].contains("Feed slower"), "{thick:?}");
+    }
+
+    #[test]
+    fn an_adaptive_row_is_judged_at_its_own_stepover() {
+        let tool = end_mill();
+        // 800 mm/min, 3 mm deep: far over the cap as a slot, well under it
+        // at a stepover of 0.72 mm.
+        let slot = check_row(&tool, "aluminum", 12000, 800.0, 180.0, 0.72, 3.0, false);
+        assert!(slot.warnings.iter().any(|w| w.contains("full-width")));
+        let adaptive = check_row(&tool, "aluminum", 12000, 800.0, 180.0, 0.72, 3.0, true);
+        assert_eq!(adaptive.power_w, Some(28.8));
+        assert_eq!(adaptive.warnings, Vec::<String>::new());
+        assert_eq!(
+            (adaptive.chip_floor, adaptive.power_cap_w),
+            (None, Some(120.0))
+        );
+        let heavy = check_row(&tool, "aluminum", 12000, 3000.0, 180.0, 3.0, 6.0, true);
+        assert!(heavy.warnings[0].contains("At this stepover"), "{heavy:?}");
+    }
+
+    #[test]
+    fn what_the_model_cannot_judge_gets_numbers_at_most() {
+        // A material it does not know.
+        let unknown = check_row(&end_mill(), "oak", 12000, 600.0, 100.0, 2.4, 1.0, false);
+        assert!(!unknown.covered && unknown.chip_load.is_none());
+        assert!(unknown.warnings.is_empty());
+
+        // A drill follows one fixed rule: numbers, no band.
+        let mut drill = Tool::new("Ø2.7 Drill", ToolKind::Drill, 2.7);
+        drill.flutes = Some(2);
+        drill.tip_angle = Some(118.0);
+        let check = check_row(&drill, "aluminum", 12000, 100.0, 100.0, 2.4, 0.4, false);
+        assert!(check.covered && check.lubrication_matters);
+        assert!(check.surface_speed.is_some() && check.chip_floor.is_none());
+
+        // Without a flute count there is no chip to speak of.
+        let mut bare = end_mill();
+        bare.flutes = None;
+        let check = check_row(&bare, "hardwood", 12000, 600.0, 100.0, 2.4, 1.0, false);
+        assert!(check.covered && check.chip_load.is_none());
+        assert!(
+            !check_row(
+                &end_mill(),
+                "hardwood",
+                12000,
+                600.0,
+                100.0,
+                2.4,
+                1.0,
+                false
+            )
+            .lubrication_matters
+        );
+    }
+
+    #[test]
+    fn a_tool_of_the_list_is_read_as_the_tooling_library_stores_it() {
+        // A V-bit without a tip is a point; a corner-rounding bit is a V-bit
+        // with a flat tip, which the model takes for a corner rounder.
+        let mut v_bit = Tool::new("60° V", ToolKind::VBit, 12.0);
+        v_bit.tip_angle = Some(60.0);
+        let (cutter, geometry) = cutter_of(&v_bit);
+        assert_eq!((cutter, geometry.tip_diameter), (Cutter::VBit, 0.0));
+
+        let mut fillet = Tool::new("R1 Corner Round", ToolKind::CornerRound, 4.0);
+        fillet.tip_diameter = Some(2.0);
+        fillet.corner_radius = Some(1.0);
+        fillet.flutes = Some(4);
+        let (cutter, geometry) = cutter_of(&fillet);
+        assert_eq!((cutter, geometry.tip_angle), (Cutter::VBit, 90.0));
+        assert!(corner_rounder(cutter, &geometry));
+        // It cuts its whole radius in one pass.
+        let s = suggest_for(&fillet, "hardwood", &Options::default());
+        assert_eq!(s.values.unwrap().stepdown, 1.0);
+
+        // An end mill's shoulder is its flute length unless it says otherwise.
+        let (_, geometry) = cutter_of(&end_mill());
+        assert_eq!(geometry.shoulder_length, 18.0);
+        assert_eq!(geometry.tip_diameter, 6.0);
+    }
 
     /// The answers of the tooling library's own model for a spread of
     /// made-up tools, in every material class and at every stop.

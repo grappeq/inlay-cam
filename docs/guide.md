@@ -29,6 +29,9 @@ not kept, is in [formats.md](formats.md#toolsyaml). Such a list can hold ball en
 drills and thread mills. They are kept in your list and written back out, and no operation
 of this app cuts with them.
 
+"Edit" opens a tool's sheet: its shape, its cutting settings, what it is, and its stock
+and source.
+
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
   rounded edge.
@@ -38,9 +41,19 @@ of this app cuts with them.
 - **Tip flat diameter** of a V-bit: measure it. A bit sold as pointed often has a flat of
   0.1 mm or more, and the app's geometry depends on it.
 - **Cutting settings** are per material. A tool cannot be used on a material it has no
-  settings for. The editor shows one set per material: the tool's *plain* settings, safe
-  for any cut. An imported tool can have further rows made for one kind of toolpath, such
-  as a finishing pass; the editor lists them and leaves them as they are.
+  settings for. Each material has one *plain* row, safe for any cut, and can have further
+  rows made for one kind of toolpath, such as a finishing pass ("For").
+- Under each row the sheet says what its numbers come to: the chip per tooth with the band
+  it should stay in, the speed at the edge, and the power a full-width cut would take. It
+  warns when the chip is thin enough to rub or the power is over what the spindle gives.
+- **Suggested starting values** opens what the feeds model would start from, at five stops
+  from Gentle to Aggressive, and says where the row's own numbers sit among them.
+  Slot-safe is the reviewed stop: values for a dry Carvera Air where any cut may be a full
+  slot. "Use these values" copies a stop into the row. They are rough starting points for
+  a spindle of about 200 W, with no knowledge of your coating, workholding or coolant, and
+  several are marked untested: read the notes under them.
+- A row with a **field log** shows its latest result and the entries behind it. A result
+  counts only for the numbers it was cut at: change the row and it is untested again.
 - A V-bit's **stepover** spaces its passes over a flat floor, where only the tip cuts.
   The app caps it so that ridges stay under 0.1 mm.
 
@@ -53,6 +66,8 @@ The **Materials** page lists what you cut. Hardwood and softwood are always ther
 material by name, such as oak or acrylic, then give your tools cutting settings for it. A
 material can be renamed at any time, and deleted once no cutting settings, tool or part
 of the open project uses it. Materials that came with an imported tool list are here too.
+For a material of your own, "Suggested feeds as" says which known material it cuts like,
+so that the tool sheet can suggest starting values for it.
 
 The app's toolpaths have only been proven in wood. A part in any other material builds
 with a warning that says so: check its simulation with care and cut a test piece first.

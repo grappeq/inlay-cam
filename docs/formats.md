@@ -167,6 +167,7 @@ untested again.
 |---|---|
 | `key` | How tools and jobs refer to it. Unique. Never changes. |
 | `label` | What it is called. Missing: its name in Makera CAM or Makera Studio is shown, else the key. |
+| `feedsAs` | The key of the material whose suggested feeds and speeds this one takes, for a material the feeds model does not know by its own key. It changes nothing else. May be missing: no suggestions then. |
 | `cam` | Its record in Makera CAM: `id`, `name`. |
 | `studio` | Its records in Makera Studio, which splits some materials into several: each `id`, `categoryId`, `name`, and optionally `builtin` and `modified`. |
 
@@ -493,7 +494,7 @@ gives the same tools, rows, materials, profiles and groups.
 - A stepover entered in percent is written as `stepover_pct`, to three decimals.
 - A corner-rounding bit is written as a `v_bit`; its radius is not written. A radius that
   was changed in the app to something other than half of body minus tip does not survive.
-- A material's `label` is not written: the format has no key for it. A material without a
+- A material's `label` and `feedsAs` are not written: the format has no key for them. A material without a
   record in either Makera app is written as `<key>: {}`, which the tooling library does
   not accept until the material is given a record there.
 
