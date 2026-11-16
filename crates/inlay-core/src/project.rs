@@ -115,6 +115,12 @@ pub struct Setup {
     /// Board left around a plug that is cut out of it, beyond the width of
     /// the cut.
     pub cut_out_border: f64,
+    /// How steeply an end mill goes down into wood, in degrees from level:
+    /// it descends along its path instead of plunging. 0 plunges straight.
+    pub ramp_angle: f64,
+    /// Wood left on walls by the passes that clear or cut out, and taken off
+    /// in one light pass at the end. 0 leaves none.
+    pub finish_allowance: f64,
 }
 
 impl Default for Setup {
@@ -127,6 +133,8 @@ impl Default for Setup {
             tab_spacing: 40.0,
             tab_thickness: 1.0,
             cut_out_border: 5.0,
+            ramp_angle: 5.0,
+            finish_allowance: 0.1,
         }
     }
 }
@@ -135,6 +143,12 @@ impl Setup {
     /// The clearances and tabs a job's files are cut with.
     pub fn of(project: &Project, job: &Job) -> Setup {
         job.setup.unwrap_or(project.setup)
+    }
+
+    /// Depth gained per mm of travel while an end mill ramps into wood, or 0
+    /// when it plunges straight down.
+    pub fn ramp_slope(&self) -> f64 {
+        self.ramp_angle.to_radians().tan()
     }
 
     /// The thickness of the tabs on a board this thick.
@@ -167,6 +181,12 @@ impl Setup {
         }
         if !within(self.cut_out_border, 0.0, 100.0) {
             return Err("the board left around a cut-out plug must be from 0 to 100 mm".into());
+        }
+        if !within(self.ramp_angle, 0.0, 45.0) {
+            return Err("the ramp angle must be from 0 to 45 degrees".into());
+        }
+        if !within(self.finish_allowance, 0.0, 1.0) {
+            return Err("the finishing allowance must be from 0 to 1 mm".into());
         }
         Ok(())
     }
@@ -345,6 +365,10 @@ pub enum Inlay {
         /// When cutting the plug out, hold it to the board with tabs.
         #[serde(default)]
         tabs: bool,
+        /// Cut back the tips of the plug's narrow ridges and corner edges by
+        /// the glue gap, so that they cannot hold the plug up.
+        #[serde(default = "yes")]
+        relief: bool,
     },
     #[serde(rename_all = "camelCase")]
     Flat {
@@ -487,6 +511,10 @@ pub enum InsertStyle {
     Backer,
 }
 
+fn yes() -> bool {
+    true
+}
+
 fn default_saw_gap() -> f64 {
     1.5
 }
@@ -529,6 +557,7 @@ impl Inlay {
             tabs: false,
             clearing_tool_ids: Vec::new(),
             vbit_tool_id: None,
+            relief: true,
         }
     }
 
@@ -823,6 +852,7 @@ mod tests {
                         tabs: false,
                         clearing_tool_ids: vec!["t-endmill".into()],
                         vbit_tool_id: Some("t-vbit".into()),
+                        relief: true,
                     },
                 },
                 Job {

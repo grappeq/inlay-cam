@@ -22,6 +22,8 @@ export const DEFAULT_SETUP: Setup = {
   tabSpacing: 40,
   tabThickness: 1,
   cutOutBorder: 5,
+  rampAngle: 5,
+  finishAllowance: 0.1,
 };
 
 /** The range each clearance may take, as the core checks them. The plunge height is also capped by the travel height. */
@@ -33,6 +35,8 @@ export const SETUP_LIMITS: Record<keyof Setup, [number, number]> = {
   tabSpacing: [5, 1000],
   tabThickness: [0.1, 20],
   cutOutBorder: [0, 100],
+  rampAngle: [0, 45],
+  finishAllowance: [0, 1],
 };
 
 /** Reads the inlay defaults kept in browser storage; anything unusable in them falls back to the app's value. */
@@ -92,7 +96,7 @@ export function newProject(name = "Untitled inlay"): Project {
 export function defaultInlay(type: JobType): Inlay {
   switch (type) {
     case "vcarve":
-      return { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true };
+      return { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true, relief: true };
     case "flat":
       return { type, pocketDepth: 3, allowance: 0.1, tabs: false, clearingToolIds: [], insertThickness: 4, insertMargin: 8, insertStyle: "loose", sawGap: 1.5, cutOut: false };
     case "pocket":

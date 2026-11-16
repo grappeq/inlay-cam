@@ -182,6 +182,17 @@ The plug is glued in face down and its backer is sawn off.
 Parts of the design too narrow for the plug to reach the engagement depth are marked red
 on the drawing after generating.
 
+**Relieve the plug's narrow ridges and corner edges** is ticked for a new inlay. Where a
+shape is narrower than the V-bit is wide at the engagement depth, the plug has a ridge that
+comes to a point and fills the pocket's groove to the bottom. The same happens along the
+edge that runs into every corner. There is no room for glue under such a point, and a bit
+with a tip flat cuts the groove a little shallower than the point is high, so the point
+holds the whole plug up. With relief, the plug file ends with the V-bit running along
+those ridges and cutting their points back by the glue gap, plus what the tip flat costs.
+The cut is hidden inside the joint: it stays 0.5 mm below the finished face, so very
+shallow parts, right at the outline, are not relieved. The plug file says how much was cut
+back.
+
 ### Flat inlay
 
 Upright walls cut with an end mill. Corners are rounded to the radius of the smallest end
@@ -238,6 +249,15 @@ defaults" returns to them. The app's own values are in brackets.
 - **Cut past the bottom** (0.2 mm): how far into the spoilboard a part is cut out.
 - **Board around a cut-out plug** (5 mm): what is left of the board on every side, beyond
   the cut.
+- **Ramp angle** (5°): an end mill does not plunge into wood. It goes down along the path
+  it is about to cut, at this slope, and back and forth where the path is too short. Set 0
+  to plunge straight down. V-bits and corner-rounding bits are not affected: they plunge,
+  or start in the air.
+- **Left for a finishing pass** (0.1 mm): end mills clear a flat pocket, and cut an insert
+  or a contour out, this far short of the walls. The smallest end mill then goes once
+  along every wall at full depth and takes the rest off, so that the walls are cut in one
+  light pass by one tool and show no step where two tools met. Set 0 for none. A V-carve
+  inlay's walls are cut by the V-bit, so it has no such pass.
 
 ## 4. Other operations on the stock
 
@@ -302,7 +322,8 @@ checks them. For each file the panel shows:
 - things to know before cutting, such as clamps to keep clear.
 
 **Show in 3D** shows the simulated part. The simulation is run on the text of the G-code
-file itself, so what you see is what the file does.
+file itself, so what you see is what the file does. Curves are written as arcs (G2 and
+G3), which keeps the files short.
 
 Tick **Show dimensions**, above the 3D view, to measure the part. All numbers are in mm.
 
@@ -364,7 +385,8 @@ app comes with no warranty: what a file does on your machine is your responsibil
 ## What the app does not do
 
 - It does not read DXF blocks or binary DXF, or text that is not outlines.
-- It does not fit arcs: curves are written as short straight moves.
+- It does not write a curve that changes height, such as a ramp along an arc, as an arc:
+  only level curves are.
 - It checks every cut against the length of the tool's cutting edges, so nothing above
   them ever goes below the board's surface. It does not check the tool holder against
   clamps, or the machine's Z travel.

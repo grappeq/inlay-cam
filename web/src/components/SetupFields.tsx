@@ -65,6 +65,34 @@ export function TabFields({ setup, onChange }: Props) {
   );
 }
 
+/** How an end mill goes into the wood, and what it leaves on walls for a last pass. `finish` shows the allowance too. */
+export function EntryFields({ setup, onChange, finish = true }: Props & { finish?: boolean }) {
+  return (
+    <div className="row setup-row">
+      <NumberField
+        label="Ramp angle"
+        unit="°"
+        min={SETUP_LIMITS.rampAngle[0]}
+        max={SETUP_LIMITS.rampAngle[1]}
+        value={setup.rampAngle}
+        onChange={(v) => v !== undefined && onChange({ rampAngle: v })}
+        hint="An end mill goes down into wood along its path at this slope instead of plunging. 0 plunges straight down."
+      />
+      {finish && (
+        <NumberField
+          label="Left for a finishing pass"
+          unit="mm"
+          min={SETUP_LIMITS.finishAllowance[0]}
+          max={SETUP_LIMITS.finishAllowance[1]}
+          value={setup.finishAllowance}
+          onChange={(v) => v !== undefined && onChange({ finishAllowance: v })}
+          hint="Left on walls and edges while cutting down, and taken off in one light pass at the end. 0 for none."
+        />
+      )}
+    </div>
+  );
+}
+
 /** How a part is cut free of its board. */
 export function CutOutFields({ setup, onChange }: Props) {
   return (

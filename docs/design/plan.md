@@ -642,3 +642,53 @@ Added at the user's request, after trying the above.
   arranging, dragging a line of the list, a facing's side-to-side path in 3D.
 - Not checked: a corner-rounding bit was not entered and used through the screens, only
   through the core's tests; whether the Carvera controller draws a `radius mill`.
+
+### Cut quality, and relief of the plug's ridges (2026-11-16)
+
+Chosen by the user from the list of things put off: what stands between the app and a
+good first cut. All of it is in the core.
+
+- **Ramped entry** (`ops::clear::ramp_in`). An end mill no longer plunges into wood. It
+  comes down along the stretch of path that leads up to where it starts cutting, at the
+  ramp angle, and goes back and forth along that stretch where it is too short. In ring
+  clearing the stretch is the ring about to be cut, or the way in from the next ring when
+  the innermost is too small; in side-to-side clearing, the first pass; in profiling, the
+  outline itself, which also does for a lead-in. Below the top of the tabs it keeps to the
+  stretch between the last tab and the start. Along the ramp the tool moves at the cutting
+  feed, slowed where that would take it down faster than its plunge feed. A tool already
+  in the cut where it must go deeper stays in it. `rampAngle` in the clearances, 5° unless
+  set; 0 plunges as before.
+- **Finishing pass.** With `finishAllowance` (0.1 mm unless set), the end mills clear a
+  pocket short of its walls by that much, and the smallest then follows every wall once
+  at full depth, in steps no deeper than its diameter (`ops::clear::finish_walls`). Parts
+  the smallest tool only just fits into would be left out by the allowance altogether, so
+  they are cleared as they are. A part that is cut out (an insert, a contour) is cut down
+  on a track that much further out, to where the tabs start; the outline's own track then
+  takes the wall in one pass and cuts the rest, with the tabs, alone. Not where the wider
+  track would close the way between two parts. Not for V-carve floors, whose walls the
+  V-bit cuts, nor for a plug's cut-out, whose edge is waste.
+- **Arcs** (`toolpath::fit_arcs`). Before a program is written, runs of level cuts at one
+  feed that lie within 0.008 mm of a circle become arcs of at most 4 radians. The program
+  kept for joining files and for tests is the unfitted one. A full bed's largest file went
+  from 1.2 million lines to 178 thousand.
+- **Relief** (`ops::vcarve::plug_relief`). On the medial axis of the plug's shapes, where
+  the inscribed circle is smaller than the bit at the engagement depth, the plug has a
+  ridge of height radius / tan(half angle), and the pocket a groove that deep less what
+  the tip flat costs. The V-bit is run along those stretches, corner edges included, with
+  its tip below the ridge's point by twice the lowering wanted less the tip-flat term: a V
+  cut into a ridge of the same slope lowers it by half the depth of the cut. The lowering
+  wanted is the glue gap plus the tip-flat term, reduced near the outline so that the cut
+  never comes within 0.5 mm of the finished face, and left out where under 0.02 mm.
+  `relief` on a V-carve inlay, on unless a file says otherwise.
+- Checked by test: slopes and absence of plunges in ring and side-to-side clearing and in
+  profiling, with whole tabs; the back-and-forth ramp; roughing keeping off the walls
+  until the floor is reached, and the same pocket with and without the allowance; a
+  rounded rectangle becoming four arcs and four lines, a disc's pocket written in under a
+  third of the lines and simulating round; with relief, less than half the wood in the
+  way of the test inlay's plug, the face unchanged. 202 core tests, 35 UI tests. A full
+  bed takes 2 to 13 s per file, as before. Looked at in the browser: a V-carve inlay
+  generated, simulated without problems and fitted.
+- Known limits: ramps along curves are straight cuts, not helical arcs; the finishing
+  pass goes round every wall, also walls an earlier tool never touched; relief treats a
+  corner edge as it does a ridge, which lowers it somewhat more than needed; nothing here
+  has been cut in wood.

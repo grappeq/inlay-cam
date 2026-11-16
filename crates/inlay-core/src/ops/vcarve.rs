@@ -262,6 +262,110 @@ pub fn narrow_parts(regions: &[Region], radius: f64) -> Result<Vec<[Point; 2]>, 
     Ok(out)
 }
 
+/// How far below the base board's surface, once the plug is in, a relief cut
+/// stays, mm: the finished face is trimmed and sanded, and must not reach it.
+const RELIEF_KEEP: f64 = 0.5;
+
+/// A ridge lowered by less than this is left alone, mm.
+const MIN_RELIEF: f64 = 0.02;
+
+/// Cuts back the tips of a plug's narrow ridges, so that they cannot hold the
+/// plug up. Returns the length of ridge relieved, mm.
+///
+/// Where a shape is narrower than the V-bit is wide at the engagement depth,
+/// the plug has a ridge there that comes to a point, and the pocket a groove
+/// that the ridge fills to the bottom: no room for glue, and with a tip flat
+/// on the bit the groove is shallower than the ridge is high. The same holds
+/// along the edge that runs into every corner. The bit is taken along those
+/// ridges, on the medial axis of the shapes, deep enough to lower each by the
+/// glue gap plus what the tip flat costs. Close to the outline the cut is
+/// shallower, and at last left out, so that it never comes within
+/// [`RELIEF_KEEP`] of the finished face.
+///
+/// `shapes` are the plug's shapes as they stand in its blank, where their
+/// outline is met `engagement` below the top.
+pub fn plug_relief(
+    path: &mut PathBuilder,
+    shapes: &[Region],
+    engagement: f64,
+    glue_gap: f64,
+    p: &VcarveParams,
+) -> Result<f64, VcarveError> {
+    let tan = p.tan();
+    // What a tip flat takes off the depth of a groove.
+    let flat = p.tip_radius / tan;
+    // How deep below the plug's top the bit's tip runs where the inscribed
+    // circle has radius `w`. The ridge there is w / tan high above the level
+    // of the outline. A V cut into a ridge of the same slope lowers it by
+    // half of what the tip goes below its point, plus half the tip flat.
+    let lowered = |w: f64| (glue_gap + flat).min((w / tan + flat - RELIEF_KEEP) / 2.0);
+    let depth_at = |w: f64| (engagement - (w / tan).min(engagement)) + 2.0 * lowered(w) - flat;
+    // The radii at which that changes its slope, and between which it applies.
+    let low = (2.0 * MIN_RELIEF + RELIEF_KEEP - flat).max(0.0) * tan + 1e-9;
+    let high = engagement * tan + p.tip_radius;
+    if high <= low || 2.0 * (glue_gap + flat) - flat < MIN_RELIEF {
+        return Ok(0.0);
+    }
+    let knees = [
+        (2.0 * glue_gap + flat + RELIEF_KEEP) * tan,
+        engagement * tan,
+    ];
+    let steepest = 1.0 / (1.0 + RAMP_TOLERANCE / high);
+
+    let mut cuts: Vec<Ramp> = Vec::new();
+    for shape in shapes {
+        for e in medial_axis(shape).map_err(|e| VcarveError::Geometry(e.to_string()))? {
+            let length = distance(e.a, e.b);
+            if length < 1e-9 || (e.rb - e.ra).abs() / length > steepest {
+                continue;
+            }
+            let Some((t0, t1)) = clip(e.ra, e.rb, low, high) else {
+                continue;
+            };
+            let mut stops = vec![t0, t1];
+            for knee in knees {
+                if (e.ra - knee) * (e.rb - knee) < 0.0 {
+                    let t = (knee - e.ra) / (e.rb - e.ra);
+                    if t > t0 && t < t1 {
+                        stops.push(t);
+                    }
+                }
+            }
+            stops.sort_by(f64::total_cmp);
+            let at = |t: f64| -> (Point, f64) {
+                (
+                    [
+                        e.a[0] + (e.b[0] - e.a[0]) * t,
+                        e.a[1] + (e.b[1] - e.a[1]) * t,
+                    ],
+                    depth_at(e.ra + (e.rb - e.ra) * t),
+                )
+            };
+            for w in stops.windows(2) {
+                let ((a, da), (b, db)) = (at(w[0]), at(w[1]));
+                if distance(a, b) > 1e-6 && da.max(db) > MIN_RELIEF {
+                    cuts.push(Ramp {
+                        a,
+                        da: da.max(0.0),
+                        b,
+                        db: db.max(0.0),
+                    });
+                }
+            }
+        }
+    }
+
+    let total = cuts.iter().map(|c| distance(c.a, c.b)).sum();
+    for chain in chains(cuts, path.position().map(|q| [q[0], q[1]])) {
+        plunge_to(path, chain[0].0, chain[0].1, p);
+        for (q, depth) in &chain[1..] {
+            path.feed_to([q[0], q[1], height(*depth)], p.feed);
+        }
+    }
+    path.retract();
+    Ok(total)
+}
+
 fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut VcarveReport) {
     let passes = (job.floor / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {

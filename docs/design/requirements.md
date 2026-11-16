@@ -120,12 +120,14 @@ Second round, the same day:
   later. To decide then: which tools, where the list lives (bundled with the app or
   fetched), and how loading it merges with tools the user already has.
 - Automatic relief of narrow plug features: shave the tips of narrow plug ridges by the
-  glue gap so they cannot bottom out. Definitely wanted; first candidate after v1.
+  glue gap so they cannot bottom out. Definitely wanted; first candidate after v1. (Done
+  2026-11-16.)
 - Uploading jobs to the machine over WiFi/USB.
 - Reading tools live from the tooling library's API instead of importing the file.
 - Several clearing tools with rest machining (v1 data model must already allow it).
+  (Done: milestone 7.)
 - Rest machining of flat-pocket corners with a smaller tool, for sharper corners on both
-  parts without cutting everything with the small tool.
+  parts without cutting everything with the small tool. (Done: milestone 7.)
 - Tapered ball-nose bits for deep, steep-walled V inlays.
 - Facing toolpath that mills the plug backer off after glue-up. (Done: see "Added after
   v1".)

@@ -162,6 +162,8 @@ Clearances and tabs. Every field has the default given, so any may be left out.
 | `tabSpacing` | An outline gets a tab about every this far, and at least three. 5 to 1000. Default 40. |
 | `tabThickness` | 0.1 to 20, and never more than half the board. Default 1. |
 | `cutOutBorder` | Board left around a plug that is cut out of it, beyond the width of the cut. 0 to 100. Default 5. |
+| `rampAngle` | How steeply an end mill goes down into wood along its path, in degrees from level. 0 to 45; 0 plunges straight down. Default 5. |
+| `finishAllowance` | Wood left on walls while a flat pocket is cleared or a part is cut out, and taken off in one pass at the end. 0 to 1; 0 leaves none. Default 0.1. |
 
 ### Design
 
@@ -219,6 +221,7 @@ in both cases, from when the app made inlays only.
 | `plugThickness` | Thickness of the plug blank. Greater than 0. Default 10. Must exceed engagement depth + saw gap. |
 | `cutOut` | Cut the finished plug out of a larger board as one piece, round the edge of its blank. Default false. Needs an end mill in `clearingToolIds` with cutting edges at least 0.2 mm longer than the board is thick; the largest such is used. The board is then the blank plus that tool's diameter and 5 mm, rounded up to a whole millimetre, on every side. |
 | `tabs` | When cutting the plug out, leave tabs that hold it to the board. Default false. |
+| `relief` | Cut the tips of the plug's narrow ridges and corner edges back by the glue gap, so that they cannot hold the plug up. Default true, also for files that do not say. |
 
 `inlay` for a flat pocket inlay:
 

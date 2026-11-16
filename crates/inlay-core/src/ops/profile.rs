@@ -8,7 +8,7 @@
 
 use crate::geom::offset::offset;
 use crate::geom::{distance, Point, Region, Ring};
-use crate::ops::clear::nearest_vertex;
+use crate::ops::clear::{nearest_vertex, ramp_in, ring_run};
 use crate::toolpath::PathBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +21,12 @@ pub struct ProfileParams {
     pub feed: f64,
     pub plunge: f64,
     pub tabs: Option<Tabs>,
+    /// Depth gained per mm of travel when the tool goes down into wood along
+    /// its path. 0 to plunge straight down.
+    pub ramp: f64,
+    /// Wood left on the parts' edges while cutting down, and taken off in one
+    /// pass at the end. 0 to cut on the outline from the start.
+    pub finish: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,26 +68,95 @@ pub fn profile(
         .iter()
         .map(|part| offset(std::slice::from_ref(part), radius))
         .collect();
-    Ok(follow(path, &tracks, p))
+    // Cutting down a little further out leaves the edge for one clean pass.
+    // Not where that would close the way between two parts.
+    let further = radius + p.finish;
+    let rough: Option<Vec<Vec<Region>>> =
+        (p.finish > 0.0 && offset(parts, further).len() >= parts.len()).then(|| {
+            parts
+                .iter()
+                .map(|part| offset(std::slice::from_ref(part), further))
+                .collect()
+        });
+    Ok(follow(path, &tracks, rough.as_deref(), p))
+}
+
+/// A ring's holes first, then its outline: the waste in a hole is not what
+/// holds a part. The flag says which is the outline.
+fn rings_of(track: &Region) -> impl Iterator<Item = (&Ring, bool)> {
+    track
+        .holes
+        .iter()
+        .map(|ring| (ring, false))
+        .chain(std::iter::once((&track.outer, true)))
 }
 
 /// Appends the moves that take the tool's centre along ready-made tracks,
 /// one set of tracks per part, going deeper each time round. Tabs, when
 /// asked for, are left on the outer ring of each track.
-pub fn follow(path: &mut PathBuilder, parts: &[Vec<Region>], p: &ProfileParams) -> ProfileReport {
-    let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
+///
+/// With `rough`, a second set of tracks per part that keep a little further
+/// from the wood that stays, those are cut first, down to where the tabs
+/// start. The tracks proper then take what is left on the wall in one pass at
+/// that depth, and cut the rest, with the tabs, alone.
+pub fn follow(
+    path: &mut PathBuilder,
+    parts: &[Vec<Region>],
+    rough: Option<&[Vec<Region>]>,
+    p: &ProfileParams,
+) -> ProfileReport {
     let mut report = ProfileReport::default();
+    let tab_top = p.tabs.map_or(p.depth, |t| p.depth - t.height);
 
-    for part in parts {
+    // Round a ring from depth `from` to depth `to`, a stepdown at a time.
+    let descend = |path: &mut PathBuilder,
+                   ring: &Ring,
+                   stations: &[(Point, f64)],
+                   start: usize,
+                   tabs: &[(f64, f64)],
+                   from: f64,
+                   to: f64| {
+        if to - from < 1e-9 {
+            return;
+        }
+        let length = stations.last().map_or(0.0, |s| s.1);
+        let passes = ((to - from) / p.stepdown).ceil().max(1.0) as usize;
+        for pass in 1..=passes {
+            let z = from + (to - from) * pass as f64 / passes as f64;
+            let above = from + (to - from) * (pass - 1) as f64 / passes as f64;
+            // Below the top of the tabs the way down must keep off them: it
+            // has only the stretch between the last tab and the start.
+            let limit = match tabs.last() {
+                Some(last) if z > tab_top + 1e-9 => (length - last.1).max(0.0),
+                _ => f64::INFINITY,
+            };
+            let needed = if p.ramp > 0.0 {
+                (z - above) / p.ramp
+            } else {
+                0.0
+            };
+            let run = ring_run(ring, start, needed.min(limit));
+            ramp_in(path, &run, -above, -z, p.ramp, limit, p.feed, p.plunge);
+            cut_round(path, stations, z, tab_top, tabs, p);
+        }
+    };
+
+    for (i, part) in parts.iter().enumerate() {
         let mut tabs_left = 0;
+        let roughed = match rough.and_then(|r| r.get(i)) {
+            Some(further) if tab_top > 1e-9 => {
+                for track in further {
+                    for (ring, _) in rings_of(track) {
+                        let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+                        descend(path, ring, &stations(ring, start), start, &[], 0.0, tab_top);
+                    }
+                }
+                tab_top
+            }
+            _ => 0.0,
+        };
         for track in part {
-            // Inside cuts first: the waste in a hole is not what holds the part.
-            let rings = track
-                .holes
-                .iter()
-                .map(|ring| (ring, false))
-                .chain(std::iter::once((&track.outer, true)));
-            for (ring, outline) in rings {
+            for (ring, outline) in rings_of(track) {
                 let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
                 let stations = stations(ring, start);
                 let length = stations.last().map_or(0.0, |s| s.1);
@@ -90,20 +165,23 @@ pub fn follow(path: &mut PathBuilder, parts: &[Vec<Region>], p: &ProfileParams) 
                     _ => Vec::new(),
                 };
                 tabs_left += tabs.len();
-                let tab_top = p.tabs.map_or(p.depth, |t| p.depth - t.height);
-
-                for pass in 1..=passes {
-                    let z = p.depth * pass as f64 / passes as f64;
-                    let above = p.depth * (pass - 1) as f64 / passes as f64;
-                    let first = stations[0].0;
-                    match path.position() {
-                        // Back at the start after the pass before: go straight down.
-                        Some(pos) if distance([pos[0], pos[1]], first) < 1e-6 && pos[2] <= 0.0 => {}
-                        _ => path.rapid_to(first, path.clearance() - above),
-                    }
-                    path.feed_to([first[0], first[1], -z], p.plunge);
-                    cut_round(path, &stations, z, tab_top, &tabs, p);
+                if roughed > 0.0 {
+                    // What was left on the wall, in one pass down its whole height.
+                    let needed = if p.ramp > 0.0 { roughed / p.ramp } else { 0.0 };
+                    let run = ring_run(ring, start, needed);
+                    ramp_in(
+                        path,
+                        &run,
+                        0.0,
+                        -roughed,
+                        p.ramp,
+                        f64::INFINITY,
+                        p.feed,
+                        p.plunge,
+                    );
+                    cut_round(path, &stations, roughed, tab_top, &[], p);
                 }
+                descend(path, ring, &stations, start, &tabs, roughed, p.depth);
             }
         }
         report.tabs.push(tabs_left);
@@ -214,6 +292,8 @@ mod tests {
                 width: 4.0,
                 spacing: 40.0,
             }),
+            ramp: 0.0,
+            finish: 0.0,
         }
     }
 
@@ -310,6 +390,104 @@ mod tests {
         // Nothing is ever cut shallower than a tab once below it, and the
         // full depth is reached between tabs.
         assert!(cuts.iter().any(|q| (q[2] + 4.2).abs() < 1e-9));
+    }
+
+    /// Every cutting move with where it started, to tell plunges from ramps.
+    fn cuts_with_starts(moves: &[Move]) -> Vec<([f64; 3], [f64; 3])> {
+        let mut at: Option<[f64; 3]> = None;
+        let mut out = Vec::new();
+        for m in moves {
+            let to = match m {
+                Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                _ => continue,
+            };
+            if let (Some(a), Move::Feed { .. }) = (at, m) {
+                out.push((a, to));
+            }
+            at = Some(to);
+        }
+        out
+    }
+
+    #[test]
+    fn the_tool_ramps_down_along_the_outline_and_keeps_off_the_tabs() {
+        let part = Region::new(rect(0.0, 0.0, 60.0, 40.0));
+        let p = ProfileParams {
+            ramp: 0.0875,
+            ..params(true)
+        };
+        let (moves, report) = run(std::slice::from_ref(&part), &p);
+        assert_eq!(report.tabs, [6]);
+        let mut tab_length = 0.0;
+        for (a, to) in cuts_with_starts(&moves) {
+            let across = distance([a[0], a[1]], [to[0], to[1]]);
+            let down = a[2] - to[2];
+            // Below the surface the tool only goes down while moving along,
+            // except at the ends of a tab, where it steps over wood it leaves.
+            if down > 1e-9 && to[2] < -1e-9 && across < 1e-9 {
+                assert!(
+                    (a[2] + 3.2).abs() < 1e-9,
+                    "a straight plunge from {a:?} to {to:?}"
+                );
+            }
+            if down > 1e-9 && across > 1e-9 {
+                assert!(down / across <= 0.0875 + 1e-6);
+            }
+            // Always on the outline's track.
+            assert!((part.distance_to_boundary([to[0], to[1]]) - 1.5).abs() < 0.01);
+            if (a[2] + 3.2).abs() < 1e-9 && (to[2] + 3.2).abs() < 1e-9 {
+                tab_length += across;
+            }
+        }
+        // The tabs are whole: six stretches of tab width plus tool width.
+        assert!(
+            (tab_length - 6.0 * 7.0).abs() < 1e-6,
+            "tab length {tab_length}"
+        );
+    }
+
+    #[test]
+    fn with_an_allowance_the_edge_is_cut_in_one_pass_at_the_end() {
+        let part = Region::with_holes(
+            rect(0.0, 0.0, 60.0, 40.0),
+            vec![rect_cw(20.0, 15.0, 40.0, 25.0)],
+        );
+        for tabs in [false, true] {
+            let p = ProfileParams {
+                finish: 0.2,
+                ..params(tabs)
+            };
+            let (moves, report) = run(std::slice::from_ref(&part), &p);
+            assert_eq!(report.tabs, [if tabs { 6 } else { 0 }]);
+            // Down to where the tabs start, the cutting is 0.2 mm further out;
+            // on the outline's own track there is one pass at that depth and
+            // only what is below it after that.
+            let rough_to = if tabs { 3.2 } else { 4.2 };
+            let (mut further, mut on_track) = (0, 0);
+            for (a, to) in cuts_with_starts(&moves) {
+                let xy = [to[0], to[1]];
+                assert!(!part.contains(xy));
+                let off = part.distance_to_boundary(xy);
+                let level = (a[2] - to[2]).abs() < 1e-9 && distance([a[0], a[1]], xy) > 1e-9;
+                if (off - 1.7).abs() < 0.01 {
+                    assert!(
+                        to[2] >= -rough_to - 1e-9,
+                        "roughing below the tabs' top at {to:?}"
+                    );
+                    further += 1;
+                } else {
+                    assert!((off - 1.5).abs() < 0.01, "{off} mm from the part at {xy:?}");
+                    if level {
+                        assert!(
+                            to[2] <= -rough_to + 1e-9,
+                            "a shallow pass on the edge at {to:?}"
+                        );
+                        on_track += 1;
+                    }
+                }
+            }
+            assert!(further > 0 && on_track > 0);
+        }
     }
 
     #[test]

@@ -7,7 +7,7 @@ import type { Machine, Setup } from "../core/types";
 import { DEFAULT_SETUP, MACHINE_PRESETS, fmt, sameSetup } from "../state/model";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { NumberField } from "./NumberField";
-import { CutOutFields, HeightFields, TabFields } from "./SetupFields";
+import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { ToolsPage } from "./ToolsView";
 
 export function SettingsView() {
@@ -166,6 +166,9 @@ function DefaultsPage() {
       <div className="setting-card">
         <Group title="Heights" note="Where the tool travels between cuts, and where it slows down on the way into the wood.">
           <HeightFields setup={defaults} onChange={set} />
+        </Group>
+        <Group title="Entry and finishing" note="How end mills go into the wood, and the light last pass that cleans walls and edges. V-bits and corner-rounding bits are not affected.">
+          <EntryFields setup={defaults} onChange={set} />
         </Group>
         <Group title="Tabs" note="Small bridges of wood that hold a part to its board until you cut it free. Used where an inlay has tabs switched on.">
           <TabFields setup={defaults} onChange={set} />

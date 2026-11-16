@@ -26,6 +26,9 @@ pub struct ClearParams {
     pub feed: f64,
     /// Feed while cutting straight down, mm/min.
     pub plunge: f64,
+    /// Depth gained per mm of travel when the tool goes down into wood along
+    /// its path. 0 to plunge straight down.
+    pub ramp: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +100,150 @@ pub fn clear_centres(path: &mut PathBuilder, centres: &[Region], p: &ClearParams
     offset(centres, p.tool_diameter / 2.0)
 }
 
+/// A run shorter than this is not worth ramping along: the tool plunges, mm.
+const MIN_RAMP_RUN: f64 = 0.5;
+
+/// Takes the tool from `top` down to `z` so that it arrives at the end of
+/// `run`, descending along the run instead of straight down: `slope` is the
+/// depth gained per mm. Where the run is too short for that, the tool goes
+/// back and forth along it. No more than the last `limit` mm of the run are
+/// used. With no slope, or hardly any run, the tool plunges at the run's end.
+/// Along the ramp it moves at `feed`, or slower where that would take it down
+/// faster than `plunge`.
+///
+/// The run must lie where the tool is about to cut at `z` anyway, and
+/// everything along it must already be cut down to `top`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ramp_in(
+    path: &mut PathBuilder,
+    run: &[Point],
+    top: f64,
+    z: f64,
+    slope: f64,
+    limit: f64,
+    feed: f64,
+    plunge: f64,
+) {
+    let Some(&entry) = run.last() else { return };
+    let total: f64 = run.windows(2).map(|w| distance(w[0], w[1])).sum();
+    let drop = top - z;
+    let usable = total.min(limit);
+    // Already in the cut at the entry: no need to lift out of it first.
+    let continuing = path
+        .position()
+        .is_some_and(|pos| distance([pos[0], pos[1]], entry) < 1e-6 && pos[2] <= top + 1e-9);
+    if slope <= 0.0 || usable < MIN_RAMP_RUN || drop <= 1e-9 {
+        if !continuing {
+            path.rapid_to(entry, top + path.clearance());
+        }
+        path.feed_to([entry[0], entry[1], z], plunge);
+        return;
+    }
+    let leg = (drop / slope).min(usable);
+    // The last `leg` mm of the run, from its far end to the entry.
+    let mut points = vec![entry];
+    let mut left = leg;
+    for i in (1..run.len()).rev() {
+        let (a, b) = (run[i - 1], run[i]);
+        let d = distance(a, b);
+        if d >= left {
+            let t = if d > 0.0 { left / d } else { 0.0 };
+            points.push([b[0] + (a[0] - b[0]) * t, b[1] + (a[1] - b[1]) * t]);
+            break;
+        }
+        points.push(a);
+        left -= d;
+    }
+    points.reverse();
+
+    // The last leg runs towards the entry. With an even number of legs the
+    // first one starts there too, which is where a tool already in the cut is.
+    let mut legs = (drop / slope / leg - 1e-9).ceil().max(1.0) as usize;
+    if continuing && legs % 2 == 1 {
+        legs += 1;
+    }
+    let mut forward = legs % 2 == 1;
+    let first = if forward { points[0] } else { entry };
+    if !continuing {
+        path.rapid_to(first, top + path.clearance());
+    }
+    path.feed_to([first[0], first[1], top], plunge);
+    let whole = leg * legs as f64;
+    // As fast along the ramp as takes the tool down no faster than it plunges.
+    let steep = drop / whole;
+    let feed = feed.min(plunge * (1.0 + steep * steep).sqrt() / steep);
+    let mut done = 0.0;
+    for _ in 0..legs {
+        let mut order = points.clone();
+        if !forward {
+            order.reverse();
+        }
+        for w in order.windows(2) {
+            done += distance(w[0], w[1]);
+            let height = top - drop * (done / whole).min(1.0);
+            path.feed_to([w[1][0], w[1][1], height], feed);
+        }
+        forward = !forward;
+    }
+    path.feed_to([entry[0], entry[1], z], plunge);
+}
+
+/// The stretch of a ring that leads up to its point `start`, at least `length`
+/// long where the ring is, as a run for [`ramp_in`].
+pub(crate) fn ring_run(ring: &Ring, start: usize, length: f64) -> Vec<Point> {
+    let n = ring.len();
+    let mut points = vec![ring[start]];
+    let mut reached = 0.0;
+    for k in 1..=n {
+        let q = ring[(start + n - k) % n];
+        reached += distance(points[points.len() - 1], q);
+        points.push(q);
+        if reached >= length {
+            break;
+        }
+    }
+    points.reverse();
+    points
+}
+
+/// One light pass along the walls: the tool's centre follows every ring of
+/// `tracks` down to `p.depth`, in steps no deeper than the tool is wide. For
+/// taking off the little that roughing left on the walls.
+pub fn finish_walls(path: &mut PathBuilder, tracks: &[Region], p: &ClearParams) {
+    let passes = (p.depth / p.tool_diameter).ceil().max(1.0) as usize;
+    for ring in tracks.iter().flat_map(|r| r.rings()) {
+        for pass in 1..=passes {
+            let z = -p.depth * pass as f64 / passes as f64;
+            let above = -p.depth * (pass - 1) as f64 / passes as f64;
+            let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+            let run = ring_run(
+                ring,
+                start,
+                if p.ramp > 0.0 {
+                    (above - z) / p.ramp
+                } else {
+                    0.0
+                },
+            );
+            ramp_in(
+                path,
+                &run,
+                above,
+                z,
+                p.ramp,
+                f64::INFINITY,
+                p.feed,
+                p.plunge,
+            );
+            for i in 1..=ring.len() {
+                let q = ring[(start + i) % ring.len()];
+                path.feed_to([q[0], q[1], z], p.feed);
+            }
+        }
+    }
+    path.retract();
+}
+
 /// Clears with the tool's centre going everywhere inside `allowed`.
 fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
     let allowed = vec![allowed.clone()];
@@ -129,7 +276,7 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
         let z = -p.depth * pass as f64 / passes as f64;
         let floor_above = -p.depth * (pass - 1) as f64 / passes as f64;
 
-        for ring in &rings {
+        for (index, ring) in rings.iter().enumerate() {
             let start = nearest_vertex(ring, path.position().map(|p| [p[0], p[1]]));
             let first = ring[start];
 
@@ -145,9 +292,38 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
                 _ => false,
             };
             if !linked {
-                // Everything the tool can reach was cut to `floor_above` by the previous pass.
-                path.rapid_to(first, floor_above + path.clearance());
-                path.feed_to([first[0], first[1], z], p.plunge);
+                // Everything the tool can reach was cut to `floor_above` by the
+                // previous pass. Down from there along the ring about to be cut.
+                let mut run = ring_run(
+                    ring,
+                    start,
+                    if p.ramp > 0.0 {
+                        (floor_above - z) / p.ramp
+                    } else {
+                        0.0
+                    },
+                );
+                // A ring too small to ramp along, as the innermost often is:
+                // come in from the next ring, over wood that ring cuts anyway.
+                let length: f64 = run.windows(2).map(|w| distance(w[0], w[1])).sum();
+                if length < MIN_RAMP_RUN {
+                    if let Some(next) = rings.get(index + 1) {
+                        let from = next[nearest_vertex(next, Some(first))];
+                        if stays_inside(&allowed, from, first, p.stepover / 2.0) {
+                            run = vec![from, first];
+                        }
+                    }
+                }
+                ramp_in(
+                    path,
+                    &run,
+                    floor_above,
+                    z,
+                    p.ramp,
+                    f64::INFINITY,
+                    p.feed,
+                    p.plunge,
+                );
             }
             for i in 1..=ring.len() {
                 let q = ring[(start + i) % ring.len()];
@@ -246,25 +422,44 @@ fn raster_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams, walls: 
     for pass in 1..=passes {
         let z = -p.depth * pass as f64 / passes as f64;
         let floor_above = -p.depth * (pass - 1) as f64 / passes as f64;
-        let reach = |path: &mut PathBuilder, first: Point| {
+        // Gets the tool to `first` at this depth: across, when it is down and
+        // the way is clear, else down along `run`, which ends at `first`.
+        let reach = |path: &mut PathBuilder, first: Point, run: &[Point]| {
             let linked = matches!(path.position(), Some(pos) if pos[2] == z
                 && distance([pos[0], pos[1]], first) <= 2.0 * p.tool_diameter
                 && stays_inside(&inside, [pos[0], pos[1]], first, p.stepover / 2.0));
             if linked {
                 path.feed_to([first[0], first[1], z], p.feed);
             } else {
-                path.rapid_to(first, floor_above + path.clearance());
-                path.feed_to([first[0], first[1], z], p.plunge);
+                ramp_in(
+                    path,
+                    run,
+                    floor_above,
+                    z,
+                    p.ramp,
+                    f64::INFINITY,
+                    p.feed,
+                    p.plunge,
+                );
             }
         };
         for [from, to] in rows.iter().flatten() {
-            reach(path, *from);
+            reach(path, *from, &[*to, *from]);
             path.feed_to([to[0], to[1], z], p.feed);
         }
         if walls {
             for ring in allowed.rings() {
                 let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
-                reach(path, ring[start]);
+                let run = ring_run(
+                    ring,
+                    start,
+                    if p.ramp > 0.0 {
+                        (floor_above - z) / p.ramp
+                    } else {
+                        0.0
+                    },
+                );
+                reach(path, ring[start], &run);
                 for i in 1..=ring.len() {
                     let q = ring[(start + i) % ring.len()];
                     path.feed_to([q[0], q[1], z], p.feed);
@@ -344,6 +539,7 @@ mod tests {
             stepdown: 1.0,
             feed: 600.0,
             plunge: 100.0,
+            ramp: 0.0,
         }
     }
 
@@ -365,6 +561,111 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn the_tool_ramps_down_along_its_path_instead_of_plunging() {
+        let region = Region::with_holes(
+            rect(0.0, 0.0, 40.0, 30.0),
+            vec![rect_cw(15.0, 10.0, 25.0, 20.0)],
+        );
+        // About 5 degrees.
+        let p = ClearParams {
+            ramp: 0.0875,
+            ..params()
+        };
+        for raster in [false, true] {
+            let centres = centres(std::slice::from_ref(&region), &[], p.tool_diameter);
+            let mut path = PathBuilder::new(5.0);
+            path.start_tool(7, 12000);
+            if raster {
+                raster_centres(&mut path, &centres, &p, true);
+            } else {
+                clear_centres(&mut path, &centres, &p);
+            }
+            let moves = path.finish();
+            let mut at: Option<[f64; 3]> = None;
+            let (mut steepest, mut lowest) = (0.0_f64, 0.0_f64);
+            for m in &moves {
+                let to = match m {
+                    Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                    _ => continue,
+                };
+                if let (Some(a), Move::Feed { .. }) = (at, m) {
+                    let across = distance([a[0], a[1]], [to[0], to[1]]);
+                    let down = a[2] - to[2];
+                    // Straight down only through what the pass before cut: from
+                    // where the rapid stopped, no further than the clearance.
+                    if down > 1e-9 && across < 1e-9 {
+                        assert!(
+                            down <= PLUNGE_CLEARANCE + 1e-9,
+                            "raster {raster}: a straight plunge of {down} mm to {to:?}"
+                        );
+                    } else if down > 1e-9 {
+                        steepest = steepest.max(down / across);
+                    }
+                    // Still where it is allowed to be.
+                    let xy = [to[0], to[1]];
+                    assert!(region.contains(xy) && region.distance_to_boundary(xy) > 2.0 - 0.02);
+                    lowest = lowest.min(to[2]);
+                }
+                at = Some(to);
+            }
+            assert!(
+                steepest <= 0.0875 + 1e-6,
+                "raster {raster}: slope {steepest}"
+            );
+            assert!((lowest + 3.0).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_ramp_too_long_for_its_run_goes_back_and_forth() {
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(1, 12000);
+        // 2 mm down at 1 in 10 needs 20 mm; the run is 6 mm long.
+        ramp_in(
+            &mut path,
+            &[[0.0, 0.0], [6.0, 0.0]],
+            0.0,
+            -2.0,
+            0.1,
+            f64::INFINITY,
+            600.0,
+            100.0,
+        );
+        let cuts = feeds(&path.finish());
+        assert_eq!(cuts.last(), Some(&[6.0, 0.0, -2.0]));
+        // Four legs of 6 mm, half a millimetre down on each.
+        let turns: Vec<f64> = cuts.iter().map(|q| q[2]).collect();
+        assert_eq!(turns, [0.0, -0.5, -1.0, -1.5, -2.0]);
+        assert!(cuts
+            .iter()
+            .all(|q| q[0] >= 0.0 && q[0] <= 6.0 && q[1] == 0.0));
+
+        // A tool already in the cut at the entry stays in it.
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(1, 12000);
+        path.rapid_to([6.0, 0.0], 1.0);
+        path.feed_to([6.0, 0.0, 0.0], 100.0);
+        ramp_in(
+            &mut path,
+            &[[0.0, 0.0], [6.0, 0.0]],
+            0.0,
+            -0.4,
+            0.1,
+            f64::INFINITY,
+            600.0,
+            100.0,
+        );
+        let moves = path.finish();
+        let rapids = moves
+            .iter()
+            .filter(|m| matches!(m, Move::Rapid { .. }))
+            .count();
+        // Down to the start, and up at the end: none in between.
+        assert_eq!(rapids, 3);
+        assert_eq!(feeds(&moves).last(), Some(&[6.0, 0.0, -0.4]));
     }
 
     #[test]

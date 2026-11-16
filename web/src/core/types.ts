@@ -68,6 +68,8 @@ export interface VcarveInlay {
   plugMargin: number;
   /** Thickness of the plug blank, mm. */
   plugThickness: number;
+  /** Cut back the tips of the plug's narrow ridges and corner edges by the glue gap, so that they cannot hold the plug up. */
+  relief: boolean;
 }
 
 export interface FlatInlay {
@@ -187,6 +189,10 @@ export interface Setup {
   tabThickness: number;
   /** Board left around a plug that is cut out of it, beyond the width of the cut. */
   cutOutBorder: number;
+  /** How steeply an end mill goes down into wood along its path, in degrees from level. 0 plunges straight down. */
+  rampAngle: number;
+  /** Wood left on walls while clearing or cutting out, and taken off in one light pass at the end. 0 leaves none. */
+  finishAllowance: number;
 }
 
 export interface Project {

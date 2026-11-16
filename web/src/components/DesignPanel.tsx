@@ -30,7 +30,7 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { GenerateBar, Results, StockFile, useOutput } from "./OutputPanel";
-import { CutOutFields, HeightFields, TabFields } from "./SetupFields";
+import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 
 /** A job that is an inlay proper, with a pocket and a plug or insert. */
 type InlayJob = Job & { inlay: TrueInlay };
@@ -375,7 +375,6 @@ function OpEditor({ job }: { job: Job }) {
   const label = JOB_LABELS[inlay.type];
   const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
   const through = inlay.type === "contour" && inlay.depth === null;
-  const ownHeights = setup.safeHeight !== defaults.safeHeight || setup.plungeClearance !== defaults.plungeClearance;
 
   const remove = () => {
     if (!confirm(`Delete "${job.name}"?`)) return;
@@ -528,7 +527,7 @@ function OpEditor({ job }: { job: Job }) {
           <details className="more">
             <summary>
               {inlay.type === "contour" ? "Clearances and tabs" : "Clearances"}
-              {(inlay.type === "contour" ? !sameSetup(setup, defaults) : ownHeights) ? " (changed)" : ""}
+              {!sameSetup(setup, defaults) ? " (changed)" : ""}
             </summary>
             <p className="hint">
               For the file of this operation. A new one starts with your defaults, which are set under{" "}
@@ -538,6 +537,7 @@ function OpEditor({ job }: { job: Job }) {
               .
             </p>
             <HeightFields setup={setup} onChange={setSetup} />
+            {inlay.type !== "chamfer" && <EntryFields setup={setup} onChange={setSetup} finish={inlay.type !== "facing"} />}
             {inlay.type === "contour" && (
               <>
                 <TabFields setup={setup} onChange={setSetup} />
@@ -771,10 +771,21 @@ function JobEditor({ job }: { job: InlayJob }) {
             </>
           )}
           {inlay.type === "vcarve" && (
-            <p className="hint">
-              Engagement: how deep the plug goes in. Glue gap: space left under it. Saw gap: space above the surface for sawing the plug's backer
-              off.
-            </p>
+            <>
+              <p className="hint">
+                Engagement: how deep the plug goes in. Glue gap: space left under it. Saw gap: space above the surface for sawing the plug's backer
+                off.
+              </p>
+              <label className="check">
+                <input type="checkbox" checked={inlay.relief} onChange={(e) => setInlay({ relief: e.target.checked })} />
+                Relieve the plug's narrow ridges and corner edges
+              </label>
+              <p className="hint">
+                Where a shape is narrow, and along the edge into every corner, the plug comes to a point that fills the pocket to the bottom: no room
+                for glue, and a bit with a tip flat leaves the pocket shallower still, so the point holds the plug up. With this the V-bit cuts those
+                points back by the glue gap. The cut stays 0.5 mm below the finished face.
+              </p>
+            </>
           )}
         </section>
 
@@ -919,6 +930,7 @@ function JobEditor({ job }: { job: InlayJob }) {
               .
             </p>
             <HeightFields setup={setup} onChange={setSetup} />
+            <EntryFields setup={setup} onChange={setSetup} finish={inlay.type === "flat"} />
             <TabFields setup={setup} onChange={setSetup} />
             <CutOutFields setup={setup} onChange={setSetup} />
             <button disabled={!ownSetup} onClick={() => update({ setup: defaults })}>

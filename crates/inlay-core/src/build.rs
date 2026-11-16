@@ -12,13 +12,13 @@ use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
-use crate::ops::clear::{centres, clear_centres, raster_centres, ClearParams};
+use crate::ops::clear::{centres, clear_centres, finish_walls, raster_centres, ClearParams};
 use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
-use crate::ops::vcarve::{narrow_parts, vcarve, vcarve_plug, VcarveParams};
+use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{Inlay, InsertStyle, Job, Machine, Pattern, Project, Setup, Side};
 use crate::sim::{self, HeightMap};
-use crate::toolpath::{Move, PathBuilder, Program, ProgramTool};
+use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
 use crate::tools::{CuttingSettings, Material, Tool, ToolKind};
 
 /// Highest ridge the V-bit may leave between passes on a flat floor, mm.
@@ -408,6 +408,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             Inlay::Vcarve {
                 engagement_depth,
                 saw_gap,
+                glue_gap,
+                relief,
                 plug_margin,
                 plug_thickness,
                 clearing_tool_ids,
@@ -422,6 +424,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 &regions,
                 PlugShape {
                     engagement: *engagement_depth,
+                    glue_gap: *glue_gap,
+                    relief: *relief,
                     saw_gap: *saw_gap,
                     margin: *plug_margin,
                     cut_out: *cut_out,
@@ -546,7 +550,11 @@ fn finish(
     machine: &Machine,
     name: &str,
 ) -> Result<(String, Interpreted, Stats), Vec<String>> {
-    let gcode = carvera::write(program);
+    // Curves are worked out as short straight cuts; they are written as arcs.
+    let gcode = carvera::write(&Program {
+        moves: fit_arcs(&program.moves, ARC_FIT_TOLERANCE),
+        ..program.clone()
+    });
 
     // The file must satisfy the firmware's rules and read back cleanly. A
     // failure here is a bug in this app, never the user's doing.
@@ -762,9 +770,45 @@ impl<'a> Context<'a> {
         what: &str,
         vbit_follows: bool,
     ) -> (Vec<Region>, Vec<ProgramTool>) {
+        let setup = self.setup();
+        let ramp = setup.ramp_slope();
+        // The smallest end mill reaches every wall the others do, so it is
+        // the one that finishes them. A V-bit that follows cuts the walls itself.
+        let finisher = end_mills
+            .iter()
+            .min_by(|a, b| a.0.diameter.total_cmp(&b.0.diameter))
+            .filter(|_| !vbit_follows && setup.finish_allowance > 0.0);
+        let wanted = area;
+        let tracks = finisher.map_or(Vec::new(), |(tool, _)| offset(wanted, -tool.diameter / 2.0));
+        let kept;
+        let area = match finisher {
+            Some((tool, _)) if !tracks.is_empty() => {
+                let (radius, allowance) = (tool.diameter / 2.0, setup.finish_allowance);
+                // Everything is cleared short of the walls by the allowance.
+                // Where the tool only just fits, that would leave it out
+                // altogether: those parts are cleared as they are. The margin
+                // keeps the corners, which the tool rounds, from counting.
+                let margin = allowance / 2.0 + 0.02;
+                let reached = offset(
+                    &offset(wanted, -(radius + allowance)),
+                    radius + allowance + margin,
+                );
+                let tight: Vec<Region> = wanted
+                    .iter()
+                    .flat_map(|r| difference(r, &reached))
+                    .collect();
+                let mut rough = offset(wanted, -allowance);
+                rough.extend(tight);
+                kept = union(&rough);
+                &kept[..]
+            }
+            _ => wanted,
+        };
         let whole = total_area(area);
         let mut cleared: Vec<Region> = Vec::new();
-        let mut tools = Vec::new();
+        let mut tools: Vec<ProgramTool> = Vec::new();
+        // The id of the tool in the spindle.
+        let mut loaded: Option<&str> = None;
         for (tool, cutting) in end_mills {
             let fits = !offset(area, -tool.diameter / 2.0).is_empty();
             let where_to = centres(area, &cleared, tool.diameter);
@@ -787,7 +831,8 @@ impl<'a> Context<'a> {
                 continue;
             }
             path.start_tool(*number, cutting.rpm);
-            let params = clear_params(tool, cutting, self.depth);
+            loaded = Some(&tool.id);
+            let params = clear_params(tool, cutting, self.depth, ramp);
             let swept = match self.pattern {
                 Pattern::Offset => clear_centres(path, &where_to, &params),
                 Pattern::Raster => raster_centres(path, &where_to, &params, true),
@@ -812,6 +857,31 @@ impl<'a> Context<'a> {
             });
             *number += 1;
         }
+        if let (Some((tool, cutting)), false) = (finisher, tracks.is_empty()) {
+            // It keeps its number if it has been in the spindle before.
+            if loaded != Some(tool.id.as_str()) {
+                let known = tools
+                    .iter()
+                    .find(|t| t.tool.id == tool.id)
+                    .map(|t| t.number);
+                let its = known.unwrap_or(*number);
+                if known.is_none() {
+                    tools.push(ProgramTool {
+                        number: its,
+                        tool: (*tool).clone(),
+                    });
+                    *number += 1;
+                }
+                path.start_tool(its, cutting.rpm);
+            }
+            finish_walls(
+                path,
+                &tracks,
+                &clear_params(tool, cutting, self.depth, ramp),
+            );
+            cleared.extend(offset(&tracks, tool.diameter / 2.0));
+            cleared = union(&cleared);
+        }
         (cleared, tools)
     }
 }
@@ -834,8 +904,9 @@ fn smallest_end_mill<'a>(project: &Project, ids: &'a [String]) -> Option<&'a str
         .or(ids.first().map(String::as_str))
 }
 
-fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64) -> ClearParams {
+fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64, ramp: f64) -> ClearParams {
     ClearParams {
+        ramp,
         tool_diameter: tool.diameter,
         depth,
         stepover: cutting.stepover,
@@ -1141,6 +1212,8 @@ fn flat_insert(
             width: setup.tab_width,
             spacing: setup.tab_spacing,
         }),
+        ramp: setup.ramp_slope(),
+        finish: setup.finish_allowance,
     };
     let report = match profile(&mut path, &parts, &params) {
         Ok(report) => report,
@@ -1518,6 +1591,8 @@ fn cut_piece_out(
                 width: setup.tab_width,
                 spacing: setup.tab_spacing,
             }),
+            ramp: setup.ramp_slope(),
+            finish: 0.0,
         },
     )
     .ok()?;
@@ -1689,6 +1764,10 @@ fn vcarve_pocket(
 
 struct PlugShape {
     engagement: f64,
+    /// Space the pocket leaves under the plug.
+    glue_gap: f64,
+    /// Cut the tips of narrow ridges back by the glue gap.
+    relief: bool,
     saw_gap: f64,
     margin: f64,
     /// The plug will be cut out of a larger board afterwards.
@@ -1784,6 +1863,20 @@ fn vcarve_plug_cut(
     if let Err(e) = vcarve_plug(&mut path, &shapes, &blank, &cleared, plug.engagement, p) {
         carving_failed(ctx, e);
         return None;
+    }
+    if plug.relief {
+        match plug_relief(&mut path, &shapes, plug.engagement, plug.glue_gap, p) {
+            Ok(length) if length >= 0.5 => ctx.warnings.push(format!(
+                "The tips of the plug's narrow ridges and corner edges are cut back along {} mm, by up to {} mm, so that they leave room for glue and cannot hold the plug up. The cut stays 0.5 mm below the finished face.",
+                num(length.round()),
+                num(((plug.glue_gap + p.tip_radius / p.tan()) * 100.0).round() / 100.0)
+            )),
+            Ok(_) => {}
+            Err(e) => {
+                carving_failed(ctx, e);
+                return None;
+            }
+        }
     }
     if !plug.cut_out {
         ctx.warnings.push(format!(
@@ -1909,7 +2002,7 @@ fn facing(
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     // The area has no walls: straight passes need no pass round its edge.
-    let params = clear_params(tool, cutting, total);
+    let params = clear_params(tool, cutting, total, ctx.setup().ramp_slope());
     match ctx.pattern {
         Pattern::Offset => clear_centres(&mut path, &where_to, &params),
         Pattern::Raster => raster_centres(&mut path, &where_to, &params, false),
@@ -2009,12 +2102,34 @@ fn contour(
     } else {
         setup.tab_thickness.min(depth / 2.0)
     };
+    // Cutting down a little further from the wood that stays leaves its edge
+    // for one clean pass. Not where that would close the way between two
+    // shapes, or leave the tool no room inside one.
+    let allowance = setup.finish_allowance;
+    let further: Option<Vec<Vec<Region>>> = match side {
+        _ if allowance <= 0.0 => None,
+        Side::On => None,
+        Side::Outside => (offset(regions, radius + allowance).len() >= regions.len()).then(|| {
+            regions
+                .iter()
+                .map(|r| offset(std::slice::from_ref(r), radius + allowance))
+                .collect()
+        }),
+        Side::Inside => {
+            let inner: Vec<Vec<Region>> = regions
+                .iter()
+                .map(|r| offset(std::slice::from_ref(r), -(radius + allowance)))
+                .collect();
+            inner.iter().all(|t| !t.is_empty()).then_some(inner)
+        }
+    };
     let number = ctx.project.machine.first_tool;
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     let report = follow(
         &mut path,
         &tracks,
+        further.as_deref(),
         &ProfileParams {
             tool_diameter: tool.diameter,
             depth,
@@ -2026,6 +2141,8 @@ fn contour(
                 width: setup.tab_width,
                 spacing: setup.tab_spacing,
             }),
+            ramp: setup.ramp_slope(),
+            finish: allowance,
         },
     );
     let left: usize = report.tabs.iter().sum();
@@ -2160,6 +2277,7 @@ fn chamfer(
     follow(
         &mut path,
         &tracks,
+        None,
         &ProfileParams {
             tool_diameter: bit.diameter,
             depth,
@@ -2167,6 +2285,9 @@ fn chamfer(
             feed: cutting.feed,
             plunge: cutting.plunge,
             tabs: None,
+            // The bit's tip runs in the air: nothing to ramp into or to finish.
+            ramp: 0.0,
+            finish: 0.0,
         },
     );
     let where_to = format!(
@@ -2654,34 +2775,54 @@ mod tests {
     fn interpreted_file_matches_the_moves_it_was_written_from() {
         use crate::toolpath::Move;
         let built = build_pocket(&project(), "j").unwrap();
-        let cuts: Vec<[f64; 3]> = built
-            .program
-            .moves
-            .iter()
-            .filter_map(|m| {
-                if let Move::Feed { to, .. } = m {
-                    Some(*to)
-                } else {
-                    None
+        // Moves too short to show in three decimals are not written, so the
+        // count may differ; the cutting done may not.
+        let mut written = 0.0;
+        let mut at: Option<[f64; 3]> = None;
+        for m in &built.program.moves {
+            let to = match m {
+                Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                Move::ToolChange { .. } => {
+                    at = None;
+                    continue;
                 }
-            })
-            .collect();
-        let read: Vec<[f64; 3]> = built
+                _ => continue,
+            };
+            if let (Some(a), Move::Feed { .. }) = (at, m) {
+                written += (0..3).map(|k| (to[k] - a[k]).powi(2)).sum::<f64>().sqrt();
+            }
+            at = Some(to);
+        }
+        let read = built.interpreted.cutting_length();
+        assert!(written > 500.0);
+        // Curves are written as arcs, a hair longer than the straight cuts they replace.
+        assert!(
+            (written - read).abs() < 2e-3 * written,
+            "{written} mm written, {read} mm read back"
+        );
+        // The file ends where the moves end, and goes no deeper.
+        let last = built
             .interpreted
             .segments
             .iter()
-            .filter(|s| !s.rapid)
-            .map(|s| s.to)
-            .collect();
-        assert_eq!(cuts.len(), read.len());
-        for (a, b) in cuts.iter().zip(&read) {
-            for axis in 0..3 {
-                assert!(
-                    (a[axis] - b[axis]).abs() <= 0.0005 + 1e-9,
-                    "{a:?} was read back as {b:?}"
-                );
-            }
+            .rfind(|s| !s.rapid)
+            .unwrap();
+        let end = built
+            .program
+            .moves
+            .iter()
+            .rev()
+            .find_map(|m| match m {
+                Move::Feed { to, .. } => Some(*to),
+                _ => None,
+            })
+            .unwrap();
+        for k in 0..3 {
+            assert!((last.to[k] - end[k]).abs() <= 0.0005 + 1e-9);
         }
+        let lowest = |zs: &mut dyn Iterator<Item = f64>| zs.fold(f64::INFINITY, f64::min);
+        let deepest_read = lowest(&mut built.interpreted.segments.iter().map(|s| s.to[2]));
+        assert!((deepest_read + 2.0).abs() < 1e-9);
     }
 
     /// The simulated pocket matches the shape the tool can reach: full depth
@@ -2967,6 +3108,7 @@ mod tests {
                 vec![]
             },
             vbit_tool_id: Some("t-vbit".into()),
+            relief: false,
         });
         p.tools[1].cutting = vec![CuttingSettings {
             material: Material::Hardwood,
@@ -3247,6 +3389,7 @@ mod tests {
             tab_spacing: 20.0,
             tab_thickness: 1.5,
             cut_out_border: 5.0,
+            ..Setup::default()
         };
         let insert = preview(&p, "j", Part::Plug).unwrap();
         assert_eq!(insert.problems, vec![]);
@@ -4070,8 +4213,10 @@ mod tests {
             for q in cuts {
                 let xy = [q[0], q[1]];
                 let edge = shape.distance_to_boundary(xy);
+                // On its track, or 0.1 mm further from the wood that stays
+                // while cutting down, before the edge is finished.
                 assert!(
-                    (edge - away).abs() < 0.01,
+                    (edge - away).abs() < 0.01 || (away > 0.0 && (edge - away - 0.1).abs() < 0.01),
                     "{side:?}: {edge} from the outline"
                 );
                 if away > 0.0 {
@@ -4395,10 +4540,149 @@ mod tests {
             along_x > 20.0 * along_y,
             "{along_x} mm along X, {along_y} along Y"
         );
-        let plunges = cuts
+        // It comes down from above the surface once.
+        let entries = cuts
             .iter()
-            .filter(|s| !s.rapid && s.to[2] < s.from[2])
+            .filter(|s| !s.rapid && s.from[2] > 0.0 && s.to[2] < s.from[2])
             .count();
-        assert_eq!(plunges, 1);
+        assert_eq!(entries, 1);
+    }
+
+    #[test]
+    fn curves_are_written_as_arcs() {
+        // A disc of 30 mm in the middle of the board, as a flat pocket.
+        let mut p = project();
+        let circle: Vec<[f64; 2]> = (0..240)
+            .map(|i| {
+                let a = (i as f64 * 1.5).to_radians();
+                [30.0 + 15.0 * a.cos(), 20.0 + 15.0 * a.sin()]
+            })
+            .collect();
+        p.design.as_mut().unwrap().regions[0].outer = circle;
+        p.jobs[0].region_ids = vec![0];
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        let built = &preview.built;
+        let arcs = built
+            .gcode
+            .lines()
+            .filter(|l| l.starts_with("G2 ") || l.starts_with("G3 "))
+            .count();
+        assert!(arcs > 20, "{arcs} arcs");
+        // Far fewer lines than the same moves written straight.
+        let straight = carvera::write(&built.program).lines().count();
+        assert!(
+            (built.stats.lines as usize) < straight / 3,
+            "{} lines against {straight}",
+            built.stats.lines
+        );
+        // The same cutting, and the same pocket: round, 2 mm deep.
+        let written: f64 = gcode::interpret(&carvera::write(&built.program))
+            .unwrap()
+            .cutting_length();
+        assert!((built.stats.cutting_length - written).abs() < 2e-3 * written);
+        let map = &preview.map;
+        for iy in 0..map.ny {
+            for ix in 0..map.nx {
+                let q = map.centre(ix, iy);
+                let d = ((q[0] - 30.0).powi(2) + (q[1] - 20.0).powi(2)).sqrt();
+                let z = map.at(ix, iy) as f64;
+                if d < 15.0 - 2.0 * map.cell {
+                    assert!((z + 2.0).abs() < 1e-4, "{z} at {d} mm from the middle");
+                } else if d > 15.05 + 2.0 * map.cell {
+                    assert_eq!(z, 0.0, "cut {d} mm from the middle");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn walls_are_left_for_one_pass_at_the_end_and_come_out_the_same() {
+        let finished = preview(&project(), "j", Part::Pocket).unwrap();
+        let mut plain = project();
+        plain.setup.finish_allowance = 0.0;
+        let unfinished = preview(&plain, "j", Part::Pocket).unwrap();
+        assert_eq!(finished.problems, []);
+        // The same pocket either way.
+        let (worst, share) = compare(&finished.map, &unfinished.map, 0.05);
+        assert!(
+            share < 0.002,
+            "{share} of the cells differ, by up to {worst} mm"
+        );
+        assert_eq!(finished.built.cuttable, unfinished.built.cuttable);
+        // With the allowance, clearing keeps 0.1 mm from the walls until the
+        // floor is reached; only the pass at full depth touches them.
+        let wanted = &finished.built.pocket;
+        let reach = |q: [f64; 3]| {
+            wanted
+                .iter()
+                .map(|r| r.distance_to_boundary([q[0], q[1]]))
+                .fold(f64::INFINITY, f64::min)
+        };
+        let radius = 3.175 / 2.0;
+        let (mut at_wall, mut short) = (0, 0);
+        for s in finished
+            .built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| !s.rapid)
+        {
+            let d = reach(s.to);
+            if d < radius + 0.05 {
+                at_wall += 1;
+                // The way down to the floor is a ramp along the wall: its
+                // steps are not level cuts, though the shortest round to one height.
+                if s.to[2] > -2.0 + 1e-6 && s.from[2] == s.to[2] && s.length() > 0.05 {
+                    short += 1;
+                }
+            }
+        }
+        assert!(at_wall > 20);
+        assert_eq!(short, 0, "level cuts along the wall above the floor");
+        // Without it, every depth pass runs along the walls.
+        let passes_at_wall = unfinished
+            .built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| {
+                !s.rapid
+                    && s.from[2] == s.to[2]
+                    && s.to[2] > -2.0 + 1e-6
+                    && reach(s.to) < radius + 0.05
+            })
+            .count();
+        assert!(passes_at_wall > 20);
+    }
+
+    #[test]
+    fn relief_keeps_a_tip_flat_from_holding_the_plug_up() {
+        // The same inlay as in "fit shows what a tip flat costs", where the
+        // plug's corner edges ride on the pocket's rounded corners.
+        let mut p = vcarve_project(true);
+        let before = check_fit(&p, "j").unwrap().fit.report;
+        if let Inlay::Vcarve { relief, .. } = &mut p.jobs[0].inlay {
+            *relief = true;
+        }
+        let check = check_fit(&p, "j").unwrap();
+        assert_eq!(check.plug.problems, []);
+        let after = &check.fit.report;
+        assert!(
+            after.press_overlap_area < 0.5 * before.press_overlap_area,
+            "{} mm² in the way against {}",
+            after.press_overlap_area,
+            before.press_overlap_area
+        );
+        assert!(after.proud <= before.proud + 1e-9);
+        // The face is as it was: the cut stays below it.
+        assert!(after.void_width < 0.1, "void {}", after.void_width);
+        assert!((after.void_area - before.void_area).abs() < 0.05);
+        // The file says so, and the V-bit does the cutting.
+        let notes = check.plug.built.warnings.join(" | ");
+        assert!(notes.contains("cut back along"), "{notes}");
+        let plain = build(&vcarve_project(true), "j", Part::Plug).unwrap();
+        assert!(check.plug.built.stats.cutting_length > plain.stats.cutting_length);
+        assert_eq!(check.plug.built.stats.tools, plain.stats.tools);
     }
 }
