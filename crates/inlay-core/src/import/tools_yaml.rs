@@ -67,18 +67,11 @@ fn read_tool(entry: &Value, name: &str) -> Result<Tool, String> {
 
     let diameter = known("diameter").ok_or("no diameter")?;
     let mut tool = Tool {
-        id: String::new(),
-        name: name.to_string(),
-        kind,
-        diameter,
-        tip_diameter: None,
-        corner_radius: None,
-        tip_angle: None,
         flute_length: known("flute_length"),
         shank_diameter: known("shank_diameter").unwrap_or(diameter),
         length: known("length"),
         flutes: known("flutes").map(|v| v as u32),
-        cutting: Vec::new(),
+        ..Tool::new(name, kind, diameter)
     };
 
     if kind == ToolKind::VBit {
@@ -102,7 +95,7 @@ fn read_tool(entry: &Value, name: &str) -> Result<Tool, String> {
         for row in rows {
             if let Some(settings) = read_cutting(row, diameter) {
                 // The file allows one plain row per material; keep the first if not.
-                if tool.cutting_for(settings.material).is_none() {
+                if tool.cutting_for(&settings.material).is_none() {
                     tool.cutting.push(settings);
                 }
             }
@@ -139,21 +132,21 @@ fn read_cutting(row: &Value, diameter: f64) -> Option<CuttingSettings> {
         return None;
     }
     let material = match row.get("material").and_then(Value::as_str)? {
-        "hardwood" => Material::Hardwood,
-        "softwood" => Material::Softwood,
+        "hardwood" => Material::HARDWOOD,
+        "softwood" => Material::SOFTWOOD,
         _ => return None,
     };
     let number = |key: &str| row.get(key).and_then(Value::as_f64);
     let stepover = number("stepover_mm")
         .or_else(|| number("stepover_pct").map(|pct| pct / 100.0 * diameter))?;
-    Some(CuttingSettings {
+    Some(CuttingSettings::new(
         material,
-        rpm: number("rpm")? as u32,
-        feed: number("feed")?,
-        plunge: number("plunge")?,
-        stepover: (stepover * 10_000.0).round() / 10_000.0,
-        stepdown: number("stepdown")?,
-    })
+        number("rpm")? as u32,
+        number("feed")?,
+        number("plunge")?,
+        (stepover * 10_000.0).round() / 10_000.0,
+        number("stepdown")?,
+    ))
 }
 
 #[cfg(test)]
@@ -277,7 +270,7 @@ tools:
             2,
             "adaptive and aluminium rows are skipped"
         );
-        let hard = mill.cutting_for(Material::Hardwood).unwrap();
+        let hard = mill.cutting_for(&Material::HARDWOOD).unwrap();
         assert_eq!(
             (
                 hard.rpm,
@@ -288,7 +281,7 @@ tools:
             ),
             (12000, 600.0, 90.0, 1.27, 0.62)
         );
-        assert_eq!(mill.cutting_for(Material::Softwood).unwrap().stepover, 1.2);
+        assert_eq!(mill.cutting_for(&Material::SOFTWOOD).unwrap().stepover, 1.2);
     }
 
     #[test]

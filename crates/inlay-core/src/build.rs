@@ -705,11 +705,11 @@ impl<'a> Context<'a> {
         what: &str,
     ) -> Option<(&'a Tool, &'a CuttingSettings)> {
         let tool = checked_tool(self.project, id, kind, what, &mut self.errors)?;
-        let Some(cutting) = tool.cutting_for(self.job.material) else {
+        let Some(cutting) = tool.cutting_for(&self.job.material) else {
             self.errors.push(format!(
                 "\"{}\" has no cutting settings for {}. Add them in the tool list.",
                 tool.name,
-                material_name(self.job.material)
+                material_name(&self.job.material)
             ));
             return None;
         };
@@ -1493,11 +1493,11 @@ fn cut_piece_out(
         };
         tool
     };
-    let Some(cutting) = tool.cutting_for(ctx.job.material) else {
+    let Some(cutting) = tool.cutting_for(&ctx.job.material) else {
         ctx.errors.push(format!(
             "\"{}\" has no cutting settings for {}. Add them in the tool list.",
             tool.name,
-            material_name(ctx.job.material)
+            material_name(&ctx.job.material)
         ));
         return None;
     };
@@ -2207,7 +2207,7 @@ fn edge_cut(bit: &Tool, width: f64) -> Option<EdgeCut> {
             aside: bit.tip_diameter.unwrap_or(0.0) / 2.0,
             depth: bit.corner_radius.unwrap_or(0.0),
         }),
-        ToolKind::FlatEnd => None,
+        ToolKind::FlatEnd | ToolKind::BallEnd | ToolKind::Drill | ToolKind::ThreadMill => None,
     }
 }
 
@@ -2525,11 +2525,8 @@ fn checked_tool<'a>(
     tool.filter(|t| t.kind == kind)
 }
 
-fn material_name(material: Material) -> &'static str {
-    match material {
-        Material::Hardwood => "hardwood",
-        Material::Softwood => "softwood",
-    }
+fn material_name(material: &Material) -> &str {
+    material.key()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2728,7 +2725,7 @@ mod tests {
             jobs: vec![Job {
                 id: "j".into(),
                 name: "Flat inlay 1".into(),
-                material: Material::Hardwood,
+                material: Material::HARDWOOD,
                 region_ids: vec![0, 1],
                 setup: None,
                 color: None,
@@ -3043,7 +3040,7 @@ mod tests {
         );
 
         let mut p = project();
-        p.jobs[0].material = Material::Softwood;
+        p.jobs[0].material = Material::SOFTWOOD;
         assert!(reasons(&p).contains("no cutting settings for softwood"));
 
         let mut p = project();
@@ -3110,14 +3107,14 @@ mod tests {
             vbit_tool_id: Some("t-vbit".into()),
             relief: false,
         });
-        p.tools[1].cutting = vec![CuttingSettings {
-            material: Material::Hardwood,
-            rpm: 12000,
-            feed: 500.0,
-            plunge: 150.0,
-            stepover: 0.2,
-            stepdown: 1.0,
-        }];
+        p.tools[1].cutting = vec![CuttingSettings::new(
+            Material::HARDWOOD,
+            12000,
+            500.0,
+            150.0,
+            0.2,
+            1.0,
+        )];
         p
     }
 
@@ -4061,14 +4058,14 @@ mod tests {
         let mut p = with_inlay(inlay);
         p.jobs[0].name = "Op".into();
         p.jobs[0].region_ids = vec![0];
-        p.tools[1].cutting = vec![CuttingSettings {
-            material: Material::Hardwood,
-            rpm: 12000,
-            feed: 500.0,
-            plunge: 150.0,
-            stepover: 0.2,
-            stepdown: 1.0,
-        }];
+        p.tools[1].cutting = vec![CuttingSettings::new(
+            Material::HARDWOOD,
+            12000,
+            500.0,
+            150.0,
+            0.2,
+            1.0,
+        )];
         p
     }
 

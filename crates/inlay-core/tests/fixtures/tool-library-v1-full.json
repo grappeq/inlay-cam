@@ -1,0 +1,165 @@
+{
+  "app": "wooden-inlays",
+  "formatVersion": 1,
+  "groups": [
+    {
+      "ids": {
+        "cam": "{00000000-0000-4000-8000-0000000000e1}"
+      },
+      "path": "End mills"
+    }
+  ],
+  "kind": "tool-library",
+  "materials": [
+    {
+      "cam": {
+        "id": "{00000000-0000-4000-8000-0000000000b1}",
+        "name": "Aluminum"
+      },
+      "key": "aluminum",
+      "studio": [
+        {
+          "builtin": false,
+          "categoryId": "00000000-0000-7000-8000-0000000000b3",
+          "id": "00000000-0000-7000-8000-0000000000b2",
+          "modified": "2026-01-02T03:04:05Z",
+          "name": "6061 Aluminum"
+        }
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "adaptive": true,
+      "key": "adaptive",
+      "label": "Adaptive",
+      "level": "standard",
+      "lubricated": true,
+      "note": "Stepover is the optimal load.",
+      "ramping": true
+    }
+  ],
+  "tools": [
+    {
+      "apps": [
+        "cam"
+      ],
+      "coating": "DLC",
+      "cutting": [
+        {
+          "camExtra": "1",
+          "camFlag": 1,
+          "feed": 2000.0,
+          "ids": {
+            "cam": "{00000000-0000-4000-8000-0000000000c1}",
+            "studio": "00000000-0000-7000-8000-0000000000d1"
+          },
+          "material": "hardwood",
+          "modified": "2026-01-02T03:04:05Z",
+          "plunge": 180.0,
+          "rpm": 12000,
+          "stepdown": 1.75,
+          "stepover": 2.4,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 800.0,
+          "log": [
+            {
+              "at": {
+                "feed": 550.0,
+                "plunge": 180.0,
+                "rpm": 12000,
+                "stepdown": 6.0,
+                "stepover": 0.72
+              },
+              "date": "2026-02-01",
+              "outcome": "failed",
+              "text": "Spindle alarm after a few minutes."
+            },
+            {
+              "at": {
+                "feed": 800.0,
+                "plunge": 180.0,
+                "rpm": 12000,
+                "stepdown": 3.0,
+                "stepover": 0.72
+              },
+              "date": "2026-02-02",
+              "outcome": "provisional",
+              "text": "Edges clean."
+            },
+            {
+              "date": "2025-12-24",
+              "text": "From before entries recorded their numbers."
+            }
+          ],
+          "material": "aluminum",
+          "plunge": 180.0,
+          "profile": "adaptive",
+          "rpm": 12000,
+          "stepdown": 3.0,
+          "stepover": 0.72
+        }
+      ],
+      "diameter": 6.0,
+      "fluteLength": 18.0,
+      "flutes": 3,
+      "group": "End mills/Metal",
+      "id": "t-alu",
+      "ids": {
+        "cam": "{00000000-0000-4000-8000-0000000000a1}"
+      },
+      "inventory": {
+        "currency": "EUR",
+        "log": [
+          {
+            "date": "2026-02-01",
+            "kind": "broken",
+            "material": "aluminum",
+            "note": "Snapped on a plunge."
+          }
+        ],
+        "price": 24.5,
+        "purchased": "2026-01-15",
+        "quantity": 1
+      },
+      "kind": "flat_end",
+      "length": 50.0,
+      "name": "Ø6×18 3F Alu",
+      "note": "Ramp every aluminium operation.",
+      "number": 4,
+      "recommendedFor": [
+        "hardwood",
+        "aluminum"
+      ],
+      "shankDiameter": 6.0,
+      "shoulderLength": 19.0,
+      "source": {
+        "invoice": "1/2026",
+        "sizeNote": "6x18x6Dx50L",
+        "url": "https://example.com/end-mill"
+      },
+      "studioUnknown1": 0.5,
+      "style": "Alu",
+      "verify": [
+        {
+          "field": "length",
+          "note": "The shop lists two lengths. Measure it."
+        }
+      ]
+    },
+    {
+      "apps": [],
+      "cutting": [],
+      "diameter": 6.0,
+      "fusionType": "chamfer_mill",
+      "id": "t-chamfer",
+      "kind": "v_bit",
+      "name": "90° Chamfer Ø6",
+      "shankDiameter": 6.0,
+      "tipAngle": 90.0,
+      "tipDiameter": 0.0
+    }
+  ]
+}

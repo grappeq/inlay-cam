@@ -163,14 +163,14 @@ enum Kind {
 
 fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
     let mut vbit = v_bit();
-    vbit.cutting = vec![CuttingSettings {
-        material: Material::Hardwood,
-        rpm: 12000,
-        feed: 500.0,
-        plunge: 150.0,
-        stepover: 0.2,
-        stepdown: 1.0,
-    }];
+    vbit.cutting = vec![CuttingSettings::new(
+        Material::HARDWOOD,
+        12000,
+        500.0,
+        150.0,
+        0.2,
+        1.0,
+    )];
     let tools = vec!["t-endmill".to_string()];
     let inlay = match kind {
         Kind::Vcarve => Inlay::Vcarve {
@@ -208,7 +208,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
         jobs: vec![Job {
             id: "j".into(),
             name: "Inlay".into(),
-            material: Material::Hardwood,
+            material: Material::HARDWOOD,
             region_ids: region_ids.to_vec(),
             setup: None,
             color: None,

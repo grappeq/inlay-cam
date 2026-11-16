@@ -57,6 +57,7 @@ fn tool_comment(t: &ProgramTool) -> String {
         number(tool.diameter),
         number(match tool.kind {
             ToolKind::CornerRound => tool.corner_radius.unwrap_or(0.0),
+            ToolKind::BallEnd => tool.diameter / 2.0,
             _ => 0.0,
         }),
         number(tool.shank_diameter)
@@ -66,8 +67,11 @@ fn tool_comment(t: &ProgramTool) -> String {
         ToolKind::FlatEnd => "flat end mill",
         ToolKind::VBit => "chamfer mill",
         ToolKind::CornerRound => "radius mill",
+        ToolKind::BallEnd => "ball end mill",
+        ToolKind::Drill => "drill",
+        ToolKind::ThreadMill => "thread mill",
     };
-    if tool.kind != ToolKind::FlatEnd {
+    if matches!(tool.kind, ToolKind::VBit | ToolKind::CornerRound) {
         write!(fields, " TD={}", number(tool.tip_diameter.unwrap_or(0.0))).unwrap();
     }
     if let Some(flutes) = tool.flute_length {

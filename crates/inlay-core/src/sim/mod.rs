@@ -170,7 +170,11 @@ impl ToolProfile {
 
     pub fn of(tool: &Tool) -> Self {
         match tool.kind {
-            ToolKind::FlatEnd => Self::flat(tool.diameter),
+            // No operation cuts with a ball end mill, a drill or a thread
+            // mill, so their tips are not modelled: each is its cylinder.
+            ToolKind::FlatEnd | ToolKind::BallEnd | ToolKind::Drill | ToolKind::ThreadMill => {
+                Self::flat(tool.diameter)
+            }
             ToolKind::VBit => Self::v_bit(
                 tool.diameter,
                 tool.tip_diameter.unwrap_or(0.0),

@@ -785,14 +785,15 @@ struct ProjectBody {
     project: Project,
 }
 
-/// Writes a project as a project file.
+/// Writes a project as a project file. Its tools are written as
+/// [`Tool::for_sharing`] leaves them.
 pub fn project_to_file_json(project: &Project) -> String {
+    let mut project = project.clone();
+    project.tools = project.tools.iter().map(Tool::for_sharing).collect();
     file::write(
         PROJECT_KIND,
         PROJECT_FORMAT_VERSION,
-        &ProjectBody {
-            project: project.clone(),
-        },
+        &ProjectBody { project },
     )
 }
 
@@ -837,7 +838,7 @@ mod tests {
                 Job {
                     id: "j1".into(),
                     name: "Walnut square".into(),
-                    material: Material::Hardwood,
+                    material: Material::HARDWOOD,
                     region_ids: vec![0],
                     color: None,
                     setup: None,
@@ -858,7 +859,7 @@ mod tests {
                 Job {
                     id: "j2".into(),
                     name: "Maple triangle".into(),
-                    material: Material::Softwood,
+                    material: Material::SOFTWOOD,
                     region_ids: vec![1],
                     color: None,
                     setup: None,
@@ -946,7 +947,7 @@ mod tests {
             p.jobs.push(Job {
                 id: id.into(),
                 name: id.into(),
-                material: Material::Hardwood,
+                material: Material::HARDWOOD,
                 region_ids: vec![0],
                 color: None,
                 setup: None,
@@ -1140,6 +1141,40 @@ mod tests {
         assert!(text.contains("\"toolId\": null"));
         let project = project_from_file_json(&text).unwrap();
         assert!(project.jobs[1].inlay.tool_ids().is_empty());
+    }
+
+    /// A project file is passed on; prices, invoices and logs are not.
+    #[test]
+    fn a_project_file_leaves_out_what_belongs_to_the_owners_tool_list() {
+        let mut project = sample();
+        let full = crate::tools::fixtures::full_library().tools.remove(0);
+        let slot = project
+            .tools
+            .iter_mut()
+            .find(|t| t.id == "t-endmill")
+            .unwrap();
+        *slot = Tool {
+            id: "t-endmill".into(),
+            ..full
+        };
+        let kept = slot.clone();
+        let text = project_to_file_json(&project);
+        for private in [
+            "example.com",
+            "invoice",
+            "inventory",
+            "price",
+            "\"log\"",
+            "camFlag",
+            "Snapped",
+            "Spindle alarm",
+        ] {
+            assert!(!text.contains(private), "{private}");
+        }
+        let read = project_from_file_json(&text).unwrap();
+        let tool = read.tools.iter().find(|t| t.id == "t-endmill").unwrap();
+        assert_eq!(*tool, kept.for_sharing());
+        assert_eq!(tool.cutting.len(), 2);
     }
 
     /// Regenerates the fixtures from the samples above. Run by hand, once per
