@@ -193,7 +193,7 @@ function boardName(part: Part, job: Job): string {
 }
 
 /** One file as it came out: its checks, its numbers and its download. */
-export function PartCard(props: { name: string; board: string; preview: Pick<PocketPreview, "built" | "problems">; stale: boolean; shown: boolean; onShow: () => void }) {
+function PartCard(props: { name: string; board: string; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
   const { preview, name, board } = props;
   const { built } = preview;
   const tools = built.stats.perTool;
@@ -346,7 +346,7 @@ function FlatFitNumbers({ fit, backer }: { fit: NonNullable<PocketPreview["built
   );
 }
 
-function formatMinutes(minutes: number): string {
+export function formatMinutes(minutes: number): string {
   if (minutes < 1) return "under a minute";
   const whole = Math.round(minutes);
   if (whole < 60) return `${whole} min`;

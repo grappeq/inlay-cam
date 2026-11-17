@@ -223,6 +223,20 @@ pub struct StockFile {
     pub problems: Vec<SimProblem>,
 }
 
+/// The second file of an inlay: its plug or its inserts, cut from a board of
+/// their own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartFile {
+    /// The id of the inlay.
+    pub job_id: String,
+    /// The file. `None` when it could not be made.
+    pub built: Option<Built>,
+    /// Why it could not be made.
+    pub errors: Vec<String>,
+    /// Problems found while simulating it on its own board.
+    pub problems: Vec<SimProblem>,
+}
+
 /// The stock at one point of the list, thinned for drawing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Snapshot {
@@ -248,6 +262,8 @@ pub struct Timeline {
     /// The files for the stock, in the order they are run.
     pub files: Vec<StockFile>,
     pub steps: Vec<Step>,
+    /// The plug or insert file of every inlay, in the order of the list.
+    pub parts: Vec<PartFile>,
     /// The fresh stock, then the stock after each step.
     pub snapshots: Vec<Snapshot>,
 }
@@ -272,6 +288,20 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
         .div_ceil(DISPLAY_CELLS)
         .max(1);
     let several = file_numbers(project).iter().flatten().max() > Some(&1);
+
+    // Every inlay's plug or inserts, simulated on their own board: what a
+    // glue-up puts on the stock, and a file to cut either way.
+    let mut plugs: HashMap<&str, Result<Preview, Vec<String>>> = project
+        .jobs
+        .iter()
+        .filter(|job| job.inlay.is_inlay())
+        .map(|job| {
+            (
+                job.id.as_str(),
+                build::preview(project, &job.id, Part::Plug),
+            )
+        })
+        .collect();
 
     let mut glued: Vec<String> = Vec::new();
     let mut files: Vec<StockFile> = Vec::new();
@@ -305,7 +335,13 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
         };
         let mut step = Step::of(job, None);
         let later = project.jobs[index..].iter().any(|j| &j.id == inlay_id);
-        match glue(project, &mut stock, inlay_id, glued.contains(inlay_id)) {
+        match glue(
+            project,
+            &mut stock,
+            inlay_id,
+            glued.contains(inlay_id),
+            &plugs,
+        ) {
             Ok(seat) => {
                 glued.push(inlay_id.clone());
                 let name = name_of(project, inlay_id);
@@ -327,6 +363,28 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
         snapshots.push(stock.snapshot(stride));
     }
 
+    let parts = project
+        .jobs
+        .iter()
+        .filter_map(|job| {
+            let part = plugs.remove(job.id.as_str())?;
+            Some(match part {
+                Ok(preview) => PartFile {
+                    job_id: job.id.clone(),
+                    built: Some(preview.built),
+                    errors: Vec::new(),
+                    problems: preview.problems,
+                },
+                Err(errors) => PartFile {
+                    job_id: job.id.clone(),
+                    built: None,
+                    errors,
+                    problems: Vec::new(),
+                },
+            })
+        })
+        .collect();
+
     Ok(Timeline {
         cell: simulated_cell * stride as f64,
         nx: stock.map.nx.div_ceil(stride),
@@ -336,6 +394,7 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
         glued,
         files,
         steps,
+        parts,
         snapshots,
     })
 }
@@ -491,6 +550,7 @@ fn glue(
     stock: &mut Workpiece,
     inlay_id: &str,
     done: bool,
+    plugs: &HashMap<&str, Result<Preview, Vec<String>>>,
 ) -> Result<Seat, Vec<String>> {
     let job: &Job = project
         .jobs
@@ -506,35 +566,33 @@ fn glue(
     if stock.bodies.len() >= u8::MAX as usize {
         return Err(vec!["There are too many glue-ups in the list.".to_string()]);
     }
-    let from_part = |errors: Vec<String>| -> Vec<String> {
-        errors
-            .into_iter()
-            .map(|e| format!("{}: {e}", job.name))
-            .collect()
+    let not_an_inlay = || {
+        vec![format!(
+            "\"{}\" is not an inlay: it has nothing to glue in.",
+            job.name
+        )]
     };
+    let plug = plugs
+        .get(inlay_id)
+        .ok_or_else(not_an_inlay)?
+        .as_ref()
+        .map_err(|errors| -> Vec<String> {
+            errors
+                .iter()
+                .map(|e| format!("{}: {e}", job.name))
+                .collect()
+        })?;
     match &job.inlay {
         Inlay::Vcarve {
             engagement_depth, ..
-        } => {
-            let plug = build::preview(project, inlay_id, Part::Plug).map_err(from_part)?;
-            seat_plug(stock, &plug, -engagement_depth)
-        }
+        } => seat_plug(stock, plug, -engagement_depth),
         Inlay::Flat {
             insert_style: InsertStyle::Backer,
             pocket_depth,
             ..
-        } => {
-            let plug = build::preview(project, inlay_id, Part::Plug).map_err(from_part)?;
-            seat_plug(stock, &plug, -pocket_depth)
-        }
-        Inlay::Flat { pocket_depth, .. } => {
-            let inserts = build::build(project, inlay_id, Part::Plug).map_err(from_part)?;
-            seat_inserts(stock, &inserts, -pocket_depth)
-        }
-        _ => Err(vec![format!(
-            "\"{}\" is not an inlay: it has nothing to glue in.",
-            job.name
-        )]),
+        } => seat_plug(stock, plug, -pocket_depth),
+        Inlay::Flat { pocket_depth, .. } => seat_inserts(stock, &plug.built, -pocket_depth),
+        _ => Err(not_an_inlay()),
     }
 }
 
@@ -886,6 +944,11 @@ mod tests {
         assert_eq!(file_numbers(&p), vec![Some(1), Some(1), None, Some(2)]);
         let t = timeline(&p).unwrap();
         assert_eq!(t.files.len(), 2);
+        // The inlay's plug comes with them: the one file that is not cut from the stock.
+        assert_eq!(t.parts.len(), 1);
+        assert_eq!(t.parts[0].job_id, "j");
+        let plug = t.parts[0].built.as_ref().unwrap();
+        assert!(plug.part == Part::Plug && t.parts[0].problems.is_empty());
         assert_eq!(
             t.files[0].job_ids,
             vec!["j".to_string(), "extra".to_string()]

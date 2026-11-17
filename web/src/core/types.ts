@@ -625,6 +625,8 @@ export interface StockTimeline {
   glued: string[];
   /** The files for the stock, in the order they are run. */
   files: StockFile[];
+  /** The plug or insert file of every inlay, in the order of the list: each is cut from a board of its own. */
+  parts: { jobId: string; built: Built | null; errors: string[]; problems: { line: number; message: string }[] }[];
   steps: TimelineStep[];
   /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). */
   snapshots: { heights: Float32Array; owners: Uint8Array }[];

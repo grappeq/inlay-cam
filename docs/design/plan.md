@@ -988,3 +988,28 @@ Files from the order of the list, and a facing that takes its height from it
   facing's height after, before and without a glue-up and after an earlier facing; the
   warning for a start that is too low. In the app: two files around a glue-up, and the
   facing's panel.
+
+The stock step by step is a tab, and the panel's section for it is gone (2026-11-17). The
+user found the way in hidden: a button far down the panel, and a glue-up that could only
+be added from the foot of an inlay's panel. Now "Stock, step by step" is a tab beside
+"Drawing" as soon as the list has a line, and works the stock out the first time it is
+opened; "Glue-up" is a tile under "Steps done by hand" where inlays and operations are
+added. The user then asked whether the panel's section was still needed. It was not: what
+it held went into the view. The lines of a file stand in a frame with the file's download,
+"Generate again" is beside the slider, and the file's time, tools and warnings open under
+the line that is shown. A result that is out of date is not made again by itself, since
+that takes seconds: the view says so and holds the downloads back.
+
+The files are a tab of the panel (2026-11-17). Download buttons among the step buttons
+made the stock's view look poor, the user said, and asked where else they could go. Three
+places were built and looked at in turn: a tab of the stage with a sheet of cards, a menu
+at the end of the row of tabs ("better"), and then, at the user's wish, a tab of the
+panel on the right, beside "Inlays and operations". "Files" lists in the order things are
+done: the files for the stock, the glue-ups, and now also every inlay's plug or insert
+file, placed before the glue-up that needs it, which until then could only be had from
+the inlay's own panel. For that `timeline` returns `parts`: it simulated the plugs it
+glued in anyway, and now does so for every inlay. A row has the file's time, tool changes
+and checks, its warnings folded away, and its download; the tools by name and the board's
+size are left to the inlay's or operation's own panel. The files are made the first time
+the tab is shown. The stock's view keeps the frames around the lines of a file and nothing
+to press but the steps.

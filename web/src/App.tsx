@@ -7,7 +7,7 @@ import { Header } from "./components/Header";
 import { partName } from "./components/OutputPanel";
 import { isInlay, jobColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
-import { TimelineView } from "./components/Timeline";
+import { TimelineStart, TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
@@ -69,7 +69,7 @@ function DesignView() {
   // Fall back to the drawing when what was asked for is not there (any more).
   const steps = timeline?.result ?? null;
   const shown: Stage =
-    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && steps)
+    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && project.jobs.length > 0)
       ? stage
       : "drawing";
   const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
@@ -82,11 +82,12 @@ function DesignView() {
   if (job && pocket) tabs.push(["pocket", `${capital(partName("pocket", job))} in 3D`]);
   if (job && plug) tabs.push(["plug", `${capital(partName("plug", job))} in 3D`]);
   if (fit) tabs.push(["fit", "Fit"]);
-  if (steps) tabs.push(["timeline", "Stock, step by step"]);
+  // The stock step by step is there to look at as soon as there is something to do to it; it is worked out when first asked for.
+  if (project.jobs.length > 0) tabs.push(["timeline", "Stock, step by step"]);
+  // From an inlay or operation, the stock is shown as that one leaves it.
+  const mineAt = job ? project.jobs.indexOf(job) + 1 : undefined;
   const show = (to: Stage) => {
-    // From an inlay or operation, the stock is shown as that one leaves it.
-    const at = to === "timeline" && job && steps ? steps.steps.findIndex((s) => s.jobId === job.id) : -1;
-    if (at >= 0) dispatch({ type: "setTimelineAt", at: at + 1 });
+    if (to === "timeline" && mineAt !== undefined && steps) dispatch({ type: "setTimelineAt", at: mineAt });
     dispatch({ type: "setStage", stage: to });
   };
 
@@ -106,6 +107,9 @@ function DesignView() {
           <FitView fit={fit} baseColor={wood} plugColor={plugWood} />
         ) : shown === "timeline" && timeline && steps ? (
           <TimelineView timeline={timeline} result={steps} />
+        ) : shown === "timeline" ? (
+          <TimelineStart at={mineAt} />
+
         ) : preview ? (
           <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
         ) : (

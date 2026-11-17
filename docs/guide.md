@@ -545,13 +545,15 @@ above it there is nothing to take, and the panel says so.
 
 The file starts cutting at that height and travels above it. Z0 is still the stock's
 surface, so set it beside the plug, not on it. The 3D view of the file alone shows the
-stock only, not the wood standing on it; "The stock, step by step" shows the plug too.
+stock only, not the wood standing on it; "Stock, step by step" shows the plug too.
 
 ### The glue-up as a step
 
 Gluing a plug or inserts in is done by hand, and has no file. It can still be a line of
-the list: every inlay has "Add the glue-up as a step" under **The glue-up, and after it**
-in its panel. The step goes in right after the inlay, drawn with a dashed edge.
+the list: **Glue-up**, under "Steps done by hand" where inlays and operations are added,
+adds it for every inlay that has none yet, or for the inlays of the selected shapes. An
+inlay's own panel has "Add the glue-up as a step" as well, under **The glue-up, and after
+it**. The step goes in right after its inlay, drawn with a dashed edge.
 
 Its place in the list is what it says. The lines above it find the stock without the plug;
 the lines below it find the plug on the stock. Drag it like any other line. Deleting an
@@ -565,9 +567,12 @@ has one, every line shows the file for the stock it is cut by, "file 1", "file 2
 Every line of the list has a grip: drag it to put the list in the order to cut in, or
 select the grip and press the up or down arrow.
 
-Each inlay and operation can make a file of its own, simulated on a fresh board.
-**Generate the stock's files**, under the list, takes one board through the whole list
-instead, from top to bottom, and makes the files to cut it with:
+Each inlay and operation can make a file of its own, simulated on a fresh board. The tab
+**Stock, step by step**, beside "Drawing" above the drawing, takes one board through the
+whole list instead, from top to bottom, and makes the files to cut it with. It is there as
+soon as the list has a line, and works the stock out the first time it is opened. The
+panel on the right has a tab of its own for the files themselves, **Files**, beside
+"Inlays and operations":
 
 - The lines from one glue-up to the next are **one file**: each inlay's pocket and each
   operation, in the order of the list. Tools keep one number each through the file, and a
@@ -577,14 +582,24 @@ instead, from top to bottom, and makes the files to cut it with:
 - Each file is run on the board as the file before left it, and a glue-up puts the plug or
   the inserts on it, in their wood.
 
-The panel then shows the files in order, each with its checks, its time, its tools and its
-download, and the steps done by hand between them. A file with a line that cannot be made
-is not offered: the panel says which line, and why.
+**Files** is a list numbered in the order to do things: each file for the stock with
+the lines it cuts, each inlay's plug or insert file before the glue-up that needs it, and
+the glue-ups, which are done by hand. Every file has its time, its tool changes, whether
+it was simulated without problems, what to know before cutting, and its **Download**. The
+name of a file for the stock, or of a glue-up, goes to the stock in 3D as it is after it.
+A file with a line that cannot be made says why in place of its download. The files are
+made the first time the tab is opened; **Generate again**, at its foot, makes everything
+anew after a change. While an inlay or operation is open, the panel shows that one; its
+back link returns to the tabs.
 
-An inlay's plug or insert always has its own file: it is cut from another board.
+An inlay's plug or insert always has its own file: it is cut from another board. Its 3D
+view and its fit are in the inlay's own panel.
 
-Above the 3D view is the list again, as a row of buttons with a slider: pick a line to see
-the stock after it, or step through with the arrows. The view keeps its angle while you
+In **Stock, step by step**, above the 3D view is the list again, as a row of buttons with
+a slider: pick a line to see the stock after it, or step through with the arrows. Under
+the buttons is what happened at the line that is shown. While the panel is on **Files**,
+the lines of one file stand together in a frame, "File 1", and a step done by hand stands
+between the frames. The view keeps its angle while you
 step. "Show tool path" draws the path of the line that is shown, with the line numbers of
 its file.
 
@@ -602,7 +617,8 @@ its file.
   so with the G-code line. A facing that starts lower than the wood stands is told how
   far the tool would go into it at once.
 
-The panel lists the lines worth a look. After a change to the project, generate again.
+After a change to the project the tab and the view say so, and the downloads wait until
+the files are generated again.
 
 The backer of a plug is drawn solid down to the stock, though it stands off it by the saw
 gap. Apart from where a facing starts, the cuts are the ones the lines make on their own:
@@ -689,7 +705,7 @@ app comes with no warranty: what a file does on your machine is your responsibil
   clamps, or the machine's Z travel.
 - It does not pack inserts to save wood.
 - A file's own 3D view does not show wood standing above the stock's surface, such as a
-  glued-in plug. "The stock, step by step" does, once the glue-up is a step of the list.
+  glued-in plug. "Stock, step by step" does, once the glue-up is a step of the list.
 - It does not snap or align shapes, so a second drawing is placed by eye or by typed
   position.
 - It draws rectangles, ellipses and polygons, and nothing freer: no pen, no

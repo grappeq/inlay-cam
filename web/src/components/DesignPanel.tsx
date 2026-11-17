@@ -47,7 +47,7 @@ import { NumberField } from "./NumberField";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
-import { StockSteps } from "./Timeline";
+import { FilesList } from "./Files";
 
 /** A job that is an inlay proper, with a pocket and a plug or insert. */
 type InlayJob = Job & { inlay: TrueInlay };
@@ -62,18 +62,36 @@ export function useImportSvg() {
 
 /** The panel beside the drawing: the stock with its inlays and operations, or the one being worked on. */
 export function DesignPanel({ design }: { design: Design }) {
-  const { project, importReport, activeJobId, arranging } = useApp();
+  const { project, importReport, activeJobId, arranging, panelPage } = useApp();
+  const dispatch = useDispatch();
   const active = project.jobs.find((j) => j.id === activeJobId);
+  const files = panelPage === "files" && project.jobs.length > 0;
+  const setPage = (page: "list" | "files") => dispatch({ type: "setPanelPage", page });
 
   if (arranging) return <ArrangePanel design={design} />;
   if (active?.inlay.type === "glue") return <GlueEditor key={active.id} job={active} />;
   if (active) return isInlay(active.inlay) ? <JobEditor key={active.id} job={active as InlayJob} /> : <OpEditor key={active.id} job={active} />;
   return (
     <aside className="panel" aria-label="Stock, inlays and operations">
+      {project.jobs.length > 0 && (
+        <nav className="tabs panel-tabs" aria-label="What the panel shows">
+          <button aria-pressed={!files} onClick={() => setPage("list")}>
+            Inlays and operations
+          </button>
+          <button aria-pressed={files} onClick={() => setPage("files")}>
+            Files
+          </button>
+        </nav>
+      )}
       <div className="panel-scroll">
-        <JobsSection design={design} />
-        <StockSteps />
-        <StockSection design={design} report={importReport} />
+        {files ? (
+          <FilesList />
+        ) : (
+          <>
+            <JobsSection design={design} />
+            <StockSection design={design} report={importReport} />
+          </>
+        )}
       </div>
     </aside>
   );
@@ -283,6 +301,23 @@ function JobsSection({ design }: { design: Design }) {
   // Which file for the stock each line goes into, shown once a step done by hand splits the list into several.
   const files = fileNumbers(project.jobs);
   const filed = files.some((n) => n !== null && n > 1);
+  // The inlays a glue-up can be added for: those of the selected shapes, else every one that has none yet.
+  const unglued = project.jobs.filter((j) => isInlay(j.inlay) && !glueOf(j, project.jobs));
+  const pickedInlays = unglued.filter((j) => j.regionIds.some((id) => selection.includes(id)));
+  const toGlue = pickedInlays.length > 0 ? pickedInlays : unglued;
+  const addGlueUps = () =>
+    dispatch({
+      type: "updateProject",
+      update: (p) => {
+        let jobs = p.jobs;
+        for (const inlay of toGlue) {
+          const step = glueStep(inlay, jobs);
+          // Right after the inlay, whose place in the list is where its pocket is cut.
+          if (step) jobs = insertAfter(jobs, inlay.id, step);
+        }
+        return { ...p, jobs };
+      },
+    });
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
   const none = selection.length === 0;
   const several = project.jobs.length > 1;
@@ -367,6 +402,26 @@ function JobsSection({ design }: { design: Design }) {
           {(["pocket", "contour", "chamfer"] as const).map((type) => choice(type, JOB_LABELS[type], design.regions.length === 0))}
           {choice("facing", "Facing", false)}
         </div>
+        {project.jobs.some((j) => isInlay(j.inlay)) && (
+          <>
+            <h4 className="choice-group">Steps done by hand</h4>
+            <div className="choices">
+              <button
+                className="choice"
+                disabled={toGlue.length === 0}
+                title={toGlue.length === 0 ? "Every inlay has its glue-up in the list already." : OPERATION_HINTS.glue}
+                onClick={addGlueUps}
+                onPointerEnter={() => setAbout("glue")}
+                onPointerLeave={() => setAbout(null)}
+                onFocus={() => setAbout("glue")}
+                onBlur={() => setAbout(null)}
+              >
+                <JobIcon type="glue" />
+                <strong>{toGlue.length > 1 ? `Glue-up, for ${toGlue.length} inlays` : "Glue-up"}</strong>
+              </button>
+            </div>
+          </>
+        )}
         <p className="hint choice-about">
           {about
             ? OPERATION_HINTS[about]
@@ -708,7 +763,7 @@ function TrimOffer({ job }: { job: Job }) {
       <h3>The glue-up, and after it</h3>
       <p className="hint">
         Gluing the {part.what} in is done by hand. As a step in the list, it tells the steps below it that the {part.what === "plug" ? "plug is" : "inserts are"}{" "}
-        on the stock: "The stock, step by step" then shows {part.what === "plug" ? "it" : "them"} in {part.what === "plug" ? "its" : "their"} wood.
+        on the stock: "Stock, step by step" then shows {part.what === "plug" ? "it" : "them"} in {part.what === "plug" ? "its" : "their"} wood.
       </p>
       {glue ? (
         <p className="derived">
@@ -802,7 +857,7 @@ function GlueEditor({ job }: { job: Job }) {
           <p className="hint">
             Its place in the list is what counts. The steps above it find the stock without the {what}; the steps below it find the {what} there, to face{" "}
             {what === "plug" ? "it" : "them"} off, to cut into {what === "plug" ? "it" : "them"}, or to run into {what === "plug" ? "it" : "them"}. Drag it in
-            the list to move it. "The stock, step by step", under the list, shows the stock at every step.
+            the list to move it. "Stock, step by step", above the drawing, shows the stock at every step.
           </p>
           {before && (
             <p className="status-line warn" role="status">
@@ -914,7 +969,7 @@ function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onC
       )}
       {above > 0 && (
         <p className="hint">
-          The 3D view of this file alone shows the stock only: the wood above its surface is not drawn. "The stock, step by step" draws it, once the glue-up is a
+          The 3D view of this file alone shows the stock only: the wood above its surface is not drawn. "Stock, step by step" draws it, once the glue-up is a
           step of the list.
         </p>
       )}

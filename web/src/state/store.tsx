@@ -13,6 +13,8 @@ export type View = "design" | "settings";
 export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
+/** What the panel shows while no inlay or operation is open: the list to work on, or the files it comes to. */
+export type PanelPage = "list" | "files";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -43,6 +45,7 @@ export interface AppState {
   /** The point of the list the stock is shown at: 0 for the fresh stock, n for the stock after the nth entry. */
   timelineAt: number;
   stage: Stage;
+  panelPage: PanelPage;
   /** The drawing is being edited (the screens' "Edit"): shapes are drawn, and clicks select shapes to move, resize or delete. */
   arranging: boolean;
   /** While arranging, the shape a drag on the stock draws. Without one, a drag selects and moves. */
@@ -99,6 +102,7 @@ export type Action =
   | { type: "setStage"; stage: Stage }
   | { type: "setTimeline"; timeline: Timeline | null }
   | { type: "setTimelineAt"; at: number }
+  | { type: "setPanelPage"; page: PanelPage }
   /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
   | { type: "addDrawing"; design: Design; replace: boolean }
   | { type: "setArranging"; on: boolean }
@@ -127,6 +131,7 @@ const initial: AppState = {
   timeline: null,
   timelineAt: 0,
   stage: "drawing",
+  panelPage: "list",
   arranging: false,
   drawTool: null,
   drawOptions: DEFAULT_DRAW_OPTIONS,
@@ -167,6 +172,7 @@ function reducer(state: AppState, action: Action): AppState {
         selection: [],
         activeJobId: null,
         importReport: action.importReport ?? null,
+        panelPage: "list",
         output: null,
         timeline: null,
         timelineAt: 0,
@@ -213,6 +219,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, stage: action.stage };
     case "setTimeline":
       return { ...state, timeline: action.timeline, timelineAt: Math.min(state.timelineAt, action.timeline?.result?.steps.length ?? 0) };
+    case "setPanelPage":
+      return { ...state, panelPage: action.page };
     case "setTimelineAt":
       return { ...state, timelineAt: Math.max(0, Math.min(action.at, state.timeline?.result?.steps.length ?? 0)) };
     case "addDrawing": {

@@ -3533,16 +3533,6 @@ ul.plain {
   color: var(--muted);
   white-space: nowrap;
 }
-.by-hand-line {
-  margin: 10px 0;
-  padding: 5px 10px;
-  font-size: 13px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 5px;
-}
-.hint.file-lines {
-  margin: 4px 0 12px;
-}
 .hint.after-glue {
   margin-top: 12px;
 }
@@ -3574,20 +3564,36 @@ ul.plain {
   flex: 1;
   min-width: 120px;
 }
-.timeline-bar button {
+.timeline-bar button.arrow {
   padding: 2px 10px;
   font-size: 16px;
   line-height: 1.2;
 }
 .timeline-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 5px;
 }
-.timeline-steps button {
+/* The lines that one file cuts, with the file's download */
+.file-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.file-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+.file-name.warn {
+  color: var(--danger);
+}
+.timeline-steps button.step {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3595,10 +3601,10 @@ ul.plain {
   font-size: 13px;
   border-color: var(--line);
 }
-.timeline-steps button.by-hand {
+.timeline-steps button.step.by-hand {
   border-style: dashed;
 }
-.timeline-steps button[aria-pressed="true"] {
+.timeline-steps button.step[aria-pressed="true"] {
   border-color: var(--accent);
   border-style: solid;
   background: var(--accent-soft);
@@ -3626,4 +3632,91 @@ ul.plain {
   color: var(--danger);
   background: var(--danger-soft);
   border-color: var(--danger);
+}
+
+/* Before the stock has been taken through the list */
+.timeline-start {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+/* The panel's own tabs: the list to work on, and the files it comes to */
+.panel-tabs {
+  flex: 0 0 auto;
+  padding: 12px 16px 0;
+}
+.panel-tabs button {
+  flex: 1;
+}
+.files-list .status-line,
+.files-list .callout {
+  margin: 0 0 8px;
+}
+.file-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 4px 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.file-row-n {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.file-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.file-row-main > .link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  text-align: left;
+}
+.file-row-main .muted {
+  font-size: 12px;
+}
+.file-row-main .warn {
+  font-size: 12px;
+  color: var(--warn);
+}
+.file-row-main .ok {
+  color: var(--ok);
+  font-weight: 400;
+}
+.file-row-main details.more > summary {
+  font-size: 12px;
+  font-weight: 400;
+}
+.file-row-main .notes {
+  margin: 0;
+  font-size: 12px;
+}
+.files-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  font-size: 12px;
+}
+.files-foot button {
+  flex: none;
 }

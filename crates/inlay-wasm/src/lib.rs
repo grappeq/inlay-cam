@@ -442,6 +442,18 @@ impl StockTimeline {
                 })
             })
             .collect();
+        let parts: Vec<_> = t
+            .parts
+            .iter()
+            .map(|part| {
+                serde_json::json!({
+                    "jobId": part.job_id,
+                    "built": part.built,
+                    "errors": part.errors,
+                    "problems": problems_json(&part.problems),
+                })
+            })
+            .collect();
         let steps: Vec<_> = t
             .steps
             .iter()
@@ -465,6 +477,7 @@ impl StockTimeline {
             "thickness": t.thickness,
             "glued": t.glued,
             "files": files,
+            "parts": parts,
             "steps": steps,
         })
         .to_string()

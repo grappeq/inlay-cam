@@ -1,10 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, Job, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
 import { fmt, jobColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { JobIcon } from "./icons";
-import { PartCard } from "./OutputPanel";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
 
 /** Whether a step has something to say: it could not be done, went wrong, or wants a look. */
@@ -12,8 +11,8 @@ function troubled(step: TimelineStep): boolean {
   return step.errors.length > 0 || step.problems.length > 0 || step.warnings.length > 0;
 }
 
-/** Taking the stock through the list: the work, and whether it is going on. */
-function useWorkOut() {
+/** Taking the stock through the list, which also makes the files: the work, and whether it is going on. */
+export function useWorkOut() {
   const { project } = useApp();
   const dispatch = useDispatch();
   const [busy, setBusy] = useState(false);
@@ -23,7 +22,6 @@ function useWorkOut() {
       const result = await core.call("stockTimeline", project);
       dispatch({ type: "setTimeline", timeline: { project, result, errors: [] } });
       dispatch({ type: "setTimelineAt", at: at ?? result.steps.length });
-      dispatch({ type: "setStage", stage: "timeline" });
     } catch (e) {
       dispatch({ type: "setTimeline", timeline: { project, result: null, errors: message(e).split("\n") } });
     } finally {
@@ -33,132 +31,6 @@ function useWorkOut() {
   return { busy, workOut };
 }
 
-/**
- * In the panel, under the list: takes the stock through the list from top to
- * bottom, makes the files that cut it, and shows it in 3D at any point.
- */
-export function StockSteps() {
-  const { project, timeline, timelineAt, stage } = useApp();
-  const dispatch = useDispatch();
-  const { busy, workOut } = useWorkOut();
-  if (project.jobs.length === 0) return null;
-  const stale = timeline !== null && timeline.project !== project;
-  const result = timeline?.result ?? null;
-  const name = (id: string) => timeline?.project.jobs.find((j) => j.id === id)?.name ?? "?";
-  const noted = result?.steps.map((step, index) => ({ step, index })).filter(({ step }) => troubled(step)) ?? [];
-  const show = (at: number) => {
-    dispatch({ type: "setTimelineAt", at });
-    dispatch({ type: "setStage", stage: "timeline" });
-  };
-  const several = (result?.files.length ?? 0) > 1;
-
-  return (
-    <section>
-      <h2>The stock, step by step</h2>
-      <p className="hint">
-        Takes the stock through the list from top to bottom. The lines from one glue-up to the next are cut by one file, since the machine stops there
-        anyway; a tool that the next line also starts with stays in the spindle. Each file is run on the stock as the one before left it, with what was
-        glued in on it, and the stock can be looked at in 3D after every line.
-      </p>
-      <div className="row tools">
-        <button disabled={busy} onClick={() => workOut()}>
-          {busy ? "Working…" : result ? "Generate again" : "Generate the stock's files"}
-        </button>
-        {result && stage !== "timeline" && (
-          <button className="link" onClick={() => dispatch({ type: "setStage", stage: "timeline" })}>
-            Show the stock in 3D
-          </button>
-        )}
-      </div>
-      {busy && (
-        <p className="status-line" role="status">
-          Cutting the stock, one step after the other…
-        </p>
-      )}
-      {timeline && !busy && (
-        <div className="results">
-          {stale && <p className="callout warn">The project has changed since these were made. Generate again before downloading.</p>}
-          {timeline.errors.length > 0 && (
-            <div className="callout error" role="alert">
-              <p>The stock could not be worked out:</p>
-              <ul>
-                {timeline.errors.map((error) => (
-                  <li key={error}>{error}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {noted.length > 0 && (
-            <div className="callout warn">
-              <p>Worth a look:</p>
-              <ul>
-                {noted.map(({ step, index }) => (
-                  <li key={step.jobId}>
-                    <button className="link" onClick={() => show(index + 1)}>
-                      {name(step.jobId)}
-                    </button>
-                    : {summary(step)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {result?.steps.map((step, index) => {
-            if (step.byHand) {
-              return (
-                <p className="by-hand-line" key={step.jobId}>
-                  By hand:{" "}
-                  <button className="link" onClick={() => show(index + 1)}>
-                    {name(step.jobId)}
-                  </button>
-                </p>
-              );
-            }
-            // A file is shown where its first line stands.
-            const file = step.file === null ? undefined : result.files[step.file];
-            if (!file || file.jobIds[0] !== step.jobId) return null;
-            const title = several ? `stock ${(step.file ?? 0) + 1}` : "stock";
-            const last = index + file.jobIds.length;
-            if (!file.built || !file.complete) {
-              const failed = result.steps.filter((s) => s.file === step.file && s.errors.length > 0);
-              return (
-                <div className="callout error" role="alert" key={step.jobId}>
-                  <p>The file {title} could not be made:</p>
-                  <ul>
-                    {file.errors.map((error) => (
-                      <li key={error}>{error}</li>
-                    ))}
-                    {failed.flatMap((s) =>
-                      s.errors.map((error) => (
-                        <li key={`${s.jobId} ${error}`}>
-                          {name(s.jobId)}: {error}
-                        </li>
-                      )),
-                    )}
-                  </ul>
-                </div>
-              );
-            }
-            return (
-              <div key={step.jobId}>
-                <PartCard
-                  name={title}
-                  board="Stock"
-                  preview={{ built: file.built, problems: file.problems }}
-                  stale={stale}
-                  shown={stage === "timeline" && timelineAt === last}
-                  onShow={() => show(last)}
-                />
-                <p className="hint file-lines">Cuts {file.jobIds.map((id) => `"${name(id)}"`).join(", then ")}.</p>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
 /** What is wrong with a step, in a few words. */
 function summary(step: TimelineStep): string {
   if (step.errors.length > 0) return "could not be done";
@@ -166,6 +38,44 @@ function summary(step: TimelineStep): string {
   if (step.problems.length > 0) parts.push(`${step.problems.length} problem${step.problems.length === 1 ? "" : "s"} while cutting`);
   if (step.warnings.length > 0) parts.push(step.byHand ? "does not sit as designed" : "a warning");
   return parts.join(", ");
+}
+
+/**
+ * What the stage shows before the stock has been taken through the list:
+ * it is worked out there and then, the first time it is asked for. `at` is
+ * the point of the list to show once it is.
+ */
+export function TimelineStart({ at }: { at?: number }) {
+  const { timeline } = useApp();
+  const { busy, workOut } = useWorkOut();
+  const started = useRef(false);
+  useEffect(() => {
+    if (timeline !== null || started.current) return;
+    started.current = true;
+    void workOut(at);
+    // Once, when the view is first shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="timeline-start" role="status">
+      {timeline === null || busy ? (
+        <p className="status-line">Cutting the stock, one step after the other…</p>
+      ) : (
+        <>
+          <div className="callout error">
+            <p>The stock could not be worked out:</p>
+            <ul>
+              {timeline.errors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          </div>
+          <button onClick={() => workOut(at)}>Try again</button>
+        </>
+      )}
+    </div>
+  );
 }
 
 const NO_PATH = new Float32Array(0);
@@ -190,9 +100,11 @@ function noFile(project: Project, thickness: number): Built {
 
 /** The stock in 3D at one point of the list, with the list to step through above it. */
 export function TimelineView({ timeline, result }: { timeline: Timeline; result: StockTimeline }) {
-  const { project, timelineAt } = useApp();
+  const { project, timelineAt, panelPage, activeJobId } = useApp();
   const dispatch = useDispatch();
   const { busy, workOut } = useWorkOut();
+  // The steps are shown by the file that cuts them only while the panel is on the files.
+  const byFile = panelPage === "files" && activeJobId === null;
   // Names and colours are those of the project as it was when this was worked out.
   const made = timeline.project;
   const count = result.steps.length;
@@ -228,13 +140,41 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   }, [result, at, made]);
 
   const go = (to: number) => dispatch({ type: "setTimelineAt", at: to });
+  const stale = made !== project;
+  const several = result.files.length > 1;
+  // The list as it is cut: the lines of one file together, a step done by hand on its own.
+  const groups: { file: number | null; steps: number[] }[] = [];
+  result.steps.forEach((s, index) => {
+    const last = groups[groups.length - 1];
+    if (s.file !== null && last && last.file === s.file) last.steps.push(index);
+    else groups.push({ file: s.file, steps: [index] });
+  });
+  const chip = (index: number) => {
+    const s = result.steps[index];
+    const j = job(s.jobId);
+    const glued = j?.inlay.type === "glue" ? job(j.inlay.inlayId) : undefined;
+    return (
+      <button key={s.jobId} className={s.byHand ? "step by-hand" : "step"} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
+        <span className="job-icon" style={glued ? { color: jobColor(glued, made.jobs) } : undefined}>
+          {j && <JobIcon type={j.inlay.type} />}
+        </span>
+        {j?.name ?? "?"}
+        {troubled(s) && (
+          <span className={`step-mark${s.errors.length > 0 ? " error" : ""}`} aria-label={summary(s)} title={summary(s)}>
+            !
+          </span>
+        )}
+      </button>
+    );
+  };
+
   const label = (index: number) => (index === 0 ? "the fresh stock" : `after "${job(result.steps[index - 1].jobId)?.name ?? "?"}"`);
 
   return (
     <div className="timeline-view">
       <div className="timeline">
         <div className="timeline-bar">
-          <button aria-label="One step back" disabled={at === 0} onClick={() => go(at - 1)}>
+          <button className="arrow" aria-label="One step back" disabled={at === 0} onClick={() => go(at - 1)}>
             ‹
           </button>
           <input
@@ -247,38 +187,27 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
             aria-label="The point of the list the stock is shown at"
             aria-valuetext={label(at)}
           />
-          <button aria-label="One step on" disabled={at === count} onClick={() => go(at + 1)}>
+          <button className="arrow" aria-label="One step on" disabled={at === count} onClick={() => go(at + 1)}>
             ›
           </button>
         </div>
-        <ol className="timeline-steps">
-          <li>
-            <button aria-pressed={at === 0} onClick={() => go(0)}>
-              Fresh stock
-            </button>
-          </li>
-          {result.steps.map((s, index) => {
-            const j = job(s.jobId);
-            const glued = j?.inlay.type === "glue" ? job(j.inlay.inlayId) : undefined;
+        <div className="timeline-steps">
+          <button className="step" aria-pressed={at === 0} onClick={() => go(0)}>
+            Fresh stock
+          </button>
+          {groups.map((group) => {
+            const file = group.file === null ? undefined : result.files[group.file];
+            if (!file || !byFile) return group.steps.map(chip);
+            const title = several ? `File ${(group.file ?? 0) + 1}` : "File";
             return (
-              <li key={s.jobId}>
-                <button className={s.byHand ? "by-hand" : undefined} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
-                  <span className="job-icon" style={glued ? { color: jobColor(glued, made.jobs) } : undefined}>
-                    {j && <JobIcon type={j.inlay.type} />}
-                  </span>
-                  {j?.name ?? "?"}
-                  {troubled(s) && (
-                    <span className={`step-mark${s.errors.length > 0 ? " error" : ""}`} aria-label={summary(s)} title={summary(s)}>
-                      !
-                    </span>
-                  )}
-                </button>
-              </li>
+              <div className="file-group" role="group" aria-label={`${title} for the stock`} key={`file ${group.file}`}>
+                <span className="file-name">{title}</span>
+                {group.steps.map(chip)}
+              </div>
             );
           })}
-        </ol>
-        <StepNote step={step} at={at} result={result} made={made} />
-        {made !== project && (
+        </div>
+        {stale && (
           <p className="callout warn">
             The project has changed since this was worked out.{" "}
             <button className="link" disabled={busy} onClick={() => workOut(at)}>
@@ -286,6 +215,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
             </button>
           </p>
         )}
+        <StepNote step={step} at={at} result={result} made={made} />
       </div>
       <Viewer3D
         preview={preview}
