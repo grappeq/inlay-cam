@@ -43,7 +43,7 @@ responsibility.
 | `crates/inlay-wasm` | WebAssembly wrapper around the core |
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
-| `docs` | [User guide](docs/guide.md) and [file formats](docs/formats.md); `docs/design` holds the original [requirements](docs/design/requirements.md) and [build plan](docs/design/plan.md) |
+| `docs` | [User guide](docs/guide.md) and [file formats](docs/formats.md); what is still to do is in the [roadmap](docs/roadmap.md); `docs/design` holds the original [requirements](docs/design/requirements.md) and the [build plan](docs/design/plan.md), with what was done and why |
 | `tools` | The script that writes the test drawings |
 
 ## Building

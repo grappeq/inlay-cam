@@ -124,6 +124,9 @@ Second round, the same day:
 
 ## Out of scope for v1 (future)
 
+The list as it was written. What of it is still to do is kept in
+[../roadmap.md](../roadmap.md).
+
 - A curated list of default tools that can be loaded into the app's tool list: common end
   mills and V-bits with sensible cutting settings for hardwood and softwood, so that a new
   user does not start from an empty list. Asked for by the user on 2026-11-15, to be done

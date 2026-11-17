@@ -1,0 +1,110 @@
+# Roadmap
+
+What is still to do, in one place. An item leaves this list when it is done; what was done,
+and why it was done that way, is in [design/plan.md](design/plan.md).
+
+Within a section the order is the order to take things in, where there is one.
+
+## Joining with the tooling library
+
+The app is taking over the work of the tooling library, a separate Python program. Three
+of five phases are done: one tool model, the feeds model with the tool sheet, and the
+libraries for other programs.
+
+**To check with the real programs**
+
+- Import the libraries the app writes into Makera CAM, Makera Studio and Fusion 360. They
+  match the tooling library's output byte for byte for a made-up list, but have not been
+  opened in the programs themselves.
+- Run a real, full-size tool list through the list, the sheet and the writers. Everything
+  so far was checked with made-up lists of about ten tools.
+
+**Phase 4: a server**
+
+- The same build served with one shared tool file, so that the list is no longer kept in
+  one browser.
+- An HTTP API for agents, with writes checked by a token, and backups.
+- Then the Python repository is archived.
+
+**Phase 5: what only the joined app can do**
+
+- Log a run from a project's files: which cutting rows ran, and for how long.
+- Hours in cut per row, and wear from simulated time.
+- A calibration coupon per bit and material: one shape cut at several allowances, with
+  the results kept.
+- A starter set of tools, so that a new user does not begin with an empty list: common
+  end mills and V-bits with settings for hardwood and softwood. To decide: which tools,
+  whether the set comes with the app or is fetched, and how it merges with tools already
+  there.
+
+**Left over from the phases that are done**
+
+- Suggestions while reading a tool's sheet. They show only while it is edited.
+- A check, while a name is typed by hand, for letters Makera CAM cannot read. Only the
+  suggested name is checked.
+- Makera CAM's material thumbnails. A tool list holds none, so materials are written
+  without them.
+- The Fusion 360 libraries by group as one `.zip`. They are saved as separate files.
+- File names for those libraries with look-alike letters folded, as Unicode's NFKC does.
+- A `.tlslibrary` dropped on the window. It can only be picked from the menu.
+- A warning when a corner-rounding bit's radius is not what its body and tip diameters
+  give, since a `tools.yaml` keeps the diameters only.
+- A `tools.yaml` written here does not load in the tooling library when a material has
+  no record in either Makera app. To decide: warn on export, or leave such rows out.
+
+## Operations and cutting settings
+
+- **Profiles that come with the app**, each the default for the operations it suits: a
+  face finishing profile for Facing, say. A new operation then starts on its profile's
+  row where the tool has one.
+- **A profile chosen for each of an operation's bits.** Today a bit's row can be picked
+  only where the bit already has rows on profiles for the material (`RowPicker`, kept in
+  a job's `rowProfiles`). This is to be a plain choice for every bit of every operation.
+- **Cutting settings shown in the operation**: the numbers it will run with, able to be
+  overridden there for that operation alone.
+- **Pass direction for pockets.** For a pocket cleared side to side, the same choice of
+  which way the passes run as Facing has: the longer side, X or Y.
+- **The chamfer's depth offset** as a setting. It is fixed in the code.
+- **Other fixed numbers.** Look through the core for them and decide for each whether it
+  should be a setting: the list first, then what to do about each.
+
+## The screens
+
+- **Text that explains how things work.** Go through the app, find the blocks of it, and
+  get rid of them: by a screen that needs no explaining, or by one shared way of showing
+  help on demand. A tooltip with a small picture of the thing (what "plunge from" is,
+  what a tab is, what stepover means on a V-bit) would say more than bare text. The
+  Settings pages keep one line per setting and put the rest in the `title` of a column
+  heading, which is a stopgap. Facing and chamfer already show their options as pictures.
+- **A design pass over the Design tab**, which has not had what the Tools and Settings
+  tabs got. Known from testing: at 800 px wide the drawing is small beside the panel.
+- **Whether "Cancel" on a tool's sheet should ask** before it drops changes. It does not.
+- **Undo after deleting a shape that an inlay used**, with the inlay changed since: the
+  code keeps the inlay's present settings, but this has not been tried in the app.
+
+## Documentation
+
+- Clean up the docs, and add screenshots to the README.
+
+## Toolpaths and checks
+
+Recorded as limits when version 1 was finished, and not looked at again since.
+
+- Holder collisions and Z travel are not checked: a tool's stick-out is not known.
+- Inserts are not packed to save wood.
+- DXF blocks and binary DXF are not read.
+- The simulation uses one grid of about 2 million cells. Tiles, and a finer pass over a
+  chosen region, were planned and not built.
+- Tapered ball-nose bits for deep, steep-walled V inlays.
+
+## Further out
+
+From the original requirements' list of what version 1 would not do.
+
+- Uploading jobs to the machine over WiFi or USB.
+- Output for other controllers: GRBL, LinuxCNC, Mach.
+- A Carvera's tool rack: tool numbers T1 to T6 mapped to its slots. Today the first tool
+  number can be set, and that is all.
+- Drawing in the app, and text (fonts to outlines).
+- Sequenced work in several colours: an inlay into an inlay, flattening again between
+  colours, boundaries shared by two inlay woods.

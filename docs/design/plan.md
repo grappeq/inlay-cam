@@ -759,28 +759,23 @@ The second step of joining with `cnc-tooling-library`: its feeds model and its t
   not the tooling library's ruler; no drawing of the cutter; the suggestions are for a
   Carvera Air and say nothing of the machine set in the app; nothing here has been cut.
 
-### What remains of joining with the tooling library (kept current)
+### Joining with the tooling library: the phases
 
-The phases of the join, and where each stands. Update this list whenever one moves.
+The phases of the join, and what was done in each. What is still to do, of this and of
+everything else, is in [../roadmap.md](../roadmap.md): an item is moved from there to here
+when it is done.
 
 1. **One tool model.** Done.
-2. **Feeds model and tool sheet.** Done in function. Open: parity with the workbench's tool
-   list and sheet, tracked below.
+2. **Feeds model and tool sheet.** Done, with the workbench's tool list and sheet matched
+   as told below.
 3. **Libraries for other programs.** Done on 2026-11-17. `export/makera.rs` and
    `export/fusion.rs` write what the tooling library's generators write for the same
    tools, byte for byte, with its warnings; `import/makera.rs` reads an app's export and
-   offers its differences to tick. Left out on purpose or for later: Makera CAM's
-   material thumbnails (a tool list has none; the workbench copies them from an export);
-   the Fusion libraries by group as one `.zip` (they are saved as separate files); file
-   names for those with letters folded as Unicode's NFKC does; dropping a `.tlslibrary`
-   on the window. Not tried: importing the written files into the real apps, which needs
-   the apps. The fixtures were made by running the tooling library's own generators on
-   the made-up list; the script that does so is not in this repository yet.
-4. **A server.** Not started. The same build served with one shared tool file, the HTTP API
-   for agents, token-checked writes, backups. Then the Python repository is archived.
-5. **What only the joined app can do.** Not started. Logging a run from a project's files
-   (which rows ran, for how long), hours in cut per row, wear from simulated time, a
-   calibration coupon per bit and material, a starter set of tools.
+   offers its differences to tick. The fixtures were made by running the tooling
+   library's own generators on the made-up list; the scripts that do so are kept with the
+   tooling library (`scripts/inlay_cam_*.py`), since they need its code.
+4. **A server.** Not started.
+5. **What only the joined app can do.** Not started.
 
 Parity with the workbench, reached on 2026-11-16: the list's search, chips with "only"
 and "hide", four sort orders and the Needs attention kinds (`toolFind.ts`, ported with its
@@ -811,13 +806,6 @@ Reached on 2026-11-17:
 - The Settings pages, redone as a list of four beside the page picked, each setting on
   one line with what it does beside it.
 
-Parity with the workbench, not yet there:
-
-- Suggestions while reading a sheet: they show only while it is edited, as in the
-  workbench.
-- The name check against Makera CAM's unreadable letters when a name is typed by hand
-  (the suggested name is checked).
-
 Found by testing on 2026-11-17, and since done:
 
 - "Generate" is off, with the reason under it, while a tool of the job has no cutting
@@ -835,18 +823,5 @@ Found by testing on 2026-11-17, and since done:
 - The tools list is as it was left when another tab was visited.
 - 300 lines of rules for replaced screens are out of `app.css`.
 
-Still open from that round: undo after deleting a shape that an inlay used, with the
-inlay changed since, has not been tried in the app. A tool's sheet does not ask before
-"Cancel" drops changes.
-
-Saved for later, asked for on 2026-11-16:
-
-- Go through the app, find the blocks of text that describe how things work, and get rid
-  of them: by a screen that needs no explaining, or by one shared way of showing help on
-  demand. A tooltip with a small picture of the thing (what "plunge from" is, what a tab
-  is, what stepover means on a V-bit) would say more than bare text. The Settings pages
-  now keep one line per setting and put the rest in the `title` of a column heading,
-  which is a stopgap, not that design.
-
-- A design pass over the Design tab, which the Tools redesign has not touched beyond the
-  arrange bar's reference point and facing's direction.
+Facing and chamfer show their options as small pictures to pick from, in place of
+dropdowns, and so does a pocket's path (2026-11-17, `PictureChoice.tsx`).

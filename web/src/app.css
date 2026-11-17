@@ -3397,3 +3397,97 @@ ul.plain {
   padding: 0;
   list-style: none;
 }
+
+/* A choice shown as small pictures of what each option does. */
+.pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.picture {
+  flex: 1 1 78px;
+  max-width: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 6px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+.picture:hover {
+  border-color: var(--accent);
+}
+.picture[aria-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.picture svg {
+  width: 100%;
+  max-width: 84px;
+  height: auto;
+}
+.pic-area {
+  fill: var(--surface-2);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+.pic-path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.picture[aria-checked="true"] .pic-path {
+  stroke: var(--accent);
+}
+.pic-axis {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.pic-axis.fill {
+  fill: var(--muted);
+  stroke: none;
+}
+.pic-text {
+  font-size: 8px;
+  font-weight: 600;
+  fill: var(--muted);
+}
+/* Wood is filled; what was cut away is an empty, dashed outline; the bevel is the band along the edge. */
+.pic-wood {
+  fill: #d9b98a;
+  stroke: #9a7a4c;
+  stroke-width: 1;
+}
+.pic-cut {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.pic-cut.solid {
+  fill: var(--surface);
+  stroke: #9a7a4c;
+  stroke-dasharray: none;
+}
+.pic-bevel {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2.2;
+  opacity: 0.75;
+}
+.picture[aria-checked="true"] .pic-bevel {
+  stroke: var(--accent);
+  opacity: 1;
+}

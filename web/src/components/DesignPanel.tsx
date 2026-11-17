@@ -32,6 +32,7 @@ import { InlayDiagram } from "./InlayDiagram";
 import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
+import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, StockFile, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 
@@ -472,13 +473,16 @@ function OpEditor({ job }: { job: Job }) {
           )}
           {inlay.type === "chamfer" && (
             <>
-              <label className="field">
-                <span className="field-label">The edge to bevel</span>
-                <select value={inlay.side} onChange={(e) => setInlay({ side: e.target.value as "outside" | "inside" })}>
-                  <option value="outside">Round the shapes: the wood outside them has been cut away</option>
-                  <option value="inside">Inside the shapes: they are pockets or openings</option>
-                </select>
-              </label>
+              <PictureChoice
+                label="The edge to bevel"
+                value={inlay.side}
+                onChange={(side) => setInlay({ side })}
+                options={[
+                  { value: "outside", label: "Round the shapes", picture: CHAMFER_PICTURES.outside },
+                  { value: "inside", label: "Inside the shapes", picture: CHAMFER_PICTURES.inside },
+                ]}
+                hint={inlay.side === "outside" ? "The shapes stand: the wood outside them has been cut away." : "The shapes are pockets or openings."}
+              />
               {resolveTool(inlay.toolId, tools, project)?.kind !== "corner_round" && (
                 <div className="row">
                   <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && setInlay({ width: v })} />
@@ -590,28 +594,36 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
   const along = direction === "x" ? "left and right, along X" : direction === "y" ? "to and from the front, along Y" : "along the longer side";
   return (
     <>
-      <label className="field">
-        <span className="field-label">The tool's path</span>
-        <select value={value} onChange={(e) => props.onChange(e.target.value as Pattern)}>
-          <option value="raster">Side to side, in straight passes</option>
-          <option value="offset">In rings that follow the outline</option>
-        </select>
-        <span className="hint">
-          {value === "raster"
+      <PictureChoice
+        label="The tool's path"
+        value={value}
+        onChange={props.onChange}
+        options={[
+          { value: "raster", label: "Side to side", picture: PATTERN_PICTURES.raster },
+          { value: "offset", label: "In rings", picture: PATTERN_PICTURES.offset },
+        ]}
+        hint={
+          value === "raster"
             ? `Straight passes ${along}, back and forth${walls ? ", then once round the walls at each depth to clean them" : ""}.`
-            : "Rings from the middle outwards, the last one along the edge."}
-        </span>
-      </label>
+            : "Rings from the middle outwards, the last one along the edge."
+        }
+      />
       {props.onDirection && value === "raster" && (
-        <label className="field">
-          <span className="field-label">The passes run</span>
-          <select value={direction} onChange={(e) => props.onDirection?.(e.target.value === "longer" ? undefined : (e.target.value as PassDirection))}>
-            <option value="longer">Along the longer side</option>
-            <option value="x">Left and right (along X)</option>
-            <option value="y">To and from the front (along Y)</option>
-          </select>
-          <span className="hint">{direction === "longer" ? "The fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side." : `Cleanest when the grain runs ${direction === "x" ? "left to right" : "front to back"}.`}</span>
-        </label>
+        <PictureChoice
+          label="The passes run"
+          value={direction}
+          onChange={(next) => props.onDirection?.(next === "longer" ? undefined : next)}
+          options={[
+            { value: "longer", label: "Longer side", picture: DIRECTION_PICTURES.longer },
+            { value: "x", label: "Along X", picture: DIRECTION_PICTURES.x },
+            { value: "y", label: "Along Y", picture: DIRECTION_PICTURES.y },
+          ]}
+          hint={
+            direction === "longer"
+              ? "Along whichever side of the area is longer: the fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side."
+              : `${direction === "x" ? "Left and right" : "To and from the front"}. Cleanest when the grain runs ${direction === "x" ? "left to right" : "front to back"}.`
+          }
+        />
       )}
     </>
   );
