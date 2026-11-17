@@ -520,9 +520,10 @@ click adds a shape to it or takes it away.
 ### Trimming a plug flush
 
 An inlay with a plug on a backer (a V-carve inlay, or a flat inlay made as "One plug")
-has **After the glue-up** in its panel, with "Add a facing to trim the plug flush". It
-adds a facing to the list as an operation of its own, named "Trim" and the inlay's name,
-over the inlay's shapes and in its wood, and opens it:
+has "Add a facing to trim the plug flush" under **The glue-up, and after it** in its
+panel. It adds a facing to the list as an operation of its own, named "Trim" and the
+inlay's name, over the inlay's shapes and in its wood, and opens it. It goes in after the
+inlay's glue-up when the list has one, else at the end:
 
 - *Wood above the surface* is how far the plug stands above the stock once glued in: the
   whole backer. If you saw the backer off first, type what is left standing instead.
@@ -538,8 +539,49 @@ A facing made by hand over an inlay's shapes does the same: its panel says how f
 plug stands above the surface and offers to fill in the fields.
 
 The file starts cutting at that height and travels above it. Z0 is still the stock's
-surface, so set it beside the plug, not on it. The 3D view shows the stock only, not the
-wood standing on it.
+surface, so set it beside the plug, not on it. The 3D view of the file alone shows the
+stock only, not the wood standing on it; "The stock, step by step" shows the plug too.
+
+### The glue-up as a step
+
+Gluing a plug or inserts in is done by hand, and has no file. It can still be a line of
+the list: every inlay has "Add the glue-up as a step" under **The glue-up, and after it**
+in its panel. The step goes in right after the inlay, drawn with a dashed edge and without
+a tick box, since it goes into no file.
+
+Its place in the list is what it says. The lines above it find the stock without the plug;
+the lines below it find the plug on the stock. Drag it like any other line. Deleting an
+inlay deletes its glue-up with it.
+
+### The stock, step by step
+
+Each file on its own is simulated on a fresh board. **Show the stock in 3D**, under the
+list, takes one board through the whole list instead, from top to bottom: each inlay's
+pocket and each operation cuts the board as the line before left it, and a glue-up puts
+the plug or the inserts on it, in their wood.
+
+Above the 3D view is the list again, as a row of buttons with a slider: pick a line to see
+the stock after it, or step through with the arrows. The view keeps its angle while you
+step. "Show tool path" draws the path of the line that is shown.
+
+- A plug is put where the fit check puts it: turned over and lowered until it touches.
+  The line under the buttons says how far it stands above the surface, and how much
+  higher than designed it rests when that is more than a hair. Loose inserts rest on the
+  floor of their pockets.
+- Wood that is glued in is cut like the stock's own. A facing after the glue-up leaves the
+  inlay flush, in its own colour; a pocket cut into a glued-in plug is an inlay in an
+  inlay, and where it goes deeper than the plug, the stock's wood shows again.
+- A line that cannot be made says why and leaves the board as it was; the lines after it
+  go on from there.
+- A line whose file runs into wood it did not expect is marked with "!": an operation put
+  before the facing that trims a plug travels through the plug, and the simulation says
+  so with the G-code line.
+
+The panel lists the lines worth a look. After a change to the project, work it out again.
+
+The backer of a plug is drawn solid down to the stock, though it stands off it by the saw
+gap. The files are the same ones the lines make on their own: nothing is recalculated for
+the wood that is on the stock.
 
 ### One file for the stock
 
@@ -632,7 +674,8 @@ app comes with no warranty: what a file does on your machine is your responsibil
   them ever goes below the board's surface. It does not check the tool holder against
   clamps, or the machine's Z travel.
 - It does not pack inserts to save wood.
-- It does not simulate wood standing above the stock's surface, such as a glued-in plug.
+- A file's own 3D view does not show wood standing above the stock's surface, such as a
+  glued-in plug. "The stock, step by step" does, once the glue-up is a step of the list.
 - It does not snap or align shapes, so a second drawing is placed by eye or by typed
   position.
 - It draws rectangles, ellipses and polygons, and nothing freer: no pen, no

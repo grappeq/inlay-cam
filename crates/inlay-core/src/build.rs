@@ -50,6 +50,7 @@ fn part_name(part: Part, inlay: &Inlay) -> &'static str {
         (_, Inlay::Facing { .. }) => "facing",
         (_, Inlay::Contour { .. }) => "contour",
         (_, Inlay::Chamfer { .. }) => "chamfer",
+        (_, Inlay::Glue { .. }) => "glue-up",
     }
 }
 
@@ -119,6 +120,10 @@ pub struct Built {
     /// For a plug: where its blank lies on the base board once turned over.
     #[serde(skip)]
     pub frame: Option<PlugFrame>,
+    /// For loose inserts: where their board's origin lies on the base board.
+    /// They go in the way up they were cut.
+    #[serde(skip)]
+    pub origin: Option<Point>,
     /// For a plug cut out of a larger board: the plug itself on that board,
     /// as `[x0, y0, x1, y1]`.
     pub piece: Option<[f64; 4]>,
@@ -183,6 +188,12 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         .iter()
         .find(|j| j.id == job_id)
         .ok_or_else(|| vec!["This inlay no longer exists.".to_string()])?;
+    if job.inlay.is_by_hand() {
+        return Err(vec![format!(
+            "\"{}\" is done by hand: it has no file.",
+            job.name
+        )]);
+    }
     let through_cut = Setup::of(project, job).through_cut;
     let design = project
         .design
@@ -205,7 +216,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             project.base.thickness,
         ),
         // Worked out from the V-bit once it is known.
-        (_, Inlay::Chamfer { .. }) => (0.0, project.base.thickness),
+        (_, Inlay::Chamfer { .. } | Inlay::Glue { .. }) => (0.0, project.base.thickness),
         (Part::Pocket, Inlay::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
         (
             Part::Pocket,
@@ -315,6 +326,8 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ));
     }
     let cut = match (part, &job.inlay) {
+        // Turned away above.
+        (_, Inlay::Glue { .. }) => None,
         (
             _,
             Inlay::Pocket {
@@ -516,6 +529,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     };
     let pocket = cut.pocket;
     let frame = cut.frame;
+    let origin = cut.origin;
     let flat_fit = cut.flat_fit;
     let cuttable = cut.cuttable;
     let through = cut.through;
@@ -561,6 +575,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         cuttable,
         flat_fit,
         frame,
+        origin,
         piece,
         cut_width,
         shapes,
@@ -680,6 +695,8 @@ struct Cut {
     board: Option<(f64, f64)>,
     /// For a plug: where its blank lies on the base board once turned over.
     frame: Option<PlugFrame>,
+    /// For loose inserts: where their board's origin lies on the base board.
+    origin: Option<Point>,
     flat_fit: Option<FlatFit>,
     cuttable: Vec<Vec<Point>>,
     /// How far below the board's bottom the moves cut on purpose.
@@ -1351,6 +1368,7 @@ fn flat_insert(
         moves: path.finish(),
         pocket: parts,
         board: Some((width, height)),
+        origin: Some([x0 - insert.margin, y0 - insert.margin]),
         flat_fit: Some(fit),
         cuttable: outlines(&shapes.cuttable),
         through: setup.through_cut,
@@ -1499,6 +1517,10 @@ fn flat_backer(
         moves: path.finish(),
         pocket: standing,
         board: Some((width, height)),
+        frame: Some(PlugFrame {
+            mirror_x: x1 + insert.margin,
+            offset_y: y0 - insert.margin,
+        }),
         flat_fit: Some(fit),
         cuttable: outlines(&shapes.cuttable),
         overrun: if cut_out { overrun } else { 0.0 },
@@ -2599,6 +2621,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
         cuttable: parts.iter().flat_map(|(_, b)| b.cuttable.clone()).collect(),
         flat_fit: None,
         frame: None,
+        origin: None,
         piece: None,
         cut_width: None,
         shapes: extent(&pocket),
@@ -2819,14 +2842,14 @@ fn file_stem(name: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::project::{BaseStock, Design, DesignRegion, Job, DEFAULT_TIP_CLEARANCE};
     use crate::tools::fixtures::{end_mill, v_bit};
     use crate::tools::CuttingSettings;
 
     /// A 60 x 40 mm page with a 30 x 20 mm rectangle and an L shape.
-    fn project() -> Project {
+    pub(crate) fn project() -> Project {
         Project {
             id: "p".into(),
             name: "Test board".into(),
@@ -3228,7 +3251,7 @@ mod tests {
 
     /// 2 mm engagement plus 0.3 mm glue gap with the 60 degree bit and the
     /// 3.175 mm end mill.
-    fn vcarve_project(clearing: bool) -> Project {
+    pub(crate) fn vcarve_project(clearing: bool) -> Project {
         let mut p = with_inlay(Inlay::Vcarve {
             engagement_depth: 2.0,
             glue_gap: 0.3,
@@ -4064,7 +4087,7 @@ mod tests {
         assert!(build(&p, "j", Part::Plug).unwrap_err()[0].contains("needs an end mill"));
     }
 
-    fn backer_project() -> Project {
+    pub(crate) fn backer_project() -> Project {
         let mut p = project();
         if let Inlay::Flat { insert_style, .. } = &mut p.jobs[0].inlay {
             *insert_style = InsertStyle::Backer;

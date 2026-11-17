@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutResult, CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutResult, CuttingSettings, Design, GlueStep, Inlay, Job, JobType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -100,6 +100,8 @@ export function defaultInlay(type: JobType): Inlay {
       return { type, side: "outside", depth: null, tabs: true, toolId: null };
     case "chamfer":
       return { type, side: "outside", width: 1, toolId: null };
+    case "glue":
+      return { type, inlayId: "" };
   }
 }
 
@@ -115,11 +117,51 @@ export const JOB_LABELS: Record<JobType, string> = {
   facing: "Facing",
   contour: "Contour",
   chamfer: "Chamfer",
+  glue: "Glue-up",
 };
 
 /** True for an inlay, which has a second part; false for a plain operation on the stock. */
 export function isInlay(inlay: Inlay): inlay is TrueInlay {
   return inlay.type === "vcarve" || inlay.type === "flat";
+}
+
+/** True for a step done by hand, which has no file and no tools. */
+export function isByHand(inlay: Inlay): inlay is GlueStep {
+  return inlay.type === "glue";
+}
+
+/**
+ * The step that glues an inlay's plug or inserts into its pocket. From it
+ * on, the stock has their wood on it for the steps below it in the list.
+ * Null for a plain operation.
+ */
+export function glueStep(owner: Job, existing: Job[]): Job | null {
+  if (!isInlay(owner.inlay)) return null;
+  let name = `Glue in ${owner.name}`;
+  for (let n = 2; existing.some((j) => j.name === name); n++) name = `Glue in ${owner.name} ${n}`;
+  return { id: newId(), name, material: owner.material, regionIds: [], inlay: { type: "glue", inlayId: owner.id } };
+}
+
+/** The step that glues this inlay in, if the list has one. */
+export function glueOf(owner: Job, jobs: Job[]): Job | undefined {
+  return jobs.find((j) => j.inlay.type === "glue" && j.inlay.inlayId === owner.id);
+}
+
+/** The list without a job, and without the glue-up of an inlay that is gone. */
+export function withoutJob(jobs: Job[], id: string): Job[] {
+  return withoutOrphans(jobs.filter((j) => j.id !== id));
+}
+
+/** The list without glue-ups whose inlay is not in it. The same list when there are none. */
+export function withoutOrphans(jobs: Job[]): Job[] {
+  const kept = jobs.filter((j) => j.inlay.type !== "glue" || jobs.some((other) => other.id === (j.inlay as GlueStep).inlayId && isInlay(other.inlay)));
+  return kept.length === jobs.length ? jobs : kept;
+}
+
+/** The list with a job put in right after another, or at the end when that one is not there. */
+export function insertAfter(jobs: Job[], afterId: string | undefined, job: Job): Job[] {
+  const at = jobs.findIndex((j) => j.id === afterId);
+  return at < 0 ? [...jobs, job] : [...jobs.slice(0, at + 1), job, ...jobs.slice(at + 1)];
 }
 
 /** Woods to colour an inlay or the stock with, light to dark. */
@@ -210,7 +252,9 @@ export function jobToolIds(job: Job): string[] {
       ? [...inlay.clearingToolIds, inlay.vbitToolId]
       : inlay.type === "flat" || inlay.type === "pocket"
         ? [...inlay.clearingToolIds]
-        : [inlay.toolId];
+        : inlay.type === "glue"
+          ? []
+          : [inlay.toolId];
   if (job.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(job.cutOutToolId);
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
@@ -229,7 +273,7 @@ export function cutOutDepth(job: Job, project: Project): number {
 /** What has to be chosen before a job's files can be made, or null when nothing is missing. */
 export function missingFor(job: Job): string | null {
   const inlay = job.inlay;
-  if (job.regionIds.length === 0 && inlay.type !== "facing") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
+  if (job.regionIds.length === 0 && inlay.type !== "facing" && inlay.type !== "glue") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
   switch (inlay.type) {
     case "vcarve":
       return inlay.vbitToolId === null ? "Choose a V-bit first, under Wood and tools." : null;
@@ -243,6 +287,8 @@ export function missingFor(job: Job): string | null {
       return inlay.toolId === null ? "Choose an end mill first." : inlay.above + inlay.depth <= 0 ? "Give the wood above the surface, a depth below it, or both." : null;
     case "contour":
       return inlay.toolId === null ? "Choose an end mill first." : null;
+    case "glue":
+      return null;
   }
 }
 

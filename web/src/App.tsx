@@ -7,6 +7,7 @@ import { Header } from "./components/Header";
 import { partName } from "./components/OutputPanel";
 import { isInlay, jobColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
+import { TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
@@ -56,7 +57,7 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, combined, stage, activeJobId, arranging } = useApp();
+  const { project, output, combined, timeline, stage, activeJobId, arranging } = useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
@@ -68,38 +69,46 @@ function DesignView() {
   // The one file for the stock is looked at from the list, with no inlay or operation open.
   const whole = !job ? (combined?.preview ?? null) : null;
   // Fall back to the drawing when what was asked for is not there (any more).
+  const steps = timeline?.result ?? null;
   const shown: Stage =
-    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "stock" && whole) ? stage : "drawing";
+    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "stock" && whole) || (stage === "timeline" && steps)
+      ? stage
+      : "drawing";
   const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : shown === "stock" ? whole : null;
   const wood = stockColor(project);
   const plugWood = job && isInlay(job.inlay) ? jobColor(job, project.jobs) : wood;
   const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
   const marks = pocket ?? plug;
-  const tab = (to: Stage, label: string) => (
-    <button aria-pressed={shown === to} onClick={() => dispatch({ type: "setStage", stage: to })}>
-      {label}
-    </button>
-  );
+  // What there is to look at, besides the drawing.
+  const tabs: [Stage, string][] = [["drawing", "Drawing"]];
+  if (job && pocket) tabs.push(["pocket", `${capital(partName("pocket", job))} in 3D`]);
+  if (job && plug) tabs.push(["plug", `${capital(partName("plug", job))} in 3D`]);
+  if (fit) tabs.push(["fit", "Fit"]);
+  if (whole) tabs.push(["stock", "File for the stock in 3D"]);
+  if (steps) tabs.push(["timeline", "Stock, step by step"]);
+  const show = (to: Stage) => {
+    // From an inlay or operation, the stock is shown as that one leaves it.
+    const at = to === "timeline" && job && steps ? steps.steps.findIndex((s) => s.jobId === job.id) : -1;
+    if (at >= 0) dispatch({ type: "setTimelineAt", at: at + 1 });
+    dispatch({ type: "setStage", stage: to });
+  };
 
   return (
     <div className="design-view">
       <main className="stage">
-        {job && mine && (pocket || plug) && (
+        {tabs.length > 1 && (
           <nav className="tabs stage-tabs" aria-label="What to look at">
-            {tab("drawing", "Drawing")}
-            {pocket && tab("pocket", `${capital(partName("pocket", job))} in 3D`)}
-            {plug && tab("plug", `${capital(partName("plug", job))} in 3D`)}
-            {fit && tab("fit", "Fit")}
-          </nav>
-        )}
-        {whole && (
-          <nav className="tabs stage-tabs" aria-label="What to look at">
-            {tab("drawing", "Drawing")}
-            {tab("stock", "File for the stock in 3D")}
+            {tabs.map(([to, label]) => (
+              <button key={to} aria-pressed={shown === to} onClick={() => show(to)}>
+                {label}
+              </button>
+            ))}
           </nav>
         )}
         {shown === "fit" && fit ? (
           <FitView fit={fit} baseColor={wood} plugColor={plugWood} />
+        ) : shown === "timeline" && timeline && steps ? (
+          <TimelineView timeline={timeline} result={steps} />
         ) : preview ? (
           <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
         ) : (

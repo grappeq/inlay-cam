@@ -308,6 +308,18 @@ pub fn simulate(
     cell: f64,
 ) -> Simulation {
     let mut map = HeightMap::new(width, height, cell);
+    let problems = simulate_onto(&mut map, program, tools, thickness);
+    Simulation { map, problems }
+}
+
+/// Cuts a block as it already is with an interpreted program: one that was
+/// cut before, or has wood standing on it. Returns the problems found.
+pub fn simulate_onto(
+    map: &mut HeightMap,
+    program: &Interpreted,
+    tools: &HashMap<u32, Tool>,
+    thickness: f64,
+) -> Vec<SimProblem> {
     let mut problems: Vec<SimProblem> = Vec::new();
     // One report per line and kind is enough to find the cause.
     let mut report = |line: u32, message: String| {
@@ -362,7 +374,7 @@ pub fn simulate(
             report(line, "a rapid move goes through the stock".into());
         }
     }
-    Simulation { map, problems }
+    problems
 }
 
 #[cfg(test)]

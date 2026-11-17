@@ -36,16 +36,30 @@ interface DimensionView {
   labels: { at: THREE.Vector3; text: string; tone?: "x" | "y" | "z" | "quiet" }[];
 }
 
+/** Where the camera was left, kept by whoever shows the view so that it stays there when what is shown changes. */
+export interface KeptCamera {
+  position?: [number, number, number];
+  target?: [number, number, number];
+}
+
 interface Props {
   preview: PocketPreview;
   /** Thickness of the stock, mm, for drawing its sides. */
   thickness: number;
   /** The colour of the wood, as #rrggbb. */
   color?: string;
+  /** Whose wood each cell is in: 0 for the board's own, else an index into `colors`. Without it the board is one wood. */
+  owners?: Uint8Array;
+  /** The colours `owners` points into, as #rrggbb. */
+  colors?: string[];
+  /** Filled in as the camera is moved, and read when the view is set up again. */
+  keepCamera?: KeptCamera;
+  /** The cell size the heights were simulated at, when they were thinned before they got here. */
+  simulatedCell?: number;
 }
 
 /** The simulated stock in 3D, with the tool path as an optional overlay. */
-export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
+export function Viewer3D({ preview, thickness, color = WOOD, owners, colors, keepCamera, simulatedCell }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const pathView = useRef<PathView | null>(null);
   const stockGroup = useRef<THREE.Group | null>(null);
@@ -59,6 +73,9 @@ export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
   const [showRapids, setShowRapids] = useState(true);
   // How many moves of the file are drawn; null for all of them.
   const [upTo, setUpTo] = useState<number | null>(null);
+
+  // Another file's path starts whole.
+  useEffect(() => setUpTo(null), [preview.path]);
 
   const count = preview.path.length / PIECE;
   const shownMoves = upTo === null ? count : Math.min(upTo, count);
@@ -103,6 +120,17 @@ export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
     // Until the user takes the camera, keep the whole board in view at any pane shape.
     let userMoved = false;
     controls.addEventListener("start", () => (userMoved = true));
+    if (keepCamera?.position && keepCamera.target) {
+      camera.position.set(...keepCamera.position);
+      controls.target.set(...keepCamera.target);
+      controls.update();
+      userMoved = true;
+    }
+    controls.addEventListener("change", () => {
+      if (!keepCamera || !userMoved) return;
+      keepCamera.position = camera.position.toArray();
+      keepCamera.target = controls.target.toArray();
+    });
     const frame = () => {
       const vertical = THREE.MathUtils.degToRad(camera.fov) / 2;
       const horizontal = Math.atan(Math.tan(vertical) * camera.aspect);
@@ -112,7 +140,7 @@ export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
       controls.update();
     };
 
-    const stock = buildStock(preview, thickness, color);
+    const stock = buildStock(preview, thickness, color, owners, colors);
     scene.add(stock);
     stockGroup.current = stock;
     const path = buildPath(preview, reach);
@@ -217,7 +245,7 @@ export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
       pathView.current = null;
       stockGroup.current = null;
     };
-  }, [preview, thickness, color]);
+  }, [preview, thickness, color, owners, colors, keepCamera]);
 
   useEffect(() => {
     const path = pathView.current;
@@ -316,7 +344,7 @@ export function Viewer3D({ preview, thickness, color = WOOD }: Props) {
         </div>
       )}
       <p className="viewer-hint muted">
-        Drag to turn, scroll to zoom, right-drag to move. Simulated at {preview.cell} mm per cell from the G-code file.
+        Drag to turn, scroll to zoom, right-drag to move. Simulated at {simulatedCell ?? preview.cell} mm per cell from the G-code file{simulatedCell ? "s" : ""}.
         {showDimensions && " Dimensions are in mm; point at the board to read a position and its depth."}
       </p>
     </div>
@@ -394,11 +422,13 @@ function buildDimensions(preview: PocketPreview, reach: number, ink: string): Di
 }
 
 /** The cut surface plus the four sides of the board. */
-function buildStock(preview: PocketPreview, thickness: number, color: string): THREE.Group {
+function buildStock(preview: PocketPreview, thickness: number, color: string, owners?: Uint8Array, palette?: string[]): THREE.Group {
   // Cut surfaces are drawn darker the deeper they lie; the sides a shade darker than the top.
   const top = new THREE.Color(color);
-  const deep = top.clone().multiplyScalar(0.45);
   const side = top.clone().multiplyScalar(0.82);
+  // Each wood, and the same wood deep in a cut.
+  const woods = (palette && palette.length > 0 ? palette : [color]).map((c, i) => (i === 0 ? top : new THREE.Color(c)));
+  const deeps = woods.map((w) => w.clone().multiplyScalar(0.45));
   const { nx, ny, cell, heights } = preview;
   const step = Math.max(1, Math.ceil(Math.max(nx, ny) / MAX_DISPLAY));
   const dx = Math.ceil(nx / step);
@@ -406,6 +436,7 @@ function buildStock(preview: PocketPreview, thickness: number, color: string): T
 
   // When thinning, keep the deepest cell of each block so narrow cuts stay visible.
   const z = new Float32Array(dx * dy);
+  const wood = new Uint8Array(dx * dy);
   let lowest = 0;
   for (let j = 0; j < dy; j++) {
     for (let i = 0; i < dx; i++) {
@@ -413,7 +444,10 @@ function buildStock(preview: PocketPreview, thickness: number, color: string): T
       for (let jj = j * step; jj < Math.min(ny, (j + 1) * step); jj++) {
         for (let ii = i * step; ii < Math.min(nx, (i + 1) * step); ii++) {
           const h = heights[jj * nx + ii];
-          if (h < min) min = h;
+          if (h < min) {
+            min = h;
+            if (owners) wood[j * dx + i] = owners[jj * nx + ii] < woods.length ? owners[jj * nx + ii] : 0;
+          }
         }
       }
       z[j * dx + i] = min;
@@ -430,7 +464,7 @@ function buildStock(preview: PocketPreview, thickness: number, color: string): T
     for (let i = 0; i < dx; i++) {
       const k = j * dx + i;
       positions.set([xAt(i), yAt(j), z[k]], k * 3);
-      colour.copy(top).lerp(deep, lowest < 0 ? (z[k] / lowest) * 0.85 : 0);
+      colour.copy(woods[wood[k]]).lerp(deeps[wood[k]], lowest < 0 && z[k] < 0 ? (z[k] / lowest) * 0.85 : 0);
       colors.set([colour.r, colour.g, colour.b], k * 3);
     }
   }

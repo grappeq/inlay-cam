@@ -911,3 +911,47 @@ than 0, down to the wood above the surface with the sign turned, so that a plug 
 little proud for sanding. The user proposed the negative depth; a second field for it was
 weighed and left, since one number already says where the cut ends. The check in
 `project.rs` took the place of "0 or more"; files from before read the same.
+
+The glue-up as a step, and the stock step by step (2026-11-17). The user asked to see
+glued-in plugs: a glue operation that adds the plug to the stock in its own colour, a list
+that can be reordered, and a 3D view to step through. What was missing under that: every
+file was simulated on a fresh block, so nothing carried the stock from one line of the
+list to the next, and gluing is the one thing that changes the stock without the machine.
+
+- **The model.** `timeline.rs` holds a `Workpiece`: the height map, plus one body per
+  glue-up (the wood's underside, and the surface it was put on, over a window of the
+  grid) and, per cell, whose wood the surface is in. A cut lowers the surface
+  (`sim::simulate_onto`, the old `simulate` without the fresh block); `settle` then finds
+  the owner of every cell from the last glue-up down, and where a cut went right through
+  a body the surface drops to what lay under it. One height per cell is still enough: a
+  3-axis cut from above sees the top only, and what is under a body is kept with the body.
+- **A glue-up is a job**: `Inlay::Glue { inlay_id }`, a line of the list like the others,
+  so the list is the order the stock goes through and reordering needed nothing new. It
+  has no file (`build` refuses it by name). No new version of the project file: a new
+  `type` is an addition. Renaming `Job` and `Inlay`, which now also hold a step done by
+  hand, is left for a version 2 file.
+- **Seating.** A plug on a backer is turned over and lowered until it touches the stock
+  as it is at that step, by the fit check's rule (seat = highest of surface + cut). It
+  rests where it rests: not pressed to the designed depth, so that a plug held up shows
+  as standing proud. Over 0.25 mm proud the step says so; less is what a tip flat leaves.
+  Loose inserts are rasterised from their outlines and rest on the highest wood under
+  each. For this a flat plug on a backer now has a `frame`, and loose inserts an `origin`,
+  in `Built`.
+- **What comes out.** `timeline(project)` builds each line's stock file, runs it on the
+  one block, and keeps a snapshot after each line: heights and owners thinned to 600
+  cells a side, the way the 3D view thinned them. A line that cannot be built leaves the
+  block as it was and the rest go on. The simulation's own check, "a rapid move goes
+  through the stock", now also finds a file that travels through a glued-in plug.
+- **The screens.** "The stock, step by step" in the panel; a stage tab with the list as
+  buttons and a slider over the 3D view. `Viewer3D` takes owners and colours, and keeps
+  its camera in an object its parent holds, so that stepping does not reset the view. An
+  inlay's "After the glue-up" became "The glue-up, and after it", with the glue-up first.
+- Checked by test: a backer plug glued in and faced flush, with the plug's wood inside
+  the shapes and the stock's around them; a V-carved plug's seat; loose inserts; a pocket
+  cut through a plug into the stock; a glue-up before its pocket, twice, and of an inlay
+  that cannot be built. In the app: a V-carve inlay with glue-up and trim, stepped
+  through.
+
+Not done, and on the roadmap: files from the order of the list in place of the tick
+boxes; the trim's height read from the stock; only the changed line and those after it
+worked out again; the backer's overhang drawn as it is.

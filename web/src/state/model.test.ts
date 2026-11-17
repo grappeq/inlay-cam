@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Job } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf } from "./model";
+import { DEFAULT_SETUP, addDrawing, glueOf, glueStep, insertAfter, isByHand, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutJob, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -127,5 +127,30 @@ describe("jobs", () => {
     expect(trimFacing(flat, [flat], DEFAULT_SETUP)).toBeNull();
     expect(trimFacing(job("vcarve", []), [], DEFAULT_SETUP)).toBeNull();
     expect(trimFacing(job("pocket", [1]), [], DEFAULT_SETUP)).toBeNull();
+  });
+
+  it("makes a glue-up for an inlay, which goes when the inlay goes", () => {
+    const inlay = { ...job("vcarve", [1]), name: "Walnut star" };
+    const pocket = job("pocket", [2], [inlay]);
+    expect(glueStep(pocket, [inlay, pocket])).toBeNull();
+    const glue = glueStep(inlay, [inlay, pocket])!;
+    expect(glue.name).toBe("Glue in Walnut star");
+    expect(glue.inlay).toEqual({ type: "glue", inlayId: inlay.id });
+    expect(isByHand(glue.inlay) && !isInlay(glue.inlay)).toBe(true);
+    // Done by hand: no shapes, no tools, nothing to choose.
+    expect([glue.regionIds, jobToolIds(glue), missingFor(glue)]).toEqual([[], [], null]);
+    expect(regionOwners([inlay, glue]).size).toBe(1);
+
+    // It goes in right after its inlay, and the trim after it.
+    const list = insertAfter([inlay, pocket], inlay.id, glue);
+    expect(list).toEqual([inlay, glue, pocket]);
+    expect(glueOf(inlay, list)).toBe(glue);
+    expect(insertAfter(list, undefined, pocket).length).toBe(4);
+
+    expect(withoutJob(list, pocket.id)).toEqual([inlay, glue]);
+    expect(withoutJob(list, glue.id)).toEqual([inlay, pocket]);
+    expect(withoutJob(list, inlay.id)).toEqual([pocket]);
+    // A list with nothing orphaned comes back as it is.
+    expect(withoutOrphans(list)).toBe(list);
   });
 });

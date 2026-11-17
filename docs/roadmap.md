@@ -81,6 +81,27 @@ libraries for other programs.
 - **Numbers still kept in two places**, and those left fixed for now with the reason for
   each, are listed in [design/fixed-numbers.md](design/fixed-numbers.md).
 
+## The stock, step by step
+
+The list of inlays and operations is the order the stock goes through, with glue-ups as
+steps done by hand, and the stock can be looked at in 3D after each line. What that makes
+possible, and is not built:
+
+- **Files from the order of the list.** A step done by hand is where the machine stops,
+  so each run of lines between two of them is one file. This would take the place of the
+  tick boxes and "One file for the stock".
+- **The trim reads its height from the stock.** A facing after a glue-up knows how far
+  the plug stands above the surface; today it holds a copy of the inlay's numbers, and
+  its panel offers to set them again after a change.
+- **Only what changed is worked out again.** Every press of the button builds and
+  simulates the whole list. A change to one line leaves the lines above it as they were.
+- **More steps done by hand**: sawing the backer off, which the trim's "wood above the
+  surface" stands in for today.
+- **The backer drawn as it is.** The 3D view draws a plug solid down to the stock; the
+  saw gap under its backer is not shown.
+- **Names in the core.** `Job` and its `inlay` now also hold operations and steps done by
+  hand. Renaming them needs a new version of the project file.
+
 ## The screens
 
 - **Text that explains how things work.** Go through the app, find the blocks of it, and
@@ -133,5 +154,6 @@ From the original requirements' list of what version 1 would not do.
 - Text (fonts to outlines).
 - Snapping and aligning one shape to another. A drawn shape is placed by eye or by typed
   position, like a second drawing.
-- Sequenced work in several colours: an inlay into an inlay, flattening again between
-  colours, boundaries shared by two inlay woods.
+- Sequenced work in several colours. An inlay into an inlay can be put in order and
+  looked at: pocket, glue-up, trim, then the second pocket into the plug. Not built:
+  cutting settings by the wood a cut is in, and boundaries shared by two inlay woods.

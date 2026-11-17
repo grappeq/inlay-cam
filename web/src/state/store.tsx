@@ -3,16 +3,16 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool, ToolLists } from "../core/types";
+import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
 export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
-export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock";
+export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock" | "timeline";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -42,6 +42,10 @@ export interface AppState {
   combine: string[];
   /** The last file generated for several jobs at once. Not saved. */
   combined: Combined | null;
+  /** The stock as it was last taken through the list, step by step. Not saved. */
+  timeline: Timeline | null;
+  /** The point of the list the stock is shown at: 0 for the fresh stock, n for the stock after the nth entry. */
+  timelineAt: number;
   stage: Stage;
   /** The drawing is being edited (the screens' "Edit"): shapes are drawn, and clicks select shapes to move, resize or delete. */
   arranging: boolean;
@@ -80,6 +84,14 @@ export interface Combined {
   errors: string[];
 }
 
+/** The stock taken through the whole list. */
+export interface Timeline {
+  /** The project exactly as it was when this was worked out. */
+  project: Project;
+  result: StockTimeline | null;
+  errors: string[];
+}
+
 export type Action =
   | { type: "loaded"; tools: Tool[]; lists: ToolLists; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
@@ -100,6 +112,8 @@ export type Action =
   | { type: "setStage"; stage: Stage }
   | { type: "setCombine"; ids: string[] }
   | { type: "setCombined"; combined: Combined | null }
+  | { type: "setTimeline"; timeline: Timeline | null }
+  | { type: "setTimelineAt"; at: number }
   /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
   | { type: "addDrawing"; design: Design; replace: boolean }
   | { type: "setArranging"; on: boolean }
@@ -127,6 +141,8 @@ const initial: AppState = {
   output: null,
   combine: [],
   combined: null,
+  timeline: null,
+  timelineAt: 0,
   stage: "drawing",
   arranging: false,
   drawTool: null,
@@ -138,6 +154,9 @@ const initial: AppState = {
 
 /** Keeps the project's copies of the tools and the machine in step with its jobs, the tool list and the machine. */
 function withSnapshots(state: AppState): AppState {
+  // A glue-up goes with its inlay, however the inlay went: deleted, or taken along by a shape or an undo.
+  const jobs = withoutOrphans(state.project.jobs);
+  if (jobs !== state.project.jobs) state = { ...state, project: { ...state.project, jobs } };
   const tools = toolSnapshots(state.project, state.tools);
   const profiles = profileSnapshots(state.project, state.lists);
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -168,6 +187,8 @@ function reducer(state: AppState, action: Action): AppState {
         output: null,
         combine: [],
         combined: null,
+        timeline: null,
+        timelineAt: 0,
         stage: "drawing",
         view: "design",
         arranging: false,
@@ -213,6 +234,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, combine: action.ids };
     case "setCombined":
       return { ...state, combined: action.combined };
+    case "setTimeline":
+      return { ...state, timeline: action.timeline, timelineAt: Math.min(state.timelineAt, action.timeline?.result?.steps.length ?? 0) };
+    case "setTimelineAt":
+      return { ...state, timelineAt: Math.max(0, Math.min(action.at, state.timeline?.result?.steps.length ?? 0)) };
     case "addDrawing": {
       const current = state.project.design;
       if (!current || action.replace) {
@@ -224,6 +249,8 @@ function reducer(state: AppState, action: Action): AppState {
           output: null,
           combine: [],
           combined: null,
+          timeline: null,
+          timelineAt: 0,
           stage: "drawing",
           view: "design",
           arranging: false,
@@ -321,6 +348,8 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   const owner = regionOwners(state.project.jobs).get(id);
   const active = state.project.jobs.find((j) => j.id === state.activeJobId);
 
+  // A step done by hand has no shapes of its own.
+  if (active?.inlay.type === "glue") return state;
   if (active) {
     // A shape is one wood, so one inlay; a plain operation takes any shape.
     if (isInlay(active.inlay) && owner && owner.id !== active.id) {

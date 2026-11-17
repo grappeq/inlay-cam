@@ -349,12 +349,19 @@ export interface ChamferOp {
   toolId: string | null;
 }
 
+/** A step done by hand, with no file: the plug or the inserts of an inlay glued into its pocket. */
+export interface GlueStep {
+  type: "glue";
+  /** The id of the job whose plug or inserts are glued in. */
+  inlayId: string;
+}
+
 /** An inlay proper: a pocket in the stock and the plug or insert that fills it. */
 export type TrueInlay = VcarveInlay | FlatInlay;
 /** A plain operation on the stock: one file, no second part. */
 export type Operation = PocketOp | FacingOp | ContourOp | ChamferOp;
-/** What a job cuts. The name is from when the app made inlays only. */
-export type Inlay = TrueInlay | Operation;
+/** What a job does to the stock. The name is from when the app made inlays only. */
+export type Inlay = TrueInlay | Operation | GlueStep;
 export type JobType = Inlay["type"];
 
 export interface Job {
@@ -569,6 +576,40 @@ export interface PocketPreview {
   heights: Float32Array;
   /** Tool path: x0 y0 z0 x1 y1 z1 rapid tool line, per straight piece, in the order they are cut. */
   path: Float32Array;
+}
+
+/** One entry of the list, as it went when the stock was taken through the list. */
+export interface TimelineStep {
+  jobId: string;
+  /** Done by hand: there is no file. */
+  byHand: boolean;
+  /** The file that was run on the stock. */
+  built: Built | null;
+  /** Problems found while cutting the stock as the steps before left it. */
+  problems: { line: number; message: string }[];
+  /** Why the step could not be done. The stock is then left as it was. */
+  errors: string[];
+  warnings: string[];
+  /** A glue-up: where the part rests, how much higher that is than designed, and how far it stands above the surface, mm. */
+  seat: { height: number; proud: number; above: number } | null;
+  /** The tool path of the file, as in a preview. Empty without a file. */
+  path: Float32Array;
+}
+
+/** The stock taken through every inlay and operation, in the order of the list. */
+export interface StockTimeline {
+  /** The grid the snapshots are on. */
+  cell: number;
+  nx: number;
+  ny: number;
+  /** The cell size the steps were simulated at, mm. */
+  simulatedCell: number;
+  thickness: number;
+  /** The ids of the inlays glued in, in the order of their glue-ups. */
+  glued: string[];
+  steps: TimelineStep[];
+  /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). */
+  snapshots: { heights: Float32Array; owners: Uint8Array }[];
 }
 
 /** A tool list written for Makera CAM or Makera Studio. */

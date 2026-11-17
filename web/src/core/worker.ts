@@ -43,6 +43,19 @@ const api: CoreApi = {
       preview.free();
     }
   },
+  stockTimeline: (project) => {
+    const timeline = wasm.stockTimeline(JSON.stringify(project));
+    try {
+      const info = JSON.parse(timeline.info);
+      return {
+        ...info,
+        steps: info.steps.map((step: object, i: number) => ({ ...step, path: timeline.path(i) })),
+        snapshots: [...Array(info.steps.length + 1).keys()].map((i) => ({ heights: timeline.heights(i), owners: timeline.owners(i) })),
+      };
+    } finally {
+      timeline.free();
+    }
+  },
   checkFit: (project, jobId) => {
     const check = wasm.checkFit(JSON.stringify(project), jobId);
     try {

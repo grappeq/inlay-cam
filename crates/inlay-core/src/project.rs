@@ -560,6 +560,14 @@ pub enum Inlay {
         #[serde(default, alias = "vbitToolId")]
         tool_id: Option<String>,
     },
+    /// A step done by hand, with no file: the plug or the inserts of an
+    /// inlay glued into its pocket. From here on the stock has their wood
+    /// on it, for the steps after it in the list.
+    #[serde(rename_all = "camelCase")]
+    Glue {
+        /// The id of the job whose plug or inserts are glued in.
+        inlay_id: String,
+    },
 }
 
 /// The finer points of a V-carve inlay. Each has a usual value, is left out
@@ -811,7 +819,13 @@ impl Inlay {
             Inlay::Facing { tool_id, .. }
             | Inlay::Contour { tool_id, .. }
             | Inlay::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
+            Inlay::Glue { .. } => Vec::new(),
         }
+    }
+
+    /// True for a step done by hand, which has no file.
+    pub fn is_by_hand(&self) -> bool {
+        matches!(self, Inlay::Glue { .. })
     }
 
     /// True for an inlay, which has a second part; false for a plain
@@ -829,6 +843,8 @@ impl Inlay {
             }
         }
         match *self {
+            // What it refers to is checked with the rest of the project.
+            Inlay::Glue { .. } => Ok(()),
             Inlay::Vcarve {
                 engagement_depth,
                 glue_gap,
@@ -995,6 +1011,14 @@ impl Project {
             }
             if let Some(setup) = &job.setup {
                 setup.validate().map_err(fail)?;
+            }
+            if let Inlay::Glue { inlay_id } = &job.inlay {
+                let glued = self.jobs.iter().find(|other| &other.id == inlay_id);
+                if !glued.is_some_and(|other| other.inlay.is_inlay()) {
+                    return Err(fail(
+                        "it glues in an inlay that is not in the project".into(),
+                    ));
+                }
             }
             if let Some(missing) = job.region_ids.iter().find(|id| !region_ids.contains(id)) {
                 return Err(fail(format!(
@@ -1299,6 +1323,37 @@ mod tests {
         let mut bad = p.clone();
         bad.jobs[0].color = Some("walnut".into());
         assert!(bad.validate().unwrap_err().contains("#rrggbb"));
+    }
+
+    #[test]
+    fn a_glue_up_round_trips_and_must_name_an_inlay() {
+        let mut p = sample();
+        let glue = |of: &str| Job {
+            id: "glue".into(),
+            name: "Glue in Walnut square".into(),
+            material: Material::HARDWOOD,
+            region_ids: vec![],
+            color: None,
+            setup: None,
+            cut_out_tool_id: None,
+            row_profiles: Default::default(),
+            inlay: Inlay::Glue {
+                inlay_id: of.into(),
+            },
+        };
+        p.jobs.insert(1, glue("j1"));
+        let text = project_to_file_json(&p);
+        assert!(text.contains("\"inlayId\": \"j1\""));
+        let read = project_from_file_json(&text).unwrap();
+        assert_eq!(read, p);
+        assert!(read.jobs[1].inlay.is_by_hand() && !read.jobs[1].inlay.is_inlay());
+        assert!(read.jobs[1].tool_ids().is_empty());
+
+        p.jobs[1] = glue("gone");
+        assert!(p.validate().unwrap_err().contains("not in the project"));
+        // A glue-up glues in an inlay, not another glue-up.
+        p.jobs[1] = glue("glue");
+        assert!(p.validate().unwrap_err().contains("not in the project"));
     }
 
     #[test]

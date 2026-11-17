@@ -282,9 +282,10 @@ bottom-left corner. Curves have already been replaced by straight segments no fu
 
 ### Job
 
-One inlay (a pocket and its matching plug or insert), or one plain operation on the stock
-(a pocket, a facing, a contour or a chamfer). The field that says which is called `inlay`
-in both cases, from when the app made inlays only.
+One inlay (a pocket and its matching plug or insert), one plain operation on the stock
+(a pocket, a facing, a contour or a chamfer), or one step done by hand (a glue-up). The
+field that says which is called `inlay` in every case, from when the app made inlays only.
+The order of the jobs is the order the stock goes through them.
 
 | Field | Meaning |
 |---|---|
@@ -396,6 +397,18 @@ is then a quarter circle of that radius, ending level with the surface.
 In the G-code's header a corner-rounding bit is written as Fusion writes one: type
 `radius mill`, with `CR=` its corner radius and `TD=` its tip diameter. Whether the
 Carvera controller draws that type has not been checked.
+
+`inlay` for a glue-up: the plug or the inserts of an inlay glued into its pocket, by hand.
+
+| Field | Meaning |
+|---|---|
+| `type` | `glue` |
+| `inlayId` | The `id` of the job whose plug or inserts are glued in. It must be a V-carve or flat inlay of the project. |
+
+A glue-up has no file, no tools and no regions; its `material` and `setup` mean nothing.
+What it says is its place among the jobs: when the stock is taken through them in order,
+the jobs after it find that wood on the stock. A version of the app from before glue-ups
+refuses a file that has one.
 
 ## SVG import
 

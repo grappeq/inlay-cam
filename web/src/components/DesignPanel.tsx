@@ -16,6 +16,9 @@ import {
   VCARVE_TUNING,
   describeTool,
   fmt,
+  glueOf,
+  glueStep,
+  insertAfter,
   isInlay,
   jobColor,
   jobSetup,
@@ -29,6 +32,7 @@ import {
   trimFacing,
   trimOf,
   usualCutOutTool,
+  withoutJob,
 } from "../state/model";
 import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
@@ -41,6 +45,7 @@ import { NumberField } from "./NumberField";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, StockFile, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
+import { StockSteps } from "./Timeline";
 
 /** A job that is an inlay proper, with a pocket and a plug or insert. */
 type InlayJob = Job & { inlay: TrueInlay };
@@ -59,11 +64,13 @@ export function DesignPanel({ design }: { design: Design }) {
   const active = project.jobs.find((j) => j.id === activeJobId);
 
   if (arranging) return <ArrangePanel design={design} />;
+  if (active?.inlay.type === "glue") return <GlueEditor key={active.id} job={active} />;
   if (active) return isInlay(active.inlay) ? <JobEditor key={active.id} job={active as InlayJob} /> : <OpEditor key={active.id} job={active} />;
   return (
     <aside className="panel" aria-label="Stock, inlays and operations">
       <div className="panel-scroll">
         <JobsSection design={design} />
+        <StockSteps />
         <StockFile />
         <StockSection design={design} report={importReport} />
       </div>
@@ -210,6 +217,7 @@ const OPERATION_HINTS: Record<JobType, string> = {
   contour: "Cuts along the outlines of the shapes: round them, inside them or on them, to a depth or right through.",
   chamfer: "Shapes the top edge along the outlines: bevelled with a V-bit, or rounded over with a corner-rounding (fillet) bit.",
   facing: "Mills an area flat: the whole stock, or the rectangle around the shapes, as when trimming a glued-in plug flush.",
+  glue: "Done by hand, with no file: an inlay's plug or inserts are glued into the pocket. The steps below it in the list find the stock with that wood on it.",
 };
 
 function describeJob(job: Job): string {
@@ -228,7 +236,15 @@ function describeJob(job: Job): string {
       return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}, ${shapes}`;
     case "chamfer":
       return `Chamfer or rounded edge, ${shapes}`;
+    case "glue":
+      return "By hand, no file";
   }
+}
+
+/** The colour of the wood a line of the list is about: an inlay's own, or that of the inlay a glue-up glues in. */
+function woodOf(job: Job, jobs: Job[]): string | undefined {
+  const inlay = job.inlay.type === "glue" ? jobs.find((j) => j.inlay.type !== "glue" && job.inlay.type === "glue" && j.id === job.inlay.inlayId) : job;
+  return inlay && isInlay(inlay.inlay) ? jobColor(inlay, jobs) : undefined;
 }
 
 function JobsSection({ design }: { design: Design }) {
@@ -293,9 +309,14 @@ function JobsSection({ design }: { design: Design }) {
       {project.jobs.length > 0 && (
         <ul className="jobs">
           {project.jobs.map((job, index) => (
-            <li key={job.id} className={several ? "job-row ordered" : "job-row"} {...(several ? sortable.row(index) : {})}>
+            <li
+              key={job.id}
+              className={`job-row${several ? " ordered" : ""}${job.inlay.type === "glue" ? " by-hand" : ""}`}
+              {...(several ? sortable.row(index) : {})}
+            >
               {several && <Grip {...sortable.grip(index, job.name)} />}
-              {several && (
+              {several && job.inlay.type === "glue" && <span className="no-tick" aria-hidden="true" />}
+              {several && job.inlay.type !== "glue" && (
                 <input
                   type="checkbox"
                   checked={combine.includes(job.id)}
@@ -305,7 +326,7 @@ function JobsSection({ design }: { design: Design }) {
                 />
               )}
               <button className="job" onClick={() => dispatch({ type: "setActiveJob", id: job.id })}>
-                <span className="job-icon" style={isInlay(job.inlay) ? { color: jobColor(job, project.jobs) } : undefined}>
+                <span className="job-icon" style={woodOf(job, project.jobs) ? { color: woodOf(job, project.jobs) } : undefined}>
                   <JobSymbol job={job} />
                 </span>
                 <span className="job-name">{job.name}</span>
@@ -389,7 +410,7 @@ function OpEditor({ job }: { job: Job }) {
 
   const remove = () => {
     if (!confirm(`Delete "${job.name}"?`)) return;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: p.jobs.filter((j) => j.id !== job.id) }) });
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
     dispatch({ type: "setActiveJob", id: null });
   };
 
@@ -661,8 +682,17 @@ function TrimOffer({ job }: { job: Job }) {
   const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const part = standingPart(job);
-  if (!part || part.what !== "plug" || !(part.above > 0) || job.regionIds.length === 0) return null;
+  if (!part || job.regionIds.length === 0) return null;
+  const trims = part.what === "plug" && part.above > 0;
   const made = trimOf(job, project.jobs);
+  const glue = glueOf(job, project.jobs);
+
+  const addGlue = () => {
+    const step = glueStep(job, project.jobs);
+    if (!step) return;
+    // Right after the inlay, whose place in the list is where its pocket is cut.
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: insertAfter(p.jobs, job.id, step) }) });
+  };
 
   const add = () => {
     const trim = trimFacing(job, project.jobs, defaults);
@@ -670,15 +700,42 @@ function TrimOffer({ job }: { job: Job }) {
     // Where the tool list leaves no choice of end mill, make it.
     const endMills = tools.filter((t) => t.kind === "flat_end");
     if (endMills.length === 1) trim.inlay.toolId = endMills[0].id;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: [...p.jobs, trim] }) });
+    // After the glue-up when the list has it: the facing cuts what the glue-up put there.
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: insertAfter(p.jobs, glueOf(job, p.jobs)?.id, trim) }) });
     dispatch({ type: "setActiveJob", id: trim.id });
   };
 
   return (
     <section>
-      <h3>After the glue-up</h3>
+      <h3>The glue-up, and after it</h3>
       <p className="hint">
-        Glued in, the plug stands {fmt(round2(part.above))} mm above the stock's surface. A facing mills it down flush, over the plug's blank. It is an operation
+        Gluing the {part.what} in is done by hand. As a step in the list, it tells the steps below it that the {part.what === "plug" ? "plug is" : "inserts are"}{" "}
+        on the stock: "The stock, step by step" then shows {part.what === "plug" ? "it" : "them"} in {part.what === "plug" ? "its" : "their"} wood.
+      </p>
+      {glue ? (
+        <p className="derived">
+          "{glue.name}" is in the list.{" "}
+          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: glue.id })}>
+            Open it
+          </button>
+        </p>
+      ) : (
+        <button type="button" onClick={addGlue}>
+          Add the glue-up as a step
+        </button>
+      )}
+      {trims && <TrimPart job={job} above={part.above} made={made} add={add} />}
+    </section>
+  );
+}
+
+/** The facing that trims a glued-in plug flush: the offer to add it, or the way to the one there is. */
+function TrimPart({ above, made, add }: { job: Job; above: number; made: Job | undefined; add: () => void }) {
+  const dispatch = useDispatch();
+  return (
+    <>
+      <p className="hint after-glue">
+        Glued in, the plug stands {fmt(round2(above))} mm above the stock's surface. A facing mills it down flush, over the plug's blank. It is an operation
         of its own in the list, with a file of its own, to run once the glue has set.
       </p>
       {made ? (
@@ -693,7 +750,76 @@ function TrimOffer({ job }: { job: Job }) {
           Add a facing to trim the plug flush
         </button>
       )}
-    </section>
+    </>
+  );
+}
+
+/** The panel of a glue-up: a step done by hand, which has a name and a place in the list, and nothing to set. */
+function GlueEditor({ job }: { job: Job }) {
+  const { project } = useApp();
+  const dispatch = useDispatch();
+  const inlay = job.inlay.type === "glue" ? project.jobs.find((j) => job.inlay.type === "glue" && j.id === job.inlay.inlayId) : undefined;
+  const part = inlay ? standingPart(inlay) : null;
+  const what = part?.what === "inserts" ? "inserts" : "plug";
+  const back = () => dispatch({ type: "setActiveJob", id: null });
+  const before = inlay !== undefined && project.jobs.indexOf(job) < project.jobs.indexOf(inlay);
+
+  const remove = () => {
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
+    back();
+  };
+
+  return (
+    <aside className="panel" aria-label={`Glue-up ${job.name}`}>
+      <div className="panel-scroll">
+        <section>
+          <div className="editor-head">
+            <button className="link" onClick={back}>
+              ‹ All inlays and operations
+            </button>
+            <span className="tag">
+              <JobIcon type="glue" />
+              Glue-up, by hand
+            </span>
+          </div>
+          <label className="field">
+            <span className="field-label">Name</span>
+            <input type="text" value={job.name} onChange={(e) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, name: e.target.value }) })} />
+          </label>
+          {inlay && (
+            <p className="derived">
+              <span className="swatch" style={{ background: jobColor(inlay, project.jobs) }} /> Glues in the {what} of "{inlay.name}".{" "}
+              <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: inlay.id })}>
+                Open the inlay
+              </button>
+            </p>
+          )}
+        </section>
+        <section>
+          <h3>What this step does</h3>
+          <p className="hint">
+            Nothing is cut and there is no file: the {what} {what === "plug" ? "is" : "are"} glued into the pocket by hand.
+            {part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}
+          </p>
+          <p className="hint">
+            Its place in the list is what counts. The steps above it find the stock without the {what}; the steps below it find the {what} there, to face{" "}
+            {what === "plug" ? "it" : "them"} off, to cut into {what === "plug" ? "it" : "them"}, or to run into {what === "plug" ? "it" : "them"}. Drag it in
+            the list to move it. "The stock, step by step", under the list, shows the stock at every step.
+          </p>
+          {before && (
+            <p className="status-line warn" role="status">
+              This step is above "{inlay?.name}" in the list, so its pocket is not cut yet when the {what} {what === "plug" ? "is" : "are"} glued in. Move it
+              below.
+            </p>
+          )}
+          <div className="row end">
+            <button className="danger" onClick={remove}>
+              Delete step
+            </button>
+          </div>
+        </section>
+      </div>
+    </aside>
   );
 }
 
@@ -838,8 +964,9 @@ function JobEditor({ job }: { job: InlayJob }) {
   const back = () => dispatch({ type: "setActiveJob", id: null });
 
   const remove = () => {
-    if (!confirm(`Delete "${job.name}"? Its shapes become free again.`)) return;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: p.jobs.filter((j) => j.id !== job.id) }) });
+    const glue = glueOf(job, project.jobs);
+    if (!confirm(`Delete "${job.name}"? Its shapes become free again.${glue ? ` "${glue.name}" goes with it.` : ""}`)) return;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
     dispatch({ type: "setActiveJob", id: null });
   };
 

@@ -370,11 +370,7 @@ impl PocketPreview {
     #[wasm_bindgen(getter)]
     pub fn info(&self) -> String {
         let p = &self.preview;
-        let problems: Vec<_> = p
-            .problems
-            .iter()
-            .map(|problem| serde_json::json!({ "line": problem.line, "message": problem.message }))
-            .collect();
+        let problems = problems_json(&p.problems);
         serde_json::json!({
             "built": p.built,
             "problems": problems,
@@ -396,15 +392,110 @@ impl PocketPreview {
     /// 0, tool the tool's number, line the line of the file).
     #[wasm_bindgen(getter)]
     pub fn path(&self) -> Vec<f32> {
-        let mut out = Vec::with_capacity(self.preview.built.interpreted.segments.len() * 9);
-        for s in &self.preview.built.interpreted.segments {
-            out.extend(s.from.iter().chain(s.to.iter()).map(|v| *v as f32));
-            out.push(if s.rapid { 1.0 } else { 0.0 });
-            out.push(s.tool as f32);
-            out.push(s.line as f32);
-        }
-        out
+        path_of(&self.preview.built)
     }
+}
+
+/// A file's tool path as nine numbers per straight piece.
+fn path_of(built: &build::Built) -> Vec<f32> {
+    let mut out = Vec::with_capacity(built.interpreted.segments.len() * 9);
+    for s in &built.interpreted.segments {
+        out.extend(s.from.iter().chain(s.to.iter()).map(|v| *v as f32));
+        out.push(if s.rapid { 1.0 } else { 0.0 });
+        out.push(s.tool as f32);
+        out.push(s.line as f32);
+    }
+    out
+}
+
+fn problems_json(problems: &[inlay_core::sim::SimProblem]) -> Vec<serde_json::Value> {
+    problems
+        .iter()
+        .map(|problem| serde_json::json!({ "line": problem.line, "message": problem.message }))
+        .collect()
+}
+
+/// The stock taken through every inlay and operation of a project, in the
+/// order of the list.
+#[wasm_bindgen]
+pub struct StockTimeline {
+    timeline: inlay_core::timeline::Timeline,
+}
+
+#[wasm_bindgen]
+impl StockTimeline {
+    /// `TimelineInfo` as JSON: the grid, the inlays glued in, and each
+    /// step with its file, problems, errors and seat.
+    #[wasm_bindgen(getter)]
+    pub fn info(&self) -> String {
+        let t = &self.timeline;
+        let steps: Vec<_> = t
+            .steps
+            .iter()
+            .map(|step| {
+                serde_json::json!({
+                    "jobId": step.job_id,
+                    "byHand": step.by_hand,
+                    "built": step.built,
+                    "problems": problems_json(&step.problems),
+                    "errors": step.errors,
+                    "warnings": step.warnings,
+                    "seat": step.seat,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "cell": t.cell,
+            "nx": t.nx,
+            "ny": t.ny,
+            "simulatedCell": t.simulated_cell,
+            "thickness": t.thickness,
+            "glued": t.glued,
+            "steps": steps,
+        })
+        .to_string()
+    }
+
+    /// Stock height per cell at a point of the list: 0 for the fresh
+    /// stock, `n` for the stock after step `n`.
+    pub fn heights(&self, at: usize) -> Vec<f32> {
+        self.timeline
+            .snapshots
+            .get(at)
+            .map(|s| s.heights.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whose wood each cell is in at that point: 0 for the stock's own,
+    /// else the number of a glued-in inlay, counted from 1.
+    pub fn owners(&self, at: usize) -> Vec<u8> {
+        self.timeline
+            .snapshots
+            .get(at)
+            .map(|s| s.owners.clone())
+            .unwrap_or_default()
+    }
+
+    /// The tool path of a step's file, as a preview's path. Empty for a
+    /// step without a file.
+    pub fn path(&self, step: usize) -> Vec<f32> {
+        self.timeline
+            .steps
+            .get(step)
+            .and_then(|s| s.built.as_ref())
+            .map(path_of)
+            .unwrap_or_default()
+    }
+}
+
+/// Takes the stock through every inlay and operation of the project.
+#[wasm_bindgen(js_name = stockTimeline)]
+pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    project.validate().map_err(err)?;
+    inlay_core::timeline::timeline(&project)
+        .map(|timeline| StockTimeline { timeline })
+        .map_err(reasons)
 }
 
 /// Builds the G-code for one part of a job ("pocket" or "plug") and

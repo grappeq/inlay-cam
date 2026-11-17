@@ -75,6 +75,14 @@ const JOB_ICONS: Record<JobType, ReactNode> = {
       <path d="M13.5 12l2.5 2-2.5 2" />
     </>
   ),
+  // In section: the plug, turned over, going down into its pocket.
+  glue: (
+    <>
+      <path d="M1.5 11.5H5l1.5 4h7l1.5-4h3.5V18h-17z" {...WOOD} stroke="none" />
+      <path d="M1.5 11.5H5l1.5 4h7l1.5-4h3.5" />
+      <path d="M4 2.5h12v3h-2.2L12.6 9H7.4L6.2 5.5H4z" fill="currentColor" stroke="none" />
+    </>
+  ),
 };
 
 /** The symbol of a kind of inlay or operation. */

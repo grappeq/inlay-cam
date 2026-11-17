@@ -3515,3 +3515,98 @@ ul.plain {
   stroke: var(--accent);
   opacity: 1;
 }
+
+/* Steps done by hand in the list of inlays and operations */
+.job-row.by-hand .job {
+  border-style: dashed;
+  background: transparent;
+}
+/* Where the other lines have their tick box: a step done by hand goes into no file. */
+.job-row .no-tick {
+  width: 13px;
+  margin: 3px 3px 3px 4px;
+}
+.hint.after-glue {
+  margin-top: 12px;
+}
+
+/* The stock in 3D at a point of the list */
+.timeline-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.timeline {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.timeline .status-line,
+.timeline .callout {
+  margin: 0;
+}
+.timeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.timeline-bar input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+}
+.timeline-bar button {
+  padding: 2px 10px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.timeline-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.timeline-steps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 13px;
+  border-color: var(--line);
+}
+.timeline-steps button.by-hand {
+  border-style: dashed;
+}
+.timeline-steps button[aria-pressed="true"] {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.timeline-steps .job-icon {
+  display: inline-flex;
+}
+.timeline-steps .job-icon:empty {
+  display: none;
+}
+.step-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+}
+.step-mark.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}

@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Attention, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Attention, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -47,6 +47,8 @@ export interface CoreApi {
   previewPart(project: Project, jobId: string, part: Part): PocketPreview;
   /** Builds one file that runs the stock's part of several jobs in the order given, and simulates it. */
   previewCombined(project: Project, jobIds: string[]): PocketPreview;
+  /** Takes the stock through every inlay and operation of the project, in the order of the list. Fails only for a project without a drawing. */
+  stockTimeline(project: Project): StockTimeline;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
   checkFit(project: Project, jobId: string): FitCheck;
 }
