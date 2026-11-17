@@ -22,11 +22,219 @@
     }
   ],
   "kind": "tool-library",
+  "materials": [
+    {
+      "cam": {
+        "id": "{f21c0c55-cc96-4bf9-9237-379192d4e6dc}",
+        "name": "Hardwood"
+      },
+      "key": "hardwood",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-7005-bb47-f5d319afcbb6",
+          "id": "019bfae0-a419-75bf-9d86-d8d4ede8560d",
+          "name": "Hardwood"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{b336c5e0-7a0e-4001-8b04-f8c37e06df64}",
+        "name": "Softwood"
+      },
+      "key": "softwood",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-7005-bb47-f5d319afcbb6",
+          "id": "019bfae0-a419-75bf-9d87-d8d4ede8560d",
+          "name": "Softwood"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{71a05ccc-5728-49aa-aa00-fafdf6b1cbfa}",
+        "name": "Aluminum"
+      },
+      "key": "aluminum",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-74ef-b4ba-f34413e6f231",
+          "id": "019bfae0-a419-7c0b-879e-62ee78df95d4",
+          "name": "6061 Aluminum"
+        },
+        {
+          "categoryId": "019bfadc-e599-74ef-b4ba-f34413e6f231",
+          "id": "019bfae0-a419-7718-88a0-ca1275ef5d9b",
+          "name": "7075 Aluminum"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{50b4e142-fac5-421a-bdcb-cb39a206b7da}",
+        "name": "Brass"
+      },
+      "key": "brass",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-778f-b083-96264c3cddfb",
+          "id": "019bfae0-a419-7bf4-a369-0ab5c069e461",
+          "name": "Brass"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{7ecde88e-8126-4ddd-87c8-5518975b52f3}",
+        "name": "Copper"
+      },
+      "key": "copper",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-778f-b083-96264c3cddfb",
+          "id": "019bfae0-a419-7c73-8ac9-9f8dd472cd90",
+          "name": "Copper"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{1fbb5c7c-3feb-48c2-a2e5-0ddcba47b074}",
+        "name": "Plastic"
+      },
+      "key": "plastic",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-73c8-9e22-fae941e95a46",
+          "id": "019bfae0-a419-7339-884c-0aca2cb477d4",
+          "name": "Acrylic"
+        },
+        {
+          "categoryId": "019bfadc-e599-73c8-9e22-fae941e95a46",
+          "id": "019bfae0-a419-75bf-9d8b-d8d4ede8560d",
+          "name": "ABS"
+        },
+        {
+          "categoryId": "019bfadc-e599-73c8-9e22-fae941e95a46",
+          "id": "019bfae0-a419-76a7-a029-312a03bbf4f2",
+          "name": "Polycarbonate"
+        },
+        {
+          "categoryId": "019bfadc-e599-73c8-9e22-fae941e95a46",
+          "id": "019bfae0-a419-776e-bdca-6914100f0c88",
+          "name": "Delrin"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{91be481b-7c98-4ee3-a2fb-3c52a4021360}",
+        "name": "PCB"
+      },
+      "key": "pcb",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-776d-b16b-b8b7e5a7b4ad",
+          "id": "019bfae0-a419-71af-8eaa-b742dfe827dd",
+          "name": "PCB"
+        }
+      ]
+    },
+    {
+      "cam": {
+        "id": "{ac581aa5-f42c-4e22-9a15-548eea1abf8f}",
+        "name": "Carbon Fiber"
+      },
+      "key": "carbon_fiber",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-7fa7-b723-00cdd0b2c099",
+          "id": "019bfae0-a419-742a-bb4d-91a2988b71af",
+          "name": "Carbon Fiber"
+        }
+      ]
+    },
+    {
+      "key": "bakelite",
+      "studio": [
+        {
+          "categoryId": "019bfadc-e599-7fa7-b723-00cdd0b2c099",
+          "id": "019bfae0-a419-7008-b3f4-02f0e81be272",
+          "name": "Bakelite"
+        }
+      ]
+    }
+  ],
   "tools": [
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.05,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.05,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 3.0,
       "flutes": 1,
@@ -41,7 +249,11 @@
       "number": 4,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -53,7 +265,71 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.05,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.05,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.5,
       "fluteLength": 6.0,
       "flutes": 1,
@@ -68,7 +344,11 @@
       "number": 4,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -80,7 +360,71 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.15,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 8.0,
       "flutes": 1,
@@ -95,7 +439,11 @@
       "number": 4,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -107,7 +455,71 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 2.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 12.0,
       "flutes": 1,
@@ -122,7 +534,11 @@
       "number": 4,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -134,7 +550,38 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.62992,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 3.0,
       "flutes": 1,
@@ -149,7 +596,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -161,7 +609,38 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 0.94488,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.5,
       "fluteLength": 8.0,
       "flutes": 1,
@@ -176,7 +655,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -188,7 +668,38 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 0.5,
+          "stepover": 1.25984,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 12.0,
       "flutes": 1,
@@ -203,7 +714,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -215,7 +727,38 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 2.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 25.0,
       "flutes": 1,
@@ -230,7 +773,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -242,7 +786,38 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 2.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.999996,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 42.0,
       "flutes": 1,
@@ -257,7 +832,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -269,7 +845,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.36,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.36,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 0.6,
       "fluteLength": 3.0,
       "flutes": 2,
@@ -282,6 +877,10 @@
       "length": 38.0,
       "name": "Ø0.6×3 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "0.6mm * 3mm",
@@ -298,7 +897,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.42,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.42,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 0.7,
       "fluteLength": 4.0,
       "flutes": 2,
@@ -311,6 +929,10 @@
       "length": 38.0,
       "name": "Ø0.7×4 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "0.7mm * 4mm",
@@ -327,7 +949,28 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.48,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.48,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 0.8,
       "fluteLength": 5.5,
       "flutes": 2,
@@ -340,6 +983,10 @@
       "length": 38.0,
       "name": "Ø0.8×5.5 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "0.8mm * 5.5mm",
@@ -356,7 +1003,28 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.54,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.54,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 0.9,
       "fluteLength": 6.0,
       "flutes": 2,
@@ -369,6 +1037,10 @@
       "length": 38.0,
       "name": "Ø0.9×6 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "0.9mm * 6mm",
@@ -385,7 +1057,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 7.0,
       "flutes": 2,
@@ -398,6 +1089,10 @@
       "length": 38.0,
       "name": "Ø1×7 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1mm * 7mm",
@@ -414,7 +1109,28 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.66,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.66,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.1,
       "fluteLength": 7.0,
       "flutes": 2,
@@ -427,6 +1143,10 @@
       "length": 38.0,
       "name": "Ø1.1×7 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1.1mm * 7mm",
@@ -443,7 +1163,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.72,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.72,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.2,
       "fluteLength": 7.0,
       "flutes": 2,
@@ -456,6 +1195,10 @@
       "length": 38.0,
       "name": "Ø1.2×7 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1.2mm * 7mm",
@@ -472,7 +1215,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.78,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.78,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.3,
       "fluteLength": 7.5,
       "flutes": 2,
@@ -485,6 +1247,10 @@
       "length": 38.0,
       "name": "Ø1.3×7.5 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1.3mm * 7.5mm",
@@ -501,7 +1267,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.84,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.84,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.4,
       "fluteLength": 7.5,
       "flutes": 2,
@@ -514,6 +1299,10 @@
       "length": 38.0,
       "name": "Ø1.4×7.5 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1.4mm * 7.5mm",
@@ -530,7 +1319,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.5,
       "fluteLength": 8.5,
       "flutes": 2,
@@ -543,6 +1351,10 @@
       "length": 38.0,
       "name": "Ø1.5×8.5 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "1.5mm * 8.5mm",
@@ -559,7 +1371,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 1.2,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 1.2,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 10.5,
       "flutes": 6,
@@ -572,6 +1403,10 @@
       "length": 38.0,
       "name": "Ø2×10.5 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "2mm * 10.5mm",
@@ -582,7 +1417,26 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 1.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 300.0,
+          "rpm": 12000,
+          "stepdown": 0.3,
+          "stepover": 1.8,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.0,
       "fluteLength": 12.0,
       "flutes": 9,
@@ -595,6 +1449,10 @@
       "length": 38.0,
       "name": "Ø3×12 S3.175 Corn",
       "number": 3,
+      "recommendedFor": [
+        "pcb",
+        "carbon_fiber"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "3mm * 12mm",
@@ -605,7 +1463,62 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "brass",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "copper",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 3.0,
       "flutes": 2,
@@ -620,7 +1533,11 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -631,7 +1548,62 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "brass",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "copper",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 6.0,
       "flutes": 2,
@@ -646,7 +1618,11 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -657,7 +1633,62 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "brass",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "copper",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 10.0,
       "flutes": 2,
@@ -672,7 +1703,11 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -683,7 +1718,35 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 4.0,
       "flutes": 2,
@@ -698,7 +1761,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -709,7 +1773,35 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -724,7 +1816,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -735,7 +1828,35 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 500.0,
+          "material": "hardwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "softwood",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 500.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 22.0,
       "flutes": 2,
@@ -750,7 +1871,8 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -761,7 +1883,91 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1200.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 600.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "brass",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "copper",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 500.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 1.54,
       "flutes": 2,
@@ -776,7 +1982,13 @@
       "number": 6,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -789,7 +2001,82 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 2.66,
       "flutes": 1,
@@ -804,7 +2091,12 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -817,7 +2109,82 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 5.55,
       "flutes": 1,
@@ -832,7 +2199,12 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -845,7 +2217,82 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 5.36,
       "flutes": 1,
@@ -860,7 +2307,12 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -873,7 +2325,82 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "aluminum",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.2,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 300.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "camFlag": 1,
+          "feed": 500.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 4.99,
       "flutes": 1,
@@ -888,7 +2415,12 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -901,7 +2433,47 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 240.0,
+          "material": "pcb",
+          "plunge": 72.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 5.55,
       "flutes": 1,
@@ -916,7 +2488,9 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -929,7 +2503,47 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 240.0,
+          "material": "pcb",
+          "plunge": 72.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 5.36,
       "flutes": 1,
@@ -944,7 +2558,9 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -957,7 +2573,47 @@
     {
       "apps": [],
       "coating": "uncoated",
-      "cutting": [],
+      "cutting": [
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 2.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "camExtra": "",
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 500.0,
+          "rpm": 12000,
+          "stepdown": 1.0,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 240.0,
+          "material": "pcb",
+          "plunge": 72.0,
+          "rpm": 12000,
+          "stepdown": 0.1,
+          "stepover": 1.5875,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.175,
       "fluteLength": 4.99,
       "flutes": 1,
@@ -972,7 +2628,9 @@
       "number": 2,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "plastic",
+        "pcb"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -985,7 +2643,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.5,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.0,
       "fluteLength": 10.0,
       "flutes": 2,
@@ -1000,7 +2731,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1012,7 +2749,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.6,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.2,
       "fluteLength": 10.0,
       "flutes": 2,
@@ -1027,7 +2837,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1040,7 +2856,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.65,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.3,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1055,7 +2944,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1068,7 +2963,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.7,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.4,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1083,7 +3051,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1096,7 +3070,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.75,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.5,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1111,7 +3158,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1124,7 +3177,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.8,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.6,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1139,7 +3265,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1152,7 +3284,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.85,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.7,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1167,7 +3372,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1180,7 +3391,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.9,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.8,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1195,7 +3479,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1208,7 +3498,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 0.95,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 1.9,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1223,7 +3586,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1236,7 +3605,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.0,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.0,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1251,7 +3693,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1264,7 +3712,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.05,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.1,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1279,7 +3800,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1292,7 +3819,80 @@
     {
       "apps": [],
       "coating": "TiN",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 1000.0,
+          "material": "hardwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "softwood",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "brass",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "copper",
+          "plunge": 100.0,
+          "rpm": 10000,
+          "stepdown": 0.2,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "plastic",
+          "plunge": 300.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "pcb",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 1000.0,
+          "material": "carbon_fiber",
+          "plunge": 200.0,
+          "rpm": 10000,
+          "stepdown": 1.0,
+          "stepover": 1.5,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.0,
       "fluteLength": 12.0,
       "flutes": 2,
@@ -1307,7 +3907,13 @@
       "number": 1,
       "recommendedFor": [
         "hardwood",
-        "softwood"
+        "softwood",
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "pcb",
+        "carbon_fiber"
       ],
       "shankDiameter": 3.175,
       "source": {
@@ -1320,7 +3926,44 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 58.0,
+          "material": "aluminum",
+          "plunge": 58.0,
+          "rpm": 12000,
+          "stepdown": 0.5,
+          "stepover": 0.242,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 67.0,
+          "material": "brass",
+          "plunge": 67.0,
+          "rpm": 12000,
+          "stepdown": 0.5,
+          "stepover": 0.242,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 50.0,
+          "material": "copper",
+          "plunge": 50.0,
+          "rpm": 12000,
+          "stepdown": 0.5,
+          "stepover": 0.242,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 200.0,
+          "material": "plastic",
+          "plunge": 200.0,
+          "rpm": 12000,
+          "stepdown": 0.5,
+          "stepover": 0.242,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 2.42,
       "drillDiameter": 2.5,
       "fluteLength": 9.0,
@@ -1335,6 +3978,13 @@
       "name": "M3×0.5 Thread Mill 9 reach",
       "number": 1,
       "pitch": 0.5,
+      "recommendedFor": [
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "bakelite"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "M3 (d2.42mm) * 9mm",
@@ -1347,7 +3997,44 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 84.0,
+          "material": "aluminum",
+          "plunge": 84.0,
+          "rpm": 12000,
+          "stepdown": 0.7,
+          "stepover": 0.315,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 96.0,
+          "material": "brass",
+          "plunge": 96.0,
+          "rpm": 12000,
+          "stepdown": 0.7,
+          "stepover": 0.315,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 72.0,
+          "material": "copper",
+          "plunge": 72.0,
+          "rpm": 12000,
+          "stepdown": 0.7,
+          "stepover": 0.315,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 280.0,
+          "material": "plastic",
+          "plunge": 280.0,
+          "rpm": 12000,
+          "stepdown": 0.7,
+          "stepover": 0.315,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 3.15,
       "drillDiameter": 3.3,
       "fluteLength": 12.0,
@@ -1362,6 +4049,13 @@
       "name": "M4×0.7 Thread Mill 12 reach",
       "number": 1,
       "pitch": 0.7,
+      "recommendedFor": [
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "bakelite"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "M4 (d3.15mm) * 12mm",
@@ -1374,7 +4068,44 @@
     {
       "apps": [],
       "coating": "DLC",
-      "cutting": [],
+      "cutting": [
+        {
+          "feed": 100.0,
+          "material": "aluminum",
+          "plunge": 100.0,
+          "rpm": 12000,
+          "stepdown": 0.8,
+          "stepover": 0.4,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 110.0,
+          "material": "brass",
+          "plunge": 110.0,
+          "rpm": 12000,
+          "stepdown": 0.8,
+          "stepover": 0.4,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 86.0,
+          "material": "copper",
+          "plunge": 86.0,
+          "rpm": 12000,
+          "stepdown": 0.8,
+          "stepover": 0.4,
+          "stepoverUnit": "percent"
+        },
+        {
+          "feed": 340.0,
+          "material": "plastic",
+          "plunge": 340.0,
+          "rpm": 12000,
+          "stepdown": 0.8,
+          "stepover": 0.4,
+          "stepoverUnit": "percent"
+        }
+      ],
       "diameter": 4.0,
       "drillDiameter": 4.2,
       "fluteLength": 15.0,
@@ -1389,6 +4120,13 @@
       "name": "M5×0.8 Thread Mill 15 reach",
       "number": 1,
       "pitch": 0.8,
+      "recommendedFor": [
+        "aluminum",
+        "brass",
+        "copper",
+        "plastic",
+        "bakelite"
+      ],
       "shankDiameter": 3.175,
       "source": {
         "sizeNote": "M5 (d4mm) * 15mm",
