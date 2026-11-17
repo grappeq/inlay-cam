@@ -61,7 +61,7 @@ export function StartGuide() {
               Import drawing…
             </button>
             <button onClick={trySample}>Try the sample drawing</button>
-            <button onClick={() => dispatch({ type: "addDrawing", design: emptyDesign(), replace: false })} title="A stock of 200 × 150 mm with nothing on it yet">
+            <button onClick={() => dispatch({ type: "addDrawing", design: emptyDesign(), replace: false })} title="A stock of 200 × 150 mm with nothing on it yet, to draw shapes on, to add drawings to or to face">
               Start with an empty stock
             </button>
           </div>

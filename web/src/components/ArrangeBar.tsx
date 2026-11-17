@@ -14,6 +14,7 @@ import {
   stretchOnBoard,
   withInside,
 } from "../state/arrange";
+import { DRAW_LIMITS, type DrawTool } from "../state/shapes";
 import { useApp, useDispatch } from "../state/store";
 import { ToolIcon, type ToolIconName } from "./icons";
 import { NumberField } from "./NumberField";
@@ -38,18 +39,24 @@ const ANCHORS: { label: string; at: [number, number] }[] = [
   { label: "the bottom-right corner", at: [1, 0] },
 ];
 
+/** The drawing tools, in the order of their buttons, with how each is used, in few words: the line must not wrap. */
+const DRAW_TOOLS: { tool: DrawTool; label: string; how: string }[] = [
+  { tool: "rectangle", label: "Rectangle", how: "Drag on the stock. Shift: a square. Ctrl: from the middle." },
+  { tool: "ellipse", label: "Ellipse or circle", how: "Drag on the stock. Shift: a circle. Ctrl: from the middle." },
+  { tool: "polygon", label: "Polygon", how: "Drag from the middle to a corner. Shift: steps of 15°." },
+];
+
 /** Board left around the shapes that are kept by "Keep only", mm. */
 const KEEP_MARGIN = 5;
 
 /**
  * The bar above the drawing: what a click on the drawing does (pick shapes
- * for inlays and operations, or arrange them), and bringing in drawings.
+ * for inlays and operations, or edit the drawing), and bringing in drawings.
  */
-export function StageBar({ design }: { design: Design }) {
+export function StageBar() {
   const { arranging } = useApp();
   const dispatch = useDispatch();
   const addDrawing = useImportSvg();
-  const empty = design.regions.length === 0;
   return (
     <div className="stage-bar">
       <div className="tabs" role="group" aria-label="What a click on the drawing does">
@@ -57,14 +64,9 @@ export function StageBar({ design }: { design: Design }) {
           <ToolIcon name="pick" />
           Pick shapes
         </button>
-        <button
-          aria-pressed={arranging}
-          disabled={empty}
-          onClick={() => !arranging && dispatch({ type: "setArranging", on: true })}
-          title="Move, resize, turn, copy or delete shapes"
-        >
-          <ToolIcon name="arrange" />
-          Arrange
+        <button aria-pressed={arranging} onClick={() => !arranging && dispatch({ type: "setArranging", on: true })} title="Draw shapes, and move, resize, turn, copy or delete them">
+          <ToolIcon name="edit" />
+          Edit
         </button>
       </div>
       <button onClick={addDrawing} title="Put the shapes of further SVG or DXF files on the stock. Files can also be dropped on the window.">
@@ -76,12 +78,16 @@ export function StageBar({ design }: { design: Design }) {
 }
 
 /**
- * The tools for arranging, above the drawing: what can be done to the
- * selected shapes, and their position and size as numbers. Also the keys
- * that work while arranging.
+ * The tools for editing the drawing, above it: the shapes that can be
+ * drawn, what can be done to the selected shapes, and their position and
+ * size as numbers. Also the keys that work while editing.
+ *
+ * The bar is as tall with a selection as without one, and with a drawing
+ * tool as without: the drawing under it must not move when a shape is
+ * clicked.
  */
 export function ArrangeBar({ design }: { design: Design }) {
-  const { project, selection, undo, redo } = useApp();
+  const { project, selection, undo, redo, drawTool, drawOptions } = useApp();
   const dispatch = useDispatch();
   const [angle, setAngle] = useState(45);
   const [percent, setPercent] = useState(50);
@@ -144,6 +150,8 @@ export function ArrangeBar({ design }: { design: Design }) {
   // The keyboard works wherever the focus is, except while typing in a field.
   const actions = useRef({ remove, duplicate });
   actions.current = { remove, duplicate };
+  const drawing = useRef(drawTool);
+  drawing.current = drawTool;
   const selectionNow = useRef(selection);
   selectionNow.current = selection;
   const designNow = useRef(design);
@@ -186,7 +194,9 @@ export function ArrangeBar({ design }: { design: Design }) {
         e.preventDefault();
         actions.current.remove();
       } else if (e.key === "Escape") {
-        dispatch({ type: "setSelection", ids: [] });
+        // Escape puts a drawing tool away; without one it clears the selection.
+        if (drawing.current) dispatch({ type: "setDrawTool", tool: null });
+        else dispatch({ type: "setSelection", ids: [] });
       } else if (command && key === "a") {
         e.preventDefault();
         dispatch({ type: "setSelection", ids: designNow.current.regions.map((r) => r.id) });
@@ -205,12 +215,30 @@ export function ArrangeBar({ design }: { design: Design }) {
     </button>
   );
 
+  const active = DRAW_TOOLS.find((t) => t.tool === drawTool);
+  const option = (change: Partial<typeof drawOptions>) => dispatch({ type: "setDrawOptions", options: { ...drawOptions, ...change } });
+
   return (
-    <div className="arrange-tools" role="toolbar" aria-label="Arrange the selected shapes">
+    <div className="arrange-tools" role="toolbar" aria-label="Draw shapes and change the selected ones">
       <div className="tool-row">
         <span className="tool-group">
           {tool("undo", "Undo (Ctrl+Z)", () => dispatch({ type: "undoDrawing" }), undo.length === 0)}
           {tool("redo", "Redo (Ctrl+Y)", () => dispatch({ type: "redoDrawing" }), redo.length === 0)}
+        </span>
+        <span className="tool-group" role="group" aria-label="Draw">
+          {DRAW_TOOLS.map(({ tool: name, label }) => (
+            <button
+              key={name}
+              type="button"
+              className="tool"
+              aria-pressed={drawTool === name}
+              aria-label={`Draw: ${label}`}
+              title={`Draw: ${label}`}
+              onClick={() => dispatch({ type: "setDrawTool", tool: drawTool === name ? null : name })}
+            >
+              <ToolIcon name={name} />
+            </button>
+          ))}
         </span>
         <span className="tool-group" aria-label="Turn">
           {tool("turnLeft", "Turn left by 90°", () => edit((d) => rotateOnBoard(d, selection, 90)))}
@@ -237,33 +265,63 @@ export function ArrangeBar({ design }: { design: Design }) {
         </span>
       </div>
 
-      {box ? (
-        <div className="tool-row numbers">
+      <div className="tool-stack">
+        {active && (
+          <div className="tool-row numbers draw-options">
+            {active.tool === "rectangle" && (
+              <NumberField label="Corner radius" unit="mm" value={drawOptions.corner} onChange={(v) => v !== undefined && option({ corner: v })} />
+            )}
+            {active.tool === "polygon" && (
+              <NumberField label="Sides" whole min={DRAW_LIMITS.sides[0]} max={DRAW_LIMITS.sides[1]} value={drawOptions.sides} onChange={(v) => v !== undefined && option({ sides: v })} />
+            )}
+            <span className="muted" role="status">
+              {active.how} Esc: done.
+            </span>
+          </div>
+        )}
+        {/* Always there, so that the bar keeps its height: empty without a selection, and out of sight under a drawing tool's options. */}
+        <div className={`tool-row numbers${active ? " unseen" : ""}`} inert={active !== undefined} title={box ? undefined : "Select a shape to see and type its place and size"}>
           <span className="anchor" role="radiogroup" aria-label="Reference point" title="The point of the selection that X and Y are of, and that stays put when it is resized">
             {ANCHORS.map((point, i) => (
               <button key={i} type="button" role="radio" aria-checked={anchor === i} aria-label={`Measure and resize from ${point.label}`} title={`X and Y are of ${point.label}; resizing keeps it in place`} onClick={() => setAnchor(i)} />
             ))}
           </span>
-          <span className="number-pair" title={`Where ${ANCHORS[anchor].label} of the selection is, from the stock's bottom-left corner`}>
-            <NumberField deferred label="X" unit="mm" value={mm(box.x + at[0] * box.width)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, v - (box.x + at[0] * box.width), 0))} />
-            <NumberField deferred label="Y" unit="mm" value={mm(box.y + at[1] * box.height)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, 0, v - (box.y + at[1] * box.height)))} />
+          <span className="number-pair" title={box ? `Where ${ANCHORS[anchor].label} of the selection is, from the stock's bottom-left corner` : undefined}>
+            <NumberField
+              deferred
+              disabled={!box}
+              label="X"
+              unit="mm"
+              value={box ? mm(box.x + at[0] * box.width) : undefined}
+              onChange={(v) => v !== undefined && box && edit((d) => moveOnBoard(d, selection, v - (box.x + at[0] * box.width), 0))}
+            />
+            <NumberField
+              deferred
+              disabled={!box}
+              label="Y"
+              unit="mm"
+              value={box ? mm(box.y + at[1] * box.height) : undefined}
+              onChange={(v) => v !== undefined && box && edit((d) => moveOnBoard(d, selection, 0, v - (box.y + at[1] * box.height)))}
+            />
           </span>
           <span className="number-pair">
             <NumberField
               deferred
+              disabled={!box}
               label="W"
               unit="mm"
               min={0.01}
-              value={mm(box.width)}
-              onChange={(v) => v !== undefined && box.width > 0 && resize(v / box.width, proportional ? v / box.width : 1)}
+              value={box ? mm(box.width) : undefined}
+              onChange={(v) => v !== undefined && box && box.width > 0 && resize(v / box.width, proportional ? v / box.width : 1)}
             />
             <NumberField
               deferred
+              disabled={!box}
               label="H"
               unit="mm"
               min={0.01}
-              value={mm(box.height)}
-              onChange={(v) => v !== undefined && box.height > 0 && resize(proportional ? v / box.height : 1, v / box.height)}
+              value={box ? mm(box.height) : undefined}
+              onChange={(v) => v !== undefined && box && box.height > 0 && resize(proportional ? v / box.height : 1, v / box.height)}
             />
             <button type="button" className="ratio" aria-pressed={proportional} title="Keep proportions: when the width or the height is typed, the other follows" onClick={() => setProportional(!proportional)}>
               {proportional ? "W:H kept" : "W:H free"}
@@ -271,21 +329,17 @@ export function ArrangeBar({ design }: { design: Design }) {
           </span>
           <span className="tool-number">
             <NumberField label="Scale by" unit="%" min={0.1} value={percent} onChange={(v) => v !== undefined && setPercent(v)} />
-            <button type="button" disabled={percent === 100} onClick={() => resize(percent / 100, percent / 100)}>
+            <button type="button" disabled={!box || percent === 100} onClick={() => resize(percent / 100, percent / 100)}>
               Scale
             </button>
           </span>
-          {held && (
+          {held && box && (
             <span className="hint warn held" role="status">
               ▲ Made as large as fits: it stops at the stock's left and bottom edges. Move it first, or resize from another reference point.
             </span>
           )}
         </div>
-      ) : (
-        <p className="tool-row muted" role="status">
-          Click a part of the drawing to select it, then drag it, or use the tools above. X and Y are measured from the stock's bottom-left corner, to the point of the selection you mark.
-        </p>
-      )}
+      </div>
     </div>
   );
 }

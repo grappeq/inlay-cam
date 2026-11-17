@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
-import { moveOnBoard, overlapping, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
+import { addShape, moveOnBoard, overlapping, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
+import { drawnRing } from "../state/shapes";
 import { fmt, isInlay, jobColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
@@ -58,13 +59,17 @@ type Press =
   | { kind: "shape"; x: number; y: number; id: number; add: boolean; was: boolean; moved: boolean }
   /** A handle of the selection's box: `hx`, `hy` say which, as fractions of the box from its left and bottom. */
   | { kind: "handle"; x: number; y: number; hx: number; hy: number; box: Placed; moved: boolean }
-  | { kind: "empty"; x: number; y: number; add: boolean; moved: boolean; from: [number, number] };
+  | { kind: "empty"; x: number; y: number; add: boolean; moved: boolean; from: [number, number] }
+  /** A drawing tool, pressed at `from` in the design's own millimetres. */
+  | { kind: "draw"; x: number; y: number; moved: boolean; from: [number, number] };
 
 type Gesture =
   | { kind: "move"; dx: number; dy: number }
   /** Stretching by `fx`, `fy` about the point `anchor` of the box, counted from its left and bottom. */
   | { kind: "resize"; fx: number; fy: number; anchor: [number, number]; box: Placed }
-  | { kind: "band"; x0: number; y0: number; x1: number; y1: number };
+  | { kind: "band"; x0: number; y0: number; x1: number; y1: number }
+  /** The outline being drawn, in the design's own millimetres; null while it is too small to be a shape. */
+  | { kind: "draw"; ring: Ring | null };
 
 /** The handles of the selection's box, as fractions of the box from its left and bottom. */
 const HANDLES: [number, number][] = [
@@ -96,7 +101,7 @@ function handleName(hx: number, hy: number): string {
 const mm = (v: number) => fmt(Math.round(v * 100) / 100);
 
 export function DesignCanvas({ design, narrow, cuttable }: Props) {
-  const { project, selection, activeJobId, arranging } = useApp();
+  const { project, selection, activeJobId, arranging, drawTool, drawOptions } = useApp();
   const dispatch = useDispatch();
   const svg = useRef<SVGSVGElement>(null);
   const press = useRef<Press | null>(null);
@@ -151,6 +156,14 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     return [p.x, p.y];
   };
 
+  /** A point of the screen in the design's own millimetres. */
+  const toDesign = (clientX: number, clientY: number): [number, number] | null => {
+    const p = toPicture(clientX, clientY);
+    if (!p) return null;
+    const s = design.scale;
+    return [design.mirror ? design.width - p[0] / s : p[0] / s, (height - p[1]) / s];
+  };
+
   const zoomBy = (factor: number, about?: [number, number]) => {
     const now = viewNow.current;
     const w = Math.max(whole.w / 60, now.w * factor);
@@ -196,6 +209,10 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     if (e.button === 1 || (e.button === 0 && !arranging && id === null)) {
       press.current = { kind: "pan", x: e.clientX, y: e.clientY, view: viewNow.current };
       e.preventDefault();
+    } else if (arranging && e.button === 0 && drawTool) {
+      const from = toDesign(e.clientX, e.clientY);
+      if (!from) return;
+      press.current = { kind: "draw", x: e.clientX, y: e.clientY, moved: false, from };
     } else if (arranging && e.button === 0 && handle && box) {
       const [hx, hy] = HANDLES[Number(handle.dataset.handle)];
       press.current = { kind: "handle", x: e.clientX, y: e.clientY, hx, hy, box, moved: false };
@@ -232,6 +249,12 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         dispatch({ type: "clickRegion", id: from.id, add: true });
         from.was = true;
       }
+    }
+    if (from.kind === "draw") {
+      const to = toDesign(e.clientX, e.clientY);
+      if (!to || !drawTool) return;
+      setGesture({ kind: "draw", ring: drawnRing(drawTool, drawOptions, from.from, to, e.shiftKey, e.ctrlKey || e.metaKey || e.altKey) });
+      return;
     }
     if (from.kind === "handle") {
       const { hx, hy, box: start } = from;
@@ -283,6 +306,15 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     const done = gesture;
     setGesture(null);
     if (!from || from.kind === "pan") return;
+    if (from.kind === "draw") {
+      const ring = done?.kind === "draw" ? done.ring : null;
+      if (!from.moved || !ring) return;
+      // The new shape comes in selected, with the tool put away: it can be moved, or its size typed, at once.
+      const { id } = addShape(design, ring);
+      dispatch({ type: "setDrawTool", tool: null });
+      dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: addShape(p.design, ring).design } : p), select: [id] });
+      return;
+    }
     if (from.kind === "handle") {
       if (from.moved && done?.kind === "resize") {
         dispatch({
@@ -337,9 +369,12 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     const ay = height - (box.y + resizing.anchor[1] * box.height);
     shift = `translate(${ax} ${ay}) scale(${resizing.fx} ${resizing.fy}) translate(${-ax} ${-ay})`;
   }
-  const readout =
-    shown &&
-    `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, its bottom-left corner ${mm(shown.x)} mm from the left and ${mm(
+  const drawn = gesture?.kind === "draw" ? gesture.ring : null;
+  const drawnSize = drawn && [0, 1].map((k) => (Math.max(...drawn.map((p) => p[k])) - Math.min(...drawn.map((p) => p[k]))) * design.scale);
+  const readout = drawnSize
+    ? `${mm(drawnSize[0])} × ${mm(drawnSize[1])} mm`
+    : shown &&
+      `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, its bottom-left corner ${mm(shown.x)} mm from the left and ${mm(
       shown.y,
     )} mm from the bottom`;
 
@@ -347,10 +382,12 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     <div className="canvas-wrap">
       <svg
         ref={svg}
-        className={`canvas${arranging ? " arranging" : ""}${moving || resizing ? " dragging" : ""}${zoomed ? " zoomed" : ""}`}
+        className={`canvas${arranging ? " arranging" : ""}${drawTool ? " sketching" : ""}${moving || resizing ? " dragging" : ""}${zoomed ? " zoomed" : ""}`}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="group"
-        aria-label={arranging ? "Drawing. Click a part to select it, drag it to move it." : "Drawing. Click a shape to select it."}
+        aria-label={
+          drawTool ? `Drawing. Drag on the stock to draw ${drawTool === "ellipse" ? "an" : "a"} ${drawTool}.` : arranging ? "Drawing, being edited. Click a part to select it, drag it to move it." : "Drawing. Click a shape to select it."
+        }
         style={{ "--shape-edge": inkOn(wood) } as React.CSSProperties}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -438,6 +475,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
               </rect>
             );
           })}
+        {drawn && <path className="drawn" d={ringPath(drawn, design)} />}
         {gesture?.kind === "band" && (
           <rect
             className="band"

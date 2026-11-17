@@ -1,5 +1,5 @@
-// Small line drawings: one per kind of job, and those of the arranging
-// toolbar. Drawn on a 20 x 20 grid in the colour of the text around them.
+// Small line drawings: one per kind of job, and those of the editing
+// toolbar and its drawing tools. Drawn on a 20 x 20 grid in the colour of the text around them.
 
 import type { ReactNode } from "react";
 import type { JobType } from "../core/types";
@@ -161,12 +161,15 @@ const ARRANGE_ICONS = {
       <path d="M10 9v6M7 12h6" />
     </>
   ),
-  arrange: (
+  edit: (
     <>
-      <path d="M10 2.5v15M2.5 10h15" />
-      <path d="M8 4.5l2-2 2 2M8 15.5l2 2 2-2M4.5 8l-2 2 2 2M15.5 8l2 2-2 2" />
+      <path d="M3 17l1-4.2L13.8 3 17 6.2 7.2 16z" />
+      <path d="M11.6 5.2l3.2 3.2" />
     </>
   ),
+  rectangle: <rect x="2.5" y="5" width="15" height="10" rx="1.5" fill="currentColor" fillOpacity="0.16" />,
+  ellipse: <ellipse cx="10" cy="10" rx="7.5" ry="5.5" fill="currentColor" fillOpacity="0.16" />,
+  polygon: <path d="M10 2.5l6.5 3.75v7.5L10 17.5l-6.5-3.75v-7.5z" fill="currentColor" fillOpacity="0.16" />,
   pick: <path d="M5 3l9.5 7.5-4.2.6 2.6 5-1.8.9-2.5-5L5 15z" />,
   grip: (
     <>

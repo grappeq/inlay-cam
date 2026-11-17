@@ -256,26 +256,27 @@ whose size follows from the shapes and the inlay's settings.
 
 **Add drawing**, in the bar above the drawing, puts the shapes of further files on the
 same stock; so does dropping files on the window. The shapes come in at their own size, in
-the middle of the stock, selected and with arranging switched on: drag them to their
+the middle of the stock, selected and with "Edit" switched on: drag them to their
 place. The stock grows when they do not fit. "Replace the drawing",
 under "More", starts over with one file; what was made from the old drawing is removed.
 
 "Start with an empty stock", on the start screen, gives a stock of 200 x 150 mm without a
-drawing, to face it or to add drawings to.
+drawing, to face it, to draw shapes on or to add drawings to.
 
 If a DXF or an Illustrator SVG comes in at the wrong size, the file's unit was not what
-the app took it for: switch to "Arrange", select its shapes and type the right width.
+the app took it for: switch to "Edit", select its shapes and type the right width.
 
-### Arranging the drawing
+### Editing the drawing
 
 A drawing often holds several parts, or parts you do not want. The bar above the drawing
 switches between two things a click on the drawing can do: **Pick shapes**, for making
-inlays and operations, and **Arrange**, for changing the drawing itself.
+inlays and operations, and **Edit**, for changing the drawing itself: drawing shapes
+on the stock, and moving, resizing, turning and deleting them.
 
-While arranging, a toolbar above the drawing holds what can be done to the selected
+While editing, a toolbar above the drawing holds what can be done to the selected
 shapes, as buttons with a symbol each (point at one to read what it does) and, under them,
 the selection's position and size as numbers. The panel at the side shows what is
-selected, the stock's size and the keys. "Pick shapes", or "Done arranging" in the panel,
+selected, the stock's size and the keys. "Pick shapes", or "Done editing" in the panel,
 goes back.
 
 The app treats the drawing as outlines here: an outline takes along everything inside it, the hole it makes in the
@@ -310,20 +311,46 @@ Changing the selection:
   first.
 
 Typed numbers apply when you press Enter or leave the field. Ctrl+Z undoes and Ctrl+Y
-redoes, up to 50 steps, also after arranging.
+redoes, up to 50 steps, also after editing.
 
 The board and the view:
 
 - The work origin stays at the board's bottom-left corner, so shapes stop at its left and
   bottom edges. The board grows when shapes are moved past its right or top edge. "Fit
   board to shapes" makes it the shapes' extent plus a margin.
-- The mouse wheel zooms, also outside arranging. Drag with the middle button to move the
+- The mouse wheel zooms, also outside editing. Drag with the middle button to move the
   view; double-click empty board, or press "Whole board", to see all of it.
 
 Shapes keep their inlays when they are moved, resized or turned. A shape dropped wholly
 inside another becomes a hole in it, as if it had been drawn there. Shapes that lie
 partly on top of each other are outlined in red and listed; move them apart before making
 inlays from them. There is no snapping or aligning of one part to another.
+
+### Drawing shapes
+
+While editing, the toolbar's **Draw** group holds three shapes: rectangle, ellipse and
+polygon. Choose one and drag on the stock. The line under the drawing gives the shape's
+size as you drag.
+
+- **Rectangle** and **ellipse** fill the box you drag out. Shift makes a square or a
+  circle; Ctrl draws from the middle instead of from a corner. A rectangle takes a
+  *corner radius*, which rounds its corners by no more than half its shorter side.
+- **Polygon** is dragged from its middle to one of its corners, so the drag sets both
+  the size and which way the shape points. Shift turns it in steps of 15°. It takes its
+  number of *sides*.
+- Escape during a drag abandons the shape; Escape otherwise puts the tool away.
+
+The shape comes in selected and the tool is put away, so that its exact size and place
+can be typed in W, H, X and Y at once. Choose the tool again for the next one, or copy
+the shape with Ctrl+D.
+
+A drawn shape is an outline like any imported one, and from then on it is nothing more:
+a circle is not kept as a circle, and its curve is made of straight runs that stay within
+0.01 mm of it, as imported curves are. It joins the drawing as outlines do: drawn wholly
+inside another shape it is a hole in that shape and the piece that fills it, and drawn
+around other parts it gets a hole for each. Drawn partly over another shape, the two are
+outlined in red like any others that overlap. Nothing is drawn past the stock's left or
+bottom edge; the stock grows to the right and upwards when a shape reaches past it.
 
 ## 3. Make an inlay
 
@@ -586,3 +613,6 @@ app comes with no warranty: what a file does on your machine is your responsibil
 - It does not simulate wood standing above the stock's surface, such as a glued-in plug.
 - It does not snap or align shapes, so a second drawing is placed by eye or by typed
   position.
+- It draws rectangles, ellipses and polygons, and nothing freer: no pen, no
+  editing of an outline's points, no joining or cutting of one shape with another, and no
+  text.

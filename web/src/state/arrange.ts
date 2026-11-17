@@ -359,6 +359,32 @@ export function duplicateShapes(design: Design, ids: number[], gap: number): { d
   return { design: grow(openHoles(added, tops(added, copied), copied)), ids: [...copied] };
 }
 
+/**
+ * Adds an outline drawn in the app as a new shape, and returns its id.
+ *
+ * It joins the drawing as an outline does anywhere here: lying wholly inside
+ * another shape it becomes a hole in that shape, and a part that lies wholly
+ * inside it becomes a hole in it. An outline that only partly covers another
+ * is left as it is; `overlapping` reports it.
+ */
+export function addShape(design: Design, outline: Ring): { design: Design; id: number } {
+  const id = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
+  const outer = signedArea(outline) < 0 ? [...outline].reverse() : outline;
+  const box = ringBox(outer);
+  const { parent } = links(design);
+  const holes = design.regions
+    .filter((r) => {
+      if (parent.has(r.id)) return false;
+      const b = ringBox(r.outer);
+      if (b[0] < box[0] || b[1] < box[1] || b[2] > box[2] || b[3] > box[3]) return false;
+      return r.outer.every((p) => inRing(p as Point, outer) && distanceToRing(p as Point, outer) >= INSIDE);
+    })
+    .map((r) => [...r.outer].reverse());
+  const chosen = new Set([id]);
+  const added = { ...design, regions: [...design.regions, { id, outer, holes }] };
+  return { design: grow(openHoles(added, [id], chosen)), id };
+}
+
 /** Makes the page the extent of the shapes plus `margin` on every side. */
 export function trimBoard(design: Design, margin: number): Design {
   const box = boxOf(design.regions);

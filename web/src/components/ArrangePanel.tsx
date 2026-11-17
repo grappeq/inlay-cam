@@ -7,11 +7,11 @@ import { NumberField } from "./NumberField";
 const mm = (v: number) => Math.round(v * 100) / 100;
 
 /**
- * The panel beside the drawing while it is arranged: what is selected, how
+ * The panel beside the drawing while it is edited: what is selected, how
  * selecting works, and the stock. The tools themselves are above the drawing.
  */
 export function ArrangePanel({ design }: { design: Design }) {
-  const { selection, wholeParts } = useApp();
+  const { selection, wholeParts, drawTool } = useApp();
   const dispatch = useDispatch();
   const [margin, setMargin] = useState(5);
 
@@ -23,14 +23,18 @@ export function ArrangePanel({ design }: { design: Design }) {
   const everything = withInside(design, selection).length === design.regions.length;
 
   return (
-    <aside className="panel" aria-label="Arrange the drawing">
+    <aside className="panel" aria-label="Edit the drawing">
       <div className="panel-scroll">
         <section>
-          <h2>Arranging the drawing</h2>
+          <h2>Editing the drawing</h2>
           <p className="status-line" role="status">
-            {none
-              ? `Click a part of the drawing to select it. The drawing has ${parts} part${parts === 1 ? "" : "s"}.`
-              : `${count} selected. Drag ${selection.length === 1 ? "it" : "them"}, or use the tools above the drawing.`}
+            {drawTool
+              ? "Drag on the stock to draw the shape. It comes in selected, so that its size and place can be typed."
+              : parts === 0
+                ? "The stock has no shapes yet. Choose a shape under Draw, above the drawing, and drag it out on the stock."
+                : none
+                  ? `Click a part of the drawing to select it. The drawing has ${parts} part${parts === 1 ? "" : "s"}.`
+                  : `${count} selected. Drag ${selection.length === 1 ? "it" : "them"}, or use the tools above the drawing.`}
           </p>
           <label className="check">
             <input type="checkbox" checked={wholeParts} onChange={(e) => dispatch({ type: "setWholeParts", on: e.target.checked })} />
@@ -78,19 +82,23 @@ export function ArrangePanel({ design }: { design: Design }) {
         <section>
           <h3>Mouse and keys</h3>
           <ul className="keys">
+            <li>
+              With a shape chosen under Draw, drag on the stock to draw it. Shift makes a square or a circle, or turns a polygon in steps of 15°; Ctrl
+              draws a rectangle or an ellipse from its middle. Escape puts the tool away.
+            </li>
             <li>Shift-click adds to the selection or takes away from it. Drag across empty stock to select what the box encloses.</li>
             <li>Drag the selection to move it; hold Shift to keep it straight. Escape abandons the drag.</li>
             <li>Drag a square on its frame to resize it. Corners keep the proportions unless Shift is held; Ctrl resizes about the middle.</li>
             <li>Arrow keys move it by 1 mm, or by 0.1 mm with Shift.</li>
             <li>Delete removes it. Ctrl+D copies it. Ctrl+A selects everything. Escape clears the selection.</li>
-            <li>Ctrl+Z undoes, Ctrl+Y redoes, also after arranging.</li>
+            <li>Ctrl+Z undoes, Ctrl+Y redoes, also after editing.</li>
             <li>The wheel zooms. Drag with the middle button to move the view; double-click empty stock to see it whole.</li>
           </ul>
         </section>
       </div>
       <div className="generate-bar arrange-bar">
         <button className="primary" onClick={() => dispatch({ type: "setArranging", on: false })}>
-          Done arranging
+          Done editing
         </button>
       </div>
     </aside>

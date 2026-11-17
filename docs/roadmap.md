@@ -124,6 +124,14 @@ From the original requirements' list of what version 1 would not do.
 - Output for other controllers: GRBL, LinuxCNC, Mach.
 - A Carvera's tool rack: tool numbers T1 to T6 mapped to its slots. Today the first tool
   number can be set, and that is all.
-- Drawing in the app, and text (fonts to outlines).
+- More drawing in the app. Rectangles, ellipses and polygons can be drawn, and
+  are kept as plain outlines. Not built: a pen for free outlines with curves, editing the
+  points of an outline, and joining, subtracting and intersecting shapes, for which the
+  core's `geom/boolean.rs` is there. Also to decide then: whether a drawn shape keeps
+  what it was drawn as, so that a circle's radius or a rectangle's corners can be changed
+  later, which needs a new version of the project file.
+- Text (fonts to outlines).
+- Snapping and aligning one shape to another. A drawn shape is placed by eye or by typed
+  position, like a second drawing.
 - Sequenced work in several colours: an inlay into an inlay, flattening again between
   colours, boundaries shared by two inlay woods.

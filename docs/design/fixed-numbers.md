@@ -63,6 +63,8 @@ Still in two places:
   `import/dxf.rs`.
 - **Chip thinning** is worked out in `feeds.rs` and again in
   `web/src/state/feedsView.ts`.
+- **Curve flattening**, 0.01 mm, is `FLATTEN_TOLERANCE` in `import/svg.rs` and `FLATTEN`
+  in `web/src/state/shapes.ts`, which makes the outlines of shapes drawn in the app.
 - **A new cutting row** starts at 12000 rpm, feed 500, plunge 150, stepdown 0.5 and a
   stepover by kind of tool, set in `ToolCard.tsx` only. A row added and not edited cuts
   with these.

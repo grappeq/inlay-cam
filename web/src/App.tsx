@@ -104,7 +104,7 @@ function DesignView() {
           <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
         ) : (
           <>
-            <StageBar design={project.design} />
+            <StageBar />
             {arranging && <ArrangeBar design={project.design} />}
             <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
           </>

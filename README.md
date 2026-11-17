@@ -9,7 +9,7 @@ inlay's two parts will fit before any wood is cut.
 
 - **V-carve inlays**, with sloped walls and sharp corners, and **flat inlays**, with
   upright walls, as loose pieces or as one plug.
-- Reads **SVG and DXF** drawings; shapes can be moved, resized, turned and deleted in the
+- Reads **SVG and DXF** drawings; simple shapes can be drawn, and shapes moved, resized, turned and deleted, in the
   app.
 - Writes G-code for a **Carvera Air running the
   [Carvera Community Firmware](https://github.com/Carvera-Community/Carvera_Community_Firmware)**.

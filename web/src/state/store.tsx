@@ -6,6 +6,7 @@ import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { partOf, withInside } from "./arrange";
+import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
 
 export type View = "design" | "settings";
@@ -43,10 +44,14 @@ export interface AppState {
   /** The last file generated for several jobs at once. Not saved. */
   combined: Combined | null;
   stage: Stage;
-  /** The drawing is being arranged: clicks select shapes to move, resize or delete. */
+  /** The drawing is being edited (the screens' "Edit"): shapes are drawn, and clicks select shapes to move, resize or delete. */
   arranging: boolean;
   /** While arranging, a click selects the whole part a shape belongs to. */
   wholeParts: boolean;
+  /** While arranging, the shape a drag on the stock draws. Without one, a drag selects and moves. */
+  drawTool: DrawTool | null;
+  /** What the drawing tools take besides the drag: corner radius, sides. */
+  drawOptions: DrawOptions;
   /** Projects as they were before each change to the drawing, oldest first. */
   undo: Project[];
   /** Projects as they were before each undo, oldest first. */
@@ -102,6 +107,8 @@ export type Action =
   | { type: "addDrawing"; design: Design; replace: boolean }
   | { type: "setArranging"; on: boolean }
   | { type: "setWholeParts"; on: boolean }
+  | { type: "setDrawTool"; tool: DrawTool | null }
+  | { type: "setDrawOptions"; options: DrawOptions }
   | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[] }
   | { type: "undoDrawing" }
   | { type: "redoDrawing" };
@@ -127,6 +134,8 @@ const initial: AppState = {
   stage: "drawing",
   arranging: false,
   wholeParts: true,
+  drawTool: null,
+  drawOptions: DEFAULT_DRAW_OPTIONS,
   undo: [],
   redo: [],
   lastEdit: null,
@@ -167,6 +176,7 @@ function reducer(state: AppState, action: Action): AppState {
         stage: "drawing",
         view: "design",
         arranging: false,
+        drawTool: null,
         undo: [],
         redo: [],
         lastEdit: null,
@@ -222,6 +232,7 @@ function reducer(state: AppState, action: Action): AppState {
           stage: "drawing",
           view: "design",
           arranging: false,
+          drawTool: null,
           undo: [],
           redo: [],
           lastEdit: null,
@@ -240,12 +251,18 @@ function reducer(state: AppState, action: Action): AppState {
         stage: "drawing",
         view: "design",
         arranging: true,
+        drawTool: null,
       });
     }
     case "setArranging":
-      return { ...state, arranging: action.on, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
+      return { ...state, arranging: action.on, drawTool: null, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
     case "setWholeParts":
       return { ...state, wholeParts: action.on };
+    case "setDrawTool":
+      // A drawing tool starts with nothing selected: the selection's frame would be in its way.
+      return { ...state, drawTool: action.tool, selection: action.tool ? [] : state.selection, lastEdit: null };
+    case "setDrawOptions":
+      return { ...state, drawOptions: action.options };
     case "editDrawing": {
       const project = action.update(state.project);
       if (project === state.project) return state;

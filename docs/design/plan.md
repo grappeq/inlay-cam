@@ -841,3 +841,30 @@ for: the V-bit's ridge height on a flat floor, how far a relief stays below the 
 where the fit check judges the face. Spindle power was to be a setting and is not: both
 Carveras have 200 W. What counts as a good fit moved from the screens into the core, and
 the screens read the core's defaults and limits from a file a test keeps true.
+
+Drawing in the app, a first part (2026-11-17). Asked for as "vector drawing features";
+of basic shapes, a pen, point editing and combining shapes, the basic shapes were chosen,
+kept as plain outlines.
+
+- Rectangle (with a corner radius), ellipse, regular polygon and star, as tools of the
+  arrange toolbar: a drag on the stock draws one. The shape comes in selected with the
+  tool put away, so the fields that were there already give its exact size and place.
+- A drawn shape is a region like an imported one from the moment it is finished
+  (`state/shapes.ts` makes the outline, `addShape` in `state/arrange.ts` puts it in).
+  The project file is unchanged, and everything after the drawing takes it as it takes
+  any shape. The price: a circle cannot later be edited as a circle.
+- Curves are straight runs within 0.01 mm, the tolerance imported curves get. The number
+  is now in the screens' code as well as the core's.
+- It joins the drawing by the rule arranging already had, in both directions: inside
+  another shape it is a hole there, and around parts it gets a hole for each. The second
+  direction is new, and only drawing has it: a shape *moved* over a smaller one still
+  only reports the overlap.
+- "Arrange" can be chosen on a stock without shapes, which it could not.
+- Not done: a pen, editing points, combining shapes, text, snapping. On the roadmap.
+
+Changed the same day, at the user's request. The star tool is out: rectangle, ellipse and
+polygon remain. "Arrange" is called "Edit" on the screens and in the guide, since it draws
+as well; the code still says `arranging`. And the toolbar keeps its height: the
+selection's numbers are always there, empty without a selection, and a drawing tool's
+options lie over them. Before, the bar changed height with every selection, and the
+drawing under it moved.

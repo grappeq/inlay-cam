@@ -1241,6 +1241,22 @@ legend .check {
 .handle:hover {
   fill: var(--select);
 }
+/* A shape while it is drawn */
+.canvas.sketching .region,
+.canvas.sketching .region.selected {
+  cursor: crosshair;
+}
+.canvas.sketching .region:hover {
+  stroke-width: 1;
+}
+.drawn {
+  fill: var(--select);
+  fill-opacity: 0.7;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
 .band {
   fill: var(--accent-soft);
   fill-opacity: 0.4;
@@ -1411,6 +1427,18 @@ legend .check {
   gap: 6px 14px;
   margin: 0;
   font-size: 13px;
+}
+/* The bar's second row: the selection's numbers and a drawing tool's options
+   lie on top of each other, so the bar is as tall with either. */
+.tool-stack {
+  display: grid;
+}
+.tool-stack > * {
+  grid-area: 1 / 1;
+  align-self: start;
+}
+.tool-stack > .unseen {
+  visibility: hidden;
 }
 .tool-group {
   display: inline-flex;

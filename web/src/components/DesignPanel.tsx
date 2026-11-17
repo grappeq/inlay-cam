@@ -171,7 +171,8 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
       </p>
       {report && <ReportNotes report={report} />}
       <p className="hint">
-        "Add drawing" and "Arrange", above the drawing, bring in the shapes of further SVG or DXF files and move, resize or delete shapes.
+        "Add drawing", above the drawing, brings in the shapes of further SVG or DXF files. "Edit" draws rectangles, circles and polygons, and moves,
+        resizes or deletes shapes.
       </p>
       <details className="more">
         <summary>More</summary>
@@ -319,7 +320,7 @@ function JobsSection({ design }: { design: Design }) {
         <h3>{project.jobs.length === 0 ? "Make the first one" : "Add another"}</h3>
         <p className="status-line" role="status">
           {design.regions.length === 0
-            ? "The stock has no shapes yet. Add a drawing below, or face the whole stock."
+            ? "The stock has no shapes yet. Add a drawing, draw shapes under Edit, or face the whole stock."
             : none
               ? "Click shapes in the drawing, then choose what to make from them. A shape that has an inlay opens it; Shift-click selects it instead, for an operation."
               : `${count} selected. Choose what to make from ${selection.length === 1 ? "it" : "them"}:`}
