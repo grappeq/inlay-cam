@@ -17,14 +17,11 @@ use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{
-    Inlay, InsertStyle, Job, Machine, PassDirection, Pattern, Project, Setup, Side,
+    Inlay, InsertStyle, Job, Machine, PassDirection, Pattern, Project, Setup, Side, VcarveTuning,
 };
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
 use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
-
-/// Highest ridge the V-bit may leave between passes on a flat floor, mm.
-pub const MAX_FLOOR_RIDGE: f64 = 0.1;
 
 /// The two halves of an inlay: each is cut from its own board, with its own file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +69,21 @@ pub struct FlatFit {
     /// area it has to add, both before the allowance.
     pub removed_area: f64,
     pub added_area: f64,
+    /// The parts follow the drawing: what is left out and added is too
+    /// little to say.
+    pub as_drawn: bool,
+    /// The insert overlaps the base board by more than the rounding of
+    /// curves: it will not go in.
+    pub interferes: bool,
 }
+
+/// A flat inlay follows its drawing while the area the tool leaves out and
+/// adds is no more than this share of the drawing's.
+const AS_DRAWN_SHARE: f64 = 0.002;
+
+/// Overlap of a flat insert and the base board under this, mm², is the
+/// rounding of curves.
+const INTERFERENCE_AREA: f64 = 0.01;
 
 /// The board a part is cut from. The work origin is its bottom-left corner
 /// and Z0 its top face.
@@ -135,6 +146,9 @@ pub struct Stats {
     pub cutting_length: f64,
     /// Estimated running time, minutes, without tool changes.
     pub minutes: f64,
+    /// What the tool changes add, minutes, by the machine's time for one. 0
+    /// when the machine gives none.
+    pub tool_change_minutes: f64,
     /// Names of the tools in the order they are loaded.
     pub tools: Vec<String>,
     /// What each tool does, in the order they are first loaded.
@@ -430,13 +444,13 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 saw_gap,
                 glue_gap,
                 relief,
+                tuning,
                 plug_margin,
                 plug_thickness,
                 clearing_tool_ids,
                 vbit_tool_id,
                 cut_out,
                 tabs,
-                ..
             },
         ) => {
             let cut = vcarve_plug_cut(
@@ -446,6 +460,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                     engagement: *engagement_depth,
                     glue_gap: *glue_gap,
                     relief: *relief,
+                    relief_keep: tuning.relief_keep,
                     saw_gap: *saw_gap,
                     margin: *plug_margin,
                     cut_out: *cut_out,
@@ -616,6 +631,8 @@ fn finish(
         lines: interpreted.lines,
         cutting_length: interpreted.cutting_length(),
         minutes: interpreted.minutes(machine.rapid_rate),
+        tool_change_minutes: interpreted.tool_changes.len() as f64 * machine.tool_change_seconds
+            / 60.0,
         tools: program.tools.iter().map(|t| t.tool.name.clone()).collect(),
         tool_changes: interpreted.tool_changes.len() as u32,
         per_tool: program
@@ -1094,7 +1111,9 @@ fn flat_fit(
     }
 
     let wanted = total_area(regions);
-    if removed_area + added_area > 0.002 * wanted {
+    let as_drawn = removed_area + added_area <= AS_DRAWN_SHARE * wanted;
+    let interferes = interference_area > INTERFERENCE_AREA;
+    if !as_drawn {
         ctx.warnings.push(format!(
             "The parts cannot follow the drawing exactly: \"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm. {} mm² of the drawing is left out and {} mm² is added. The outline that will be cut is dashed on the drawing.",
             tool.name,
@@ -1104,7 +1123,7 @@ fn flat_fit(
             num((added_area * 10.0).round() / 10.0)
         ));
     }
-    if interference_area > 0.01 {
+    if interferes {
         ctx.warnings.push(format!(
             "The insert overlaps the base board by {} mm²: it will not go in without trimming.",
             num((interference_area * 100.0).round() / 100.0)
@@ -1117,6 +1136,8 @@ fn flat_fit(
         proud,
         removed_area,
         added_area,
+        as_drawn,
+        interferes,
     }
 }
 
@@ -1689,6 +1710,14 @@ fn cut_piece_out(
 }
 
 /// Half angle in radians and tip flat radius in mm of a V-bit.
+/// A V-carve inlay's finer points, or the usual ones for anything else.
+fn vcarve_tuning(inlay: &Inlay) -> VcarveTuning {
+    match inlay {
+        Inlay::Vcarve { tuning, .. } => *tuning,
+        _ => VcarveTuning::default(),
+    }
+}
+
 fn vbit_shape(vbit: &Tool) -> (f64, f64) {
     (
         (vbit.tip_angle.unwrap_or(90.0) / 2.0).to_radians(),
@@ -1722,10 +1751,20 @@ fn vcarve_setup<'a>(
     }
 
     // On a flat floor only the bit's tip cuts, so passes further apart than
-    // this leave ridges higher than MAX_FLOOR_RIDGE whatever the tool's own
+    // this leave ridges higher than the inlay allows whatever the tool's own
     // stepover says (tool libraries often give a share of the body diameter).
     let (half_angle, tip_radius) = vbit_shape(vbit);
-    let floor_stepover = 2.0 * tip_radius + 2.0 * MAX_FLOOR_RIDGE * half_angle.tan();
+    let floor_ridge = vcarve_tuning(&ctx.job.inlay).floor_ridge;
+    let floor_stepover = 2.0 * tip_radius + 2.0 * floor_ridge * half_angle.tan();
+    if vcutting.stepover > floor_stepover + 0.005 {
+        ctx.warnings.push(format!(
+            "On the flat floor \"{}\" takes passes {} mm apart, not the {} mm of its cutting settings: only its tip cuts there, and the ridges between passes are kept to {} mm. The ridge height is under \"Finer points\".",
+            vbit.name,
+            num((floor_stepover * 100.0).round() / 100.0),
+            num(vcutting.stepover),
+            num(floor_ridge)
+        ));
+    }
     let params = VcarveParams {
         half_angle,
         tip_radius,
@@ -1826,6 +1865,8 @@ struct PlugShape {
     glue_gap: f64,
     /// Cut the tips of narrow ridges back by the glue gap.
     relief: bool,
+    /// How far below the finished face a relief cut stays.
+    relief_keep: f64,
     saw_gap: f64,
     margin: f64,
     /// The plug will be cut out of a larger board afterwards.
@@ -1923,11 +1964,19 @@ fn vcarve_plug_cut(
         return None;
     }
     if plug.relief {
-        match plug_relief(&mut path, &shapes, plug.engagement, plug.glue_gap, p) {
+        match plug_relief(
+            &mut path,
+            &shapes,
+            plug.engagement,
+            plug.glue_gap,
+            plug.relief_keep,
+            p,
+        ) {
             Ok(length) if length >= 0.5 => ctx.warnings.push(format!(
-                "The tips of the plug's narrow ridges and corner edges are cut back along {} mm, by up to {} mm, so that they leave room for glue and cannot hold the plug up. The cut stays 0.5 mm below the finished face.",
+                "The tips of the plug's narrow ridges and corner edges are cut back along {} mm, by up to {} mm, so that they leave room for glue and cannot hold the plug up. The cut stays {} mm below the finished face.",
                 num(length.round()),
-                num(((plug.glue_gap + p.tip_radius / p.tan()) * 100.0).round() / 100.0)
+                num(((plug.glue_gap + p.tip_radius / p.tan()) * 100.0).round() / 100.0),
+                num(plug.relief_keep)
             )),
             Ok(_) => {}
             Err(e) => {
@@ -2658,8 +2707,9 @@ pub fn check_fit(project: &Project, job_id: &str) -> Result<FitCheck, Vec<String
     Ok(FitCheck { fit, pocket, plug })
 }
 
-/// Engagement depth and pocket depth of a V-carve inlay.
-fn fit_settings(project: &Project, job_id: &str) -> Result<(f64, f64), Vec<String>> {
+/// What a V-carve inlay's fit is measured against: all of
+/// [`analysis::FitSettings`] but the problems of its two files.
+fn fit_settings(project: &Project, job_id: &str) -> Result<analysis::FitSettings, Vec<String>> {
     let job = project
         .jobs
         .iter()
@@ -2668,6 +2718,8 @@ fn fit_settings(project: &Project, job_id: &str) -> Result<(f64, f64), Vec<Strin
     let Inlay::Vcarve {
         engagement_depth,
         glue_gap,
+        vbit_tool_id,
+        tuning,
         ..
     } = &job.inlay
     else {
@@ -2675,7 +2727,24 @@ fn fit_settings(project: &Project, job_id: &str) -> Result<(f64, f64), Vec<Strin
             "A flat inlay's fit is worked out from its outlines when a part is generated.".into(),
         ]);
     };
-    Ok((*engagement_depth, engagement_depth + glue_gap))
+    // How high a V-bit's tip flat can hold a plug off at a sharp corner: the
+    // pocket's corner is rounded to the flat's radius while the plug's stays
+    // sharp, and the plug has to rise by that radius over the wall's slope
+    // to clear it. 0 for a pointed bit.
+    let tip_rise = vbit_tool_id
+        .as_deref()
+        .and_then(|id| project.tools.iter().find(|t| t.id == id))
+        .map_or(0.0, |bit| {
+            let (half_angle, tip_radius) = vbit_shape(bit);
+            tip_radius / half_angle.tan()
+        });
+    Ok(analysis::FitSettings {
+        engagement: *engagement_depth,
+        pocket_depth: engagement_depth + glue_gap,
+        trim_depth: tuning.trim_depth,
+        tip_rise,
+        problems: 0,
+    })
 }
 
 /// Lowers an already simulated plug into an already simulated pocket of the
@@ -2686,7 +2755,10 @@ pub fn fit_of(
     pocket: &Preview,
     plug: &Preview,
 ) -> Result<Fit, Vec<String>> {
-    let (engagement, pocket_depth) = fit_settings(project, job_id)?;
+    let settings = analysis::FitSettings {
+        problems: pocket.problems.len() + plug.problems.len(),
+        ..fit_settings(project, job_id)?
+    };
     let frame = plug.built.frame.ok_or_else(|| {
         vec!["Internal error: the plug has no position on the base board.".to_string()]
     })?;
@@ -2709,7 +2781,7 @@ pub fn fit_of(
         }
         None => &plug.map,
     };
-    analysis::fit(&pocket.map, plug_map, frame, engagement, pocket_depth)
+    analysis::fit(&pocket.map, plug_map, frame, &settings)
         .ok_or_else(|| vec!["The plug does not lie over the base board at all.".to_string()])
 }
 
@@ -3163,6 +3235,7 @@ mod tests {
             },
             vbit_tool_id: Some("t-vbit".into()),
             relief: false,
+            tuning: Default::default(),
         });
         p.tools[1].cutting = vec![CuttingSettings::new(
             Material::HARDWOOD,
@@ -3253,7 +3326,7 @@ mod tests {
         let (too_deep, too_high) = deviation_from_ideal(&project, &preview);
         assert!(too_deep < 0.02, "cut {too_deep} mm too deep");
         assert!(
-            too_high < MAX_FLOOR_RIDGE + 0.03,
+            too_high < VcarveTuning::default().floor_ridge + 0.03,
             "left {too_high} mm too high"
         );
     }
@@ -5033,5 +5106,47 @@ mod tests {
         let plain = build(&vcarve_project(true), "j", Part::Plug).unwrap();
         assert!(check.plug.built.stats.cutting_length > plain.stats.cutting_length);
         assert_eq!(check.plug.built.stats.tools, plain.stats.tools);
+    }
+
+    #[test]
+    fn a_vcarves_finer_points_change_the_cut_and_the_check() {
+        // No end mill: the V-bit clears the flat floor itself.
+        let usual = vcarve_project(false);
+        let before = preview(&usual, "j", Part::Pocket).unwrap();
+        assert!(!before.built.warnings.iter().any(|w| w.contains("apart")));
+
+        // A lower ridge puts the passes on the floor closer, and says so.
+        let mut fine = usual.clone();
+        if let Inlay::Vcarve { tuning, .. } = &mut fine.jobs[0].inlay {
+            tuning.floor_ridge = 0.02;
+        }
+        let after = preview(&fine, "j", Part::Pocket).unwrap();
+        assert!(
+            after.built.stats.cutting_length > 1.2 * before.built.stats.cutting_length,
+            "{} mm, was {} mm",
+            after.built.stats.cutting_length,
+            before.built.stats.cutting_length
+        );
+        let said = after.built.warnings.join(" | ");
+        assert!(
+            said.contains("0.02 mm") && said.contains("Finer points"),
+            "{said}"
+        );
+
+        // The face is judged where the inlay says.
+        let mut deep = usual.clone();
+        if let Inlay::Vcarve { tuning, .. } = &mut deep.jobs[0].inlay {
+            tuning.trim_depth = 0.4;
+        }
+        assert_eq!(check_fit(&usual, "j").unwrap().fit.report.trim_depth, 0.1);
+        assert_eq!(check_fit(&deep, "j").unwrap().fit.report.trim_depth, 0.4);
+
+        // A tool change counts for what the machine says it takes.
+        assert_eq!(before.built.stats.tool_change_minutes, 0.0);
+        let mut timed = usual.clone();
+        timed.machine.tool_change_seconds = 90.0;
+        let stats = preview(&timed, "j", Part::Pocket).unwrap().built.stats;
+        assert_eq!(stats.tool_change_minutes, 1.5 * stats.tool_changes as f64);
+        assert_eq!(stats.minutes, before.built.stats.minutes);
     }
 }

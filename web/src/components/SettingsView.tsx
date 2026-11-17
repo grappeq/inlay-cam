@@ -5,7 +5,7 @@
 
 import { useState, type ReactNode } from "react";
 import type { Machine, Setup } from "../core/types";
-import { DEFAULT_SETUP, FEED_MATERIALS, MACHINE_PRESETS, SETUP_LIMITS, allMaterials, fmt, sameSetup } from "../state/model";
+import { DEFAULT_SETUP, FEED_MATERIALS, MACHINE_PRESETS, MAX_TOOL_CHANGE_SECONDS, SETUP_LIMITS, allMaterials, fmt, sameSetup } from "../state/model";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { Num, PageHead } from "./Cells";
 import { MaterialsPage } from "./MaterialsView";
@@ -129,11 +129,41 @@ function MachinePage() {
             <Num label="Travel in Y" unit="mm Y" min={1} value={machine.travel[1]} onChange={(v) => v !== undefined && set({ travel: [machine.travel[0], v] })} />
           </span>
         </Row>
-        <Row label="Top spindle speed" what="A tool set to turn faster is refused.">
-          <Num label="Top spindle speed" unit="rpm" min={1} whole value={machine.maxRpm} onChange={(v) => v !== undefined && set({ maxRpm: v })} />
+        <Row label="Spindle speed" what="Lowest and top. A tool set to turn faster than the top is refused. Suggested cutting settings keep within the two, and run wood at the top.">
+          <span className="pair">
+            <Num
+              label="Lowest spindle speed"
+              unit="to"
+              min={1}
+              max={machine.maxRpm}
+              whole
+              value={machine.minRpm}
+              onChange={(v) => v !== undefined && set({ minRpm: v })}
+            />
+            <Num
+              label="Top spindle speed"
+              unit="rpm"
+              min={1}
+              whole
+              value={machine.maxRpm}
+              onChange={(v) => v !== undefined && set({ maxRpm: v, minRpm: Math.min(machine.minRpm, v) })}
+            />
+          </span>
         </Row>
-        <Row label="Rapid speed" what="Only used for the time estimates.">
+      </Rows>
+      <Rows title="Time estimates">
+        <Row label="Rapid speed" what="How fast the tool travels between cuts.">
           <Num label="Rapid speed" unit="mm/min" min={1} value={machine.rapidRate} onChange={(v) => v !== undefined && set({ rapidRate: v })} />
+        </Row>
+        <Row label="A tool change takes" what="Added to a file's time for each tool it loads. At 0, the time is given without tool changes.">
+          <Num
+            label="A tool change takes"
+            unit="s"
+            min={0}
+            max={MAX_TOOL_CHANGE_SECONDS}
+            value={machine.toolChangeSeconds ?? 0}
+            onChange={(v) => v !== undefined && set({ toolChangeSeconds: v })}
+          />
         </Row>
       </Rows>
       <Rows title="Tool numbers">

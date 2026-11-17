@@ -232,8 +232,10 @@ Exported from the header as `<project name>.inlay.json`.
 | Field | Meaning |
 |---|---|
 | `name` | Used in messages. Not empty. Default `Carvera Air`. |
-| `maxRpm` | Top spindle speed. A tool set to run faster is refused. Default 13000. |
+| `minRpm` | Lowest spindle speed the feeds model suggests. 1 or more. Default 5000. One above `maxRpm` is read as `maxRpm`. |
+| `maxRpm` | Top spindle speed. A tool set to run faster is refused, and the feeds model runs woods and plastics at it. Default 13000. |
 | `rapidRate` | Rapid speed in mm/min, for time estimates only. Default 2000. |
+| `toolChangeSeconds` | Time one tool change takes, for time estimates only. 0 to 3600. Default 0, which leaves tool changes out of the estimate; not written when it is 0. |
 | `travel` | `[x, y]`: how far the tool can move. Default `[300, 200]`. |
 | `firstTool` | Number of the first tool in a file, 1 to 99. Default 1. |
 
@@ -311,6 +313,12 @@ in both cases, from when the app made inlays only.
 | `cutOut` | Cut the finished plug out of a larger board as one piece, round the edge of its blank. Default false. Needs an end mill in `clearingToolIds` with cutting edges at least 0.2 mm longer than the board is thick; the largest such is used. The board is then the blank plus that tool's diameter and 5 mm, rounded up to a whole millimetre, on every side. |
 | `tabs` | When cutting the plug out, leave tabs that hold it to the board. Default false. |
 | `relief` | Cut the tips of the plug's narrow ridges and corner edges back by the glue gap, so that they cannot hold the plug up. Default true, also for files that do not say. |
+| `floorRidge` | The highest ridge the V-bit may leave between passes on a flat floor. 0.01 to 1. Default 0.1. Its passes there are no further apart than its tip flat plus 2 × `floorRidge` × tan(half its angle), whatever stepover its cutting settings give. |
+| `reliefKeep` | How far below the finished face a relief cut stays. 0 to 5. Default 0.5. |
+| `trimDepth` | How far below the base board's surface the fit check judges the finished face. 0 to 2. Default 0.1. |
+
+`floorRidge`, `reliefKeep` and `trimDepth` may be missing, and are not written while they
+have their defaults.
 
 `inlay` for a flat pocket inlay:
 

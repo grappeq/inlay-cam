@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay } from "../core/types";
+import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
 import {
   DEFAULT_STOCK_COLOR,
@@ -13,6 +13,7 @@ import {
   cutOutDepth,
   DEFAULT_TIP_CLEARANCE,
   MAX_TIP_CLEARANCE,
+  VCARVE_TUNING,
   describeTool,
   fmt,
   isInlay,
@@ -750,6 +751,39 @@ function ChamferNote({ inlay }: { inlay: ChamferOp }) {
   );
 }
 
+/** The numbers of a V-carve inlay that are seldom changed: closed until asked for, and marked when one is not the usual. */
+function FinerPoints({ inlay, onChange }: { inlay: VcarveInlay; onChange: (change: Partial<VcarveInlay>) => void }) {
+  const fields = [
+    { key: "floorRidge", label: "Ridges on the floor, at most", hint: "Between the V-bit's passes on a flat floor. Lower is smoother and takes longer." },
+    { key: "reliefKeep", label: "Relief stays below the face by", hint: "Lower relieves more of a narrow ridge, and may show after sanding." },
+    { key: "trimDepth", label: "Fit check judges the face at", hint: "Below the surface: about what you sand off once the plug is in." },
+  ] as const;
+  const changed = fields.some((f) => inlay[f.key] !== undefined);
+  return (
+    <section>
+      <details className="more">
+        <summary>Finer points{changed ? " (changed)" : ""}</summary>
+        {fields.map((f) => (
+          <div className="row setup-row" key={f.key}>
+            <NumberField
+              label={f.label}
+              unit="mm"
+              min={VCARVE_TUNING[f.key].range[0]}
+              max={VCARVE_TUNING[f.key].range[1]}
+              value={inlay[f.key] ?? VCARVE_TUNING[f.key].default}
+              onChange={(v) => v !== undefined && onChange({ [f.key]: v === VCARVE_TUNING[f.key].default ? undefined : v })}
+              hint={f.hint}
+            />
+          </div>
+        ))}
+        <button disabled={!changed} onClick={() => onChange({ floorRidge: undefined, reliefKeep: undefined, trimDepth: undefined })}>
+          Back to the usual
+        </button>
+      </details>
+    </section>
+  );
+}
+
 function JobEditor({ job }: { job: InlayJob }) {
   const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
@@ -831,7 +865,7 @@ function JobEditor({ job }: { job: InlayJob }) {
               <p className="hint">
                 Where a shape is narrow, and along the edge into every corner, the plug comes to a point that fills the pocket to the bottom: no room
                 for glue, and a bit with a tip flat leaves the pocket shallower still, so the point holds the plug up. With this the V-bit cuts those
-                points back by the glue gap. The cut stays 0.5 mm below the finished face.
+                points back by the glue gap. The cut stays {fmt(inlay.reliefKeep ?? VCARVE_TUNING.reliefKeep.default)} mm below the finished face.
               </p>
             </>
           )}
@@ -960,6 +994,8 @@ function JobEditor({ job }: { job: InlayJob }) {
             })()}
           </details>
         </section>
+
+        {inlay.type === "vcarve" && <FinerPoints inlay={inlay} onChange={setInlay} />}
 
         <section>
           <details className="more">

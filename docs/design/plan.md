@@ -832,3 +832,12 @@ it is a choice about one cut and one bit, so it sits with the width and not in t
 clearances. Neither is written to a file at its default, so files from before read the
 same. The core's other fixed numbers were listed, in
 [fixed-numbers.md](fixed-numbers.md) (2026-11-17).
+
+Of the core's fixed numbers, five were made settings, each with the old value as its
+default and left out of a file at it (2026-11-17). The machine has a lowest spindle speed
+and a time per tool change, and the feeds model keeps to the machine's speeds instead of
+its own 5000 to 12000 rpm. A V-carve inlay has three "finer points", closed until asked
+for: the V-bit's ridge height on a flat floor, how far a relief stays below the face, and
+where the fit check judges the face. Spindle power was to be a setting and is not: both
+Carveras have 200 W. What counts as a good fit moved from the screens into the core, and
+the screens read the core's defaults and limits from a file a test keeps true.

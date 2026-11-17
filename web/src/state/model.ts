@@ -2,42 +2,32 @@
 
 import type { CutResult, CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
+import coreValues from "../core/core-values.json";
+
 export function newId(): string {
   return crypto.randomUUID();
 }
 
 /** Machines whose limits can be filled in with one click. The first is the one a new installation starts with. */
-export const MACHINE_PRESETS: Machine[] = [
-  { name: "Carvera Air", maxRpm: 13000, rapidRate: 2000, travel: [300, 200], firstTool: 1 },
-  { name: "Carvera", maxRpm: 15000, rapidRate: 2000, travel: [360, 240], firstTool: 1 },
-];
-export const DEFAULT_MACHINE: Machine = MACHINE_PRESETS[0];
+// Defaults and limits come from the core, by way of core-values.json: a test of the core holds that file to what the core says.
 
-/** The app's own clearances and tabs: the same values the core gives a project file that has none. */
-export const DEFAULT_SETUP: Setup = {
-  safeHeight: 5,
-  plungeClearance: 1,
-  throughCut: 0.2,
-  tabWidth: 4,
-  tabSpacing: 40,
-  tabThickness: 1,
-  cutOutBorder: 5,
-  rampAngle: 5,
-  finishAllowance: 0.1,
-};
+/** The machine a new installation starts with: the core's own. */
+export const DEFAULT_MACHINE: Machine = { ...(coreValues.machine.defaults as Machine), toolChangeSeconds: 0 };
+/** Machines whose limits can be filled in with one click. */
+export const MACHINE_PRESETS: Machine[] = [DEFAULT_MACHINE, { ...DEFAULT_MACHINE, name: "Carvera", maxRpm: 15000, travel: [360, 240] }];
+/** The most a tool change may be said to take, seconds. */
+export const MAX_TOOL_CHANGE_SECONDS = coreValues.machine.maxToolChangeSeconds;
+
+/** The app's own clearances and tabs: the values the core gives a project file that has none. */
+export const DEFAULT_SETUP: Setup = coreValues.setup.defaults;
 
 /** The range each clearance may take, as the core checks them. The plunge height is also capped by the travel height. */
-export const SETUP_LIMITS: Record<keyof Setup, [number, number]> = {
-  safeHeight: [1, 50],
-  plungeClearance: [0.1, 50],
-  throughCut: [0, 2],
-  tabWidth: [0.5, 50],
-  tabSpacing: [5, 1000],
-  tabThickness: [0.1, 20],
-  cutOutBorder: [0, 100],
-  rampAngle: [0, 45],
-  finishAllowance: [0, 1],
-};
+export const SETUP_LIMITS = Object.fromEntries(
+  (Object.keys(coreValues.setup.defaults) as (keyof Setup)[]).map((key) => [key, [coreValues.setup.lowest[key], coreValues.setup.highest[key]]]),
+) as Record<keyof Setup, [number, number]>;
+
+/** A V-carve inlay's finer points: the value each has unless the inlay says otherwise, and the range it may take. */
+export const VCARVE_TUNING = coreValues.vcarve as Record<"floorRidge" | "reliefKeep" | "trimDepth", { default: number; range: [number, number] }>;
 
 /** Reads the inlay defaults kept in browser storage; anything unusable in them falls back to the app's value. */
 export function readSetup(text: string | undefined): Setup {
@@ -82,10 +72,13 @@ export function readMachine(text: string | undefined): Machine {
   const travel = Array.isArray(stored.travel) ? stored.travel : [];
   return {
     name: typeof stored.name === "string" && stored.name.trim() !== "" ? stored.name : d.name,
+    minRpm: whole(stored.minRpm, d.minRpm, 1_000_000),
     maxRpm: whole(stored.maxRpm, d.maxRpm, 1_000_000),
     rapidRate: positive(stored.rapidRate, d.rapidRate),
     travel: [positive(travel[0], d.travel[0]), positive(travel[1], d.travel[1])],
     firstTool: whole(stored.firstTool, d.firstTool, 99),
+    toolChangeSeconds:
+      typeof stored.toolChangeSeconds === "number" && stored.toolChangeSeconds >= 0 && stored.toolChangeSeconds <= MAX_TOOL_CHANGE_SECONDS ? stored.toolChangeSeconds : 0,
   };
 }
 
@@ -110,9 +103,9 @@ export function defaultInlay(type: JobType): Inlay {
   }
 }
 
-/** How far a chamfering V-bit's tip is kept clear of the edge unless the chamfer says otherwise, mm, and the most it may be. As in the core. */
-export const DEFAULT_TIP_CLEARANCE = 0.2;
-export const MAX_TIP_CLEARANCE = 5;
+/** How far a chamfering V-bit's tip is kept clear of the edge unless the chamfer says otherwise, mm, and the most it may be. */
+export const DEFAULT_TIP_CLEARANCE = coreValues.chamfer.tipClearance.default;
+export const MAX_TIP_CLEARANCE = coreValues.chamfer.tipClearance.max;
 
 /** What each kind of job is called. */
 export const JOB_LABELS: Record<JobType, string> = {

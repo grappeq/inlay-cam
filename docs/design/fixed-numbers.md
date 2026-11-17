@@ -1,9 +1,8 @@
 # Fixed numbers in the core
 
 Numbers that are written into the code of `crates/inlay-core` and change how a part is
-cut, simulated or checked. For each: what it does, and a suggestion on whether it should
-become a setting. The suggestions are proposals; nothing here is decided, and the
-[roadmap](../roadmap.md) carries the decision as an open item.
+cut, simulated or checked: which were made settings, which were left fixed and why, and
+which are meant to stay fixed.
 
 Made on 2026-11-17 by reading the core's non-test code. What was only searched and not
 read line by line is named at the end.
@@ -12,44 +11,53 @@ Left out: about 56 rounding guards of the `1e-9` kind, which nothing visible dep
 numbers set by an outside file format (Fusion, Makera, SVG and DXF units); and the
 defaults of fields that are settings already.
 
-## Worth making settings
+## Made settings
 
-In the order suggested for taking them.
+Each has a default that keeps what the app did before, and is left out of a file while it
+has it.
 
-| Number | Where | Now | What it does | Suggested |
+| Number | Now | Where it is set |
+|---|---|---|
+| Spindle speed range | The machine's lowest and top speed. The feeds model keeps within them and runs woods and plastics at the top: 13000 rpm on a Carvera Air, where it used 12000. | Settings, Machine: one row, lowest and top. `minRpm`, default 5000. |
+| Time per tool change | Added to a file's time for each tool it loads. | Settings, Machine. `toolChangeSeconds`, default 0, which gives the time without tool changes as before. |
+| V-bit floor ridge | The file says when it puts the V-bit's passes closer than its cutting settings do. | The V-carve panel, under "Finer points". `floorRidge`, default 0.1 mm. |
+| Relief stays below the face | | "Finer points". `reliefKeep`, default 0.5 mm. |
+| Face judged below the surface | | "Finer points". `trimDepth`, default 0.1 mm. |
+| A chamfer's tip clearance | | The chamfer panel. `tipClearance`, default 0.2 mm. |
+
+Spindle power stays fixed at 200 W: it is the same on the Carvera and the Carvera Air,
+the only machines the app writes for.
+
+## Left fixed for now
+
+| Number | Where | Now | What it does | Why not yet |
 |---|---|---|---|---|
-| Spindle speed range | `feeds.rs` `RPM_MIN`, `RPM_MAX` | 5000 to 12000 rpm | The range the feeds model suggests speeds in; woods and plastics always get the top. It does not read the machine's `maxRpm` (13000 by default, 15000 in the Carvera preset), so a suggestion never uses the top of the machine's range. | On the machine: a lowest speed, and the model reads `maxRpm`. |
-| Spindle power | `feeds.rs` `SPINDLE_W` | 200 W | Quoted in the feeds notes and sent to the screens. A Carvera that is not an Air differs. | On the machine. |
-| V-bit floor ridge | `build.rs` `MAX_FLOOR_RIDGE` | 0.1 mm | Caps the V-bit's stepover on a flat floor so that the ridges between passes are no higher than this, whatever stepover the tool's row gives. Smaller: a smoother floor and a longer file. | Per V-carve inlay. At the least, say on the screen that the row's stepover was overridden. |
-| Relief stays below the face | `ops/vcarve.rs` `RELIEF_KEEP` | 0.5 mm | The cut that relieves a plug's narrow ridges stays this far below the finished face. Smaller relieves more and risks a groove showing after sanding. | Per V-carve inlay, beside the glue gap. |
-| Face judged below the surface | `analysis.rs` `TRIM_DEPTH` | 0.1 mm | The fit check judges gaps on the face this far below the surface, as if that much were sanded off. | Per V-carve inlay. |
-| Simulation grid | `build.rs`, the call of `cell_for` | about 2 million cells, none finer than 0.05 mm | How fine the simulation is, and so how exact the fit check is. Finer is slower. | App-wide: a quality choice. The roadmap's tiles and finer pass over a region would change this anyway. |
-| Join gap on import | `import/join.rs` `JOIN_GAP` | 0.01 mm | Line ends closer than this are joined into closed outlines. A drawing with larger gaps comes in with outlines left out. | App-wide, or asked when outlines were left out. Most use for DXF from CAD. |
-| Border round a DXF | `import/dxf.rs` `PAGE_MARGIN` | 5 mm | A DXF has no page, so the stock is the drawing plus this on every side. | App-wide, or leave: the stock's size can be changed after import. |
-| Finishing pass stepdown | `ops/clear.rs` `finish_walls` | one tool diameter | The pass that finishes walls goes down in steps as deep as the tool is wide, not by the tool's own stepdown. | Decide with "cutting settings shown in the operation": it may belong to the row. |
-| Fewest tabs | `ops/profile.rs` | 3 | An outline gets at least three tabs however far apart they are set. | In Clearances, low priority. |
-| Arc fitting | `toolpath.rs` `ARC_FIT_TOLERANCE` | 0.008 mm | Runs of short straight cuts this close to a circle are written as one arc. | Leave, unless a controller needs otherwise; then with the controller. |
-| Time per tool change | `gcode.rs` `minutes` | none | The time estimate leaves out tool changes, the spindle starting and acceleration, so it is short. | On the machine: seconds per tool change. |
+| Simulation grid | `build.rs`, the call of `cell_for` | about 2 million cells, none finer than 0.05 mm | How fine the simulation is, and so how exact the fit check is. | The roadmap's tiles and finer pass over a region replace it. |
+| Join gap on import | `import/join.rs` `JOIN_GAP` | 0.01 mm | Line ends closer than this are joined into closed outlines. | Better offered when outlines were left out than kept as a setting. On the roadmap. |
+| Border round a DXF | `import/dxf.rs` `PAGE_MARGIN` | 5 mm | A DXF has no page, so the stock is the drawing plus this on every side. | The stock's size can be changed after import. |
+| Finishing pass stepdown | `ops/clear.rs` `finish_walls` | one tool diameter | The pass that finishes walls goes down in steps as deep as the tool is wide, not by the tool's own stepdown. | To decide with "cutting settings shown in the operation". |
+| Fewest tabs | `ops/profile.rs` | 3 | An outline gets at least three tabs however far apart they are set. | No one has needed otherwise. |
+| Arc fitting | `toolpath.rs` `ARC_FIT_TOLERANCE` | 0.008 mm | Runs of short straight cuts this close to a circle are written as one arc. | Belongs with a second controller, if there is one. |
 
 ## Numbers in two places
 
-These should be put right whatever is decided above.
+Put right:
 
-- **Fit verdicts are only in the screens.** What counts as seated, pressing home and good
-  (`OutputPanel.tsx`: 0.03 mm proud, 0.05 mm overlap, gaps under 0.1 mm wide, and others)
-  is not in the core at all. They belong in `analysis.rs` with names.
-- **"As drawn" has two rules.** For a flat inlay the core warns when more than 0.2 % of
-  the area differs; `OutputPanel.tsx` says "as drawn" under 0.05 mm². They can disagree.
-- **0.5 mm of relief** is in `RELIEF_KEEP`, and again as text in the warning in
-  `build.rs` and in `DesignPanel.tsx`.
-- **Clearance limits** are in `Setup::validate` and again in `SETUP_LIMITS` in
-  `web/src/state/model.ts`. The plunge clearance's upper limit differs: the core uses the
-  safe height, the screens 50.
-- **The chamfer's tip clearance** default and limit are in `project.rs` and in
-  `web/src/state/model.ts`.
-- **A V-bit without an angle is 90°** in `build.rs`, `sim/mod.rs`, `feeds.rs`,
-  `DesignPanel.tsx` and `ToolDrawing.tsx`. Better that a V-bit cannot be saved without
-  one.
+- **Fit verdicts** are the core's: `analysis.rs` holds what counts as seated, pressing
+  home and good, as named numbers, and gives a verdict with each fit. The screens put it
+  into words.
+- **"As drawn"** and "the insert overlaps" for a flat inlay are the core's too, by the
+  rule its warnings use.
+- **Defaults and limits** of the clearances, the machine, a chamfer's tip clearance and
+  a V-carve's finer points are read by the screens from `web/src/core/core-values.json`.
+  A test of the core holds that file to what the core says, and writes it afresh when
+  run with `UPDATE_CORE_VALUES=1`.
+- **The relief's 0.5 mm** in the plug's warning and in the panel is the inlay's value.
+- **A V-bit without an angle** cannot be saved: the tool check already refused one, so
+  the 90° written in several places is never reached.
+
+Still in two places:
+
 - **An engraver is a V-bit of 45° or less** in both `feeds.rs` and `naming.rs`.
 - **The smallest region kept**, 0.01 mm², is defined in both `import/svg.rs` and
   `import/dxf.rs`.
@@ -91,6 +99,7 @@ Thresholds and tolerances that a user has no reason to turn.
 | Line length | `post/carvera.rs` `MAX_LINE_LENGTH` | 128 | The firmware's limit. |
 | Height after a tool change | `gcode.rs` `TOOL_CHANGE_Z` | 100 mm | Where the simulation takes the tool to be after M6. |
 | Fallback plunge clearance | `toolpath.rs` `PLUNGE_CLEARANCE` | 1 mm | Always overridden by the setting; only tests reach it. It could be removed. |
+| Spindle power | `feeds.rs` `SPINDLE_W` | 200 W | Quoted in the feeds notes. The same on both Carveras. |
 
 **Simulation and fit check**
 
@@ -121,7 +130,8 @@ the app's own to change, but as a model, not as settings.
 clearance from 0.1 mm to the safe height, cut past the bottom 0 to 2, tab width 0.5 to 50,
 tab spacing 5 to 1000, tab thickness 0.1 to 20, cut-out border 0 to 100, ramp angle 0 to
 45°, finish allowance 0 to 1. First tool number 1 to 99. Tip clearance of a chamfer 0 to
-5. An operation's own lengths have no upper limits. The feeds model suggests nothing
+5. A V-carve's floor ridge 0.01 to 1, relief below the face 0 to 5, face judged 0 to 2
+below the surface. A tool change 0 to 3600 s. An operation's own lengths have no upper limits. The feeds model suggests nothing
 outside a diameter of 0.1 to 25 mm, 1 to 8 flutes, and lengths to 500 mm.
 
 ## What was not read line by line

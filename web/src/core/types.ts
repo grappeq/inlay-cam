@@ -265,6 +265,12 @@ export interface VcarveInlay {
   plugThickness: number;
   /** Cut back the tips of the plug's narrow ridges and corner edges by the glue gap, so that they cannot hold the plug up. */
   relief: boolean;
+  /** The highest ridge the V-bit may leave between passes on a flat floor, mm. Absent: 0.1. */
+  floorRidge?: number;
+  /** How far below the finished face a relief cut stays, mm. Absent: 0.5. */
+  reliefKeep?: number;
+  /** How far below the surface the fit check judges the finished face, mm. Absent: 0.1. */
+  trimDepth?: number;
 }
 
 export interface FlatInlay {
@@ -370,7 +376,9 @@ export interface Job {
 /** The machine the files are for: the limits they are checked against. */
 export interface Machine {
   name: string;
-  /** Top spindle speed, rpm. */
+  /** Lowest spindle speed the feeds model suggests, rpm. */
+  minRpm: number;
+  /** Top spindle speed, rpm. The feeds model runs woods and plastics at it. */
   maxRpm: number;
   /** Rapid speed, mm/min, for time estimates. */
   rapidRate: number;
@@ -378,6 +386,8 @@ export interface Machine {
   travel: [number, number];
   /** Number of the first tool in a file. */
   firstTool: number;
+  /** Time one tool change takes, seconds, for the time estimates. 0 or absent leaves tool changes out of them. */
+  toolChangeSeconds?: number;
 }
 
 /** Clearances and tabs: how the files of an inlay are cut. */
@@ -453,6 +463,8 @@ export interface BuildStats {
   tools: string[];
   /** How many times a tool is put in the spindle. */
   toolChanges: number;
+  /** What the tool changes add, minutes, by the machine's time for one. 0 when it gives none. */
+  toolChangeMinutes: number;
   /** What each tool does, in the order they are loaded. */
   perTool: { number: number; name: string; cuttingLength: number; minutes: number }[];
 }
@@ -474,6 +486,10 @@ export interface Built {
     proud: number;
     removedArea: number;
     addedArea: number;
+    /** The parts follow the drawing: what is left out and added is too little to say. */
+    asDrawn: boolean;
+    /** The insert overlaps the base board: it will not go in. */
+    interferes: boolean;
   } | null;
   /** A plug cut out of a larger board: the plug on that board, as x0 y0 x1 y1. */
   piece: [number, number, number, number] | null;
@@ -514,6 +530,17 @@ export interface FitReport {
 /** Both parts of a V-carve inlay simulated and fitted, over the base board's grid. */
 export interface FitCheck {
   report: FitReport;
+  /** What the report's numbers come to, as the core judges them. */
+  verdict: {
+    seat: "seated" | "pressed" | "no";
+    gaps: "none" | "hairlines" | "visible";
+    /** The plug rests at its designed depth. */
+    atDepth: boolean;
+    /** Nothing is in the way of pressing the plug to its designed depth. */
+    clear: boolean;
+    /** Seated, with hairlines at most. */
+    good: boolean;
+  };
   cell: number;
   nx: number;
   ny: number;

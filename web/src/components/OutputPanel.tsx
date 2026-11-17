@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
-import type { FitCheck, Job, Part, PocketPreview, Project } from "../core/types";
+import type { FitCheck, Job, Part, PocketPreview } from "../core/types";
 import { JOB_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
@@ -166,7 +166,7 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
               ))}
             </ul>
           )}
-          {mine.fit && <FitNumbers check={mine.fit} tipRise={tipRise(mine.project, job)} />}
+          {mine.fit && <FitNumbers check={mine.fit} />}
         </section>
       )}
       {flatFit && (
@@ -306,7 +306,9 @@ function PartCard(props: { name: string; board: string; preview: PocketPreview; 
         </dd>
         <dt>Time</dt>
         <dd>
-          about {formatMinutes(built.stats.minutes)}, plus {built.stats.toolChanges === 1 ? "loading the tool" : `${built.stats.toolChanges} tool changes`}
+          {built.stats.toolChangeMinutes > 0
+            ? `about ${formatMinutes(built.stats.minutes + built.stats.toolChangeMinutes)}, with ${built.stats.toolChanges === 1 ? "loading the tool" : `${built.stats.toolChanges} tool changes`}`
+            : `about ${formatMinutes(built.stats.minutes)}, plus ${built.stats.toolChanges === 1 ? "loading the tool" : `${built.stats.toolChanges} tool changes`}`}
           {built.stock.through > 0 ? `; cuts ${fmt(built.stock.through)} mm past the bottom` : ""}
         </dd>
         <dt>{tools.length === 1 ? "Tool" : "Tools"}</dt>
@@ -351,52 +353,32 @@ function mm(v: number): string {
   return fmt(Math.round(v * 100) / 100);
 }
 
-/**
- * How high a V-bit's tip flat can hold a plug off at a sharp corner, mm: the
- * pocket's corner is rounded to the flat's radius while the plug's stays
- * sharp, and the plug has to rise by that radius over the wall's slope to
- * clear it. 0 for a pointed bit.
- */
-function tipRise(project: Project, job: Job): number {
-  const inlay = job.inlay;
-  const bit = inlay.type === "vcarve" ? project.tools.find((t) => t.id === inlay.vbitToolId) : undefined;
-  if (!bit || !bit.tipDiameter || !bit.tipAngle) return 0;
-  return bit.tipDiameter / 2 / Math.tan((bit.tipAngle * Math.PI) / 360);
-}
-
-function FitNumbers({ check, tipRise }: { check: FitCheck; tipRise: number }) {
+function FitNumbers({ check }: { check: FitCheck }) {
   const r = check.report;
-  const seat =
-    Math.abs(r.proud) < 0.03
-      ? "at the designed depth"
-      : r.proud > 0
-        ? `${mm(r.proud)} mm higher than designed`
-        : `${mm(-r.proud)} mm lower than designed`;
-  // A gap under a tenth of a millimetre is a hairline that glue and sanding dust fill.
-  const seated = Math.abs(r.proud) < 0.03 && r.pressOverlap < 0.05 && check.problems === 0;
-  // Held off by a little wood in a few places, as the bit's tip flat leaves in sharp corners.
-  const pressesHome = check.problems === 0 && r.proud > 0 && r.pressOverlap < Math.max(0.2, tipRise + 0.05) && r.pressOverlapArea < 5;
-  const good = seated && r.voidWidth < 0.1;
-  const verdict = !seated
-    ? pressesHome
+  // The core judges the numbers; here they are only put into words.
+  const { seat, gaps, atDepth, clear, good } = check.verdict;
+  const rests = atDepth ? "at the designed depth" : r.proud > 0 ? `${mm(r.proud)} mm higher than designed` : `${mm(-r.proud)} mm lower than designed`;
+  const verdict =
+    seat === "pressed"
       ? `The plug seats once pressed: up to ${mm(r.pressOverlap)} mm of wood has to give, over ${mm(r.pressOverlapArea)} mm² in all. Sharp corners do this when the V-bit's tip is not a true point: clamp the plug down firmly, or use a bit with a smaller tip flat.`
-      : "The plug does not seat as designed. Check the numbers below."
-    : r.voidArea < 0.005
-      ? "The plug seats as designed, with no visible gaps."
-      : good
-        ? "The plug seats as designed. Gaps in the face are hairlines at most."
-        : "The plug seats, but the finished face will show gaps.";
+      : seat === "no"
+        ? "The plug does not seat as designed. Check the numbers below."
+        : gaps === "none"
+          ? "The plug seats as designed, with no visible gaps."
+          : gaps === "hairlines"
+            ? "The plug seats as designed. Gaps in the face are hairlines at most."
+            : "The plug seats, but the finished face will show gaps.";
   return (
     <>
       <p className={good ? "ok" : "warn"}>{verdict}</p>
       <dl className="stats">
         <dt>Plug rests</dt>
         <dd>
-          {seat}; first touches at X {mm(r.firstContact[0])}, Y {mm(r.firstContact[1])} mm
+          {rests}; first touches at X {mm(r.firstContact[0])}, Y {mm(r.firstContact[1])} mm
         </dd>
         <dt>Pressed home</dt>
         <dd>
-          {r.pressOverlap < 0.01
+          {clear
             ? "nothing in the way"
             : `wood must crush by up to ${mm(r.pressOverlap)} mm over ${mm(r.pressOverlapArea)} mm²`}
         </dd>
@@ -408,7 +390,7 @@ function FitNumbers({ check, tipRise }: { check: FitCheck; tipRise: number }) {
         <dd>{r.glueGapMean === null ? "the pocket has no flat floor" : `${mm(r.glueGapMean)} mm on average, ${mm(r.glueGapMin ?? 0)} mm at least`}</dd>
         <dt>Finished face</dt>
         <dd>
-          {r.voidArea < 0.005
+          {gaps === "none"
             ? "no visible gaps"
             : `gaps of ${mm(r.voidArea)} mm² in total, up to ${mm(r.voidWidth)} mm wide`}
           , judged {mm(r.trimDepth)} mm below the surface
@@ -424,7 +406,7 @@ function FlatFitNumbers({ fit, backer }: { fit: NonNullable<PocketPreview["built
     <dl className="stats">
       <dt>Gap at the wall</dt>
       <dd>
-        {fit.interferenceArea > 0.01
+        {fit.interferes
           ? `the insert overlaps the base board by ${mm(fit.interferenceArea)} mm²`
           : even
             ? `${mm(fit.gapMin)} mm all round`
@@ -434,7 +416,7 @@ function FlatFitNumbers({ fit, backer }: { fit: NonNullable<PocketPreview["built
       <dd>{fit.proud < 0.005 ? (backer ? "on the surface" : "flush with the surface") : `${mm(fit.proud)} mm above the surface`}</dd>
       <dt>Against the drawing</dt>
       <dd>
-        {fit.removedArea + fit.addedArea < 0.05
+        {fit.asDrawn
           ? "as drawn"
           : `${mm(fit.removedArea)} mm² left out, ${mm(fit.addedArea)} mm² added, where the tool cannot follow. The outline that is cut is dashed on the drawing.`}
       </dd>

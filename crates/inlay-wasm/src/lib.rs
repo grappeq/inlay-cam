@@ -203,6 +203,8 @@ pub fn suggest_stops(tool_json: &str, material: &str, flags_json: &str) -> Resul
         ramping: bool,
         adaptive: bool,
         lubricated: bool,
+        #[serde(default)]
+        spindle: feeds::Spindle,
     }
     let tool: Tool = from_json(tool_json, "tool")?;
     let flags: Flags = from_json(flags_json, "feed flags")?;
@@ -212,33 +214,44 @@ pub fn suggest_stops(tool_json: &str, material: &str, flags_json: &str) -> Resul
         flags.ramping,
         flags.adaptive,
         flags.lubricated,
+        flags.spindle,
     )))
 }
 
 /// Everything the feeds model has for one cutting row: every stop with and
 /// without a ramped entry, adaptive clearing and lubrication, where to start,
 /// and what the row's own numbers are checked against. `profile_json` is the
-/// row's `Profile`, or `null` for a plain row. Returns `FeedEntry` as JSON.
+/// row's `Profile`, or `null` for a plain row; `machine_json` the `Machine`
+/// whose spindle speeds the suggestions keep to. Returns `FeedEntry` as JSON.
 #[wasm_bindgen(js_name = suggestEntry)]
 pub fn suggest_entry(
     tool_json: &str,
     material: &str,
     profile_json: &str,
+    machine_json: &str,
 ) -> Result<String, JsError> {
     let tool: Tool = from_json(tool_json, "tool")?;
+    let machine: inlay_core::project::Machine = from_json(machine_json, "machine")?;
     let profile: Option<inlay_core::tools::Profile> = from_json(profile_json, "profile")?;
     Ok(to_json(&feeds::suggest_entry(
         &tool,
         material,
         profile.as_ref(),
+        feeds::Spindle::of(&machine),
     )))
 }
 
 /// Holds a cutting row's numbers against the feeds model. `values_json` is
-/// `{ rpm, feed, plunge, stepover, stepdown, adaptive }`. Returns `RowCheck`
-/// as JSON.
+/// `{ rpm, feed, plunge, stepover, stepdown, adaptive }` and `machine_json`
+/// the `Machine`. Returns `RowCheck` as JSON.
 #[wasm_bindgen(js_name = checkRow)]
-pub fn check_row(tool_json: &str, material: &str, values_json: &str) -> Result<String, JsError> {
+pub fn check_row(
+    tool_json: &str,
+    material: &str,
+    values_json: &str,
+    machine_json: &str,
+) -> Result<String, JsError> {
+    let machine: inlay_core::project::Machine = from_json(machine_json, "machine")?;
     #[derive(serde::Deserialize)]
     struct Numbers {
         rpm: u32,
@@ -253,7 +266,15 @@ pub fn check_row(tool_json: &str, material: &str, values_json: &str) -> Result<S
     let tool: Tool = from_json(tool_json, "tool")?;
     let v: Numbers = from_json(values_json, "row values")?;
     Ok(to_json(&feeds::check_row(
-        &tool, material, v.rpm, v.feed, v.plunge, v.stepover, v.stepdown, v.adaptive,
+        &tool,
+        material,
+        v.rpm,
+        v.feed,
+        v.plunge,
+        v.stepover,
+        v.stepdown,
+        v.adaptive,
+        feeds::Spindle::of(&machine),
     )))
 }
 
@@ -437,6 +458,7 @@ impl FitCheck {
         let fit = &self.fit;
         serde_json::json!({
             "report": fit.report,
+            "verdict": fit.verdict,
             "cell": fit.cell,
             "nx": fit.nx,
             "ny": fit.ny,

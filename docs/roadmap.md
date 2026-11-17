@@ -60,10 +60,11 @@ libraries for other programs.
   a job's `rowProfiles`). This is to be a plain choice for every bit of every operation.
 - **Cutting settings shown in the operation**: the numbers it will run with, able to be
   overridden there for that operation alone.
-- **Other fixed numbers.** They are listed in
-  [design/fixed-numbers.md](design/fixed-numbers.md), each with a suggestion. To decide:
-  which become settings. The list also names numbers kept in two places, to be put right
-  either way.
+- **Joining larger gaps on import.** Line ends are joined into closed outlines when they
+  meet within 0.01 mm. When outlines were left out, offer to join larger gaps, in place
+  of a setting for the distance.
+- **Numbers still kept in two places**, and those left fixed for now with the reason for
+  each, are listed in [design/fixed-numbers.md](design/fixed-numbers.md).
 
 ## The screens
 

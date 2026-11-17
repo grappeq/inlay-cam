@@ -1,0 +1,80 @@
+{
+  "chamfer": {
+    "tipClearance": {
+      "default": 0.2,
+      "max": 5.0
+    }
+  },
+  "machine": {
+    "defaults": {
+      "firstTool": 1,
+      "maxRpm": 13000,
+      "minRpm": 5000,
+      "name": "Carvera Air",
+      "rapidRate": 2000.0,
+      "travel": [
+        300.0,
+        200.0
+      ]
+    },
+    "maxToolChangeSeconds": 3600.0
+  },
+  "setup": {
+    "defaults": {
+      "cutOutBorder": 5.0,
+      "finishAllowance": 0.1,
+      "plungeClearance": 1.0,
+      "rampAngle": 5.0,
+      "safeHeight": 5.0,
+      "tabSpacing": 40.0,
+      "tabThickness": 1.0,
+      "tabWidth": 4.0,
+      "throughCut": 0.2
+    },
+    "highest": {
+      "cutOutBorder": 100.0,
+      "finishAllowance": 1.0,
+      "plungeClearance": 50.0,
+      "rampAngle": 45.0,
+      "safeHeight": 50.0,
+      "tabSpacing": 1000.0,
+      "tabThickness": 20.0,
+      "tabWidth": 50.0,
+      "throughCut": 2.0
+    },
+    "lowest": {
+      "cutOutBorder": 0.0,
+      "finishAllowance": 0.0,
+      "plungeClearance": 0.1,
+      "rampAngle": 0.0,
+      "safeHeight": 1.0,
+      "tabSpacing": 5.0,
+      "tabThickness": 0.1,
+      "tabWidth": 0.5,
+      "throughCut": 0.0
+    }
+  },
+  "vcarve": {
+    "floorRidge": {
+      "default": 0.1,
+      "range": [
+        0.01,
+        1.0
+      ]
+    },
+    "reliefKeep": {
+      "default": 0.5,
+      "range": [
+        0.0,
+        5.0
+      ]
+    },
+    "trimDepth": {
+      "default": 0.1,
+      "range": [
+        0.0,
+        2.0
+      ]
+    }
+  }
+}

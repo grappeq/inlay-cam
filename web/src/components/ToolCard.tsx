@@ -63,7 +63,7 @@ export function ToolCard(props: {
   onDelete: () => void;
   onBack: () => void;
 }) {
-  const { lists, project } = useApp();
+  const { lists, project, machine } = useApp();
   const [draft, setDraft] = useState<Tool | null>(props.isNew ? props.tool : null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
@@ -126,7 +126,7 @@ export function ToolCard(props: {
     setInspect(0);
     setPicked(null);
     const saved = props.tool;
-    void Promise.all(saved.cutting.map((row) => (row.profile === undefined ? entryFor(saved, row, lists).catch(() => null) : null))).then((entries) => {
+    void Promise.all(saved.cutting.map((row) => (row.profile === undefined ? entryFor(saved, row, lists, machine).catch(() => null) : null))).then((entries) => {
       const first = saved.cutting.findIndex((row, i) => entries[i] && rowStatus(row, entries[i], saved.diameter, false) === "differs");
       if (first > 0) setInspect((now) => (now === 0 ? first : now));
     });

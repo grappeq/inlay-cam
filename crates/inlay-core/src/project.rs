@@ -53,7 +53,9 @@ pub struct Project {
 #[serde(rename_all = "camelCase", default)]
 pub struct Machine {
     pub name: String,
-    /// Top spindle speed, rpm.
+    /// Lowest spindle speed the feeds model suggests, rpm.
+    pub min_rpm: u32,
+    /// Top spindle speed, rpm. The feeds model runs woods and plastics at it.
     pub max_rpm: u32,
     /// Rapid speed, mm/min, used for time estimates.
     pub rapid_rate: f64,
@@ -63,16 +65,29 @@ pub struct Machine {
     /// tools are used. On a Carvera with a tool rack, T1 to T6 are rack
     /// slots and are loaded automatically, whatever is in them.
     pub first_tool: u32,
+    /// Time one tool change takes, seconds, for the time estimates. 0
+    /// leaves tool changes out of them.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tool_change_seconds: f64,
 }
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+/// The most a tool change may be said to take, seconds.
+pub const MAX_TOOL_CHANGE_SECONDS: f64 = 3600.0;
 
 impl Default for Machine {
     fn default() -> Self {
         Self {
             name: "Carvera Air".into(),
+            min_rpm: 5000,
             max_rpm: 13000,
             rapid_rate: 2000.0,
             travel: [300.0, 200.0],
             first_tool: 1,
+            tool_change_seconds: 0.0,
         }
     }
 }
@@ -85,6 +100,18 @@ impl Machine {
         }
         if self.max_rpm == 0 {
             return Err("the machine's top spindle speed must be greater than 0".into());
+        }
+        // A lowest speed over the top speed is not refused: a file from
+        // before the lowest speed was kept may have a slow top speed. The
+        // feeds model holds it to the top speed.
+        if self.min_rpm == 0 {
+            return Err("the machine's lowest spindle speed must be greater than 0".into());
+        }
+        if !(self.tool_change_seconds.is_finite()
+            && self.tool_change_seconds >= 0.0
+            && self.tool_change_seconds <= MAX_TOOL_CHANGE_SECONDS)
+        {
+            return Err("the time for a tool change must be from 0 to 3600 seconds".into());
         }
         if !ok(self.rapid_rate) {
             return Err("the machine's rapid speed must be greater than 0".into());
@@ -146,6 +173,31 @@ impl Default for Setup {
 }
 
 impl Setup {
+    /// The least and the most each may be. The plunge height is also held
+    /// to the travel height.
+    pub const LOWEST: Setup = Setup {
+        safe_height: 1.0,
+        plunge_clearance: 0.1,
+        through_cut: 0.0,
+        tab_width: 0.5,
+        tab_spacing: 5.0,
+        tab_thickness: 0.1,
+        cut_out_border: 0.0,
+        ramp_angle: 0.0,
+        finish_allowance: 0.0,
+    };
+    pub const HIGHEST: Setup = Setup {
+        safe_height: 50.0,
+        plunge_clearance: 50.0,
+        through_cut: 2.0,
+        tab_width: 50.0,
+        tab_spacing: 1000.0,
+        tab_thickness: 20.0,
+        cut_out_border: 100.0,
+        ramp_angle: 45.0,
+        finish_allowance: 1.0,
+    };
+
     /// The clearances and tabs a job's files are cut with.
     pub fn of(project: &Project, job: &Job) -> Setup {
         job.setup.unwrap_or(project.setup)
@@ -163,35 +215,44 @@ impl Setup {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        let (low, high) = (Self::LOWEST, Self::HIGHEST);
         let within = |v: f64, low: f64, high: f64| v.is_finite() && v >= low && v <= high;
-        if !within(self.safe_height, 1.0, 50.0) {
+        if !within(self.safe_height, low.safe_height, high.safe_height) {
             return Err("the travel height must be from 1 to 50 mm".into());
         }
-        if !within(self.plunge_clearance, 0.1, self.safe_height) {
+        if !within(
+            self.plunge_clearance,
+            low.plunge_clearance,
+            self.safe_height,
+        ) {
             return Err(
                 "the plunge height must be at least 0.1 mm and no more than the travel height"
                     .into(),
             );
         }
-        if !within(self.through_cut, 0.0, 2.0) {
+        if !within(self.through_cut, low.through_cut, high.through_cut) {
             return Err("the cut past the bottom of a board must be from 0 to 2 mm".into());
         }
-        if !within(self.tab_width, 0.5, 50.0) {
+        if !within(self.tab_width, low.tab_width, high.tab_width) {
             return Err("the tab width must be from 0.5 to 50 mm".into());
         }
-        if !within(self.tab_spacing, 5.0, 1000.0) {
+        if !within(self.tab_spacing, low.tab_spacing, high.tab_spacing) {
             return Err("the tab spacing must be from 5 to 1000 mm".into());
         }
-        if !within(self.tab_thickness, 0.1, 20.0) {
+        if !within(self.tab_thickness, low.tab_thickness, high.tab_thickness) {
             return Err("the tab thickness must be from 0.1 to 20 mm".into());
         }
-        if !within(self.cut_out_border, 0.0, 100.0) {
+        if !within(self.cut_out_border, low.cut_out_border, high.cut_out_border) {
             return Err("the board left around a cut-out plug must be from 0 to 100 mm".into());
         }
-        if !within(self.ramp_angle, 0.0, 45.0) {
+        if !within(self.ramp_angle, low.ramp_angle, high.ramp_angle) {
             return Err("the ramp angle must be from 0 to 45 degrees".into());
         }
-        if !within(self.finish_allowance, 0.0, 1.0) {
+        if !within(
+            self.finish_allowance,
+            low.finish_allowance,
+            high.finish_allowance,
+        ) {
             return Err("the finishing allowance must be from 0 to 1 mm".into());
         }
         Ok(())
@@ -380,6 +441,9 @@ pub enum Inlay {
         /// the glue gap, so that they cannot hold the plug up.
         #[serde(default = "yes")]
         relief: bool,
+        /// Finer points that are seldom changed.
+        #[serde(flatten)]
+        tuning: VcarveTuning,
     },
     #[serde(rename_all = "camelCase")]
     Flat {
@@ -496,6 +560,67 @@ pub enum Inlay {
     },
 }
 
+/// The finer points of a V-carve inlay. Each has a usual value, is left out
+/// of a file while it has it, and is read as it when missing. Lengths in mm.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VcarveTuning {
+    /// The highest ridge the V-bit may leave between passes on a flat
+    /// floor. On a floor only the bit's tip cuts, so its passes are put
+    /// close enough for this, whatever stepover its cutting row gives.
+    #[serde(skip_serializing_if = "VcarveTuning::usual_floor_ridge")]
+    pub floor_ridge: f64,
+    /// How far below the finished face a relief cut stays: the face is
+    /// trimmed and sanded, and must not reach the cut.
+    #[serde(skip_serializing_if = "VcarveTuning::usual_relief_keep")]
+    pub relief_keep: f64,
+    /// How far below the base board's surface the fit check judges the
+    /// finished face: about what flattening and sanding take off.
+    #[serde(skip_serializing_if = "VcarveTuning::usual_trim_depth")]
+    pub trim_depth: f64,
+}
+
+impl Default for VcarveTuning {
+    fn default() -> Self {
+        VcarveTuning {
+            floor_ridge: 0.1,
+            relief_keep: 0.5,
+            trim_depth: 0.1,
+        }
+    }
+}
+
+impl VcarveTuning {
+    /// The range each may take.
+    pub const FLOOR_RIDGE: [f64; 2] = [0.01, 1.0];
+    pub const RELIEF_KEEP: [f64; 2] = [0.0, 5.0];
+    pub const TRIM_DEPTH: [f64; 2] = [0.0, 2.0];
+
+    fn usual_floor_ridge(v: &f64) -> bool {
+        *v == Self::default().floor_ridge
+    }
+    fn usual_relief_keep(v: &f64) -> bool {
+        *v == Self::default().relief_keep
+    }
+    fn usual_trim_depth(v: &f64) -> bool {
+        *v == Self::default().trim_depth
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let within = |v: f64, [low, high]: [f64; 2]| v.is_finite() && v >= low && v <= high;
+        if !within(self.floor_ridge, Self::FLOOR_RIDGE) {
+            return Err("the floor's ridge height must be from 0.01 to 1 mm".into());
+        }
+        if !within(self.relief_keep, Self::RELIEF_KEEP) {
+            return Err("the relief must stay from 0 to 5 mm below the face".into());
+        }
+        if !within(self.trim_depth, Self::TRIM_DEPTH) {
+            return Err("the face must be judged from 0 to 2 mm below the surface".into());
+        }
+        Ok(())
+    }
+}
+
 /// How far a chamfering V-bit's tip is kept clear of the edge unless a
 /// chamfer says otherwise, mm.
 pub const DEFAULT_TIP_CLEARANCE: f64 = 0.2;
@@ -509,6 +634,31 @@ fn default_tip_clearance() -> f64 {
 
 fn is_default_tip_clearance(v: &f64) -> bool {
     *v == DEFAULT_TIP_CLEARANCE
+}
+
+/// The defaults and limits the screens show, as JSON. The screens read them
+/// from `web/src/core/core-values.json`, which a test holds to this.
+pub fn values_for_screens() -> serde_json::Value {
+    let tuning = VcarveTuning::default();
+    serde_json::json!({
+        "setup": {
+            "defaults": Setup::default(),
+            "lowest": Setup::LOWEST,
+            "highest": Setup::HIGHEST,
+        },
+        "machine": {
+            "defaults": Machine::default(),
+            "maxToolChangeSeconds": MAX_TOOL_CHANGE_SECONDS,
+        },
+        "chamfer": {
+            "tipClearance": { "default": DEFAULT_TIP_CLEARANCE, "max": MAX_TIP_CLEARANCE },
+        },
+        "vcarve": {
+            "floorRidge": { "default": tuning.floor_ridge, "range": VcarveTuning::FLOOR_RIDGE },
+            "reliefKeep": { "default": tuning.relief_keep, "range": VcarveTuning::RELIEF_KEEP },
+            "trimDepth": { "default": tuning.trim_depth, "range": VcarveTuning::TRIM_DEPTH },
+        },
+    })
 }
 
 /// The shape of the path a tool clears an area along.
@@ -620,6 +770,7 @@ impl Inlay {
             clearing_tool_ids: Vec::new(),
             vbit_tool_id: None,
             relief: true,
+            tuning: VcarveTuning::default(),
         }
     }
 
@@ -682,8 +833,10 @@ impl Inlay {
                 saw_gap,
                 plug_margin,
                 plug_thickness,
+                tuning,
                 ..
             } => {
+                tuning.validate()?;
                 check(
                     plug_margin.is_finite() && plug_margin > 0.0,
                     "plug margin must be greater than 0",
@@ -926,6 +1079,7 @@ mod tests {
                         clearing_tool_ids: vec!["t-endmill".into()],
                         vbit_tool_id: Some("t-vbit".into()),
                         relief: true,
+                        tuning: VcarveTuning::default(),
                     },
                 },
                 Job {
@@ -1285,5 +1439,47 @@ mod tests {
             crate::tools::tools_to_file_json(&[end_mill(), v_bit()]),
         )
         .unwrap();
+    }
+
+    /// The screens' copy of the core's defaults and limits is the core's.
+    /// Run with `UPDATE_CORE_VALUES=1` to write it afresh.
+    #[test]
+    fn the_screens_values_are_the_cores() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web/src/core/core-values.json"
+        );
+        let ours = serde_json::to_string_pretty(&values_for_screens()).unwrap() + "\n";
+        if std::env::var_os("UPDATE_CORE_VALUES").is_some() {
+            std::fs::write(path, &ours).unwrap();
+        }
+        let theirs = std::fs::read_to_string(path).unwrap_or_default();
+        assert_eq!(
+            theirs, ours,
+            "web/src/core/core-values.json is out of date: run this test with UPDATE_CORE_VALUES=1"
+        );
+    }
+
+    #[test]
+    fn a_vcarves_finer_points_are_left_out_of_a_file_at_their_usual_values() {
+        let mut p = sample();
+        let text = project_to_file_json(&p);
+        for name in ["floorRidge", "reliefKeep", "trimDepth", "toolChangeSeconds"] {
+            assert!(!text.contains(name), "{name}");
+        }
+        assert_eq!(project_from_file_json(&text).unwrap(), p);
+        if let Inlay::Vcarve { tuning, .. } = &mut p.jobs[0].inlay {
+            tuning.floor_ridge = 0.05;
+            tuning.trim_depth = 0.3;
+        }
+        p.machine.tool_change_seconds = 45.0;
+        let text = project_to_file_json(&p);
+        assert!(text.contains("\"floorRidge\": 0.05") && text.contains("\"trimDepth\": 0.3"));
+        assert!(!text.contains("reliefKeep") && text.contains("\"toolChangeSeconds\": 45.0"));
+        assert_eq!(project_from_file_json(&text).unwrap(), p);
+        if let Inlay::Vcarve { tuning, .. } = &mut p.jobs[0].inlay {
+            tuning.relief_keep = 9.0;
+        }
+        assert!(p.validate().unwrap_err().contains("relief"));
     }
 }

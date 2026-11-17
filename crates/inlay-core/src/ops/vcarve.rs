@@ -262,10 +262,6 @@ pub fn narrow_parts(regions: &[Region], radius: f64) -> Result<Vec<[Point; 2]>, 
     Ok(out)
 }
 
-/// How far below the base board's surface, once the plug is in, a relief cut
-/// stays, mm: the finished face is trimmed and sanded, and must not reach it.
-const RELIEF_KEEP: f64 = 0.5;
-
 /// A ridge lowered by less than this is left alone, mm.
 const MIN_RELIEF: f64 = 0.02;
 
@@ -280,7 +276,8 @@ const MIN_RELIEF: f64 = 0.02;
 /// ridges, on the medial axis of the shapes, deep enough to lower each by the
 /// glue gap plus what the tip flat costs. Close to the outline the cut is
 /// shallower, and at last left out, so that it never comes within
-/// [`RELIEF_KEEP`] of the finished face.
+/// `keep` of the finished face: that is trimmed and sanded, and must not
+/// reach the cut.
 ///
 /// `shapes` are the plug's shapes as they stand in its blank, where their
 /// outline is met `engagement` below the top.
@@ -289,6 +286,7 @@ pub fn plug_relief(
     shapes: &[Region],
     engagement: f64,
     glue_gap: f64,
+    keep: f64,
     p: &VcarveParams,
 ) -> Result<f64, VcarveError> {
     let tan = p.tan();
@@ -298,18 +296,15 @@ pub fn plug_relief(
     // circle has radius `w`. The ridge there is w / tan high above the level
     // of the outline. A V cut into a ridge of the same slope lowers it by
     // half of what the tip goes below its point, plus half the tip flat.
-    let lowered = |w: f64| (glue_gap + flat).min((w / tan + flat - RELIEF_KEEP) / 2.0);
+    let lowered = |w: f64| (glue_gap + flat).min((w / tan + flat - keep) / 2.0);
     let depth_at = |w: f64| (engagement - (w / tan).min(engagement)) + 2.0 * lowered(w) - flat;
     // The radii at which that changes its slope, and between which it applies.
-    let low = (2.0 * MIN_RELIEF + RELIEF_KEEP - flat).max(0.0) * tan + 1e-9;
+    let low = (2.0 * MIN_RELIEF + keep - flat).max(0.0) * tan + 1e-9;
     let high = engagement * tan + p.tip_radius;
     if high <= low || 2.0 * (glue_gap + flat) - flat < MIN_RELIEF {
         return Ok(0.0);
     }
-    let knees = [
-        (2.0 * glue_gap + flat + RELIEF_KEEP) * tan,
-        engagement * tan,
-    ];
+    let knees = [(2.0 * glue_gap + flat + keep) * tan, engagement * tan];
     let steepest = 1.0 / (1.0 + RAMP_TOLERANCE / high);
 
     let mut cuts: Vec<Ramp> = Vec::new();

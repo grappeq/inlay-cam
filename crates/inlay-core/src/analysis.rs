@@ -12,9 +12,113 @@ use crate::sim::HeightMap;
 /// Gaps up to this count as the plug touching the wall, mm.
 pub const CONTACT: f64 = 0.05;
 
-/// How far below the base board's surface the finished face is judged, mm:
-/// about what flattening and sanding take off after the backer is cut away.
-pub const TRIM_DEPTH: f64 = 0.1;
+/// The plug counts as at its designed depth when it rests within this of
+/// it, mm.
+pub const AT_DEPTH: f64 = 0.03;
+
+/// Seated: pressed to the designed depth, the parts overlap by less than
+/// this, mm.
+pub const SEATED_OVERLAP: f64 = 0.05;
+
+/// Overlap under this, mm, is rounding in the simulation, not wood.
+pub const NO_OVERLAP: f64 = 0.01;
+
+/// A plug held off its seat by a little wood in a few places, as a V-bit's
+/// tip flat leaves in sharp corners, seats once pressed: by no more than
+/// this, mm, or the tip flat's rise plus [`SEATED_OVERLAP`] if that is more,
+/// and over no more than [`PRESS_AREA`], mm².
+pub const PRESS_OVERLAP: f64 = 0.2;
+pub const PRESS_AREA: f64 = 5.0;
+
+/// Gaps in the face under this in all, mm², are not gaps.
+pub const NO_GAPS_AREA: f64 = 0.005;
+
+/// A gap narrower than this, mm, is a hairline that glue and sanding dust
+/// fill.
+pub const HAIRLINE: f64 = 0.1;
+
+/// What a fit is measured against. Lengths in mm.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FitSettings {
+    /// How deep the plug is designed to go in.
+    pub engagement: f64,
+    /// The depth of the pocket's flat floor.
+    pub pocket_depth: f64,
+    /// How far below the base board's surface the finished face is judged:
+    /// about what flattening and sanding take off after the backer is cut
+    /// away.
+    pub trim_depth: f64,
+    /// How high the V-bit's tip flat can hold the plug off at a sharp
+    /// corner. 0 for a pointed bit.
+    pub tip_rise: f64,
+    /// Simulation problems found in the two files.
+    pub problems: usize,
+}
+
+/// Whether the plug gets to its designed depth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Seat {
+    /// It rests there.
+    Seated,
+    /// It does once pressed: a little wood in a few places has to give.
+    Pressed,
+    No,
+}
+
+/// What the finished face shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gaps {
+    None,
+    Hairlines,
+    Visible,
+}
+
+/// What the numbers of a fit come to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Verdict {
+    pub seat: Seat,
+    pub gaps: Gaps,
+    /// The plug rests at its designed depth, whatever else.
+    pub at_depth: bool,
+    /// Nothing is in the way of pressing the plug to its designed depth.
+    pub clear: bool,
+    /// Seated, with hairlines at most.
+    pub good: bool,
+}
+
+/// Judges a fit.
+pub fn verdict(r: &FitReport, settings: &FitSettings) -> Verdict {
+    let sound = settings.problems == 0;
+    let at_depth = r.proud.abs() < AT_DEPTH;
+    let seat = if at_depth && r.press_overlap < SEATED_OVERLAP && sound {
+        Seat::Seated
+    } else if sound
+        && r.proud > 0.0
+        && r.press_overlap < PRESS_OVERLAP.max(settings.tip_rise + SEATED_OVERLAP)
+        && r.press_overlap_area < PRESS_AREA
+    {
+        Seat::Pressed
+    } else {
+        Seat::No
+    };
+    let gaps = if r.void_area < NO_GAPS_AREA {
+        Gaps::None
+    } else if r.void_width < HAIRLINE {
+        Gaps::Hairlines
+    } else {
+        Gaps::Visible
+    };
+    Verdict {
+        seat,
+        gaps,
+        at_depth,
+        clear: r.press_overlap < NO_OVERLAP,
+        good: seat == Seat::Seated && gaps != Gaps::Visible,
+    }
+}
 
 /// What is at a point of the finished face.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +176,7 @@ pub struct Fit {
     /// The finished face, one `Face` per cell.
     pub face: Vec<u8>,
     pub report: FitReport,
+    pub verdict: Verdict,
 }
 
 /// Where the plug blank lies on the base board once turned over: the base
@@ -82,17 +187,15 @@ pub struct PlugFrame {
     pub offset_y: f64,
 }
 
-/// Lowers the plug onto the pocket and measures the fit. `engagement` is how
-/// deep the plug is designed to go in and `pocket_depth` the depth of the
-/// pocket's flat floor. Returns `None` when the plug does not cover any of
-/// the base board.
+/// Lowers the plug onto the pocket and measures the fit. Returns `None` when
+/// the plug does not cover any of the base board.
 pub fn fit(
     pocket: &HeightMap,
     plug: &HeightMap,
     frame: PlugFrame,
-    engagement: f64,
-    pocket_depth: f64,
+    settings: &FitSettings,
 ) -> Option<Fit> {
+    let (engagement, pocket_depth) = (settings.engagement, settings.pocket_depth);
     let cells = pocket.nx * pocket.ny;
     // Height of the plug's cut surface above the base cell, in plug terms
     // (0 at its face, negative where cut), or NaN where there is no plug.
@@ -132,7 +235,7 @@ pub fn fit(
     let (mut press_overlap, mut press_cells) = (0.0f64, 0usize);
     let (mut glue_min, mut glue_sum, mut glue_cells) = (f64::INFINITY, 0.0f64, 0usize);
     let (mut wall_cells, mut wall_touching, mut wall_gap_max) = (0usize, 0usize, 0.0f64);
-    let trim = -TRIM_DEPTH;
+    let trim = -settings.trim_depth;
     for i in 0..cells {
         let base = pocket.z[i] as f64;
         if over[i].is_nan() {
@@ -148,8 +251,7 @@ pub fn fit(
         plug_under[i] = under as f32;
 
         let overlap = base + h - intended;
-        // Less than this is rounding in the simulation, not wood.
-        if overlap > 0.01 {
+        if overlap > NO_OVERLAP {
             press_overlap = press_overlap.max(overlap);
             press_cells += 1;
         }
@@ -196,7 +298,7 @@ pub fn fit(
         wall_gap_max,
         void_area: void_cells as f64 * cell_area,
         void_width: widest(&face, pocket.nx, pocket.ny, Face::Void as u8) * pocket.cell,
-        trim_depth: TRIM_DEPTH,
+        trim_depth: settings.trim_depth,
     };
     Some(Fit {
         cell: pocket.cell,
@@ -205,6 +307,7 @@ pub fn fit(
         gap,
         plug_under,
         face,
+        verdict: verdict(&report, settings),
         report,
     })
 }
@@ -263,6 +366,14 @@ fn widest(cells: &[u8], nx: usize, ny: usize, value: u8) -> f64 {
 mod tests {
     use super::*;
 
+    const SETTINGS: FitSettings = FitSettings {
+        engagement: 2.0,
+        pocket_depth: 2.3,
+        trim_depth: 0.1,
+        tip_rise: 0.0,
+        problems: 0,
+    };
+
     /// A base board 20 x 10 with a 60 degree V-groove along Y = 5, `depth`
     /// deep, flat-bottomed below `floor`.
     fn grooved(depth: f64, floor: f64) -> HeightMap {
@@ -305,7 +416,7 @@ mod tests {
         // Groove 4 mm wide at the surface cut 2.3 deep; plug goes in 2.
         let pocket = grooved(4.0 / (2.0 * 30f64.to_radians().tan()), 2.3);
         let plug = ridged(4.0 / (2.0 * 30f64.to_radians().tan()), 2.0, 1.5);
-        let fit = fit(&pocket, &plug, FRAME, 2.0, 2.3).unwrap();
+        let fit = fit(&pocket, &plug, FRAME, &SETTINGS).unwrap();
         let r = &fit.report;
         assert!(r.proud.abs() < 0.01, "proud {}", r.proud);
         assert!((r.glue_gap_mean.unwrap() - 0.3).abs() < 0.01);
@@ -326,7 +437,7 @@ mod tests {
 
         // 0.2 mm too wide on each side: stops 0.2 / tan higher.
         let wide = ridged(groove + 0.2 / tan, 2.0, 1.5);
-        let r = fit(&pocket, &wide, FRAME, 2.0, 2.3).unwrap().report;
+        let r = fit(&pocket, &wide, FRAME, &SETTINGS).unwrap().report;
         assert!((r.proud - 0.2 / tan).abs() < 0.02, "proud {}", r.proud);
         assert!((r.press_overlap - 0.2 / tan).abs() < 0.02);
         assert!(r.void_area < 1e-9);
@@ -334,7 +445,7 @@ mod tests {
         // 0.3 mm too narrow on each side: drops until its top meets the
         // floor, 0.3 lower than designed, and still clear of both walls.
         let narrow = ridged(groove - 0.3 / tan, 2.0, 1.5);
-        let fit = fit(&pocket, &narrow, FRAME, 2.0, 2.3).unwrap();
+        let fit = fit(&pocket, &narrow, FRAME, &SETTINGS).unwrap();
         let r = &fit.report;
         assert!((r.proud + 0.3).abs() < 0.02, "proud {}", r.proud);
         assert!(r.glue_gap_min.unwrap() < 0.01);
@@ -356,7 +467,7 @@ mod tests {
             mirror_x: 30.0,
             offset_y: 0.0,
         };
-        let r = fit(&pocket, &plug, shifted, 2.0, 2.3).unwrap().report;
+        let r = fit(&pocket, &plug, shifted, &SETTINGS).unwrap().report;
         assert!(r.void_area > 10.0, "void area {}", r.void_area);
         assert!(r.void_width > 1.0);
         // Nowhere near: no fit at all.
@@ -364,7 +475,7 @@ mod tests {
             mirror_x: 100.0,
             offset_y: 0.0,
         };
-        assert!(fit(&pocket, &plug, away, 2.0, 2.3).is_none());
+        assert!(fit(&pocket, &plug, away, &SETTINGS).is_none());
     }
 
     #[test]
@@ -381,5 +492,62 @@ mod tests {
         let mut one = vec![0u8; 81];
         one[40] = 2;
         assert!((widest(&one, 9, 9, 2) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_fit_is_judged_by_its_numbers() {
+        let mut r = FitReport {
+            resting_seat: -2.0,
+            intended_seat: -2.0,
+            proud: 0.0,
+            first_contact: [0.0, 0.0],
+            press_overlap: 0.0,
+            press_overlap_area: 0.0,
+            glue_gap_min: None,
+            glue_gap_mean: None,
+            wall_contact: 1.0,
+            wall_gap_max: 0.0,
+            void_area: 0.0,
+            void_width: 0.0,
+            trim_depth: 0.1,
+        };
+        let v = verdict(&r, &SETTINGS);
+        assert_eq!((v.seat, v.gaps, v.good), (Seat::Seated, Gaps::None, true));
+        assert!(v.at_depth && v.clear);
+
+        // Hairlines are still good; wider gaps are not.
+        r.void_area = 0.2;
+        r.void_width = 0.07;
+        let v = verdict(&r, &SETTINGS);
+        assert_eq!((v.gaps, v.good), (Gaps::Hairlines, true));
+        r.void_width = 0.3;
+        let v = verdict(&r, &SETTINGS);
+        assert_eq!(
+            (v.seat, v.gaps, v.good),
+            (Seat::Seated, Gaps::Visible, false)
+        );
+
+        // Held up a little over a small area: seats once pressed. A tip
+        // flat allows more; a large area, or a problem in a file, does not.
+        r.proud = 0.15;
+        r.press_overlap = 0.15;
+        r.press_overlap_area = 2.0;
+        assert_eq!(verdict(&r, &SETTINGS).seat, Seat::Pressed);
+        r.press_overlap = 0.3;
+        assert_eq!(verdict(&r, &SETTINGS).seat, Seat::No);
+        let flat = FitSettings {
+            tip_rise: 0.3,
+            ..SETTINGS
+        };
+        assert_eq!(verdict(&r, &flat).seat, Seat::Pressed);
+        r.press_overlap_area = 8.0;
+        assert_eq!(verdict(&r, &flat).seat, Seat::No);
+        r.press_overlap = 0.0;
+        r.proud = 0.0;
+        let broken = FitSettings {
+            problems: 1,
+            ..SETTINGS
+        };
+        assert_eq!(verdict(&r, &broken).seat, Seat::No);
     }
 }

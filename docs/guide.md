@@ -210,8 +210,11 @@ programs: this app has no such toolpath and does not cut with its rows.
 Carvera Air; "Fill in for" sets them for the Carvera.
 
 - **Travel** in X and Y: a file whose moves span more is refused.
-- **Top spindle speed**: a tool set to turn faster is refused.
+- **Spindle speed**, lowest and top: a tool set to turn faster than the top is refused.
+  Suggested cutting settings keep within the two, and run wood at the top.
 - **Rapid speed** is only used for the time estimates.
+- **A tool change takes**: added to a file's time for each tool it loads. At 0, as it
+  starts, the time is given without tool changes.
 - **First tool number**: the tools of a file are numbered from here, in the order they are
   used. On a Carvera with a tool rack, T1 to T6 are the rack's slots and are loaded
   automatically, whatever is in them; start at 7 to be asked for each tool by hand.
@@ -364,6 +367,17 @@ those ridges and cutting their points back by the glue gap, plus what the tip fl
 The cut is hidden inside the joint: it stays 0.5 mm below the finished face, so very
 shallow parts, right at the outline, are not relieved. The plug file says how much was cut
 back.
+
+**Finer points** holds three numbers that seldom need changing, and says "(changed)" when
+one is not the usual:
+
+- *Ridges on the floor, at most* (0.1 mm): on a flat floor only the V-bit's tip cuts, so
+  its passes are put close enough to leave ridges no higher than this, whatever stepover
+  its cutting settings give. The file says when it does. Lower is smoother and slower.
+- *Relief stays below the face by* (0.5 mm): how close to the finished face a relief cut
+  may come.
+- *Fit check judges the face at* (0.1 mm): how far below the surface the fit check looks
+  for gaps, which is about what sanding takes off once the plug is in.
 
 ### Flat inlay
 

@@ -5,7 +5,8 @@
 
 import { useEffect, useId, useState } from "react";
 import { core } from "../core/client";
-import type { CutResult, CuttingSettings, FeedEntry, RowCheck, Tool, ToolLists } from "../core/types";
+import { useApp } from "../state/store";
+import type { CutResult, CuttingSettings, FeedEntry, Machine, RowCheck, Tool, ToolLists } from "../core/types";
 import {
   CUT_FIELDS,
   LEVELS,
@@ -69,14 +70,14 @@ const shapeOf = (tool: Tool) => JSON.stringify({ ...tool, id: tool.id || "new", 
 const entries = new Map<string, FeedEntry>();
 
 /** Everything the model has for a row, asked for once per shape, material and profile. */
-export async function entryFor(tool: Tool, row: CuttingSettings, lists: ToolLists): Promise<FeedEntry> {
+export async function entryFor(tool: Tool, row: CuttingSettings, lists: ToolLists, machine: Machine): Promise<FeedEntry> {
   const shape = shapeOf(tool);
   const material = feedMaterial(row.material, lists);
   const profile = row.profile === undefined ? null : (lists.profiles?.find((p) => p.key === row.profile) ?? { key: row.profile, label: row.profile });
-  const key = `${shape}|${material}|${JSON.stringify(profile)}`;
+  const key = `${shape}|${material}|${JSON.stringify(profile)}|${machine.minRpm}-${machine.maxRpm}`;
   const known = entries.get(key);
   if (known) return known;
-  const entry = await core.call("suggestEntry", JSON.parse(shape), material, profile);
+  const entry = await core.call("suggestEntry", JSON.parse(shape), material, profile, machine);
   if (entries.size > 400) entries.clear();
   entries.set(key, entry);
   return entry;
@@ -88,9 +89,10 @@ export function useEntry(tool: Tool, row: CuttingSettings, lists: ToolLists): Fe
   const shape = shapeOf(tool);
   const material = feedMaterial(row.material, lists);
   const profile = JSON.stringify(lists.profiles?.find((p) => p.key === row.profile) ?? null);
+  const { machine } = useApp();
   useEffect(() => {
     let stale = false;
-    entryFor(tool, row, lists).then(
+    entryFor(tool, row, lists, machine).then(
       (next) => !stale && setEntry(next),
       // A shape the core cannot read yet, mid-edit: say nothing until it can.
       () => !stale && setEntry(null),
@@ -99,7 +101,7 @@ export function useEntry(tool: Tool, row: CuttingSettings, lists: ToolLists): Fe
       stale = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, material, row.profile, profile]);
+  }, [shape, material, row.profile, profile, machine.minRpm, machine.maxRpm]);
   return entry;
 }
 
@@ -184,16 +186,17 @@ export function RowFacts(props: { tool: Tool; row: CuttingSettings; lists: ToolL
   const adaptive = entry ? parseCombo(entry.default).adaptive : false;
   const shape = shapeOf(tool);
   const material = feedMaterial(row.material, lists);
+  const { machine } = useApp();
   useEffect(() => {
     let stale = false;
-    core.call("checkRow", JSON.parse(shape), material, { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepdown: row.stepdown, adaptive }).then(
+    core.call("checkRow", JSON.parse(shape), material, { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepdown: row.stepdown, adaptive }, machine).then(
       (next) => !stale && setCheck(next),
       () => !stale && setCheck(null),
     );
     return () => {
       stale = true;
     };
-  }, [shape, material, adaptive, row.rpm, row.feed, row.plunge, row.stepover, row.stepdown]);
+  }, [shape, material, adaptive, row.rpm, row.feed, row.plunge, row.stepover, row.stepdown, machine.minRpm, machine.maxRpm]);
   const flags = entry ? rowFlags(entry, rowCut(row, tool)) : [];
   if (entry && !entry.covered) {
     return <p className="hint">The feeds model does not know {materialLabel(row.material, lists).toLowerCase()}. Under Settings, Materials, say which material it cuts like to have this row placed and checked.</p>;

@@ -32,9 +32,40 @@ use serde::{Deserialize, Serialize};
 use crate::tools::{Level, Profile, Tool, ToolKind};
 
 pub const SPINDLE_W: f64 = 200.0;
-/// The Carvera Air's range.
+/// The range the model was made for, and the one it uses when it is not
+/// told the machine's: the tooling library's figures for a Carvera Air.
 const RPM_MIN: i64 = 5000;
 const RPM_MAX: i64 = 12000;
+
+/// The spindle speeds a suggestion may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Spindle {
+    /// The lowest speed suggested, rpm.
+    pub rpm_min: i64,
+    /// The machine's top speed, rpm. Woods and plastics run at it.
+    pub rpm_max: i64,
+}
+
+impl Default for Spindle {
+    fn default() -> Self {
+        Spindle {
+            rpm_min: RPM_MIN,
+            rpm_max: RPM_MAX,
+        }
+    }
+}
+
+impl Spindle {
+    /// A machine's range. A lowest speed over the top speed is held to it.
+    pub fn of(machine: &crate::project::Machine) -> Self {
+        let rpm_max = i64::from(machine.max_rpm).max(1);
+        Spindle {
+            rpm_min: i64::from(machine.min_rpm).clamp(1, rpm_max),
+            rpm_max,
+        }
+    }
+}
 /// The reviewed metals' floor: below it the spindle has too little power.
 const METAL_RPM_MIN: i64 = 8000;
 /// A class with a hard speed limit may run over it by this much.
@@ -328,6 +359,10 @@ pub struct Options {
     pub adaptive: bool,
     /// The cut gets light lubrication.
     pub lubricated: bool,
+    /// The machine's spindle speeds. Without them, the range the model was
+    /// made for.
+    #[serde(default)]
+    pub spindle: Spindle,
 }
 
 impl Default for Options {
@@ -337,6 +372,7 @@ impl Default for Options {
             ramping: false,
             adaptive: false,
             lubricated: false,
+            spindle: Spindle::default(),
         }
     }
 }
@@ -476,7 +512,7 @@ fn rate(v: f64) -> Result<i64, String> {
     })
 }
 
-fn rpm_for(surface_speed: f64, diameter: f64) -> Result<i64, String> {
+fn rpm_for(surface_speed: f64, diameter: f64, range: &Spindle) -> Result<i64, String> {
     let rpm = floor_to(
         surface_speed * 1000.0 / (std::f64::consts::PI * diameter),
         100.0,
@@ -484,7 +520,7 @@ fn rpm_for(surface_speed: f64, diameter: f64) -> Result<i64, String> {
     if rpm.is_nan() {
         return Err(NO_NUMBERS.into());
     }
-    whole(rpm.max(RPM_MIN as f64).min(RPM_MAX as f64))
+    whole(rpm.max(range.rpm_min as f64).min(range.rpm_max as f64))
 }
 
 /// The class's target surface speed: its lubricated one when asked for and
@@ -532,20 +568,31 @@ fn check_speed(
 
 /// Non-metals always run at full speed; metals follow the surface speed,
 /// never below the class's floor and never over a hard limit.
-fn spindle(cls: &MaterialClass, lubricated: bool, cut_d: f64, share: f64) -> Result<i64, String> {
+fn spindle(
+    cls: &MaterialClass,
+    lubricated: bool,
+    cut_d: f64,
+    share: f64,
+    range: &Spindle,
+) -> Result<i64, String> {
     if !is_metal(cls) {
-        return Ok(RPM_MAX);
+        return Ok(range.rpm_max);
     }
     let rpm = cls
         .rpm_min
-        .max(rpm_for(surface_speed(cls, lubricated) * share, cut_d)?);
+        .max(rpm_for(
+            surface_speed(cls, lubricated) * share,
+            cut_d,
+            range,
+        )?)
+        .min(range.rpm_max);
     check_speed(cls, lubricated, cut_d, rpm, share)?;
     Ok(rpm)
 }
 
 /// The stop's cap at this speed: the spindle's power falls with it.
-fn power_limit(stop: &Stop, rpm: i64) -> f64 {
-    stop.power_w * (rpm as f64 / RPM_MAX as f64).min(1.0)
+fn power_limit(stop: &Stop, rpm: i64, range: &Spindle) -> f64 {
+    stop.power_w * (rpm as f64 / range.rpm_max as f64).min(1.0)
 }
 
 fn chip_floor(cls: &MaterialClass, d: f64) -> f64 {
@@ -861,7 +908,7 @@ fn mill(
     } else if !engraver {
         notes.push(NOTE_FLUTE_UNKNOWN.to_string());
     }
-    let rpm = spindle(cls, options.lubricated, cut_d, 1.0)?;
+    let rpm = spindle(cls, options.lubricated, cut_d, 1.0, &options.spindle)?;
     // What the edge allows, before the full slot's power.
     let mut feed = (chip * z as f64 * rpm as f64).min(feed_max);
     let chip_feed = match base_chip {
@@ -872,7 +919,7 @@ fn mill(
         return Err(NO_NUMBERS.into());
     }
     let depth = round_to(floor_to(depth, 0.01), 2).max(0.01);
-    let cap = power_limit(level, rpm);
+    let cap = power_limit(level, rpm, &options.spindle);
     let power = cls.energy * slot_area(cutter, geometry, depth) * feed / 60.0;
     if power > cap {
         feed *= cap / power;
@@ -902,9 +949,10 @@ fn drill(
     cls: &MaterialClass,
     level: &Stop,
     lubricated: bool,
+    range: &Spindle,
 ) -> Result<(Cut, Vec<String>, f64), String> {
     let d = geometry.diameter;
-    let rpm = spindle(cls, lubricated, d, 0.5)?;
+    let rpm = spindle(cls, lubricated, d, 0.5, range)?;
     let hole = std::f64::consts::PI * d.powi(2) / 4.0;
     let scale = drill_scale(d);
     let mut plunge = cls.drill_feed_per_rev * scale * rpm as f64;
@@ -921,7 +969,7 @@ fn drill(
         ));
     }
     let peck = round_to(floor_to(peck, 0.01), 2).max(0.01);
-    let cap = power_limit(level, rpm);
+    let cap = power_limit(level, rpm, range);
     if cls.energy * hole * plunge / 60.0 > cap {
         plunge = cap * 60.0 / (cls.energy * hole);
         notes.push(format!(
@@ -947,6 +995,7 @@ fn thread_mill(
     level: &Stop,
     name: Option<&str>,
     lubricated: bool,
+    range: &Spindle,
 ) -> Result<(Cut, Vec<String>, f64), String> {
     let d = geometry.diameter;
     let (major, pitch) = thread_of(geometry, name)?;
@@ -955,7 +1004,11 @@ fn thread_mill(
     }
     // A light cut: 0.8 of the surface speed and no metal floor, but a hard
     // speed limit still holds.
-    let rpm = rpm_for(surface_speed(cls, lubricated) * THREAD_SPEED_SHARE, d)?;
+    let rpm = rpm_for(
+        surface_speed(cls, lubricated) * THREAD_SPEED_SHARE,
+        d,
+        range,
+    )?;
     check_speed(cls, lubricated, d, rpm, THREAD_SPEED_SHARE)?;
     let chip = cls
         .chip_max
@@ -977,7 +1030,7 @@ fn thread_mill(
         "Feed at the tool centre of an internal thread; stepdown is the pitch.".to_string(),
         NOTE_FIXED.to_string(),
     ];
-    Ok((cut, notes, power_limit(level, rpm)))
+    Ok((cut, notes, power_limit(level, rpm, range)))
 }
 
 /// Radial chip-thinning factor: how much thinner the chip is than the feed
@@ -1004,6 +1057,7 @@ fn adaptive(
     base_notes: &[String],
     chip_feed: i64,
     lubricated: bool,
+    range: &Spindle,
 ) -> Result<(Cut, Vec<String>, f64, f64), String> {
     let d = geometry.diameter;
     let aluminum = cls.name == "aluminum";
@@ -1028,7 +1082,7 @@ fn adaptive(
         });
     }
     let rpm = base.rpm;
-    let cap = power_limit(level, rpm);
+    let cap = power_limit(level, rpm, range);
     let mut feed = (chip_feed as f64 * factor).min(level.feed_max);
     if aluminum {
         let lube_d = cls.adaptive_depth_d_lubricated.filter(|_| lubricated);
@@ -1123,12 +1177,20 @@ fn unchecked(
     let cls = class_of(material).ok_or("No suggestion: the model doesn't cover this material.")?;
     let (mut cut, fields, mut notes, mut cap, chip_feed) = match cutter {
         Cutter::Drill => {
-            let (cut, notes, cap) = drill(geometry, cls, &level, options.lubricated)?;
+            let (cut, notes, cap) =
+                drill(geometry, cls, &level, options.lubricated, &options.spindle)?;
             let feed = cut.feed;
             (cut, DRILL_FIELDS.to_vec(), notes, cap, feed)
         }
         Cutter::ThreadMill => {
-            let (cut, notes, cap) = thread_mill(geometry, cls, &level, name, options.lubricated)?;
+            let (cut, notes, cap) = thread_mill(
+                geometry,
+                cls,
+                &level,
+                name,
+                options.lubricated,
+                &options.spindle,
+            )?;
             let feed = cut.feed;
             (cut, FIELDS.to_vec(), notes, cap, feed)
         }
@@ -1160,6 +1222,7 @@ fn unchecked(
             &notes,
             chip_feed,
             options.lubricated,
+            &options.spindle,
         )?;
         (cut, notes, cap) = (reshaped, reshaped_notes, reshaped_cap);
         power = Some(cut_power);
@@ -1310,6 +1373,7 @@ pub fn suggest_stops(
     ramping: bool,
     adaptive: bool,
     lubricated: bool,
+    spindle: Spindle,
 ) -> Vec<Suggestion> {
     [
         Level::Gentle,
@@ -1325,6 +1389,7 @@ pub fn suggest_stops(
             ramping,
             adaptive,
             lubricated,
+            spindle,
         };
         suggest_for(tool, material, &options)
     })
@@ -1368,6 +1433,7 @@ pub fn limits(
     geometry: &Geometry,
     material: &str,
     name: Option<&str>,
+    range: &Spindle,
 ) -> Option<Limits> {
     if !matches!(cutter, Cutter::FlatEnd | Cutter::BallEnd | Cutter::VBit)
         || geometry_problem(cutter, geometry, None).is_some()
@@ -1422,7 +1488,7 @@ pub fn limits(
         energy: cls.energy,
         slot,
         power_cap_w: stop(Level::Aggressive).power_w,
-        rpm_max: RPM_MAX,
+        rpm_max: range.rpm_max,
     };
     let finite = [
         out.chip_floor,
@@ -1485,7 +1551,12 @@ pub struct Entry {
 /// The suggestions for a row of a tool: in `material` (one the model knows),
 /// on `profile` when it has one. A profile for full-width cuts gives end
 /// mills a stepover of the whole diameter.
-pub fn suggest_entry(tool: &Tool, material: &str, profile: Option<&Profile>) -> Entry {
+pub fn suggest_entry(
+    tool: &Tool,
+    material: &str,
+    profile: Option<&Profile>,
+    spindle: Spindle,
+) -> Entry {
     let (cutter, geometry) = cutter_of(tool);
     let name = Some(tool.name.as_str());
     let lubrication = lubrication_matters(material);
@@ -1504,6 +1575,7 @@ pub fn suggest_entry(tool: &Tool, material: &str, profile: Option<&Profile>) -> 
                         ramping,
                         adaptive,
                         lubricated,
+                        spindle,
                     };
                     let mut s = suggest(cutter, &geometry, material, &options, name);
                     if slot {
@@ -1519,12 +1591,13 @@ pub fn suggest_entry(tool: &Tool, material: &str, profile: Option<&Profile>) -> 
         ramping: p.ramping,
         adaptive: p.is_adaptive(),
         lubricated: p.lubricated,
+        spindle,
     });
     Entry {
         covered: covers(material),
         default: combo_key(&default),
         combos,
-        limits: limits(cutter, &geometry, material, name),
+        limits: limits(cutter, &geometry, material, name, &spindle),
         lubrication,
     }
 }
@@ -1574,7 +1647,9 @@ pub fn check_row(
     stepover: f64,
     stepdown: f64,
     adaptive: bool,
+    spindle: Spindle,
 ) -> RowCheck {
+    let range = &spindle;
     let (cutter, geometry) = cutter_of(tool);
     let name = Some(tool.name.as_str());
     let mut check = RowCheck {
@@ -1647,7 +1722,10 @@ pub fn check_row(
         .one_flute_chip
         .filter(|_| one_flute)
         .map_or(cls.chip_max, |(_, one_max)| one_max);
-    let cap = round_to(power_limit(&stop(Level::Aggressive), i64::from(rpm)), 1);
+    let cap = round_to(
+        power_limit(&stop(Level::Aggressive), i64::from(rpm), range),
+        1,
+    );
     check.power_cap_w = Some(cap);
     if adaptive {
         if power > cap {
@@ -1701,7 +1779,14 @@ mod tests {
 
     #[test]
     fn the_stops_run_from_gentle_to_aggressive() {
-        let stops = suggest_stops(&end_mill(), "hardwood", false, false, false);
+        let stops = suggest_stops(
+            &end_mill(),
+            "hardwood",
+            false,
+            false,
+            false,
+            Spindle::default(),
+        );
         let feeds: Vec<i64> = stops
             .iter()
             .map(|s| s.values.as_ref().unwrap().feed)
@@ -1712,14 +1797,21 @@ mod tests {
         assert_eq!(stops[1].options.level, Level::SlotSafe);
         assert_eq!(stops[0].status, Status::Caution);
         // A material the model does not know has no stops to offer.
-        let none = suggest_stops(&end_mill(), "oak", false, false, false);
+        let none = suggest_stops(&end_mill(), "oak", false, false, false, Spindle::default());
         assert!(none.iter().all(|s| s.status == Status::None));
     }
 
     #[test]
     fn a_suggested_row_passes_its_own_check() {
         for material in ["softwood", "hardwood", "plastic", "aluminum", "brass"] {
-            for s in suggest_stops(&end_mill(), material, false, false, false) {
+            for s in suggest_stops(
+                &end_mill(),
+                material,
+                false,
+                false,
+                false,
+                Spindle::default(),
+            ) {
                 let v = s.values.unwrap();
                 let check = check_row(
                     &end_mill(),
@@ -1730,6 +1822,7 @@ mod tests {
                     2.4,
                     v.stepdown,
                     false,
+                    Spindle::default(),
                 );
                 assert_eq!(check.warnings, Vec::<String>::new(), "{material}");
                 assert_eq!(check.chip_load, s.chip_load);
@@ -1741,7 +1834,17 @@ mod tests {
     #[test]
     fn a_row_is_held_to_the_chip_band_and_the_power_cap() {
         let tool = end_mill();
-        let rubbing = check_row(&tool, "hardwood", 12000, 300.0, 100.0, 2.4, 1.0, false);
+        let rubbing = check_row(
+            &tool,
+            "hardwood",
+            12000,
+            300.0,
+            100.0,
+            2.4,
+            1.0,
+            false,
+            Spindle::default(),
+        );
         assert_eq!(rubbing.chip_load, Some(0.0083));
         assert_eq!(
             (rubbing.chip_floor, rubbing.chip_max),
@@ -1749,15 +1852,45 @@ mod tests {
         );
         assert!(rubbing.warnings[0].contains("may rub"), "{rubbing:?}");
 
-        let heavy = check_row(&tool, "hardwood", 12000, 2400.0, 200.0, 2.4, 12.0, false);
+        let heavy = check_row(
+            &tool,
+            "hardwood",
+            12000,
+            2400.0,
+            200.0,
+            2.4,
+            12.0,
+            false,
+            Spindle::default(),
+        );
         assert_eq!(heavy.power_cap_w, Some(120.0));
         assert!(heavy.warnings.iter().any(|w| w.contains("over the 120 W")));
 
         // At a lower speed the spindle has less to give.
-        let slow = check_row(&tool, "hardwood", 6000, 1200.0, 200.0, 2.4, 1.0, false);
+        let slow = check_row(
+            &tool,
+            "hardwood",
+            6000,
+            1200.0,
+            200.0,
+            2.4,
+            1.0,
+            false,
+            Spindle::default(),
+        );
         assert_eq!(slow.power_cap_w, Some(60.0));
 
-        let thick = check_row(&tool, "aluminum", 12000, 2000.0, 200.0, 2.4, 0.1, false);
+        let thick = check_row(
+            &tool,
+            "aluminum",
+            12000,
+            2000.0,
+            200.0,
+            2.4,
+            0.1,
+            false,
+            Spindle::default(),
+        );
         assert!(thick.warnings[0].contains("Feed slower"), "{thick:?}");
     }
 
@@ -1766,23 +1899,63 @@ mod tests {
         let tool = end_mill();
         // 800 mm/min, 3 mm deep: far over the cap as a slot, well under it
         // at a stepover of 0.72 mm.
-        let slot = check_row(&tool, "aluminum", 12000, 800.0, 180.0, 0.72, 3.0, false);
+        let slot = check_row(
+            &tool,
+            "aluminum",
+            12000,
+            800.0,
+            180.0,
+            0.72,
+            3.0,
+            false,
+            Spindle::default(),
+        );
         assert!(slot.warnings.iter().any(|w| w.contains("full-width")));
-        let adaptive = check_row(&tool, "aluminum", 12000, 800.0, 180.0, 0.72, 3.0, true);
+        let adaptive = check_row(
+            &tool,
+            "aluminum",
+            12000,
+            800.0,
+            180.0,
+            0.72,
+            3.0,
+            true,
+            Spindle::default(),
+        );
         assert_eq!(adaptive.power_w, Some(28.8));
         assert_eq!(adaptive.warnings, Vec::<String>::new());
         assert_eq!(
             (adaptive.chip_floor, adaptive.power_cap_w),
             (None, Some(120.0))
         );
-        let heavy = check_row(&tool, "aluminum", 12000, 3000.0, 180.0, 3.0, 6.0, true);
+        let heavy = check_row(
+            &tool,
+            "aluminum",
+            12000,
+            3000.0,
+            180.0,
+            3.0,
+            6.0,
+            true,
+            Spindle::default(),
+        );
         assert!(heavy.warnings[0].contains("At this stepover"), "{heavy:?}");
     }
 
     #[test]
     fn what_the_model_cannot_judge_gets_numbers_at_most() {
         // A material it does not know.
-        let unknown = check_row(&end_mill(), "oak", 12000, 600.0, 100.0, 2.4, 1.0, false);
+        let unknown = check_row(
+            &end_mill(),
+            "oak",
+            12000,
+            600.0,
+            100.0,
+            2.4,
+            1.0,
+            false,
+            Spindle::default(),
+        );
         assert!(!unknown.covered && unknown.chip_load.is_none());
         assert!(unknown.warnings.is_empty());
 
@@ -1790,14 +1963,34 @@ mod tests {
         let mut drill = Tool::new("Ø2.7 Drill", ToolKind::Drill, 2.7);
         drill.flutes = Some(2);
         drill.tip_angle = Some(118.0);
-        let check = check_row(&drill, "aluminum", 12000, 100.0, 100.0, 2.4, 0.4, false);
+        let check = check_row(
+            &drill,
+            "aluminum",
+            12000,
+            100.0,
+            100.0,
+            2.4,
+            0.4,
+            false,
+            Spindle::default(),
+        );
         assert!(check.covered && check.lubrication_matters);
         assert!(check.surface_speed.is_some() && check.chip_floor.is_none());
 
         // Without a flute count there is no chip to speak of.
         let mut bare = end_mill();
         bare.flutes = None;
-        let check = check_row(&bare, "hardwood", 12000, 600.0, 100.0, 2.4, 1.0, false);
+        let check = check_row(
+            &bare,
+            "hardwood",
+            12000,
+            600.0,
+            100.0,
+            2.4,
+            1.0,
+            false,
+            Spindle::default(),
+        );
         assert!(check.covered && check.chip_load.is_none());
         assert!(
             !check_row(
@@ -1808,7 +2001,8 @@ mod tests {
                 100.0,
                 2.4,
                 1.0,
-                false
+                false,
+                Spindle::default()
             )
             .lubrication_matters
         );
@@ -1906,7 +2100,7 @@ mod tests {
             let label = row[4]
                 .as_array()
                 .map(|l| l[0].as_str().unwrap().to_string());
-            let got = limits(cutter, &geometry, material, name);
+            let got = limits(cutter, &geometry, material, name, &Spindle::default());
             let got_label = got.as_ref().map(|l| l.class_label.to_string());
             let bare = got.clone().map(|l| Limits {
                 class_label: "",
@@ -1931,6 +2125,7 @@ mod tests {
                                 ramping,
                                 adaptive,
                                 lubricated,
+                                spindle: Spindle::default(),
                             };
                             let got = suggest(cutter, &geometry, material, &options, name);
                             let status = match case[0].as_str().unwrap() {
@@ -1986,7 +2181,7 @@ mod tests {
     #[test]
     fn a_row_gets_every_combination_and_starts_at_its_profile() {
         let tool = end_mill();
-        let plain = suggest_entry(&tool, "hardwood", None);
+        let plain = suggest_entry(&tool, "hardwood", None, Spindle::default());
         assert_eq!(
             (plain.default.as_str(), plain.combos.len()),
             ("slot_safe", 20)
@@ -1994,7 +2189,7 @@ mod tests {
         assert!(plain.covered && !plain.lubrication && plain.limits.is_some());
         assert!(plain.combos.contains_key("firm+ramp+adaptive"));
         // Where lubrication changes the answer, every combination comes with and without it.
-        let alu = suggest_entry(&tool, "aluminum", None);
+        let alu = suggest_entry(&tool, "aluminum", None, Spindle::default());
         assert_eq!(alu.combos.len(), 40);
         assert!(alu.lubrication && alu.combos.contains_key("gentle+ramp+adaptive+lube"));
 
@@ -2009,10 +2204,20 @@ mod tests {
             slot,
         };
         // The profile with the key `adaptive` is for adaptive clearing unless it says otherwise.
-        let adaptive = suggest_entry(&tool, "hardwood", Some(&profile("adaptive", false)));
+        let adaptive = suggest_entry(
+            &tool,
+            "hardwood",
+            Some(&profile("adaptive", false)),
+            Spindle::default(),
+        );
         assert_eq!(adaptive.default, "firm+ramp+adaptive");
         // A profile for full-width cuts takes the whole diameter, except where the cut is adaptive.
-        let slot = suggest_entry(&tool, "hardwood", Some(&profile("contour", true)));
+        let slot = suggest_entry(
+            &tool,
+            "hardwood",
+            Some(&profile("contour", true)),
+            Spindle::default(),
+        );
         assert_eq!(slot.default, "firm+ramp");
         let values = |key: &str| slot.combos[key].values.clone().unwrap();
         assert_eq!(
@@ -2028,8 +2233,49 @@ mod tests {
             plain.combos["slot_safe"].values.clone().unwrap().feed
         );
 
-        let unknown = suggest_entry(&tool, "oak", None);
+        let unknown = suggest_entry(&tool, "oak", None, Spindle::default());
         assert!(!unknown.covered && unknown.limits.is_none());
         assert!(unknown.combos.values().all(|s| s.status == Status::None));
+    }
+
+    #[test]
+    fn suggestions_keep_to_the_machines_spindle_speeds() {
+        let tool = end_mill();
+        let air = Spindle::of(&crate::project::Machine::default());
+        assert_eq!((air.rpm_min, air.rpm_max), (5000, 13000));
+        // Wood runs at the machine's top speed, and the limits follow it.
+        let entry = suggest_entry(&tool, "hardwood", None, air);
+        let s = &entry.combos[&entry.default];
+        assert_eq!(s.values.as_ref().unwrap().rpm, 13000);
+        assert_eq!(entry.limits.unwrap().rpm_max, 13000);
+        // A metal never goes over it, whatever its own floor.
+        let slow = Spindle {
+            rpm_min: 3000,
+            rpm_max: 6000,
+        };
+        for s in suggest_stops(&tool, "aluminum", false, false, false, slow) {
+            if let Some(v) = &s.values {
+                assert!(v.rpm <= 6000, "{} rpm", v.rpm);
+            }
+        }
+        // A lowest speed over the top speed is held to it.
+        let odd = crate::project::Machine {
+            min_rpm: 5000,
+            max_rpm: 4000,
+            ..Default::default()
+        };
+        assert_eq!(
+            Spindle::of(&odd),
+            Spindle {
+                rpm_min: 4000,
+                rpm_max: 4000
+            }
+        );
+        // Options read from a screen that sends no speeds get the model's own.
+        let options: Options = serde_json::from_str(
+            r#"{"level":"standard","ramping":false,"adaptive":false,"lubricated":false}"#,
+        )
+        .unwrap();
+        assert_eq!(options.spindle, Spindle::default());
     }
 }

@@ -184,6 +184,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             clearing_tool_ids: tools,
             vbit_tool_id: Some("t-vbit".into()),
             relief: false,
+            tuning: Default::default(),
         },
         Kind::Flat | Kind::FlatBacker => Inlay::Flat {
             pocket_depth: 2.0,
