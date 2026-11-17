@@ -15,6 +15,7 @@ pub mod ops;
 pub mod post;
 pub mod project;
 pub mod sim;
+pub mod starter;
 pub mod toolpath;
 pub mod tools;
 

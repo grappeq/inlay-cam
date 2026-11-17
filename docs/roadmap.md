@@ -32,10 +32,17 @@ libraries for other programs.
 - Hours in cut per row, and wear from simulated time.
 - A calibration coupon per bit and material: one shape cut at several allowances, with
   the results kept.
-- A starter set of tools, so that a new user does not begin with an empty list: common
-  end mills and V-bits with settings for hardwood and softwood. To decide: which tools,
-  whether the set comes with the app or is fetched, and how it merges with tools already
-  there.
+- A starter set of tools, so that a new user does not begin with an empty list. The list
+  is made: `crates/inlay-core/src/starter.rs` holds nine tools of Makera's Essential
+  Milling Bit Set, the ones this app cuts with, and two profiles, Clearing and Facing.
+  Their cutting rows for hardwood and softwood are what the feeds model suggests. Still
+  to do: offer it in the app. To decide: whether an empty list is filled by itself or on
+  a click, and how the set merges with tools already there.
+- To check on the bits themselves: overall lengths, and the chamfer bit's diameter and
+  tip, which Makera's listing does not give. Each is marked on its tool as to be checked.
+- The set's engraving bits are as wide as their shank, 3.175 mm, so the 60° one reaches
+  about 2.6 mm deep: less than a new V-carve inlay's 3 mm engagement plus glue gap. To
+  decide: a wider V-bit in the set, or a shallower engagement for a new inlay.
 
 **Left over from the phases that are done**
 
@@ -52,9 +59,10 @@ libraries for other programs.
 
 ## Operations and cutting settings
 
-- **Profiles that come with the app**, each the default for the operations it suits: a
-  face finishing profile for Facing, say. A new operation then starts on its profile's
-  row where the tool has one.
+- **Profiles that come with the app**, each the default for the operations it suits. The
+  two are chosen, in `starter.rs`: Clearing for pockets and floors, Facing for facing;
+  contours and cut-outs keep the plain row, which is safe for a full-width cut. Still to
+  do: a new operation starts on its profile's row where the tool has one.
 - **A profile chosen for each of an operation's bits.** Today a bit's row can be picked
   only where the bit already has rows on profiles for the material (`RowPicker`, kept in
   a job's `rowProfiles`). This is to be a plain choice for every bit of every operation.
