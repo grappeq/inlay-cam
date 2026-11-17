@@ -21,16 +21,20 @@ import { useImportSvg } from "./DesignPanel";
 
 const mm = (v: number) => Math.round(v * 100) / 100;
 
-/** The points of the selection's box that can stay put while it is resized, counted from its left and bottom, as they lie in a 3 by 3 grid read from the top left. */
-const ANCHORS: ({ label: string; at: [number, number] } | null)[] = [
+/**
+ * The points of the selection's box that X and Y can be read at, and that
+ * stay put while it is resized: counted from its left and bottom, as they lie
+ * in a 3 by 3 grid read from the top left.
+ */
+const ANCHORS: { label: string; at: [number, number] }[] = [
   { label: "the top-left corner", at: [0, 1] },
-  null,
+  { label: "the middle of the top edge", at: [0.5, 1] },
   { label: "the top-right corner", at: [1, 1] },
-  null,
+  { label: "the middle of the left edge", at: [0, 0.5] },
   { label: "the middle", at: [0.5, 0.5] },
-  null,
+  { label: "the middle of the right edge", at: [1, 0.5] },
   { label: "the bottom-left corner", at: [0, 0] },
-  null,
+  { label: "the middle of the bottom edge", at: [0.5, 0] },
   { label: "the bottom-right corner", at: [1, 0] },
 ];
 
@@ -83,6 +87,8 @@ export function ArrangeBar({ design }: { design: Design }) {
   const [percent, setPercent] = useState(50);
   const [anchor, setAnchor] = useState(6);
   const [proportional, setProportional] = useState(true);
+  // The last resize was held back by the stock's edges.
+  const [held, setHeld] = useState(false);
 
   const edit = (update: (d: Design) => Design, tag?: string) =>
     dispatch({ type: "editDrawing", tag, at: Date.now(), update: (p) => (p.design ? { ...p, design: update(p.design) } : p) });
@@ -90,14 +96,14 @@ export function ArrangeBar({ design }: { design: Design }) {
   const say = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
 
   const box = placedBox(design, selection);
-  const at = ANCHORS[anchor]!.at;
+  const at = ANCHORS[anchor].at;
   /** Resizes the selection about the chosen point, no further than the stock's left and bottom edges allow. */
   const resize = (fx: number, fy: number) => {
     if (!box) return;
     const [maxX, maxY] = stretchLimits(box, at);
     const kept = fx === fy ? Math.min(fx, maxX, maxY) : null;
     const [ax, ay] = kept !== null ? [kept, kept] : [Math.min(fx, maxX), Math.min(fy, maxY)];
-    if (ax < fx || ay < fy) say("Made as large as fits: the shape stops at the stock's left and bottom edges. Move it, or resize it from another corner.");
+    setHeld(ax < fx || ay < fy);
     edit((d) => stretchOnBoard(d, selection, ax, ay, at));
   };
   const none = selection.length === 0;
@@ -233,47 +239,51 @@ export function ArrangeBar({ design }: { design: Design }) {
 
       {box ? (
         <div className="tool-row numbers">
-          <NumberField deferred label="X" unit="mm" value={mm(box.x)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, v - box.x, 0))} />
-          <NumberField deferred label="Y" unit="mm" value={mm(box.y)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, 0, v - box.y))} />
-          <NumberField
-            deferred
-            label="W"
-            unit="mm"
-            min={0.01}
-            value={mm(box.width)}
-            onChange={(v) => v !== undefined && box.width > 0 && resize(v / box.width, proportional ? v / box.width : 1)}
-          />
-          <NumberField
-            deferred
-            label="H"
-            unit="mm"
-            min={0.01}
-            value={mm(box.height)}
-            onChange={(v) => v !== undefined && box.height > 0 && resize(proportional ? v / box.height : 1, v / box.height)}
-          />
-          <label className="check" title="When the width or the height is typed, the other follows">
-            <input type="checkbox" checked={proportional} onChange={(e) => setProportional(e.target.checked)} />
-            Keep proportions
-          </label>
-          <span className="anchor" role="radiogroup" aria-label="When resizing, keep in place" title="When resizing, this point of the selection stays where it is">
-            {ANCHORS.map((a, i) =>
-              a ? (
-                <button key={i} type="button" role="radio" aria-checked={anchor === i} aria-label={`Keep ${a.label} in place`} title={`Resizing keeps ${a.label} in place`} onClick={() => setAnchor(i)} />
-              ) : (
-                <span key={i} />
-              ),
-            )}
+          <span className="anchor" role="radiogroup" aria-label="Reference point" title="The point of the selection that X and Y are of, and that stays put when it is resized">
+            {ANCHORS.map((point, i) => (
+              <button key={i} type="button" role="radio" aria-checked={anchor === i} aria-label={`Measure and resize from ${point.label}`} title={`X and Y are of ${point.label}; resizing keeps it in place`} onClick={() => setAnchor(i)} />
+            ))}
+          </span>
+          <span className="number-pair" title={`Where ${ANCHORS[anchor].label} of the selection is, from the stock's bottom-left corner`}>
+            <NumberField deferred label="X" unit="mm" value={mm(box.x + at[0] * box.width)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, v - (box.x + at[0] * box.width), 0))} />
+            <NumberField deferred label="Y" unit="mm" value={mm(box.y + at[1] * box.height)} onChange={(v) => v !== undefined && edit((d) => moveOnBoard(d, selection, 0, v - (box.y + at[1] * box.height)))} />
+          </span>
+          <span className="number-pair">
+            <NumberField
+              deferred
+              label="W"
+              unit="mm"
+              min={0.01}
+              value={mm(box.width)}
+              onChange={(v) => v !== undefined && box.width > 0 && resize(v / box.width, proportional ? v / box.width : 1)}
+            />
+            <NumberField
+              deferred
+              label="H"
+              unit="mm"
+              min={0.01}
+              value={mm(box.height)}
+              onChange={(v) => v !== undefined && box.height > 0 && resize(proportional ? v / box.height : 1, v / box.height)}
+            />
+            <button type="button" className="ratio" aria-pressed={proportional} title="Keep proportions: when the width or the height is typed, the other follows" onClick={() => setProportional(!proportional)}>
+              {proportional ? "W:H kept" : "W:H free"}
+            </button>
           </span>
           <span className="tool-number">
-            <NumberField label="Scale to" unit="%" min={0.1} value={percent} onChange={(v) => v !== undefined && setPercent(v)} />
+            <NumberField label="Scale by" unit="%" min={0.1} value={percent} onChange={(v) => v !== undefined && setPercent(v)} />
             <button type="button" disabled={percent === 100} onClick={() => resize(percent / 100, percent / 100)}>
               Scale
             </button>
           </span>
+          {held && (
+            <span className="hint warn held" role="status">
+              ▲ Made as large as fits: it stops at the stock's left and bottom edges. Move it first, or resize from another reference point.
+            </span>
+          )}
         </div>
       ) : (
         <p className="tool-row muted" role="status">
-          Click a part of the drawing to select it, then drag it, or use the tools above. X and Y are measured from the stock's bottom-left corner.
+          Click a part of the drawing to select it, then drag it, or use the tools above. X and Y are measured from the stock's bottom-left corner, to the point of the selection you mark.
         </p>
       )}
     </div>

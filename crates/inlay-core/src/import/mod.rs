@@ -2,6 +2,7 @@
 
 pub mod dxf;
 pub mod join;
+pub mod makera;
 pub mod svg;
 pub mod tools_yaml;
 

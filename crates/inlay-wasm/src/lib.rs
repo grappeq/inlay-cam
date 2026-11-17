@@ -100,6 +100,85 @@ pub fn library_to_tools_yaml(library_json: &str) -> Result<String, JsError> {
     Ok(tools_yaml::write_tools_yaml(&library))
 }
 
+/// A tool list as a library for Makera CAM (`app` = `cam`) or Makera Studio
+/// (`studio`). `now` is the time, ISO-8601 UTC, that Makera Studio's
+/// settings without a time of their own are given. Returns
+/// `{ bytes, warnings, tools, settings, materials }` as JSON, the bytes as a
+/// list of numbers. Fails when Makera CAM could not read the result.
+#[wasm_bindgen(js_name = exportMakera)]
+pub fn export_makera(library_json: &str, app: &str, now: &str) -> Result<String, JsError> {
+    use inlay_core::export::makera;
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    library.validate().map_err(err)?;
+    let (built, warnings) = if app == "cam" {
+        makera::build_cam(&library).map_err(err)?
+    } else {
+        makera::build_studio(&library, now)
+    };
+    let tools: usize = built.groups.iter().map(|g| g.tools.len()).sum();
+    let settings: usize = built
+        .groups
+        .iter()
+        .flat_map(|g| &g.tools)
+        .map(|t| t.settings.len())
+        .sum();
+    Ok(serde_json::json!({
+        "bytes": makera::write(&built),
+        "warnings": warnings,
+        "tools": tools,
+        "settings": settings,
+        "materials": built.materials.len(),
+    })
+    .to_string())
+}
+
+/// A tool list as a Fusion 360 tool library. Returns
+/// `{ library, sections: [{ name, text }], warnings, tools, presets }` as
+/// JSON: one library with every tool, and the same as one per top-level group.
+#[wasm_bindgen(js_name = exportFusion)]
+pub fn export_fusion(library_json: &str) -> Result<String, JsError> {
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    library.validate().map_err(err)?;
+    let fusion = inlay_core::export::fusion::build_fusion(&library);
+    let sections: Vec<serde_json::Value> = fusion
+        .sections
+        .iter()
+        .map(|(name, text)| serde_json::json!({ "name": name, "text": text }))
+        .collect();
+    Ok(serde_json::json!({
+        "library": fusion.library,
+        "sections": sections,
+        "warnings": fusion.warnings,
+        "tools": fusion.tools,
+        "presets": fusion.presets,
+    })
+    .to_string())
+}
+
+/// Holds a library that Makera CAM or Makera Studio exported against a tool
+/// list. Returns the `MakeraImportPlan` as JSON: what differs, to be ticked.
+#[wasm_bindgen(js_name = planMakeraImport)]
+pub fn plan_makera_import(library_json: &str, data: &[u8]) -> Result<String, JsError> {
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    let plan = inlay_core::import::makera::plan(&library, data).map_err(err)?;
+    Ok(to_json(&plan))
+}
+
+/// The tool list with the ticked changes of a plan made to it. `selected_json`
+/// is the list of the changes' ids. Returns the `ToolLibrary` as JSON.
+#[wasm_bindgen(js_name = applyMakeraImport)]
+pub fn apply_makera_import(
+    library_json: &str,
+    plan_json: &str,
+    selected_json: &str,
+) -> Result<String, JsError> {
+    let library: ToolLibrary = from_json(library_json, "tool library")?;
+    let plan: inlay_core::import::makera::Plan = from_json(plan_json, "import plan")?;
+    let selected: Vec<String> = from_json(selected_json, "selected changes")?;
+    let out = inlay_core::import::makera::apply_plan(&library, &plan, &selected).map_err(err)?;
+    Ok(to_json(&out))
+}
+
 /// A starting point for a tool's cutting settings in a material, from the
 /// feeds model. `options_json` is `FeedOptions`; returns `FeedSuggestion` as
 /// JSON, whose status says whether there are values and whether to trust them.
@@ -136,6 +215,25 @@ pub fn suggest_stops(tool_json: &str, material: &str, flags_json: &str) -> Resul
     )))
 }
 
+/// Everything the feeds model has for one cutting row: every stop with and
+/// without a ramped entry, adaptive clearing and lubrication, where to start,
+/// and what the row's own numbers are checked against. `profile_json` is the
+/// row's `Profile`, or `null` for a plain row. Returns `FeedEntry` as JSON.
+#[wasm_bindgen(js_name = suggestEntry)]
+pub fn suggest_entry(
+    tool_json: &str,
+    material: &str,
+    profile_json: &str,
+) -> Result<String, JsError> {
+    let tool: Tool = from_json(tool_json, "tool")?;
+    let profile: Option<inlay_core::tools::Profile> = from_json(profile_json, "profile")?;
+    Ok(to_json(&feeds::suggest_entry(
+        &tool,
+        material,
+        profile.as_ref(),
+    )))
+}
+
 /// Holds a cutting row's numbers against the feeds model. `values_json` is
 /// `{ rpm, feed, plunge, stepover, stepdown, adaptive }`. Returns `RowCheck`
 /// as JSON.
@@ -165,6 +263,16 @@ pub fn check_row(tool_json: &str, material: &str, values_json: &str) -> Result<S
 pub fn needs_attention(tools_json: &str) -> Result<String, JsError> {
     let list: Vec<Tool> = from_json(tools_json, "tool list")?;
     Ok(to_json(&tools::needs_attention(&list)))
+}
+
+/// The standard name to offer for a tool. `named` is the name a V-bit is read
+/// by (the one it is saved under); `taken_json` every other tool's name and
+/// shown name. Returns `{ name, accepted }` as JSON, or `null`.
+#[wasm_bindgen(js_name = suggestName)]
+pub fn suggest_name(tool_json: &str, named: &str, taken_json: &str) -> Result<String, JsError> {
+    let tool: Tool = from_json(tool_json, "tool")?;
+    let taken: Vec<String> = from_json(taken_json, "taken names")?;
+    Ok(to_json(&inlay_core::naming::suggest(&tool, named, &taken)))
 }
 
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.

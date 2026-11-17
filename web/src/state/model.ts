@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutResult, CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutResult, CuttingSettings, Design, Inlay, Job, JobType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -205,6 +205,17 @@ export function missingFor(job: Job): string | null {
     case "contour":
       return inlay.toolId === null ? "Choose an end mill first." : null;
   }
+}
+
+/** The first of a job's tools that has no cutting settings for the job's material, as a sentence; null when all have. */
+export function missingSettings(job: Job, tools: Tool[], lists: ToolLists): string | null {
+  for (const id of jobToolIds(job)) {
+    const tool = tools.find((t) => t.id === id);
+    if (tool && !tool.cutting.some((c) => c.material === job.material)) {
+      return `"${tool.name}" has no cutting settings for ${materialLabel(job.material, lists).toLowerCase()}. Add them in the tool list, or choose another tool.`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -563,7 +574,7 @@ export function currentResult(row: CuttingSettings): CutResult | undefined {
 
 /** How a result is shown: its mark, what it is called, and its tone. */
 export const OUTCOMES: Record<NonNullable<CutResult["outcome"]>, { mark: string; text: string; tone: string }> = {
-  ok: { mark: "✓", text: "ok", tone: "ok" },
+  ok: { mark: "✓", text: "ok", tone: "good" },
   provisional: { mark: "○", text: "worked, still to confirm", tone: "warn" },
   failed: { mark: "✕", text: "failed", tone: "danger" },
 };
@@ -573,4 +584,79 @@ export function today(): string {
   const now = new Date();
   const two = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+}
+
+/** Coatings offered when one is typed; any other text is allowed. */
+export const COATINGS = ["AlCrN", "AlTiN", "DLC", "nACo", "TiAlN", "TiB2", "TiCN", "TiN", "TiSiN", "ZrN", "uncoated"];
+
+/** The name the Makera apps show: the name with its coating after it, unless there is none, it is "uncoated", or the name already ends with it. */
+export function displayName(name: string, coating: string | undefined): string {
+  if (!coating || coating === "uncoated") return name;
+  const [n, c] = [name.toLowerCase(), coating.toLowerCase()];
+  return n === c || n.endsWith(` ${c}`) ? name : `${name} ${coating}`;
+}
+
+type RowRef = { material: Material; profile?: string };
+const APP_LABELS = { cam: "Makera CAM", studio: "Makera Studio" } as const;
+const appsOf = (tool: Tool) => (["cam", "studio"] as const).filter((app) => (tool.apps ?? ["cam", "studio"]).includes(app));
+const recordsIn = (info: MaterialInfo | undefined, app: "cam" | "studio") => (app === "cam" ? (info?.cam ? 1 : 0) : (info?.studio?.length ?? 0));
+/** Whether any material is tied to a material of a Makera app: without that, nothing here says where a row lands. */
+const mapped = (lists: ToolLists) => (lists.materials ?? []).some((m) => m.cam !== undefined || (m.studio?.length ?? 0) > 0);
+
+/**
+ * The row of each material that the Makera apps get, which keep one per
+ * material: its plain row, else its first profile row.
+ */
+function effectiveRows(rows: RowRef[]): Map<Material, string | undefined> {
+  const out = new Map<Material, string | undefined>();
+  for (const row of rows) if (!out.has(row.material) || row.profile === undefined) out.set(row.material, row.profile);
+  return out;
+}
+
+/**
+ * Where a cutting row lands when the tool list is written for other programs,
+ * as the tooling library does it: "CAM · Studio (4 materials)", "Studio
+ * only", "Fusion 360 only". A profile row reaches the Makera apps only when
+ * its material has no plain row. Null when no material is tied to a Makera
+ * material, which a list gets by importing a tools.yaml.
+ */
+export function goesTo(tool: Tool, row: RowRef, lists: ToolLists): string | null {
+  if (!mapped(lists)) return null;
+  const info = lists.materials?.find((m) => m.key === row.material);
+  const apps = appsOf(tool).filter((app) => recordsIn(info, app) > 0);
+  if (row.profile !== undefined) {
+    return effectiveRows(tool.cutting).get(row.material) === row.profile && apps.length > 0 ? `Fusion 360; ${apps.map((app) => APP_LABELS[app]).join(" and ")} as a fallback ▲` : "Fusion 360 only";
+  }
+  const n = info?.studio?.length ?? 0;
+  const count = apps.includes("studio") && n > 1 ? ` (${n} materials)` : "";
+  if (apps.length === 0) return "neither Makera app";
+  if (apps.length === 1) return `${apps[0] === "cam" ? "CAM" : "Studio"} only${count}`;
+  return `CAM · Studio${count}`;
+}
+
+/** What to know about where a tool's rows land in the Makera apps: a material an app does not have, and a profile row an app gets for want of a plain one. */
+export function makeraWarnings(tool: Tool, lists: ToolLists): string[] {
+  if (!mapped(lists)) return [];
+  const out: string[] = [];
+  const apps = appsOf(tool);
+  for (const [material, profile] of effectiveRows(tool.cutting)) {
+    const info = lists.materials?.find((m) => m.key === material);
+    const label = materialLabel(material, lists);
+    if (apps.length > 0 && apps.every((app) => recordsIn(info, app) === 0)) {
+      out.push(`${label} goes to neither Makera library: they have no ${label.toLowerCase()} material.`);
+      continue;
+    }
+    for (const app of apps) {
+      if (recordsIn(info, app) > 0) {
+        if (profile !== undefined) {
+          const name = lists.profiles?.find((p) => p.key === profile)?.label ?? profile;
+          out.push(`${APP_LABELS[app]} gets the ${name} row for ${label.toLowerCase()}, which has no plain row: it may be run as a full slot.`);
+        }
+        continue;
+      }
+      const other = apps.find((a) => a !== app && recordsIn(info, a) > 0);
+      if (other) out.push(`${label} goes to ${APP_LABELS[other]} only: ${APP_LABELS[app]} has no ${label.toLowerCase()} material.`);
+    }
+  }
+  return [...new Set(out)];
 }

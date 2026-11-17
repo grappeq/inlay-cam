@@ -25,9 +25,11 @@
 //! `tests/fixtures/feeds-reference.json` holds that model's answers for a
 //! spread of tools, and the tests require the same ones here.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::tools::{Level, Tool, ToolKind};
+use crate::tools::{Level, Profile, Tool, ToolKind};
 
 pub const SPINDLE_W: f64 = 200.0;
 /// The Carvera Air's range.
@@ -424,7 +426,7 @@ const NO_NUMBERS: &str = "No suggestion: the model can't work with this geometry
 const ADAPTIVE_CAUTION: &str = "Untested: a chip-thinning starting point for Adaptive clearing (12% stepover, deep stepdown, faster feed; spindle and plunge as the conventional suggestion). Test-cut it before relying on it.";
 
 /// A number as `%g` writes it: six significant digits, no trailing zeros.
-fn g(value: f64) -> String {
+pub(crate) fn g(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return format!("{value}");
     }
@@ -1329,6 +1331,204 @@ pub fn suggest_stops(
     .collect()
 }
 
+/// The cross-section of a full slot as a row's own power is worked out from
+/// it: `depth × (width + depth × tan)`, or `round × depth²` for a corner
+/// rounder.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotShape {
+    pub width: f64,
+    pub tan: f64,
+    pub round: f64,
+}
+
+/// What a row's own values are checked against, outside any stop: the
+/// class's chip-load band at this cutting diameter, its specific cutting
+/// energy with the full slot's cross-section, and the hardest stop's power
+/// cap at the top spindle speed (proportionally less below it).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Limits {
+    pub class_label: &'static str,
+    pub chip_floor: f64,
+    pub chip_max: f64,
+    /// The diameter the band is for: a V-bit's is halfway between its tip
+    /// and its body.
+    pub cut_diameter: f64,
+    pub energy: f64,
+    pub slot: SlotShape,
+    pub power_cap_w: f64,
+    pub rpm_max: i64,
+}
+
+/// The limits for a cutter in a material. `None` where there is no model,
+/// and for drills, thread mills and engravers, which follow one fixed rule.
+pub fn limits(
+    cutter: Cutter,
+    geometry: &Geometry,
+    material: &str,
+    name: Option<&str>,
+) -> Option<Limits> {
+    if !matches!(cutter, Cutter::FlatEnd | Cutter::BallEnd | Cutter::VBit)
+        || geometry_problem(cutter, geometry, None).is_some()
+    {
+        return None;
+    }
+    let cls = class_of(material)?;
+    if is_engraver(cutter, geometry, name) {
+        return None;
+    }
+    let v_bit = cutter == Cutter::VBit;
+    let one_flute = !v_bit
+        && geometry.flutes as i64 == 1
+        && ONE_FLUTE_D.0 <= geometry.diameter
+        && geometry.diameter <= ONE_FLUTE_D.1;
+    // What the 1-flute suggestion may reach, where it applies.
+    let chip_max = cls
+        .one_flute_chip
+        .filter(|_| one_flute)
+        .map_or(cls.chip_max, |(_, one_max)| one_max);
+    let cut_d = if v_bit {
+        (geometry.diameter + geometry.tip_diameter) / 2.0
+    } else {
+        geometry.diameter
+    };
+    let slot = if corner_rounder(cutter, geometry) {
+        SlotShape {
+            width: 0.0,
+            tan: 0.0,
+            round: round_to(1.0 - std::f64::consts::FRAC_PI_4, 6),
+        }
+    } else {
+        SlotShape {
+            width: if v_bit {
+                geometry.tip_diameter
+            } else {
+                geometry.diameter
+            },
+            tan: if v_bit {
+                round_to((geometry.tip_angle / 2.0).to_radians().tan(), 6)
+            } else {
+                0.0
+            },
+            round: 0.0,
+        }
+    };
+    let out = Limits {
+        class_label: cls.label,
+        chip_floor: round_to(chip_floor(cls, cut_d), 4),
+        chip_max,
+        cut_diameter: cut_d,
+        energy: cls.energy,
+        slot,
+        power_cap_w: stop(Level::Aggressive).power_w,
+        rpm_max: RPM_MAX,
+    };
+    let finite = [
+        out.chip_floor,
+        out.chip_max,
+        out.energy,
+        out.slot.width,
+        out.slot.tan,
+        out.slot.round,
+    ]
+    .iter()
+    .all(|n| n.is_finite());
+    finite.then_some(out)
+}
+
+const LEVELS: [Level; 5] = [
+    Level::Gentle,
+    Level::SlotSafe,
+    Level::Standard,
+    Level::Firm,
+    Level::Aggressive,
+];
+
+/// The key of one combination of stop and ways of cutting among a row's
+/// suggestions, such as `firm+ramp+adaptive+lube`.
+pub fn combo_key(options: &Options) -> String {
+    let level = match options.level {
+        Level::Gentle => "gentle",
+        Level::SlotSafe => "slot_safe",
+        Level::Standard => "standard",
+        Level::Firm => "firm",
+        Level::Aggressive => "aggressive",
+    };
+    format!(
+        "{level}{}{}{}",
+        if options.ramping { "+ramp" } else { "" },
+        if options.adaptive { "+adaptive" } else { "" },
+        if options.lubricated { "+lube" } else { "" }
+    )
+}
+
+/// Everything the model has for one cutting row, so that a screen can switch
+/// between the combinations without asking again.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    /// Whether the model knows the material at all.
+    pub covered: bool,
+    /// The combination to start from: the profile's, or the plain Slot-safe.
+    pub default: String,
+    /// Every stop, with and without a ramped entry and adaptive clearing
+    /// and, where lubrication changes anything, with and without it: 40
+    /// suggestions, else 20, by `combo_key` (without `+lube` in the latter
+    /// case).
+    pub combos: BTreeMap<String, Suggestion>,
+    pub limits: Option<Limits>,
+    /// Whether lubrication changes anything for this material.
+    pub lubrication: bool,
+}
+
+/// The suggestions for a row of a tool: in `material` (one the model knows),
+/// on `profile` when it has one. A profile for full-width cuts gives end
+/// mills a stepover of the whole diameter.
+pub fn suggest_entry(tool: &Tool, material: &str, profile: Option<&Profile>) -> Entry {
+    let (cutter, geometry) = cutter_of(tool);
+    let name = Some(tool.name.as_str());
+    let lubrication = lubrication_matters(material);
+    let slot =
+        profile.is_some_and(|p| p.slot) && matches!(cutter, Cutter::FlatEnd | Cutter::BallEnd);
+    let mut combos = BTreeMap::new();
+    for level in LEVELS {
+        for ramping in [false, true] {
+            for adaptive in [false, true] {
+                for lubricated in [false, true] {
+                    if lubricated && !lubrication {
+                        continue;
+                    }
+                    let options = Options {
+                        level,
+                        ramping,
+                        adaptive,
+                        lubricated,
+                    };
+                    let mut s = suggest(cutter, &geometry, material, &options, name);
+                    if slot {
+                        s = as_slot(s, &geometry);
+                    }
+                    combos.insert(combo_key(&options), s);
+                }
+            }
+        }
+    }
+    let default = profile.map_or_else(Options::default, |p| Options {
+        level: p.level.unwrap_or(Level::SlotSafe),
+        ramping: p.ramping,
+        adaptive: p.is_adaptive(),
+        lubricated: p.lubricated,
+    });
+    Entry {
+        covered: covers(material),
+        default: combo_key(&default),
+        combos,
+        limits: limits(cutter, &geometry, material, name),
+        lubrication,
+    }
+}
+
 /// What a row's own numbers come to, and what the model has against them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1660,12 +1860,14 @@ mod tests {
             .map(|s| s.as_str().unwrap())
             .collect();
         let text = |index: &Value| index.as_u64().map(|i| strings[i as usize].to_string());
-        let cases = reference["cases"].as_array().unwrap();
-        assert!(cases.len() > 2000);
+        let results = reference["results"].as_array().unwrap();
+        let rows = reference["rows"].as_array().unwrap();
+        assert!(rows.len() > 400);
 
         let mut wrong = Vec::new();
-        for case in cases {
-            let cutter = match case[0].as_str().unwrap() {
+        let mut count = 0;
+        for row in rows {
+            let cutter = match row[0].as_str().unwrap() {
                 "flat_end" => Cutter::FlatEnd,
                 "ball_end" => Cutter::BallEnd,
                 "v_bit" => Cutter::VBit,
@@ -1673,8 +1875,8 @@ mod tests {
                 "thread_mill" => Cutter::ThreadMill,
                 other => panic!("unknown cutter {other}"),
             };
-            let name = case[1].as_str();
-            let shape: Vec<f64> = case[2].as_array().unwrap().iter().map(number).collect();
+            let name = row[1].as_str();
+            let shape: Vec<f64> = row[2].as_array().unwrap().iter().map(number).collect();
             let geometry = Geometry {
                 diameter: shape[0],
                 tip_diameter: shape[1],
@@ -1685,55 +1887,149 @@ mod tests {
                 thread_diameter: shape[6],
                 pitch: shape[7],
             };
-            let material = case[3].as_str().unwrap();
-            let flags = &case[5];
-            let options = Options {
-                level: serde_json::from_value(case[4].clone()).unwrap(),
-                ramping: flags[0].as_bool().unwrap(),
-                adaptive: flags[1].as_bool().unwrap(),
-                lubricated: flags[2].as_bool().unwrap(),
-            };
-            let got = suggest(cutter, &geometry, material, &options, name);
+            let material = row[3].as_str().unwrap();
 
-            let status = match case[6].as_str().unwrap() {
-                "ok" => Status::Ok,
-                "caution" => Status::Caution,
-                _ => Status::None,
-            };
-            let values = case[8].as_array().map(|v| Values {
-                rpm: v[0].as_i64().unwrap(),
-                feed: v[1].as_i64().unwrap(),
-                plunge: v[2].as_i64().unwrap(),
-                stepover_pct: number(&v[3]),
-                stepover_mm: number(&v[4]),
-                stepdown: number(&v[5]),
+            let expected = row[4].as_array().map(|l| Limits {
+                class_label: "",
+                chip_floor: number(&l[1]),
+                chip_max: number(&l[2]),
+                cut_diameter: 0.0,
+                energy: number(&l[3]),
+                slot: SlotShape {
+                    width: number(&l[4]),
+                    tan: number(&l[5]),
+                    round: number(&l[6]),
+                },
+                power_cap_w: number(&l[7]),
+                rpm_max: l[8].as_i64().unwrap(),
             });
-            let notes: Vec<String> = case[14]
+            let label = row[4]
                 .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(text)
-                .collect();
-            let same = got.status == status
-                && got.reason == text(&case[7])
-                && got.values == values
-                && got.fields.len() as u64 == case[9].as_u64().unwrap()
-                && got.chip_load == case[10].as_f64()
-                && got.surface_speed == case[11].as_f64()
-                && got.power_w == case[12].as_f64()
-                && got.power_limit_w == case[13].as_f64()
-                && got.notes == notes
-                && got.untested == case[15].as_bool().unwrap();
-            if !same {
-                wrong.push(format!("{case}\n  got {got:?}"));
+                .map(|l| l[0].as_str().unwrap().to_string());
+            let got = limits(cutter, &geometry, material, name);
+            let got_label = got.as_ref().map(|l| l.class_label.to_string());
+            let bare = got.clone().map(|l| Limits {
+                class_label: "",
+                cut_diameter: 0.0,
+                ..l
+            });
+            if bare != expected || got_label != label {
+                wrong.push(format!("limits of {row}\n  got {got:?}"));
+            }
+
+            // Every combination, in the order the fixture was written in.
+            let mut at = 0;
+            for level in LEVELS {
+                for ramping in [false, true] {
+                    for adaptive in [false, true] {
+                        for lubricated in [false, true] {
+                            let case = &results[row[5][at].as_u64().unwrap() as usize];
+                            at += 1;
+                            count += 1;
+                            let options = Options {
+                                level,
+                                ramping,
+                                adaptive,
+                                lubricated,
+                            };
+                            let got = suggest(cutter, &geometry, material, &options, name);
+                            let status = match case[0].as_str().unwrap() {
+                                "ok" => Status::Ok,
+                                "caution" => Status::Caution,
+                                _ => Status::None,
+                            };
+                            let values = case[2].as_array().map(|v| Values {
+                                rpm: v[0].as_i64().unwrap(),
+                                feed: v[1].as_i64().unwrap(),
+                                plunge: v[2].as_i64().unwrap(),
+                                stepover_pct: number(&v[3]),
+                                stepover_mm: number(&v[4]),
+                                stepdown: number(&v[5]),
+                            });
+                            let notes: Vec<String> = case[8]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .filter_map(text)
+                                .collect();
+                            let same = got.status == status
+                                && got.reason == text(&case[1])
+                                && got.values == values
+                                && got.fields.len() as u64 == case[3].as_u64().unwrap()
+                                && got.chip_load == case[4].as_f64()
+                                && got.surface_speed == case[5].as_f64()
+                                && got.power_w == case[6].as_f64()
+                                && got.power_limit_w == case[7].as_f64()
+                                && got.notes == notes
+                                && got.untested == case[9].as_bool().unwrap();
+                            if !same {
+                                wrong.push(format!(
+                                    "{} {material} {options:?}: {case}\n  got {got:?}",
+                                    row[0]
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
+        assert!(count > 16000);
         assert!(
             wrong.is_empty(),
             "{} of {} differ, the first:\n{}",
             wrong.len(),
-            cases.len(),
+            count,
             wrong[..wrong.len().min(3)].join("\n")
         );
+    }
+
+    #[test]
+    fn a_row_gets_every_combination_and_starts_at_its_profile() {
+        let tool = end_mill();
+        let plain = suggest_entry(&tool, "hardwood", None);
+        assert_eq!(
+            (plain.default.as_str(), plain.combos.len()),
+            ("slot_safe", 20)
+        );
+        assert!(plain.covered && !plain.lubrication && plain.limits.is_some());
+        assert!(plain.combos.contains_key("firm+ramp+adaptive"));
+        // Where lubrication changes the answer, every combination comes with and without it.
+        let alu = suggest_entry(&tool, "aluminum", None);
+        assert_eq!(alu.combos.len(), 40);
+        assert!(alu.lubrication && alu.combos.contains_key("gentle+ramp+adaptive+lube"));
+
+        let profile = |key: &str, slot: bool| Profile {
+            key: key.into(),
+            label: key.into(),
+            note: None,
+            level: Some(Level::Firm),
+            ramping: true,
+            adaptive: None,
+            lubricated: false,
+            slot,
+        };
+        // The profile with the key `adaptive` is for adaptive clearing unless it says otherwise.
+        let adaptive = suggest_entry(&tool, "hardwood", Some(&profile("adaptive", false)));
+        assert_eq!(adaptive.default, "firm+ramp+adaptive");
+        // A profile for full-width cuts takes the whole diameter, except where the cut is adaptive.
+        let slot = suggest_entry(&tool, "hardwood", Some(&profile("contour", true)));
+        assert_eq!(slot.default, "firm+ramp");
+        let values = |key: &str| slot.combos[key].values.clone().unwrap();
+        assert_eq!(
+            (
+                values("slot_safe").stepover_pct,
+                values("slot_safe").stepover_mm
+            ),
+            (100.0, 6.0)
+        );
+        assert_eq!(values("slot_safe+adaptive").stepover_pct, 12.0);
+        assert_eq!(
+            values("slot_safe").feed,
+            plain.combos["slot_safe"].values.clone().unwrap().feed
+        );
+
+        let unknown = suggest_entry(&tool, "oak", None);
+        assert!(!unknown.covered && unknown.limits.is_none());
+        assert!(unknown.combos.values().all(|s| s.status == Status::None));
     }
 }

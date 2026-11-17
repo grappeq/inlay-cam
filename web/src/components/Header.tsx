@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { core } from "../core/client";
 import * as db from "../storage/db";
 import { useFileActions } from "../state/files";
 import { newProject } from "../state/model";
-import { loadStoredProject, message, useApp, useDispatch } from "../state/store";
+import { loadStoredProject, message, useApp, useDispatch, type SettingsPage } from "../state/store";
+import { mayLeave } from "../state/unsaved";
 import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
 
 export function Header() {
   const { project, view, settingsPage, saveError, ready } = useApp();
-  const machine = view === "settings" && (settingsPage === "machine" || settingsPage === "defaults");
+  const inTools = view === "settings" && settingsPage === "tools";
+  // The settings page last looked at, to come back to after the tools.
+  const lastPage = useRef<SettingsPage>("materials");
+  if (settingsPage !== "tools") lastPage.current = settingsPage;
   const dispatch = useDispatch();
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
@@ -29,18 +33,18 @@ export function Header() {
     <header className="topbar">
       <span className="brand">Wooden Inlays</span>
       <nav className="tabs" aria-label="Views">
-        <button aria-pressed={view === "design"} onClick={() => dispatch({ type: "setView", view: "design" })}>
+        <button aria-pressed={view === "design"} onClick={() => mayLeave() && dispatch({ type: "setView", view: "design" })}>
           Design
         </button>
-        <button
-          aria-pressed={view === "settings" && !machine}
-          onClick={() => dispatch({ type: "setView", view: "settings", page: machine || view !== "settings" ? "tools" : settingsPage })}
-          title="Your tools, with their materials and profiles"
-        >
+        <button aria-pressed={inTools} onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })} title="Your tools">
           Tools
         </button>
-        <button aria-pressed={machine} onClick={() => dispatch({ type: "setView", view: "settings", page: "machine" })} title="Your machine, and what a new inlay starts with">
-          Machine
+        <button
+          aria-pressed={view === "settings" && !inTools}
+          onClick={() => mayLeave() && dispatch({ type: "setView", view: "settings", page: settingsPage === "tools" ? lastPage.current : settingsPage })}
+          title="Your materials, profiles and machine, and what a new inlay starts with"
+        >
+          Settings
         </button>
       </nav>
       <input
@@ -54,7 +58,7 @@ export function Header() {
         {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : "Saved in this browser"}
       </span>
       <div className="actions">
-        <button onClick={() => dispatch({ type: "openProject", project: newProject() })}>New project</button>
+        <button onClick={() => mayLeave() && dispatch({ type: "openProject", project: newProject() })}>New project</button>
         <button onClick={() => setShowProjects(true)} title="Projects stored in this browser">
           Projects…
         </button>

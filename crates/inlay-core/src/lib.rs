@@ -4,11 +4,13 @@
 
 pub mod analysis;
 pub mod build;
+pub mod export;
 pub mod feeds;
 pub mod file;
 pub mod gcode;
 pub mod geom;
 pub mod import;
+pub mod naming;
 pub mod ops;
 pub mod post;
 pub mod project;

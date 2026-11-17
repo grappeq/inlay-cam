@@ -338,10 +338,16 @@ export function profile(kind: ProfileKind, geo: ProfileGeometry, name: string, s
   // Unknown flute length: a V-bit is drawn as just its cone, other tools with a nominal length.
   const guess = conical(kind) && taper > 0 ? taper : Math.max(taper, Math.min(L * 0.3, 15));
   const cutLen = Math.min(fl || guess, L * 0.9);
-  const sc = Math.min((SIDE_W - 110) / L, 92 / Math.max(d, ds));
+  // A long tool with a short cutting end would be drawn with that end a few pixels long. Its
+  // shank is then shortened, with a break line where it is cut, so that the end can be read.
+  const reach = Math.max(cutLen, fl > 0 ? g.shoulderLength : 0);
+  const enough = Math.max(reach * 6, 5 * Math.max(d, ds));
+  const broken = L > enough * 1.2;
+  const drawn = broken ? enough : L;
+  const sc = Math.min((SIDE_W - 110) / drawn, 92 / Math.max(d, ds));
   const x0 = 40;
   const cy = 84;
-  const xe = x0 + L * sc;
+  const xe = x0 + drawn * sc;
   const xf = xe - cutLen * sc;
   const fluteUnknown = !fl;
   const r = d / 2;
@@ -353,15 +359,15 @@ export function profile(kind: ProfileKind, geo: ProfileGeometry, name: string, s
   const ripP = Math.max(0.12 * d, cutLen / 160);
   if (style === "Roughing") end = serrate(end, r, Math.max(1 / sc, 0.04 * r), ripP);
   const neckR = end.pts[0][1];
-  const cutStart = L - cutLen;
+  const cutStart = drawn - cutLen;
   // A shoulder past the flutes: a relieved neck, a touch under the cutting diameter, from the shoulder to the flutes.
   const sh = g.shoulderLength;
-  const neckLen = fl > 0 && sh > fl && L - sh >= 2 ? sh - cutLen : 0;
+  const neckLen = fl > 0 && sh > fl && drawn - sh >= 2 ? sh - cutLen : 0;
   const rn = neckLen > 0 ? Math.min(neckR, Math.max(r - Math.max(0.05 * d, 0.1, 2 / sc), 0.5 * r)) : neckR;
   const neckStart = cutStart - neckLen;
   const trans = rs > rn ? Math.min((rs - rn) / Math.tan(NECK_TAPER), neckStart * 0.5) : Math.min((rn - rs) * 0.4, neckStart * 0.2);
   const shankEnd = neckStart - trans;
-  const cham = Math.min(rs * 0.2, 0.5, shankEnd);
+  const cham = broken ? 0 : Math.min(rs * 0.2, 0.5, shankEnd);
   // The shank part of the outline (nb points), then the cutting end's own.
   const base: Pt[] = [[0, rs - cham], [cham, rs], [shankEnd, rs], ...(neckLen > 0 ? ([[neckStart, rn], [cutStart, rn]] as Pt[]) : [])];
   const nb = base.length;
@@ -407,6 +413,13 @@ export function profile(kind: ProfileKind, geo: ProfileGeometry, name: string, s
   svg.append(s("path", { d: `${pathOf([...upper, ...lower])} Z`, class: "shank", fill: `url(#${shade})` }));
   const m = lower.length;
   svg.append(s("path", { d: pathOf([...upper.slice(0, nb + 1).reverse(), ...lower.slice(m - nb - 1).reverse()]), class: "outline" }));
+  if (broken) {
+    // The break: a zigzag across the shank where the drawing leaves the rest of it out.
+    const [top, bottom] = [cy - rs * sc - 5, cy + rs * sc + 5];
+    const zig: Pt[] = [];
+    for (let k = 0; k <= 6; k++) zig.push([x0 + (k % 2 ? 3 : -3), top + ((bottom - top) * k) / 6]);
+    svg.append(s("path", { d: pathOf(zig), class: "outline break" }));
+  }
   // A PCB bit's depth-stop ring on its shank.
   if (style === "PCB" && shankEnd > 0) {
     const w = Math.max(4, 3 * sc);
@@ -506,7 +519,7 @@ export function profile(kind: ProfileKind, geo: ProfileGeometry, name: string, s
   const rmax = Math.max(d, ds) / 2;
   const yb = cy + rmax * sc + 22;
   dimLine(svg, x0, xe, yb, !lengthKnown, arr);
-  svg.append(s("text", { x: (x0 + xe) / 2, y: yb - 4, "text-anchor": "middle", class: lengthKnown ? "dl" : "dl unk" }, lengthKnown ? `L ${num(g.length)}` : "L unknown"));
+  svg.append(s("text", { x: (x0 + xe) / 2, y: yb - 4, "text-anchor": "middle", class: lengthKnown ? "dl" : "dl unk" }, lengthKnown ? (broken ? `L ${num(g.length)}, shank shortened` : `L ${num(g.length)}`) : "L unknown"));
   const yt = cy - rmax * sc - 14;
   dimLine(svg, xf, xe, yt, fluteUnknown, arr);
   // Over a short cutting end (a chamfer cone) the label ends at the tip instead of overhanging it.

@@ -3,8 +3,8 @@
 //! The whole file is read: every tool, cutting row, material, toolpath
 //! profile and group. Unknown keys are errors, as in the tooling library
 //! itself, so nothing in a file is passed over in silence. Comments are the
-//! one thing a YAML reader cannot keep: those directly above a tool go into
-//! its note, the rest are counted. How each key is read is in
+//! one thing a YAML reader cannot keep: those directly above a tool become
+//! its description, and are written back above it; the rest are counted. How each key is read is in
 //! `docs/formats.md`.
 
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ pub struct ToolsYamlImport {
     pub library: ToolLibrary,
     /// Tools this app cannot hold as they are written, and why.
     pub skipped: Vec<SkippedTool>,
-    /// Comment lines that were directly above a tool and are now in its note.
+    /// Comment lines that were directly above a tool and are now its description.
     pub comments_moved: usize,
     /// Comment lines that were not kept.
     pub comments_dropped: usize,
@@ -307,10 +307,7 @@ pub fn import_tools_yaml(text: &str) -> Result<ToolsYamlImport, String> {
         match tool.validate() {
             Ok(()) => {
                 if let Some(above) = comments.above.get(index).filter(|c| !c.text.is_empty()) {
-                    tool.note = Some(match tool.note.take() {
-                        Some(note) => format!("{note} {}", above.text),
-                        None => above.text.clone(),
-                    });
+                    tool.description = Some(above.text.clone());
                     moved += above.lines;
                 }
                 library.tools.push(tool);
@@ -550,7 +547,7 @@ fn is_corner_rounding(fusion: Option<FusionType>, name: &str, tip: f64, diameter
     named && tip > 0.0 && tip < diameter
 }
 
-/// The comment lines directly above one tool, as one line of text.
+/// The comment lines directly above one tool, one line of text each.
 #[derive(Default, Clone)]
 struct Above {
     text: String,
@@ -580,13 +577,12 @@ impl Comments {
             let indent = line.len() - trimmed.len();
             if let Some(comment) = trimmed.strip_prefix('#') {
                 total += 1;
-                let comment = comment.trim_start_matches('#').trim();
-                if !comment.is_empty() {
-                    if !pending.text.is_empty() {
-                        pending.text.push(' ');
-                    }
-                    pending.text.push_str(comment);
+                // One space after the mark is the mark's; any further are the writer's own.
+                let comment = comment.strip_prefix(' ').unwrap_or(comment).trim_end();
+                if pending.lines > 0 {
+                    pending.text.push('\n');
                 }
+                pending.text.push_str(comment);
                 pending.lines += 1;
                 continue;
             }
@@ -605,6 +601,10 @@ impl Comments {
         Comments { above, total }
     }
 }
+
+/// The key of a map entry that is written as comment lines above the map,
+/// where the map is an item of a list.
+const COMMENT: &str = "#";
 
 /// A piece of YAML to write. Maps keep the order they are built in.
 enum Node {
@@ -657,8 +657,9 @@ impl Keys {
 
 /// Writes a tool library as a tooling-library `tools.yaml`: one key per
 /// line, in the order the format's description gives them. Reading the
-/// result gives the same library back. The file has no comments, and a
-/// corner-rounding bit's radius is not written: the format has no key for
+/// result gives the same library back. A tool's description is written as
+/// comment lines above it; there are no other comments. A corner-rounding
+/// bit's radius is not written: the format has no key for
 /// it, and takes it from the body and tip diameters.
 pub fn write_tools_yaml(library: &ToolLibrary) -> String {
     let mut root = Keys::default();
@@ -784,8 +785,17 @@ fn put_values(k: &mut Keys, values: &CutValues, diameter: f64) {
 
 fn tool_node(tool: &Tool) -> Node {
     let mut t = Keys::default();
+    // Not a key: the writer turns this entry into comment lines above the tool.
+    if let Some(description) = &tool.description {
+        t.put(COMMENT, Node::Text(description.clone()));
+    }
     t.put("name", Node::Text(tool.name.clone()));
-    t.text("group", &tool.group);
+    // The format wants a group for every tool: one without is filed by its kind, as the list shows it.
+    let group = tool
+        .group
+        .clone()
+        .unwrap_or_else(|| crate::export::kind_group(tool.kind).to_string());
+    t.put("group", Node::Text(group));
     let kind = match tool.kind {
         ToolKind::FlatEnd => "flat_end",
         // The format has no kind for it: it is a v_bit told by its name or
@@ -807,7 +817,15 @@ fn tool_node(tool: &Tool) -> Node {
     if let Some(apps) = &tool.apps {
         t.put("apps", Node::Flow(apps.iter().map(snake).collect()));
     }
-    if let Some(fusion) = tool.fusion_type {
+    // A corner-rounding bit is a v_bit told by its name or its Fusion type: one whose name does not say so
+    // gets the type written, so that it reads back as what it is.
+    let rounder = tool.kind == ToolKind::CornerRound;
+    let fusion_type = tool.fusion_type.or_else(|| {
+        let tip = tool.tip_diameter.unwrap_or(0.0);
+        (rounder && !is_corner_rounding(None, &tool.name, tip, tool.diameter))
+            .then_some(FusionType::RadiusMill)
+    });
+    if let Some(fusion) = fusion_type {
         let mut f = Keys::default();
         let name = match fusion {
             FusionType::ChamferMill => "chamfer mill",
@@ -853,7 +871,8 @@ fn tool_node(tool: &Tool) -> Node {
     let mut g = Keys::default();
     g.put("diameter", Node::Number(tool.diameter));
     g.number("tip_diameter", tool.tip_diameter);
-    g.number("tip_angle", tool.tip_angle);
+    // A v_bit must give an angle; a corner-rounding bit's quarter circle is stored as a 90° cone.
+    g.number("tip_angle", tool.tip_angle.or(rounder.then_some(90.0)));
     g.number("length", tool.length);
     g.number("flutes", tool.flutes.map(f64::from));
     g.number(
@@ -998,12 +1017,25 @@ fn write_entry(out: &mut String, key: &str, value: &Node, indent: usize) {
         Node::List(items) => {
             out.push('\n');
             for item in items {
-                out.push_str(&" ".repeat(indent + 2));
+                let pad = " ".repeat(indent + 2);
+                if let Node::Map(entries) = item {
+                    if let Some((_, Node::Text(comment))) =
+                        entries.first().filter(|(key, _)| key == COMMENT)
+                    {
+                        for line in comment.lines() {
+                            out.push_str(&pad);
+                            out.push_str(if line.is_empty() { "#" } else { "# " });
+                            out.push_str(line);
+                            out.push('\n');
+                        }
+                    }
+                }
+                out.push_str(&pad);
                 out.push_str("- ");
                 match item {
                     Node::Map(entries) => {
                         // The first key follows the dash; the others line up under it.
-                        let mut entries = entries.iter();
+                        let mut entries = entries.iter().filter(|(key, _)| key != COMMENT);
                         if let Some((key, value)) = entries.next() {
                             write_entry(out, key, value, indent + 4);
                         }
@@ -1364,17 +1396,20 @@ tools:
     }
 
     #[test]
-    fn comments_above_a_tool_go_into_its_note_and_the_rest_are_counted() {
+    fn comments_above_a_tool_become_its_description_and_the_rest_are_counted() {
         let import = import();
+        let mill = tool(&import, "Ø3.175×22 1F Downcut");
+        assert_eq!(mill.note.as_deref(), Some("Ramp in aluminium."));
         assert_eq!(
-            tool(&import, "Ø3.175×22 1F Downcut").note.as_deref(),
-            Some("Ramp in aluminium. The everyday cutter. Sharp until proven otherwise.")
+            mill.description.as_deref(),
+            Some("The everyday cutter.\nSharp until proven otherwise.")
         );
+        let drill = tool(&import, "Ø2.7×16 Drill S4");
         assert_eq!(
-            tool(&import, "Ø2.7×16 Drill S4").note.as_deref(),
-            Some("Stubby.")
+            (drill.note.as_deref(), drill.description.as_deref()),
+            (None, Some("Stubby."))
         );
-        assert_eq!(tool(&import, "Ø2×6 S4 2F").note, None);
+        assert_eq!(tool(&import, "Ø2×6 S4 2F").description, None);
         assert_eq!((import.comments_moved, import.comments_dropped), (3, 1));
     }
 
@@ -1432,14 +1467,26 @@ tools:
         assert!(e.contains("format version 2"), "{e}");
     }
 
+    /// The format wants a group for every tool, so one without comes back
+    /// filed under its kind, which is where the list shows it anyway.
+    fn filed(mut library: ToolLibrary) -> ToolLibrary {
+        for tool in &mut library.tools {
+            tool.group
+                .get_or_insert_with(|| crate::export::kind_group(tool.kind).to_string());
+        }
+        library
+    }
+
     #[test]
     fn what_is_written_reads_back_the_same() {
         let first = import().library;
         let text = write_tools_yaml(&first);
         let again = import_tools_yaml(&text).unwrap();
-        assert_eq!(again.library, first);
+        assert_eq!(again.library, filed(first));
         assert!(again.skipped.is_empty());
-        assert_eq!((again.comments_moved, again.comments_dropped), (0, 0));
+        // The descriptions went out as comments above their tools, and came back.
+        assert_eq!((again.comments_moved, again.comments_dropped), (3, 0));
+        assert!(text.contains("  # The everyday cutter.\n  # Sharp until proven otherwise.\n  - name: Ø3.175×22 1F Downcut\n"), "{text}");
         // Writing what was read gives the same text: nothing drifts.
         assert_eq!(write_tools_yaml(&again.library), text);
     }
@@ -1456,7 +1503,7 @@ tools:
             "materials:\n  hardwood:\n    cam:\n      id: \"{00000000-0000-4000-8000-00000000000a}\"\n",
             "toolpaths:\n  adaptive:\n    label: Adaptive\n",
             "groups:\n  - path: End mills\n    ids:\n",
-            "tools:\n  - name: Ø3.175×22 1F Downcut\n    group: End mills\n    type: flat_end\n    number: 1\n",
+            "tools:\n  # The everyday cutter.\n  # Sharp until proven otherwise.\n  - name: Ø3.175×22 1F Downcut\n    group: End mills\n    type: flat_end\n    number: 1\n",
             "    recommended_for: [hardwood, softwood]\n",
             "    apps: [cam]\n",
             "    geometry:\n      diameter: 3.175\n      tip_angle: 60\n",
@@ -1478,8 +1525,8 @@ tools:
         at("invoice: \"1/2026\"\n");
         at("apps: []\n");
         // A corner-rounding bit goes back to the kind the format has for it.
-        at("  - name: Odd cutter\n    type: v_bit\n    fusion:\n      type: radius mill\n");
-        at("  - name: R1 Corner Round Ø4\n    type: v_bit\n    geometry:\n");
+        at("  - name: Odd cutter\n    group: Corner-rounding bits\n    type: v_bit\n    fusion:\n      type: radius mill\n");
+        at("  - name: R1 Corner Round Ø4\n    group: Corner-rounding bits\n    type: v_bit\n    geometry:\n");
         assert!(!text.contains("corner"), "{text}");
     }
 
@@ -1503,7 +1550,7 @@ tools:
         let again = import_tools_yaml(&text).unwrap().library;
         library.materials[3].label = None;
         library.materials[3].feeds_as = None;
-        assert_eq!(again, library);
+        assert_eq!(again, filed(library));
     }
 
     #[test]

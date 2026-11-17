@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay } from "../core/types";
+import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
 import {
   DEFAULT_STOCK_COLOR,
@@ -423,7 +423,7 @@ function OpEditor({ job }: { job: Job }) {
           {inlay.type === "facing" && (
             <>
               <FacingFields job={job} inlay={inlay} onChange={setInlay} />
-              <PatternField value={inlay.pattern} onChange={(pattern) => setInlay({ pattern })} />
+              <PatternField value={inlay.pattern} onChange={(pattern) => setInlay({ pattern })} direction={inlay.direction} onDirection={(direction) => setInlay({ direction })} />
             </>
           )}
           {inlay.type === "contour" && (
@@ -529,7 +529,7 @@ function OpEditor({ job }: { job: Job }) {
             <p className="hint">
               For the file of this operation. A new one starts with your defaults, which are set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
-                Machine
+                Settings
               </button>
               .
             </p>
@@ -579,21 +579,41 @@ function JobSymbol({ job }: { job: Job }) {
   return <JobIcon type={inlay.type} />;
 }
 
-/** The shape of the path the tool clears the area along. `walls` when the area has walls, which straight passes leave scalloped. */
-function PatternField({ value, onChange, walls }: { value: Pattern; onChange: (pattern: Pattern) => void; walls?: boolean }) {
+/**
+ * The shape of the path the tool clears the area along. `walls` when the area
+ * has walls, which straight passes leave scalloped. With `onDirection`, the
+ * way side-to-side passes run can be chosen as well.
+ */
+function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => void; walls?: boolean; direction?: PassDirection; onDirection?: (direction: PassDirection | undefined) => void }) {
+  const { value, walls } = props;
+  const direction = props.direction ?? "longer";
+  const along = direction === "x" ? "left and right, along X" : direction === "y" ? "to and from the front, along Y" : "along the longer side";
   return (
-    <label className="field">
-      <span className="field-label">The tool's path</span>
-      <select value={value} onChange={(e) => onChange(e.target.value as Pattern)}>
-        <option value="raster">Side to side, in straight passes</option>
-        <option value="offset">In rings that follow the outline</option>
-      </select>
-      <span className="hint">
-        {value === "raster"
-          ? `Straight passes along the longer side, back and forth${walls ? ", then once round the walls at each depth to clean them" : ""}.`
-          : "Rings from the middle outwards, the last one along the edge."}
-      </span>
-    </label>
+    <>
+      <label className="field">
+        <span className="field-label">The tool's path</span>
+        <select value={value} onChange={(e) => props.onChange(e.target.value as Pattern)}>
+          <option value="raster">Side to side, in straight passes</option>
+          <option value="offset">In rings that follow the outline</option>
+        </select>
+        <span className="hint">
+          {value === "raster"
+            ? `Straight passes ${along}, back and forth${walls ? ", then once round the walls at each depth to clean them" : ""}.`
+            : "Rings from the middle outwards, the last one along the edge."}
+        </span>
+      </label>
+      {props.onDirection && value === "raster" && (
+        <label className="field">
+          <span className="field-label">The passes run</span>
+          <select value={direction} onChange={(e) => props.onDirection?.(e.target.value === "longer" ? undefined : (e.target.value as PassDirection))}>
+            <option value="longer">Along the longer side</option>
+            <option value="x">Left and right (along X)</option>
+            <option value="y">To and from the front (along Y)</option>
+          </select>
+          <span className="hint">{direction === "longer" ? "The fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side." : `Cleanest when the grain runs ${direction === "x" ? "left to right" : "front to back"}.`}</span>
+        </label>
+      )}
+    </>
   );
 }
 
@@ -916,7 +936,7 @@ function JobEditor({ job }: { job: InlayJob }) {
             <p className="hint">
               For the files of this inlay. A new inlay starts with your defaults, which are set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
-                Machine
+                Settings
               </button>
               .
             </p>

@@ -5,15 +5,18 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Attention, CuttingSettings, FeedLevel, Material, Tool, ToolLists } from "../core/types";
-import { CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, fmt, jobToolIds, materialLabel, rowLabel, today } from "../state/model";
+import type { Attention, CuttingSettings, Material, Tool, ToolKind, ToolLists } from "../core/types";
+import { rowStatus, type CutValues, type Pick } from "../state/feedsView";
+import { COATINGS, CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, displayName, fmt, goesTo, jobToolIds, makeraWarnings, materialLabel, rowLabel, today } from "../state/model";
 import { message, useApp } from "../state/store";
-import { LogList, LogResult, ResultMark, RowFacts, Ruler, Suggestions, percentOf, placeOf, profileFlags, round6, useInsight, valuesOf, type Flags } from "./RowInsight";
+import { LogList, LogResult, ResultMark, RowFacts, Ruler, StatusTag, SuggestionSlot, entryFor, percentOf, round6, rowKey, startPick, useEntry, valuesOf } from "./RowInsight";
+import { Num, Text } from "./Cells";
 import { ToolDrawing } from "./ToolDrawing";
 
 type Inventory = NonNullable<Tool["inventory"]>;
 type Source = NonNullable<Tool["source"]>;
 type WearEntry = NonNullable<Inventory["log"]>[number];
+type VerifyItem = NonNullable<Tool["verify"]>[number];
 
 /** How many things differ between the tool as saved and as edited: fields, and cells of cutting rows. */
 function changes(saved: Tool, draft: Tool): number {
@@ -28,13 +31,23 @@ function changes(saved: Tool, draft: Tool): number {
     const [a, b] = [(saved[part] ?? {}) as Record<string, unknown>, (draft[part] ?? {}) as Record<string, unknown>];
     for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) if (!same(a[key], b[key])) n++;
   }
-  const rows = Math.max(saved.cutting.length, draft.cutting.length);
-  for (let i = 0; i < rows; i++) {
-    const [a, b] = [saved.cutting[i] as unknown as Record<string, unknown> | undefined, draft.cutting[i] as unknown as Record<string, unknown> | undefined];
-    if (!a || !b) n++;
-    else for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) if (!same(a[key], b[key])) n++;
+  const key = (row: CuttingSettings) => `${row.material}@${row.profile ?? ""}`;
+  // The same rows in another order are a change too: the order is kept in files.
+  if (saved.cutting.length === draft.cutting.length && saved.cutting.some((row, i) => key(row) !== key(draft.cutting[i]))) n++;
+  for (const row of saved.cutting) if (!draft.cutting.some((other) => key(other) === key(row))) n++;
+  for (const row of draft.cutting) {
+    const before = saved.cutting.find((other) => key(other) === key(row)) as unknown as Record<string, unknown> | undefined;
+    const now = row as unknown as Record<string, unknown>;
+    if (!before) n++;
+    else for (const field of new Set([...Object.keys(before), ...Object.keys(now)])) if (!same(before[field], now[field])) n++;
   }
   return n;
+}
+
+/** The tool as saving writes it: its name trimmed, and items to check that were left empty dropped. */
+function tidy(draft: Tool): Tool {
+  const verify = draft.verify?.map((v) => ({ ...v, field: v.field.trim() })).filter((v) => v.field !== "");
+  return { ...draft, name: draft.name.trim(), verify: verify && verify.length > 0 ? verify : undefined };
 }
 
 export function ToolCard(props: {
@@ -54,13 +67,25 @@ export function ToolCard(props: {
   const [draft, setDraft] = useState<Tool | null>(props.isNew ? props.tool : null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [wearEdit, setWearEdit] = useState<number | null>(null);
+  // While editing: the row the suggestion at the foot of the table is for.
+  const [inspect, setInspect] = useState(0);
+  // The combination the suggestion shows, kept while the same row is inspected.
+  const [picked, setPicked] = useState<{ at: number; row: string; pick: Pick } | null>(null);
+  const [saving, setSaving] = useState(false);
   const editing = draft !== null;
   const tool = draft ?? props.tool;
-  const set = (change: Partial<Tool>) => setDraft((t) => (t ? { ...t, ...change } : t));
+  const set = (change: Partial<Tool>) => {
+    // What was wrong at the last save may no longer be.
+    setError(null);
+    setDraft((t) => (t ? { ...t, ...change } : t));
+  };
   const materials = allMaterials(lists);
   const usedBy = project.jobs.filter((job) => jobToolIds(job).includes(tool.id));
+  // The groups there are to file a tool under: the pinned ones, and every one a tool names.
+  const groups = [...new Set([...(lists.groups ?? []).map((g) => g.path), ...props.taken.map((t) => t.group).filter((g): g is string => !!g)])];
   const cuts = CUTTING_KINDS.includes(tool.kind);
-  const unsaved = draft ? changes(props.tool, draft) + (props.isNew ? 1 : 0) : 0;
+  const unsaved = draft ? changes(props.tool, tidy(draft)) + (props.isNew ? 1 : 0) : 0;
   const { onDirty } = props;
   useEffect(() => {
     onDirty(unsaved > 0);
@@ -80,23 +105,40 @@ export function ToolCard(props: {
     const next = { ...source, ...change };
     set({ source: Object.values(next).some((v) => v !== undefined) ? next : undefined });
   };
-  const addRow = () =>
-    setDraft((t) => {
-      if (!t) return t;
-      // The first material, then the first profile, the tool has no row for yet.
-      const taken = (material: Material, profile?: string) => t.cutting.some((c) => c.material === material && c.profile === profile);
-      const free = materials.find((m) => !taken(m.value));
-      const material = free?.value ?? materials[0].value;
-      const profile = free ? undefined : lists.profiles?.find((p) => !taken(material, p.key))?.key;
-      if (!free && profile === undefined) return t;
-      const stepover = t.kind === "v_bit" ? 0.2 : t.kind === "corner_round" ? 0.5 : Math.round(t.diameter * 400) / 1000;
-      return { ...t, cutting: [...t.cutting, { material, profile, rpm: 12000, feed: 500, plunge: 150, stepover, stepdown: 0.5 }] };
+  const addRow = () => {
+    if (!draft) return;
+    const has = (material: Material, profile?: string) => draft.cutting.some((c) => c.material === material && c.profile === profile);
+    let next: { material: Material; profile?: string } | undefined = materials.map((m) => ({ material: m.value })).find((r) => !has(r.material));
+    for (const m of materials) next ??= (lists.profiles ?? []).map((p) => ({ material: m.value, profile: p.key })).find((r) => !has(r.material, r.profile));
+    if (!next) return setError("Every material already has a row for every profile.");
+    const stepover = draft.kind === "v_bit" ? 0.2 : draft.kind === "corner_round" ? 0.5 : Math.round(draft.diameter * 400) / 1000;
+    set({ cutting: [...draft.cutting, { ...next, rpm: 12000, feed: 500, plunge: 150, stepover, stepdown: 0.5 }] });
+    setInspect(draft.cutting.length);
+  };
+
+  const inspectAt = Math.min(inspect, tool.cutting.length - 1);
+  const inspected: CuttingSettings | undefined = tool.cutting[inspectAt];
+  const pick = inspected ? (picked?.at === inspectAt && picked.row === rowKey(inspected) ? picked.pick : startPick(inspected, lists)) : null;
+
+  /** Starts editing, with the suggestion on the first plain row that holds none of the model's: the one most worth a look. */
+  const startEdit = () => {
+    setDraft(props.tool);
+    setInspect(0);
+    setPicked(null);
+    const saved = props.tool;
+    void Promise.all(saved.cutting.map((row) => (row.profile === undefined ? entryFor(saved, row, lists).catch(() => null) : null))).then((entries) => {
+      const first = saved.cutting.findIndex((row, i) => entries[i] && rowStatus(row, entries[i], saved.diameter, false) === "differs");
+      if (first > 0) setInspect((now) => (now === 0 ? first : now));
     });
+  };
 
   const save = async () => {
-    if (!draft) return;
-    const candidate = { ...draft, name: draft.name.trim() };
-    if (props.taken.some((t) => t.id !== candidate.id && t.name === candidate.name)) return setError("Another tool already has this name.");
+    if (!draft || saving) return;
+    const candidate = tidy(draft);
+    const shown = displayName(candidate.name, candidate.coating);
+    const clash = props.taken.find((t) => t.id !== candidate.id && [t.name, displayName(t.name, t.coating)].some((n) => n === candidate.name || n === shown));
+    if (clash) return setError(`Another tool already has this name: ${displayName(clash.name, clash.coating)}.`);
+    setSaving(true);
     try {
       const problem = await core.call("validateTool", candidate);
       if (problem) return setError(problem.charAt(0).toUpperCase() + problem.slice(1) + ".");
@@ -105,6 +147,8 @@ export function ToolCard(props: {
       setError(null);
     } catch (e) {
       setError(message(e));
+    } finally {
+      setSaving(false);
     }
   };
   const cancel = () => {
@@ -129,6 +173,7 @@ export function ToolCard(props: {
     tool.cutting.some((c) => c.ids || c.camFlag !== undefined || c.modified) && "what the Makera apps store with its rows",
   ].filter((item): item is string => typeof item === "string");
   const v = tool.kind === "v_bit";
+  const passes = tool.kind === "thread_mill";
   const rounder = tool.kind === "corner_round";
 
   return (
@@ -149,13 +194,18 @@ export function ToolCard(props: {
             ? props.isNew
               ? `A new ${TOOL_KIND_LABELS[tool.kind].toLowerCase()}`
               : `Editing a ${TOOL_KIND_LABELS[tool.kind].toLowerCase()}`
-            : [tool.group, TOOL_KIND_LABELS[tool.kind], tool.number !== undefined ? `tool no. ${tool.number}` : null].filter(Boolean).join(" / ")}
+            : [tool.group?.split("/").join(" / "), TOOL_KIND_LABELS[tool.kind], tool.number !== undefined ? `tool no. ${tool.number}` : null].filter(Boolean).join(" / ")}
         </p>
         <div className="card-title">
           {editing ? (
             <>
               <input className="title-input" type="text" aria-label="Name" placeholder="Name, such as Ø6×18 3F" autoFocus={props.isNew} value={tool.name} onChange={(e) => set({ name: e.target.value })} />
-              <input className="coating-input" type="text" aria-label="Coating" placeholder="Coating" value={tool.coating ?? ""} onChange={(e) => set({ coating: e.target.value.trim() === "" ? undefined : e.target.value })} />
+              <input className="coating-input" type="text" list="tool-coatings" aria-label="Coating" placeholder="Coating" value={tool.coating ?? ""} onChange={(e) => set({ coating: e.target.value.trim() === "" ? undefined : e.target.value })} />
+              <datalist id="tool-coatings">
+                {COATINGS.map((coating) => (
+                  <option key={coating} value={coating} />
+                ))}
+              </datalist>
             </>
           ) : (
             <>
@@ -163,21 +213,37 @@ export function ToolCard(props: {
                 {tool.name}
                 {tool.coating && !tool.name.endsWith(tool.coating) && <span className="coating"> {tool.coating}</span>}
               </h2>
-              <button type="button" onClick={() => setDraft(props.tool)}>
+              <button type="button" onClick={startEdit}>
                 Edit tool
-              </button>
-              <button type="button" className="danger" onClick={props.onDelete}>
-                Delete
               </button>
             </>
           )}
         </div>
+        {draft && <NameHint draft={draft} saved={props.tool} isNew={props.isNew} taken={props.taken} onUse={(name) => set({ name })} />}
         {!cuts && <p className="muted">Kept here and written for other programs. No operation of this app cuts with a {TOOL_KIND_LABELS[tool.kind].toLowerCase()}.</p>}
         {editing ? (
           <input className="note-input" type="text" aria-label="Note" placeholder="A line about the whole tool" value={tool.note ?? ""} onChange={(e) => set({ note: e.target.value.trim() === "" ? undefined : e.target.value })} />
         ) : (
           tool.note && <p className="card-note">{tool.note}</p>
         )}
+        {editing ? (
+          <textarea
+            className="description-input"
+            aria-label="Description"
+            placeholder="Longer remarks, of any length. In a tools.yaml these are the comment lines above the tool."
+            rows={Math.min(8, Math.max(2, (tool.description ?? "").split("\n").length))}
+            value={tool.description ?? ""}
+            onChange={(e) => set({ description: e.target.value.trim() === "" ? undefined : e.target.value })}
+          />
+        ) : (
+          tool.description && (
+            <details className="fold description">
+              <summary>Remarks, {tool.description.split("\n").length} {tool.description.split("\n").length === 1 ? "line" : "lines"}</summary>
+              <p>{tool.description}</p>
+            </details>
+          )
+        )}
+        {editing && <VerifyEdit items={tool.verify ?? []} onChange={(verify) => set({ verify: verify.length > 0 ? verify : undefined })} />}
         {!editing && props.attention.length > 0 && (
           <ul className="card-attention">
             {props.attention.map((a, i) => (
@@ -248,12 +314,6 @@ export function ToolCard(props: {
           )}
           {(editing || tool.style) && <Fact label="Style" value={tool.style} edit={editing && <Text label="Style" placeholder="Downcut, Alu" value={tool.style} onChange={(style) => set({ style })} />} />}
           {!editing && tool.coating && <Fact label="Coating" value={tool.coating} />}
-          {editing && (
-            <>
-              <Fact label="Group" value={tool.group} edit={<Text label="Group" placeholder="End mills" value={tool.group} onChange={(group) => set({ group })} />} />
-              <Fact label="Tool number" value={tool.number} edit={<Num label="Tool number" min={1} whole optional value={tool.number} onChange={(n) => set({ number: n })} />} />
-            </>
-          )}
         </dl>
         {(editing || (tool.recommendedFor?.length ?? 0) > 0) && (
           <p className="suits">
@@ -277,7 +337,7 @@ export function ToolCard(props: {
           <p className="block-empty">None yet. A tool cannot be used on a material it has no settings for.</p>
         ) : (
           <div className="cut-wrap">
-            <table className="cut-table">
+            <table className={passes ? "cut-table with-passes" : "cut-table"}>
               <thead>
                 <tr>
                   <th>For</th>
@@ -294,7 +354,12 @@ export function ToolCard(props: {
                   <th className="num">
                     Depth <small>mm</small>
                   </th>
-                  <th>How hard</th>
+                  {passes && (
+                    <th className="num" title="Radial passes to cut the thread">
+                      Passes
+                    </th>
+                  )}
+                  <th className="col-hard">How hard</th>
                   {editing && <th />}
                 </tr>
               </thead>
@@ -307,7 +372,11 @@ export function ToolCard(props: {
                     lists={lists}
                     materials={materials}
                     editing={editing}
-                    open={open === index}
+                    passes={passes}
+                    inspected={editing && inspectAt === index}
+                    pick={editing && inspectAt === index ? pick : null}
+                    onInspect={() => setInspect(index)}
+                    open={!editing && open === index}
                     onToggle={() => setOpen(open === index ? null : index)}
                     onChange={(next) => changeRow(index, next)}
                     onRemove={() => {
@@ -317,9 +386,27 @@ export function ToolCard(props: {
                   />
                 ))}
               </tbody>
+              {editing && inspected && pick && (
+                <SuggestionSlot
+                  key={rowKey(inspected)}
+                  tool={tool}
+                  row={inspected}
+                  lists={lists}
+                  passes={passes}
+                  pick={pick}
+                  onPick={(next) => setPicked({ at: inspectAt, row: rowKey(inspected), pick: next })}
+                  onUse={(change: Partial<CutValues>) => changeRow(inspectAt, { ...inspected, ...change })}
+                />
+              )}
             </table>
           </div>
         )}
+        {!editing &&
+          makeraWarnings(tool, lists).map((warning) => (
+            <p key={warning} className="block-line hint warn">
+              ▲ {warning}
+            </p>
+          ))}
         {editing ? (
           <p className="block-line">
             <button type="button" onClick={addRow}>
@@ -330,7 +417,7 @@ export function ToolCard(props: {
         ) : (
           tool.cutting.length === 0 && (
             <p className="block-line">
-              <button type="button" onClick={() => setDraft(props.tool)}>
+              <button type="button" onClick={startEdit}>
                 Edit tool to add them
               </button>
             </p>
@@ -390,16 +477,50 @@ export function ToolCard(props: {
         </dl>
         {(inventory.log?.length ?? 0) > 0 && (
           <ul className="log-list">
-            {inventory.log?.map((entry, i) => (
-              <li key={i}>
-                <span className="num">{entry.date}</span>
-                <span className="mark danger">{entry.kind}</span>
-                <span>
-                  {entry.material ? `In ${materialLabel(entry.material, lists).toLowerCase()}. ` : ""}
-                  {entry.note}
-                </span>
-              </li>
-            ))}
+            {inventory.log?.map((entry, i) =>
+              wearEdit === i && !editing ? (
+                <li key={i} className="editing">
+                  <LogWear
+                    initial={entry}
+                    materials={materials}
+                    canTakeOne={false}
+                    onCancel={() => setWearEdit(null)}
+                    onAdd={(next) => {
+                      props.onSave({ ...tool, inventory: { ...inventory, log: inventory.log?.map((e, j) => (j === i ? next : e)) } });
+                      setWearEdit(null);
+                    }}
+                  />
+                </li>
+              ) : (
+                <li key={i}>
+                  <span className="num">{entry.date}</span>
+                  <span className="mark danger">{entry.kind}</span>
+                  <span>
+                    {entry.material ? `In ${materialLabel(entry.material, lists).toLowerCase()}. ` : ""}
+                    {entry.note}
+                  </span>
+                  {!editing && wearEdit === null && (
+                    <span className="log-acts">
+                      <button type="button" className="link" onClick={() => setWearEdit(i)}>
+                        Correct
+                      </button>
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => {
+                          if (!window.confirm(`Take the entry of ${entry.date} out of the log? The count on hand stays as it is.`)) return;
+                          const log = inventory.log?.filter((_, j) => j !== i) ?? [];
+                          const next = { ...inventory, log: log.length > 0 ? log : undefined };
+                          props.onSave({ ...tool, inventory: Object.values(next).some((v) => v !== undefined) ? next : undefined });
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  )}
+                </li>
+              ),
+            )}
           </ul>
         )}
         {!editing && (
@@ -420,6 +541,8 @@ export function ToolCard(props: {
         {kept.length > 0 && <p className="block-line muted">Also kept, for other programs: {kept.join("; ")}.</p>}
       </Block>
 
+      <ToolSettings tool={tool} saved={props.tool} editing={editing} isNew={props.isNew} groups={groups} set={set} onDelete={props.onDelete} />
+
       {editing && (
         <footer className="save-bar">
           <span className={error ? "form-error" : "muted"} role={error ? "alert" : undefined}>
@@ -429,7 +552,7 @@ export function ToolCard(props: {
           <button type="button" onClick={cancel}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={unsaved === 0 && !props.isNew}>
+          <button type="submit" className="primary" disabled={saving || (unsaved === 0 && !props.isNew)}>
             Save changes
           </button>
         </footer>
@@ -460,57 +583,212 @@ function Fact(props: { label: string; value: ReactNode; edit?: ReactNode }) {
   );
 }
 
-/** A line of text in a cell; empty means none. */
-function Text(p: { label: string; value: string | undefined; onChange: (value: string | undefined) => void; placeholder?: string }) {
-  return <input className="cell-in" type="text" aria-label={p.label} placeholder={p.placeholder} value={p.value ?? ""} onChange={(e) => p.onChange(e.target.value.trim() === "" ? undefined : e.target.value)} />;
-}
+/** The tool as the core reads it for a name: its rows and its own notes left out. */
+const bare = (tool: Tool): Tool => ({ ...tool, id: tool.id || "new", name: tool.name || "Tool", cutting: [], verify: undefined, inventory: undefined, source: undefined });
 
 /**
- * A number in a cell. It reports only complete, in-range numbers; while the
- * text is not one, the field is marked and the last good value stays.
+ * Under the name while a tool is edited: the standard name for a tool of its
+ * kind and sizes, offered when the name is another. A V-bit is read by the
+ * name it is saved under, so that the offer does not flip while one is typed.
  */
-function Num(p: { label: string; value: number | undefined; onChange: (value: number | undefined) => void; unit?: string; min?: number; max?: number; whole?: boolean; optional?: boolean; hint?: string }) {
-  const [text, setText] = useState(p.value === undefined ? "" : String(round6(p.value)));
-  const [bad, setBad] = useState(false);
-  const parse = (t: string) => (t.trim() === "" ? undefined : Number(t.replace(",", ".")));
-  // Follow changes from elsewhere (a suggestion taken, the diameter changed) unless the text already says the same.
+function NameHint(props: { draft: Tool; saved: Tool; isNew: boolean; taken: Tool[]; onUse: (name: string) => void }) {
+  const { draft, isNew } = props;
+  const [offer, setOffer] = useState<{ name: string; accepted: string[] } | null>(null);
+  const named = isNew ? draft.name : props.saved.name;
+  const shape = JSON.stringify({ ...bare(draft), name: "Tool", note: undefined, description: undefined });
+  const taken = JSON.stringify(props.taken.filter((t) => t.id !== draft.id).flatMap((t) => [t.name, displayName(t.name, t.coating)]));
   useEffect(() => {
-    if (parse(text) !== p.value) {
-      setText(p.value === undefined ? "" : String(round6(p.value)));
-      setBad(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.value]);
+    let stale = false;
+    // An offer worked out for other sizes is not to be taken.
+    setOffer(null);
+    const timer = setTimeout(() => {
+      core.call("suggestName", JSON.parse(shape), named, JSON.parse(taken)).then(
+        (next) => !stale && setOffer(next),
+        // A shape the core cannot read yet, mid-edit.
+        () => !stale && setOffer(null),
+      );
+    }, 150);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [shape, named, taken]);
+  const name = draft.name.trim();
+  const offered = offer !== null && !offer.accepted.includes(name);
+  const needs = draft.kind === "ball_end" ? "" : draft.kind === "thread_mill" ? " (the thread, the pitch and the flute length)" : draft.kind === "v_bit" || draft.kind === "corner_round" ? " (the angle, or the tip under the rounding)" : " (the flute length too)";
   return (
-    <span className="num-in">
-      <input
-        className="cell-in"
-        type="text"
-        inputMode="decimal"
-        aria-label={p.label}
-        aria-invalid={bad}
-        placeholder={p.hint}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          const n = parse(e.target.value);
-          const usable = n === undefined ? p.optional === true : !Number.isNaN(n) && n >= (p.min ?? 0) && n <= (p.max ?? Infinity) && (!p.whole || Number.isInteger(n));
-          setBad(!usable);
-          if (usable) p.onChange(n);
-        }}
-      />
-      {p.unit && <span className="unit">{p.unit}</span>}
-    </span>
+    <p className="name-hint">
+      {offered && (
+        <>
+          Suggested: <code>{offer.name}</code>{" "}
+          <button type="button" className="small" aria-label={`Use the suggested name ${offer.name}`} onClick={() => props.onUse(offer.name)}>
+            Use
+          </button>
+        </>
+      )}
+      {isNew && name === "" && <span className="muted">{offered ? " Or type your own." : `Fill in the sizes${needs} for a suggested name, or type your own.`}</span>}
+    </p>
   );
 }
 
-/** One cutting row on one line; opened, what the model makes of it, its log, and a way to log a result. */
+/** What is still to check about a tool, while it is edited: a size not measured yet, a setting never tried. */
+function VerifyEdit(props: { items: VerifyItem[]; onChange: (items: VerifyItem[]) => void }) {
+  const { items } = props;
+  const change = (at: number, next: Partial<VerifyItem>) => props.onChange(items.map((item, i) => (i === at ? { ...item, ...next } : item)));
+  return (
+    <div className="verify-edit">
+      {items.map((item, i) => (
+        <div key={i} className="verify-row">
+          <span className="muted">To check</span>
+          <input className="cell-in" type="text" aria-label="What is to check" placeholder="What, such as flute length" autoFocus={item.field === ""} value={item.field} onChange={(e) => change(i, { field: e.target.value })} />
+          <input className="cell-in grow" type="text" aria-label={`Note on checking ${item.field || "it"}`} placeholder="Why, or how (optional)" value={item.note ?? ""} onChange={(e) => change(i, { note: e.target.value.trim() === "" ? undefined : e.target.value })} />
+          <button type="button" className="row-x" aria-label={item.field ? `Take "${item.field}" off the list to check` : "Take this off the list to check"} title="Take it off the list" onClick={() => props.onChange(items.filter((_, j) => j !== i))}>
+            ×
+          </button>
+        </div>
+      ))}
+      <button type="button" className="link" disabled={items.some((item) => item.field.trim() === "")} onClick={() => props.onChange([...items, { field: "" }])}>
+        Add something to check
+      </button>
+    </div>
+  );
+}
+
+const KINDS: ToolKind[] = ["flat_end", "ball_end", "v_bit", "corner_round", "drill", "thread_mill"];
+
+/**
+ * Where a tool is filed and what it goes into: its group, kind and number,
+ * and which programs' libraries it is written for. Folded at the foot of the
+ * sheet, since it is seldom looked at; a new tool's is open.
+ */
+function ToolSettings(props: { tool: Tool; saved: Tool; editing: boolean; isNew: boolean; groups: string[]; set: (change: Partial<Tool>) => void; onDelete: () => void }) {
+  const { tool, editing, set } = props;
+  const apps = tool.apps ?? ["cam", "studio"];
+  const appsText = apps.length === 2 ? "Makera CAM and Studio" : apps.length === 0 ? "neither Makera app" : apps[0] === "cam" ? "Makera CAM" : "Makera Studio";
+  const fusion = tool.kind === "v_bit" || tool.kind === "corner_round";
+  const fusionText = tool.fusionType ? tool.fusionType.replace("_", " ") : tool.kind === "corner_round" ? "radius mill" : "chamfer mill";
+  const changed = (["group", "kind", "number", "apps", "fusionType"] as const).filter((k) => JSON.stringify(tool[k] ?? null) !== JSON.stringify(props.saved[k] ?? null)).length;
+  const toggleApp = (app: "cam" | "studio") => {
+    const next = (["cam", "studio"] as const).filter((a) => (a === app ? !apps.includes(a) : apps.includes(a)));
+    set({ apps: next.length === 2 ? undefined : next });
+  };
+  // Changing the kind keeps what the new kind also has, and gives it what it must have.
+  const setKind = (kind: ToolKind) => {
+    const change: Partial<Tool> = { kind };
+    if ((kind === "v_bit" || kind === "drill") && tool.tipAngle === undefined) change.tipAngle = kind === "drill" ? 118 : 60;
+    if (kind === "corner_round" && tool.cornerRadius === undefined) change.cornerRadius = Math.max(0.1, Math.round((tool.diameter - (tool.tipDiameter ?? 0)) * 500) / 1000);
+    if (kind !== "v_bit") change.fusionType = undefined;
+    // What the new kind has no use for goes; back at the kind it was saved as, it has what it was saved with.
+    if (kind !== "v_bit" && kind !== "drill" && kind !== "thread_mill") change.tipAngle = undefined;
+    if (kind !== "corner_round") change.cornerRadius = undefined;
+    if (kind === props.saved.kind) Object.assign(change, { tipAngle: props.saved.tipAngle, cornerRadius: props.saved.cornerRadius, fusionType: props.saved.fusionType });
+    set(change);
+  };
+  return (
+    <details className="block toolset" open={props.isNew || undefined}>
+      <summary>
+        <b>Tool settings</b>
+        <span className="muted">
+          {" "}
+          {[tool.group?.split("/").join(" / "), TOOL_KIND_LABELS[tool.kind], tool.number !== undefined ? `no. ${tool.number}` : null, `goes to ${appsText}`, fusion ? `Fusion 360: ${fusionText}` : null].filter(Boolean).join(", ")}
+        </span>
+        {editing && !props.isNew && changed > 0 && <span className="mark warn"> {changed} changed</span>}
+      </summary>
+      <dl className="facts">
+        <Fact
+          label="Group"
+          value={tool.group?.split("/").join(" / ") ?? <span className="muted">none: listed by its kind</span>}
+          edit={
+            editing && (
+              <>
+                <input className="cell-in" type="text" list="tool-groups" aria-label="Group" placeholder="Such as End mills" value={tool.group ?? ""} onChange={(e) => set({ group: e.target.value.trim() === "" ? undefined : e.target.value })} />
+                <datalist id="tool-groups">
+                  {props.groups.map((g) => (
+                    <option key={g} value={g} />
+                  ))}
+                </datalist>
+              </>
+            )
+          }
+        />
+        <Fact label="Number" value={tool.number ?? <span className="muted">none</span>} edit={editing && <Num label="Tool number" min={1} whole optional value={tool.number} onChange={(n) => set({ number: n })} />} />
+        <Fact
+          label="Kind"
+          value={TOOL_KIND_LABELS[tool.kind]}
+          edit={
+            editing && (
+              <select className="cell-in" aria-label="Kind" value={tool.kind} onChange={(e) => setKind(e.target.value as ToolKind)}>
+                {KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {TOOL_KIND_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            )
+          }
+        />
+        <Fact
+          label="Goes to"
+          value={apps.length === 0 ? "Neither Makera app (built into them); Fusion 360 only" : appsText}
+          edit={
+            editing && (
+              <span className="check-list">
+                <label className="check">
+                  <input type="checkbox" checked={apps.includes("cam")} onChange={() => toggleApp("cam")} />
+                  Makera CAM
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={apps.includes("studio")} onChange={() => toggleApp("studio")} />
+                  Makera Studio
+                </label>
+              </span>
+            )
+          }
+        />
+        {tool.kind === "v_bit" && (
+          <Fact
+            label="Fusion 360 type"
+            value={tool.fusionType ? fusionText : `auto (${fusionText})`}
+            edit={
+              editing && (
+                <select className="cell-in" aria-label="Fusion 360 type" value={tool.fusionType ?? ""} onChange={(e) => set({ fusionType: e.target.value === "" ? undefined : (e.target.value as Tool["fusionType"]) })}>
+                  <option value="">Auto</option>
+                  <option value="chamfer_mill">Chamfer mill</option>
+                  <option value="radius_mill">Radius mill</option>
+                </select>
+              )
+            }
+          />
+        )}
+      </dl>
+      <p className="block-line muted">
+        The number and "goes to" are for the libraries of other programs, which this app cannot write yet. They are kept, and written to a tools.yaml.
+      </p>
+      {!props.isNew && (
+        <p className="block-line">
+          <button type="button" className="danger small" onClick={props.onDelete}>
+            Delete this tool…
+          </button>{" "}
+          <span className="muted">Removes it from your tools. A project that uses it keeps its own copy.</span>
+        </p>
+      )}
+    </details>
+  );
+}
+
+/** One cutting row on one line. Read: opened, its numbers, its log and a way to log a result. Edited: its cells are fields. */
 function CutLine(props: {
   tool: Tool;
   row: CuttingSettings;
   lists: ToolLists;
   materials: { value: Material; label: string }[];
   editing: boolean;
+  passes: boolean;
+  /** While editing: this is the row the suggestion at the foot of the table is for. */
+  inspected: boolean;
+  /** The combination that suggestion is shown at, which this row's ruler then follows. */
+  pick: Pick | null;
+  onInspect: () => void;
   open: boolean;
   onToggle: () => void;
   onChange: (row: CuttingSettings) => void;
@@ -518,128 +796,112 @@ function CutLine(props: {
 }) {
   const { tool, row, lists, editing } = props;
   const set = (change: Partial<CuttingSettings>) => props.onChange({ ...row, ...change });
-  const start = profileFlags(row, lists);
-  const [flags, setFlags] = useState<Flags>({ ramping: start.ramping, lubricated: start.lubricated });
-  const [level, setLevel] = useState<FeedLevel>(start.level);
-  const insight = useInsight(tool, row, lists, flags);
-  const place = placeOf(row, insight.stops);
+  const entry = useEntry(tool, row, lists);
   const profile = lists.profiles?.find((p) => p.key === row.profile);
-  const warned = (insight.check?.warnings.length ?? 0) > 0;
   const percent = row.stepoverUnit === "percent";
   const rowTaken = (m: Material, p: string | undefined) => tool.cutting.some((c) => c !== row && c.material === m && c.profile === p);
-  const hard = insight.check && !insight.check.covered ? <span className="muted">no model</span> : <Ruler place={place} />;
+  const hard = <Ruler tool={tool} row={row} entry={entry} pick={props.pick} />;
+  const lands = goesTo(tool, row, lists);
+
+  if (editing) {
+    return (
+      <tr className={props.inspected ? "cut-line insp" : "cut-line"} aria-current={props.inspected ? "true" : undefined} onFocus={props.onInspect} onClick={props.onInspect}>
+        <th scope="row">
+          <span className="for-in">
+            <select aria-label="Material" value={row.material} onChange={(e) => set({ material: e.target.value })}>
+              {props.materials.map((m) => (
+                <option key={m.value} value={m.value} disabled={rowTaken(m.value, row.profile)}>
+                  {m.label}
+                </option>
+              ))}
+              {!props.materials.some((m) => m.value === row.material) && <option value={row.material}>{row.material}</option>}
+            </select>
+            <select aria-label="For" value={row.profile ?? ""} onChange={(e) => set({ profile: e.target.value === "" ? undefined : e.target.value })}>
+              <option value="" disabled={rowTaken(row.material, undefined)}>
+                any cut
+              </option>
+              {lists.profiles?.map((p) => (
+                <option key={p.key} value={p.key} disabled={rowTaken(row.material, p.key)}>
+                  {p.label}
+                </option>
+              ))}
+              {row.profile !== undefined && !profile && <option value={row.profile}>{row.profile}</option>}
+            </select>
+            <StatusTag tool={tool} row={row} entry={entry} lists={lists} />
+          </span>
+        </th>
+        <td className="num">
+          <Num label="Speed, rpm" min={1} whole value={row.rpm} onChange={(n) => n !== undefined && set({ rpm: n })} />
+        </td>
+        <td className="num">
+          <Num label="Feed, mm/min" min={0.001} value={row.feed} onChange={(n) => n !== undefined && set({ feed: n })} />
+        </td>
+        <td className="num">
+          <Num label="Plunge, mm/min" min={0.001} value={row.plunge} onChange={(n) => n !== undefined && set({ plunge: n })} />
+        </td>
+        <td className="num">
+          <span className="pair">
+            <Num
+              label={percent ? "Stepover, percent" : "Stepover, mm"}
+              min={0.001}
+              max={percent ? 100 : tool.diameter}
+              value={percent ? percentOf(row, tool.diameter) : row.stepover}
+              onChange={(n) => n !== undefined && set({ stepover: percent ? round6((n / 100) * tool.diameter) : n })}
+            />
+            <button type="button" className="unit-toggle" aria-label={percent ? "Stepover in percent of the diameter: give it in mm" : "Stepover in mm: give it in percent of the diameter"} title={percent ? `${fmt(row.stepover)} mm. Click to give it in mm` : `${fmt(percentOf(row, tool.diameter))} %. Click to give it in percent`} onClick={() => set({ stepoverUnit: percent ? undefined : "percent" })}>
+              {percent ? "%" : "mm"}
+            </button>
+          </span>
+        </td>
+        <td className="num">
+          <Num label="Depth per pass, mm" min={0.001} value={row.stepdown} onChange={(n) => n !== undefined && set({ stepdown: n })} />
+        </td>
+        {props.passes && (
+          <td className="num">
+            <Num label="Radial passes" min={1} whole optional value={row.passes} onChange={(n) => set({ passes: n })} />
+          </td>
+        )}
+        <td className="col-hard">{hard}</td>
+        <td>
+          <button type="button" className="row-x" aria-label={`Delete the ${rowLabel(row, lists)} row`} title="Delete this row" onClick={props.onRemove}>
+            ×
+          </button>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <>
-      {editing ? (
-        <tr className={props.open ? "cut-line open" : "cut-line"}>
-          <th scope="row">
-            <span className="for-in">
-              <button type="button" className="cut-toggle" aria-expanded={props.open} aria-label="What the model makes of this row" onClick={props.onToggle}>
-                <span className="caret" aria-hidden="true" />
-              </button>
-              <select aria-label="Material" value={row.material} onChange={(e) => set({ material: e.target.value })}>
-                {props.materials.map((m) => (
-                  <option key={m.value} value={m.value} disabled={rowTaken(m.value, row.profile)}>
-                    {m.label}
-                  </option>
-                ))}
-                {!props.materials.some((m) => m.value === row.material) && <option value={row.material}>{row.material}</option>}
-              </select>
-              <select aria-label="For" value={row.profile ?? ""} onChange={(e) => set({ profile: e.target.value === "" ? undefined : e.target.value })}>
-                <option value="" disabled={rowTaken(row.material, undefined)}>
-                  any cut
-                </option>
-                {lists.profiles?.map((p) => (
-                  <option key={p.key} value={p.key} disabled={rowTaken(row.material, p.key)}>
-                    {p.label}
-                  </option>
-                ))}
-                {row.profile !== undefined && !profile && <option value={row.profile}>{row.profile}</option>}
-              </select>
-            </span>
-          </th>
-          <td className="num">
-            <Num label="Speed, rpm" min={1} whole value={row.rpm} onChange={(n) => n !== undefined && set({ rpm: n })} />
-          </td>
-          <td className="num">
-            <Num label="Feed, mm/min" min={0.001} value={row.feed} onChange={(n) => n !== undefined && set({ feed: n })} />
-          </td>
-          <td className="num">
-            <Num label="Plunge, mm/min" min={0.001} value={row.plunge} onChange={(n) => n !== undefined && set({ plunge: n })} />
-          </td>
-          <td className="num">
-            <span className="pair">
-              <Num
-                label={percent ? "Stepover, percent" : "Stepover, mm"}
-                min={0.001}
-                max={percent ? 100 : tool.diameter}
-                value={percent ? percentOf(row, tool.diameter) : row.stepover}
-                onChange={(n) => n !== undefined && set({ stepover: percent ? round6((n / 100) * tool.diameter) : n })}
-              />
-              <button type="button" className="unit-toggle" title={percent ? `${fmt(row.stepover)} mm. Click to give it in mm` : `${fmt(percentOf(row, tool.diameter))} %. Click to give it in percent`} onClick={() => set({ stepoverUnit: percent ? undefined : "percent" })}>
-                {percent ? "%" : "mm"}
-              </button>
-            </span>
-          </td>
-          <td className="num">
-            <Num label="Depth per pass, mm" min={0.001} value={row.stepdown} onChange={(n) => n !== undefined && set({ stepdown: n })} />
-          </td>
-          <td>{hard}</td>
-          <td>
-            <button type="button" className="row-x" aria-label={`Delete the ${rowLabel(row, lists)} row`} title="Delete this row" onClick={props.onRemove}>
-              ×
-            </button>
-          </td>
-        </tr>
-      ) : (
-        <tr className={props.open ? "cut-line open" : "cut-line"} onClick={props.onToggle}>
-          <th scope="row">
-            <button type="button" className="cut-toggle" aria-expanded={props.open} onClick={(e) => (e.stopPropagation(), props.onToggle())}>
-              <span className="caret" aria-hidden="true" />
-              {materialLabel(row.material, lists)}
-            </button>
-            {row.profile !== undefined && <span className="tag">{profile?.label ?? row.profile}</span>} <ResultMark row={row} short />
-            {warned && (
-              <span className="mark warn" title={insight.check?.warnings.join(" ")}>
-                {" "}
-                !
-              </span>
-            )}
-          </th>
-          <td className="num">{row.rpm}</td>
-          <td className="num">{fmt(row.feed)}</td>
-          <td className="num">{fmt(row.plunge)}</td>
-          <td className="num">
-            {percent ? `${fmt(percentOf(row, tool.diameter))} %` : `${fmt(row.stepover)} mm`}
-            <small> {percent ? `${fmt(row.stepover)} mm` : `${fmt(percentOf(row, tool.diameter))} %`}</small>
-          </td>
-          <td className="num">{fmt(row.stepdown)}</td>
-          <td>{hard}</td>
-        </tr>
-      )}
+      <tr className={props.open ? "cut-line open" : "cut-line"} onClick={props.onToggle}>
+        <th scope="row">
+          <button type="button" className="cut-toggle" aria-expanded={props.open} onClick={(e) => (e.stopPropagation(), props.onToggle())}>
+            <span className="caret" aria-hidden="true" />
+            {materialLabel(row.material, lists)}
+          </button>
+          {row.profile !== undefined && <span className="tag">{profile?.label ?? row.profile}</span>} <ResultMark row={row} short />
+        </th>
+        <td className="num">{row.rpm}</td>
+        <td className="num">{fmt(row.feed)}</td>
+        <td className="num">{fmt(row.plunge)}</td>
+        <td className="num">
+          {percent ? `${fmt(percentOf(row, tool.diameter))} %` : `${fmt(row.stepover)} mm`}
+          <small> {percent ? `${fmt(row.stepover)} mm` : `${fmt(percentOf(row, tool.diameter))} %`}</small>
+        </td>
+        <td className="num">{fmt(row.stepdown)}</td>
+        {props.passes && <td className="num">{row.passes ?? ""}</td>}
+        <td className="col-hard">{hard}</td>
+      </tr>
       {props.open && (
         <tr className="cut-detail">
-          <td colSpan={editing ? 8 : 7}>
+          <td colSpan={props.passes ? 8 : 7}>
             <p className="readouts">
               <ResultMark row={row} />
+              {lands && <span className="muted">Goes to: {lands}</span>}
             </p>
-            <RowFacts insight={insight} />
-            {editing && tool.kind === "thread_mill" && (
-              <p className="readouts">
-                Radial passes <Num label="Passes" min={1} whole optional value={row.passes} onChange={(n) => set({ passes: n })} />
-              </p>
-            )}
-            <LogList row={row} />
-            {editing ? (
-              (row.log?.length ?? 0) > 0 && <p className="hint">Changing the numbers leaves the logged results behind: the row is untested again at the new ones.</p>
-            ) : (
-              <LogResult saves="now" onAdd={(entry) => props.onChange({ ...row, log: [...(row.log ?? []), { ...entry, at: valuesOf(row) }] })} />
-            )}
-            <details className="fold" open={editing || undefined}>
-              <summary>What the feeds model would start from</summary>
-              <Suggestions tool={tool} row={row} lists={lists} insight={insight} flags={flags} setFlags={setFlags} level={level} setLevel={setLevel} onUse={set} />
-            </details>
+            <RowFacts tool={tool} row={row} lists={lists} entry={entry} />
+            <LogList row={row} onChange={(log) => props.onChange({ ...row, log: log.length > 0 ? log : undefined })} />
+            <LogResult saves="now" onAdd={(entry) => props.onChange({ ...row, log: [...(row.log ?? []), { ...entry, at: valuesOf(row) }] })} />
           </td>
         </tr>
       )}
@@ -648,12 +910,13 @@ function CutLine(props: {
 }
 
 /** Notes a cutter that broke or wore out, and takes it off the count. */
-function LogWear(props: { materials: { value: Material; label: string }[]; canTakeOne: boolean; onAdd: (entry: WearEntry, takeOne: boolean) => void }) {
-  const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<WearEntry["kind"]>("broken");
-  const [material, setMaterial] = useState("");
-  const [note, setNote] = useState("");
-  const [date, setDate] = useState(today());
+function LogWear(props: { materials: { value: Material; label: string }[]; canTakeOne: boolean; onAdd: (entry: WearEntry, takeOne: boolean) => void; initial?: WearEntry; onCancel?: () => void }) {
+  const { initial } = props;
+  const [open, setOpen] = useState(initial !== undefined);
+  const [kind, setKind] = useState<WearEntry["kind"]>(initial?.kind ?? "broken");
+  const [material, setMaterial] = useState(initial?.material ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [date, setDate] = useState(initial?.date ?? today());
   const [takeOne, setTakeOne] = useState(true);
   if (!open) {
     return (
@@ -717,9 +980,15 @@ function LogWear(props: { materials: { value: Material; label: string }[]; canTa
           </label>
         )}
         <button type="button" className="primary" disabled={date === ""} onClick={add}>
-          Add
+          {initial ? "Keep the correction" : "Add"}
         </button>
-        <button type="button" onClick={() => setOpen(false)}>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            props.onCancel?.();
+          }}
+        >
           Cancel
         </button>
       </div>

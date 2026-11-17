@@ -1,0 +1,879 @@
+{
+  "data": [
+    {
+      "guid": "0429a5db-472d-5287-a366-e9e36b389762",
+      "type": "flat end mill",
+      "unit": "millimeters",
+      "description": "\u00d83.175\u00d712 2F",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 3.175,
+        "HAND": true,
+        "LB": 38,
+        "LCF": 12,
+        "NOF": 2,
+        "OAL": 38,
+        "SFDM": 3.175,
+        "shoulder-length": 12,
+        "assemblyGaugeLength": 38,
+        "shoulder-diameter": 3.175
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "End mills/Wood",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "1b84df59-d38b-572e-8393-4420ab7a15d2",
+            "name": "Hardwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 119.695,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0011,
+            "f_z": 0.0005,
+            "v_f": 13,
+            "v_f_leadIn": 13,
+            "v_f_leadOut": 13,
+            "v_f_ramp": 13,
+            "v_f_transition": 13,
+            "v_f_plunge": 400,
+            "stepover": 1.27,
+            "stepdown": 1.6,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "d78dccd2-7d7b-583d-81b7-b5abc93093a5",
+            "name": "Softwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 11000,
+            "v_c": 109.72,
+            "n_ramp": 11000,
+            "ramp-angle": 2.0,
+            "f_n": 0.2636,
+            "f_z": 0.1318,
+            "v_f": 2900,
+            "v_f_leadIn": 2900,
+            "v_f_leadOut": 2900,
+            "v_f_ramp": 2900,
+            "v_f_transition": 2900,
+            "v_f_plunge": 500,
+            "stepover": 1.27,
+            "stepdown": 2,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "5f52d20f-0fc1-524b-b651-b9115f4dfb30",
+            "name": "Walnut",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 119.695,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0917,
+            "f_z": 0.0458,
+            "v_f": 1100,
+            "v_f_leadIn": 1100,
+            "v_f_leadOut": 1100,
+            "v_f_ramp": 1100,
+            "v_f_transition": 1100,
+            "v_f_plunge": 300,
+            "stepover": 1.27,
+            "stepdown": 1.2,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "27f82924-aca4-5817-96db-9b21f60abb35",
+      "type": "flat end mill",
+      "unit": "millimeters",
+      "description": "\u00d84\u00d711 1F",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 4,
+        "HAND": true,
+        "LB": 31,
+        "LCF": 11,
+        "NOF": 1,
+        "OAL": 31,
+        "SFDM": 4,
+        "shoulder-length": 11,
+        "assemblyGaugeLength": 31,
+        "shoulder-diameter": 4
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "End mills/Metal",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "29f567b2-4908-584b-94c6-470ed427b675",
+            "name": "Aluminum \u2013 Adaptive",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 150.796,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.075,
+            "f_z": 0.075,
+            "v_f": 900,
+            "v_f_leadIn": 900,
+            "v_f_leadOut": 900,
+            "v_f_ramp": 900,
+            "v_f_transition": 900,
+            "v_f_plunge": 200,
+            "stepover": 0.48,
+            "stepdown": 2,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "4d1b7c20-dcc7-593f-b1e3-1efe90cf58d2",
+            "name": "Plastic",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 150.796,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.1167,
+            "f_z": 0.1167,
+            "v_f": 1400,
+            "v_f_leadIn": 1400,
+            "v_f_leadOut": 1400,
+            "v_f_ramp": 1400,
+            "v_f_transition": 1400,
+            "v_f_plunge": 400,
+            "stepover": 1.6,
+            "stepdown": 2,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "0c6a8d20-bad4-5cb7-8f49-efd1001eca29",
+            "name": "Brass",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 10000,
+            "v_c": 125.664,
+            "n_ramp": 10000,
+            "ramp-angle": 2.0,
+            "f_n": 0.03,
+            "f_z": 0.03,
+            "v_f": 300,
+            "v_f_leadIn": 300,
+            "v_f_leadOut": 300,
+            "v_f_ramp": 300,
+            "v_f_transition": 300,
+            "v_f_plunge": 80,
+            "stepover": 1.6,
+            "stepdown": 0.4,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "dc98b940-4282-5cbf-ae97-0a02c0fdb5fe",
+      "type": "flat end mill",
+      "unit": "millimeters",
+      "description": "\u00d86\u00d718 3F Alu DLC",
+      "vendor": "Kortools",
+      "product-id": "6x18x6Dx50L",
+      "product-link": "https://kortools.pl/produkt/frez-6",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 6,
+        "HAND": true,
+        "LB": 50,
+        "LCF": 18,
+        "NOF": 3,
+        "OAL": 50,
+        "SFDM": 6,
+        "shoulder-length": 19,
+        "assemblyGaugeLength": 50,
+        "shoulder-diameter": 6
+      },
+      "post-process": {
+        "number": 4,
+        "diameter-offset": 4,
+        "length-offset": 4,
+        "turret": 0,
+        "comment": "End mills/Metal",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "0dac25d2-bddc-54b3-9cb5-495266ca1494",
+            "name": "Hardwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 226.195,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.1667,
+            "f_z": 0.0556,
+            "v_f": 2000,
+            "v_f_leadIn": 2000,
+            "v_f_leadOut": 2000,
+            "v_f_ramp": 2000,
+            "v_f_transition": 2000,
+            "v_f_plunge": 180,
+            "stepover": 2.4,
+            "stepdown": 1.75,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "f91b9298-8f98-559f-a82f-5420f76af59e",
+            "name": "Aluminum",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 226.195,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0417,
+            "f_z": 0.0139,
+            "v_f": 500,
+            "v_f_leadIn": 500,
+            "v_f_leadOut": 500,
+            "v_f_ramp": 500,
+            "v_f_transition": 500,
+            "v_f_plunge": 60,
+            "stepover": 2.4,
+            "stepdown": 0.5,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "69b975f0-aabf-51e3-ba19-fc3499fa38f0",
+            "name": "Aluminum \u2013 Adaptive",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 226.195,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0667,
+            "f_z": 0.0222,
+            "v_f": 800,
+            "v_f_leadIn": 800,
+            "v_f_leadOut": 800,
+            "v_f_ramp": 800,
+            "v_f_transition": 800,
+            "v_f_plunge": 180,
+            "stepover": 0.72,
+            "stepdown": 3,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "f7236205-82b3-5071-a916-590abb25af7d",
+            "name": "Plastic",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 226.195,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.075,
+            "f_z": 0.025,
+            "v_f": 900,
+            "v_f_leadIn": 900,
+            "v_f_leadOut": 900,
+            "v_f_ramp": 900,
+            "v_f_transition": 900,
+            "v_f_plunge": 300,
+            "stepover": 2,
+            "stepdown": 1,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "5e1058bd-5df0-5183-9788-4d04f5d3591f",
+      "type": "flat end mill",
+      "unit": "millimeters",
+      "description": "\u00d88 roughing mill",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 8,
+        "HAND": true,
+        "LB": 44,
+        "LCF": 24,
+        "NOF": 1,
+        "OAL": 44,
+        "SFDM": 8,
+        "shoulder-length": 24,
+        "assemblyGaugeLength": 44,
+        "shoulder-diameter": 8
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "End mills/Metal",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "05204705-bbad-5196-80f4-d170b4f270b0",
+            "name": "Aluminum",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 9000,
+            "v_c": 226.195,
+            "n_ramp": 9000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0444,
+            "f_z": 0.0444,
+            "v_f": 400,
+            "v_f_leadIn": 400,
+            "v_f_leadOut": 400,
+            "v_f_ramp": 400,
+            "v_f_transition": 400,
+            "v_f_plunge": 100,
+            "stepover": 3.2,
+            "stepdown": 0.5,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "dc0e2f10-2356-53f9-9156-83b48dce0019",
+      "type": "ball end mill",
+      "unit": "millimeters",
+      "description": "\u00d86 Ball 2F",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 6,
+        "HAND": true,
+        "LB": 50,
+        "LCF": 20,
+        "NOF": 2,
+        "OAL": 50,
+        "SFDM": 6,
+        "shoulder-length": 20,
+        "assemblyGaugeLength": 50,
+        "shoulder-diameter": 6
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "Ball mills",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "7ba74606-9a7e-5dd5-865d-3945544fd677",
+            "name": "Hardwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 226.195,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.1,
+            "f_z": 0.05,
+            "v_f": 1200,
+            "v_f_leadIn": 1200,
+            "v_f_leadOut": 1200,
+            "v_f_ramp": 1200,
+            "v_f_transition": 1200,
+            "v_f_plunge": 300,
+            "stepover": 0.6,
+            "stepdown": 1,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "c30b627c-d8c3-5196-bc6f-ef309a42ea87",
+      "type": "chamfer mill",
+      "unit": "millimeters",
+      "description": "30\u00b0 engraving bit",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 3.175,
+        "HAND": true,
+        "LB": 38,
+        "LCF": 9.525,
+        "NOF": 1,
+        "OAL": 38,
+        "SFDM": 3.175,
+        "shoulder-length": 9.525,
+        "assemblyGaugeLength": 38,
+        "shoulder-diameter": 3.175,
+        "TA": 15,
+        "tip-diameter": 0
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "V-bits",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "e758b3d7-3f69-53d7-a771-d35da9cf72a1",
+            "name": "Brass",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 119.695,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0167,
+            "f_z": 0.0167,
+            "v_f": 200,
+            "v_f_leadIn": 200,
+            "v_f_leadOut": 200,
+            "v_f_ramp": 200,
+            "v_f_transition": 200,
+            "v_f_plunge": 80,
+            "stepover": 0.1,
+            "stepdown": 0.05,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "cb9b1163-f1e5-5f3b-952f-6b0ea8b7379c",
+      "type": "chamfer mill",
+      "unit": "millimeters",
+      "description": "60\u00b0 V-groove \u00d812",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 12,
+        "HAND": true,
+        "LB": 45,
+        "LCF": 10,
+        "NOF": 2,
+        "OAL": 45,
+        "SFDM": 6,
+        "shoulder-length": 10,
+        "assemblyGaugeLength": 45,
+        "shoulder-diameter": 12,
+        "TA": 30,
+        "tip-diameter": 0.1
+      },
+      "post-process": {
+        "number": 6,
+        "diameter-offset": 6,
+        "length-offset": 6,
+        "turret": 0,
+        "comment": "V-bits",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "ff244181-9e65-51a9-bee9-7cccc7151752",
+            "name": "Hardwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 452.389,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.075,
+            "f_z": 0.0375,
+            "v_f": 900,
+            "v_f_leadIn": 900,
+            "v_f_leadOut": 900,
+            "v_f_ramp": 900,
+            "v_f_transition": 900,
+            "v_f_plunge": 300,
+            "stepover": 0.2,
+            "stepdown": 1,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "f5824b88-a771-5638-8772-b1628ececd22",
+            "name": "Softwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 452.389,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.1,
+            "f_z": 0.05,
+            "v_f": 1200,
+            "v_f_leadIn": 1200,
+            "v_f_leadOut": 1200,
+            "v_f_ramp": 1200,
+            "v_f_transition": 1200,
+            "v_f_plunge": 400,
+            "stepover": 0.2,
+            "stepdown": 1.5,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "853ddc66-e78a-530d-871e-cd5e11bde55b",
+      "type": "radius mill",
+      "unit": "millimeters",
+      "description": "Fillet D4 R1",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 2,
+        "HAND": true,
+        "LB": 50,
+        "LCF": 1,
+        "NOF": 4,
+        "OAL": 50,
+        "SFDM": 4,
+        "shoulder-length": 1,
+        "assemblyGaugeLength": 50,
+        "shoulder-diameter": 4,
+        "RE": 1,
+        "tip-length": 0
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "Form cutters",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "fc9e4ed9-9e39-5ec9-95ab-363764ea7cdc",
+            "name": "Hardwood",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 75.398,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.075,
+            "f_z": 0.0187,
+            "v_f": 900,
+            "v_f_leadIn": 900,
+            "v_f_leadOut": 900,
+            "v_f_ramp": 900,
+            "v_f_transition": 900,
+            "v_f_plunge": 200,
+            "stepover": 0.5,
+            "stepdown": 1,
+            "use-stepover": true,
+            "use-stepdown": true
+          },
+          {
+            "guid": "6d0239b4-6990-5724-ae5f-431274fb167f",
+            "name": "Aluminum",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 75.398,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0375,
+            "f_z": 0.0094,
+            "v_f": 450,
+            "v_f_leadIn": 450,
+            "v_f_leadOut": 450,
+            "v_f_ramp": 450,
+            "v_f_transition": 450,
+            "v_f_plunge": 100,
+            "stepover": 0.5,
+            "stepdown": 1,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    },
+    {
+      "guid": "108a1261-1b3e-5842-b201-2d0f768c221e",
+      "type": "drill",
+      "unit": "millimeters",
+      "description": "\u00d82.7\u00d716 Drill",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 2.7,
+        "HAND": true,
+        "LB": 46,
+        "LCF": 16,
+        "NOF": 2,
+        "OAL": 46,
+        "SFDM": 2.7,
+        "shoulder-length": 16,
+        "assemblyGaugeLength": 46,
+        "SIG": 118
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "Drills",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "a8089045-8b72-543a-9f5b-b9ad70c470ba",
+            "name": "Aluminum",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 9000,
+            "v_c": 76.341,
+            "use-feed-per-revolution": false,
+            "f_n": 0.01,
+            "v_f_plunge": 90,
+            "v_f_retract": 90
+          }
+        ]
+      }
+    },
+    {
+      "guid": "cf0a4ad2-3ab2-5b3a-9c04-d2d5eae64feb",
+      "type": "thread mill",
+      "unit": "millimeters",
+      "description": "M3 thread mill",
+      "vendor": "",
+      "product-id": "",
+      "product-link": "",
+      "BMC": "carbide",
+      "GRADE": "Mill Generic",
+      "geometry": {
+        "CSP": false,
+        "DC": 2.42,
+        "HAND": true,
+        "LB": 50,
+        "LCF": 9,
+        "NOF": 3,
+        "OAL": 50,
+        "SFDM": 4,
+        "shoulder-length": 9,
+        "assemblyGaugeLength": 50,
+        "shoulder-diameter": 2.42,
+        "NT": 1,
+        "TP": 0.5,
+        "thread-profile-angle": 60,
+        "thread-tip-type": "point"
+      },
+      "post-process": {
+        "number": 1,
+        "diameter-offset": 1,
+        "length-offset": 1,
+        "turret": 0,
+        "comment": "Thread mills",
+        "break-control": false,
+        "manual-tool-change": false,
+        "live": true
+      },
+      "start-values": {
+        "presets": [
+          {
+            "guid": "129203b9-0077-5885-8f1a-3f430d773a94",
+            "name": "Aluminum",
+            "material": {
+              "category": "all",
+              "query": "",
+              "use-hardness": false
+            },
+            "tool-coolant": "disabled",
+            "n": 12000,
+            "v_c": 91.232,
+            "n_ramp": 12000,
+            "ramp-angle": 2.0,
+            "f_n": 0.0125,
+            "f_z": 0.0042,
+            "v_f": 150,
+            "v_f_leadIn": 150,
+            "v_f_leadOut": 150,
+            "v_f_ramp": 150,
+            "v_f_transition": 150,
+            "v_f_plunge": 60,
+            "stepover": 0.1,
+            "stepdown": 0.5,
+            "use-stepover": true,
+            "use-stepdown": true
+          }
+        ]
+      }
+    }
+  ],
+  "version": 14
+}

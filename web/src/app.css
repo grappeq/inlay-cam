@@ -988,38 +988,6 @@ details.more[open] > summary {
   color: var(--warn);
 }
 
-/* Tools and settings: a list of pages beside the page itself. */
-.setting-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-.setting-group {
-  display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
-  gap: 8px 32px;
-  padding: 16px 18px 10px;
-}
-.setting-group + .setting-group {
-  border-top: 1px solid var(--line);
-}
-.setting-about h3 {
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-.setting-about p {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 0 8px;
-}
-.setting-fields .setup-row {
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px 14px;
-}
-.setting-fields .setup-row > .field {
-  flex: 0 1 190px;
-}
 .presets {
   display: flex;
   flex-wrap: wrap;
@@ -1052,27 +1020,7 @@ details.more[open] > summary {
 .spacer {
   flex: 1;
 }
-.banner,
-.empty-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
-}
-.empty-card {
-  text-align: center;
-  padding: 32px 16px;
-}
-.empty-card p:first-child {
-  font-size: 16px;
-  font-weight: 600;
-}
-.table-wrap {
-  overflow-x: auto;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1168,12 +1116,7 @@ legend .check {
 }
 
 @media (max-width: 800px) {
-  .plain-page {
-    padding: 14px 16px 24px;
-  }
-  .setting-group {
-    grid-template-columns: minmax(0, 1fr);
-  }
+
   .design-view {
     flex-direction: column;
     overflow-y: auto;
@@ -1543,23 +1486,6 @@ button.tool.danger {
   flex: 1 1 auto;
 }
 
-/* The materials page. */
-.material-name {
-  width: 100%;
-  min-width: 12rem;
-}
-.materials-add {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
-  margin: 12px 0;
-}
-.materials-add .field {
-  flex: 0 1 20rem;
-  margin: 0;
-}
-
 /* The tool sheet. */
 .sheet {
   display: flex;
@@ -1567,22 +1493,7 @@ button.tool.danger {
   gap: 16px;
   max-width: 980px;
 }
-.sheet-section {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.sheet-section h3 {
-  margin: 0;
-  font-size: 15px;
-}
-.sheet-section > p {
-  margin: 0;
-}
+
 .field.wide input {
   width: 100%;
 }
@@ -1612,7 +1523,7 @@ button.tool.danger {
 .mark {
   font-weight: 500;
 }
-.mark.ok {
+.mark.good {
   color: var(--ok);
 }
 .mark.warn {
@@ -1621,10 +1532,7 @@ button.tool.danger {
 .mark.danger {
   color: var(--danger);
 }
-.mono {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-}
+
 .suggest {
   border-top: 1px solid var(--line);
   padding-top: 8px;
@@ -1667,28 +1575,14 @@ button.tool.danger {
   background: var(--accent-soft);
   box-shadow: inset 0 -3px 0 var(--accent);
 }
-.stops .stop.is-row span:first-child::after {
-  content: " (this row)";
-  color: var(--muted);
-  font-weight: 400;
-}
+
 .suggested {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
   align-items: center;
 }
-.plain-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.plain-list .hint {
-  display: block;
-}
+
 .check-list {
   display: flex;
   flex-wrap: wrap;
@@ -1721,41 +1615,13 @@ button.tool.danger {
   font-size: 14px;
 }
 
-/* ---- The Tools area: a list beside a sheet, after a workshop's tool cabinet card. ---- */
-.tools-area {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.subnav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  padding: 8px 14px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-}
-.subnav-note {
-  font-size: 12px;
-}
 .count {
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   opacity: 0.7;
   margin-left: 2px;
 }
-.plain-page {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 18px 24px 40px;
-}
-.plain-page > div {
-  max-width: 980px;
-  margin: 0 auto;
-}
+
 .toolbar.second {
   margin-top: 32px;
 }
@@ -1856,23 +1722,7 @@ button.tool.danger {
   background: var(--surface);
   color: var(--text);
 }
-.tl-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-}
-.tl-filters button,
-.tl-filters select {
-  font-size: 13px;
-  padding: 4px 9px;
-}
-.tl-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
+
 button.chip,
 .chip {
   display: inline-block;
@@ -2099,15 +1949,7 @@ button.tl-row[aria-current="true"] {
 .block-line + .block-line {
   padding-top: 0;
 }
-.form-body {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.form-body > p {
-  margin: 0;
-}
+
 .paper {
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
@@ -2116,49 +1958,7 @@ button.tl-row[aria-current="true"] {
     linear-gradient(90deg, rgb(36 71 184 / 0.07) 1px, transparent 1px);
   background-size: 12px 12px;
 }
-.tool-drawing {
-  display: block;
-  width: 100%;
-  max-height: 170px;
-}
-.tool-drawing .body {
-  fill: var(--surface);
-  stroke: var(--text);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-}
-.tool-drawing .body.unknown {
-  stroke-dasharray: 5 3;
-}
-.tool-drawing .cut {
-  fill: rgb(36 71 184 / 0.1);
-}
-.tool-drawing .flute {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 0.9;
-  opacity: 0.7;
-}
-.tool-drawing .axis {
-  stroke: var(--muted);
-  stroke-width: 0.6;
-  stroke-dasharray: 9 3 2 3;
-}
-.tool-drawing .dim line {
-  stroke: var(--muted);
-  stroke-width: 0.8;
-}
-.tool-drawing .dim.unknown line {
-  stroke-dasharray: 3 3;
-}
-.tool-drawing text {
-  font-size: 11px;
-  fill: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.tool-drawing .dim.unknown text {
-  fill: var(--warn);
-}
+
 .facts {
   margin: 0;
   display: grid;
@@ -2272,21 +2072,7 @@ button.cut-toggle {
   height: 18px;
   flex: none;
 }
-.ruler-line,
-.ruler-tick {
-  stroke: var(--line-strong);
-  stroke-width: 1;
-}
-.ruler-tick.safe {
-  stroke: var(--text);
-  stroke-width: 1.4;
-}
-.ruler-mark {
-  fill: var(--accent);
-}
-.ruler-mark.out {
-  fill: var(--warn);
-}
+
 .ruler-text {
   font-size: 12px;
   color: var(--muted);
@@ -2342,16 +2128,7 @@ button.cut-toggle {
 .card.editing .block {
   border-style: dashed;
 }
-.card-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-}
-.card-foot .form-error {
-  margin: 0 auto 0 0;
-}
+
 .cut-row-for {
   display: flex;
   flex-wrap: wrap;
@@ -2389,17 +2166,12 @@ button.cut-toggle {
   .tool-pane {
     padding: 14px 12px 32px;
   }
-  .subnav-note {
-    display: none;
-  }
+
 }
 .card-head {
   display: block;
 }
-.tl-filters select {
-  width: auto;
-  flex: 0 1 auto;
-}
+
 .cut-table .ruler {
   flex-direction: column;
   align-items: flex-start;
@@ -2674,13 +2446,6 @@ button.tl-row {
   min-width: 46px;
 }
 
-/* Materials, profiles and the machine: the same ruled blocks as a tool's sheet. */
-.plain-page .block + .lead {
-  margin-top: 12px;
-}
-.plain-page code {
-  font-size: 12px;
-}
 .block-add {
   display: flex;
   flex-wrap: wrap;
@@ -2697,32 +2462,7 @@ button.tl-row {
 .block-add .form-error {
   margin: 0;
 }
-.plain-page .cut-table td {
-  vertical-align: middle;
-}
-.plain-page .cut-table select {
-  width: auto;
-  padding: 3px 6px;
-}
-.profile-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 2fr) minmax(0, 3fr);
-  gap: 8px 18px;
-  padding: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.profile-row:last-of-type {
-  border-bottom: 0;
-}
-.profile-row p {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-.profile-main {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+
 .profile-name .cell-in {
   font-weight: 600;
   font-size: 15px;
@@ -2731,39 +2471,929 @@ button.tl-row {
 .profile-name .hint {
   display: block;
 }
-.profile-starts {
+
+/* ---- The list's filter band, as the tooling library's workbench lays it out. ---- */
+.tl-mode {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 16px;
-}
-.profile-starts label:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 0 100%;
-}
-.profile-starts select {
-  width: auto;
-  padding: 3px 6px;
-}
-.profile-foot {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.tl-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tl-sort select {
+  width: auto;
+  padding: 3px 6px;
   font-size: 13px;
 }
-.plain-page .setting-card {
+.seg {
+  display: inline-flex;
+}
+.seg.wrap {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.seg button {
+  border-radius: 0;
+  margin-left: -1px;
+  padding: 3px 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.seg button:first-child {
+  border-radius: 4px 0 0 4px;
+  margin-left: 0;
+}
+.seg button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+  position: relative;
+}
+/* Hidden: an option whose tools are left out of the list. */
+.seg button.hid,
+.menu > summary.xon {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+  text-decoration: line-through;
+  position: relative;
+}
+.facets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.facets .fr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.facets .grp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.facets .fl {
+  font-size: 12px;
+  color: var(--muted);
+}
+.facets .res {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.menu > summary.sm {
+  padding: 3px 22px 3px 8px;
+  font-size: 13px;
+}
+.menu > summary.sm::after {
+  right: 7px;
+}
+.menu > summary.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+.menu > summary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.menu.up .menu-items {
+  top: auto;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: auto;
+}
+.menu-items.pop {
+  min-width: 200px;
+  padding: 4px 0;
+}
+.pop-head {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.menu-items.pop label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.menu-items.pop label:hover {
+  background: var(--surface-2);
+}
+.menu-items.pop label .t {
+  flex: 1;
+}
+.menu-items.pop label .n {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.menu-items.pop label.off {
+  opacity: 0.45;
+  cursor: default;
+}
+.menu-items.pop label.hid .t {
+  text-decoration: line-through;
+  color: var(--danger);
+}
+.tl-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+/* ---- The suggestion at the foot of an edited cutting table. ---- */
+.cut-line.insp {
+  background: var(--accent-soft);
+}
+.card.editing .cut-line.insp:hover {
+  background: var(--accent-soft);
+}
+tfoot.sug td {
+  border-bottom: 0;
+  white-space: normal;
+  background: var(--surface-2);
+}
+tfoot.sug tr.hd td {
+  border-top: 1px solid var(--line-strong);
+  padding-top: 8px;
+}
+.sug-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.sug-hd .tag {
+  font-weight: 400;
+  margin: 0;
+}
+.tag.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.ctl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  align-items: flex-start;
+}
+.ctl-row .axis {
+  flex: 1 1 320px;
+  max-width: 460px;
+}
+.axis-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+input.detent {
+  display: block;
+  width: 100%;
+  margin: 4px 0 0;
+  accent-color: var(--text);
+}
+.ctl-row .stops,
+.ctl-row .defm {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 0;
+  margin: 0 -10%;
+}
+.ctl-row .stops button {
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.ctl-row .stops button:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.ctl-row .stops button.on {
+  color: var(--text);
+  font-weight: 600;
+}
+.ctl-row .defm span {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.ctl-row .ticks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 14px;
+  font-size: 13px;
+}
+.check.dis {
+  color: var(--muted);
+}
+tfoot.sug tr.vals td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+tfoot.sug td.k {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+tfoot.sug td.d {
+  font-weight: 700;
+  color: var(--accent);
+}
+tfoot.sug td.fill {
+  color: var(--muted);
+}
+tfoot.sug td.why {
+  color: var(--warn);
+}
+.pv-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pv-t {
+  flex: 1 1 320px;
+}
+.sug-ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+.sug-ok.plain {
+  color: var(--muted);
+  font-weight: 400;
+}
+tfoot.sug tr.nt td {
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 2px;
+  padding-bottom: 10px;
+}
+tfoot.sug tr.nt div + div {
+  margin-top: 3px;
+}
+tfoot.sug tr.nt .warn {
+  color: var(--warn);
+}
+
+/* Tool settings, folded at the foot of the sheet; a tool's remarks, folded at its head. */
+details.toolset > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  list-style-position: inside;
+}
+details.toolset[open] > summary {
+  border-bottom: 1px solid var(--line-strong);
+}
+.fold.description {
+  margin-top: 8px;
+}
+.fold.description p {
+  margin: 0;
+  white-space: pre-wrap;
+  max-width: 82ch;
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+.description-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: 3px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  resize: vertical;
 }
-.plain-page .toolbar h2 {
-  font-size: 20px;
+
+/* The arrange bar's numbers: the reference point, then where it is and how large the selection is. */
+.number-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
 }
-@media (max-width: 700px) {
-  .profile-row {
-    grid-template-columns: minmax(0, 1fr);
+.tool-row.numbers .field {
+  margin: 0;
+}
+.tool-row.numbers button.ratio {
+  padding: 3px 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tool-row.numbers .anchor {
+  grid-template-columns: repeat(3, 10px);
+  grid-auto-rows: 10px;
+}
+
+.draw .outline.break {
+  stroke-width: 1;
+}
+/* The stop names sit under the slider's five positions. */
+.ctl-row .axis input.detent {
+  width: 80%;
+  margin-left: 10%;
+}
+.ctl-row .stops,
+.ctl-row .defm {
+  margin: 0;
+}
+
+/* ---- The ruler beside a cutting row: five stops, the default one taller, the row's own cut marked. ---- */
+.cut-table .ruler {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 6px;
+  white-space: nowrap;
+}
+.ruler svg,
+.card.editing .cut-table .ruler svg {
+  width: 84px;
+  height: 16px;
+}
+.ruler .tr,
+.ruler .tk {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+.ruler .tk.df {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+.ruler .mk {
+  fill: var(--text);
+}
+.ruler .mk.out {
+  fill: var(--warn);
+}
+.cut-table .ruler-text,
+.card.editing .cut-table .ruler-text {
+  display: inline;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ruler-text.out {
+  color: var(--warn);
+}
+.ruler .flags {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+.ruler .flag {
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 3px;
+  background: var(--warn-soft);
+}
+.ruler.none {
+  display: inline-block;
+  width: 84px;
+  border-top: 1px dashed var(--line);
+}
+.tag.plain {
+  border-color: var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.for-in .tag {
+  flex: none;
+  margin-left: 2px;
+}
+.nw {
+  white-space: nowrap;
+}
+tfoot.sug td.fill {
+  font-style: italic;
+}
+
+/* The standard name, offered under the name of a tool being edited. */
+.name-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.name-hint code {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-2);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* What is still to check about a tool, while it is edited. */
+.verify-edit {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.verify-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 720px;
+  font-size: 13px;
+}
+.verify-row .cell-in {
+  flex: 0 1 200px;
+}
+.verify-row .cell-in.grow {
+  flex: 1 1 260px;
+}
+
+/* A logged entry's own actions, and an entry being corrected. */
+.log-list li {
+  grid-template-columns: 88px 150px minmax(0, 1fr) auto;
+}
+.log-acts {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  opacity: 0;
+}
+.log-list li:hover .log-acts,
+.log-list li:focus-within .log-acts {
+  opacity: 1;
+}
+@media (hover: none) {
+  .log-acts {
+    opacity: 1;
   }
+}
+.log-list li.editing {
+  display: block;
+}
+/* While a table is edited its cells are fields: the ruler's words go under it. */
+.card.editing .cut-table .ruler {
+  grid-template-columns: auto;
+}
+.card.editing .cut-table .ruler-text {
+  line-height: 1.1;
+}
+.card.editing .cut-table .ruler .flags {
+  flex-wrap: wrap;
+}
+.card.editing .for-in select {
+  flex-basis: 84px;
+}
+/* The suggestion's own lines wrap within the table: they never widen it. */
+tfoot.sug tr.hd td,
+tfoot.sug tr.ctl td,
+tfoot.sug tr.pv td,
+tfoot.sug tr.nt td,
+tfoot.sug td.why {
+  max-width: 0;
+}
+tfoot.sug .nw {
+  white-space: normal;
+}
+
+/* ---- Settings: the four pages listed on the left, the one picked on the right, as the tools are. ---- */
+.settings-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+.set-nav {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line-strong);
+}
+.set-nav button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 14px 9px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+.set-nav button:hover {
+  background: var(--surface-2);
+}
+.set-nav button[aria-current="page"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.set-nav button b {
+  font-weight: 600;
+}
+.set-nav button span {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-nav-foot {
+  margin: auto 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.set-card {
+  max-width: 900px;
+}
+.set-card .card-title {
+  justify-content: space-between;
+}
+
+/* One setting on one line: its name, its field, what it does. */
+.set-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.set-table tr + tr th,
+.set-table tr + tr td {
+  border-top: 1px solid var(--line);
+}
+.set-table th,
+.set-table td {
+  padding: 6px 12px;
+  vertical-align: baseline;
+  text-align: left;
+}
+.set-table th {
+  width: 190px;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+.set-table td.set-val {
+  width: 232px;
+  white-space: nowrap;
+}
+.set-table td.set-val .num-in .cell-in {
+  width: 72px;
+  text-align: right;
+}
+.set-table td.set-val > .cell-in {
+  width: 100%;
+}
+.set-table td.set-val .pair {
+  display: inline-flex;
+  gap: 10px;
+}
+.set-table td.set-what {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 52ch;
+}
+.set-what .presets {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+button.chip[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.set-own {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.cell-in[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Materials and profiles: a table of what there is, each cell a field. */
+.set-list {
+  width: 100%;
+}
+.set-list th[title] {
+  text-decoration: underline dotted var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.set-list td {
+  vertical-align: top;
+}
+.set-list td:first-child {
+  min-width: 150px;
+}
+.set-list select.cell-in {
+  width: auto;
+  max-width: 100%;
+}
+.set-list select.cell-in.unset {
+  color: var(--warn);
+}
+.set-list .row-actions {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.set-key {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.set-list .hint.warn {
+  display: block;
+  margin-top: 3px;
+  cursor: help;
+}
+.set-foot {
+  margin: 0;
+}
+.row-x:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+@media (max-width: 900px) {
+  .settings-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .set-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .set-nav button {
+    flex: 1 0 auto;
+    border-bottom: 0;
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+  }
+  .set-nav button[aria-current="page"] {
+    border-bottom-color: var(--accent);
+  }
+  .set-nav button span,
+  .set-nav-foot {
+    display: none;
+  }
+  .set-table th,
+  .set-table td {
+    display: block;
+    width: auto;
+    padding: 4px 12px;
+    border-top: 0 !important;
+  }
+  .set-table tr {
+    display: block;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+  }
+  .set-table td.set-val {
+    width: auto;
+  }
+}
+.set-table td.set-what {
+  white-space: normal;
+}
+.set-table th {
+  white-space: normal;
+}
+.set-list.profiles td:nth-child(2) {
+  width: 28%;
+  min-width: 170px;
+}
+.set-list.profiles .ways {
+  flex-wrap: nowrap;
+}
+.set-list.profiles td:nth-child(2) {
+  width: 24%;
+  min-width: 130px;
+}
+.set-list.profiles td:first-child {
+  min-width: 120px;
+  width: 18%;
+}
+.set-list.profiles th,
+.set-list.profiles td {
+  padding-left: 7px;
+  padding-right: 7px;
+}
+
+/* A tool's name in the list is cut short; what marks it is not. */
+.tl-name {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: visible;
+}
+.tl-name .tl-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-name .mark,
+.tl-name .tl-used {
+  flex: none;
+  white-space: pre;
+}
+.tl-group-head[aria-disabled="true"] {
+  cursor: default;
+}
+.tl-group-head[aria-disabled="true"] .caret {
+  opacity: 0.3;
+}
+/* Why a name is not kept wraps in its cell: it never widens the table. */
+.profile-name {
+  display: block;
+}
+.profile-name .hint {
+  display: block;
+  white-space: normal;
+  max-width: 22ch;
+}
+.name-hint {
+  min-height: 24px;
+}
+tfoot.sug td.fill {
+  color: var(--muted);
+}
+@media (max-width: 1000px) {
+  .set-list.profiles .ways {
+    flex-wrap: wrap;
+  }
+}
+
+/* Why a number is not kept, said under its field without moving anything. */
+.num-in {
+  position: relative;
+}
+.num-why {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 6;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
+}
+.tool-row.numbers .hint.held {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* The cutting table fits its sheet: a thread mill's has a column more, and a narrow sheet drops the scale while it is edited. */
+.card.editing .cut-table td .num-in {
+  min-width: 50px;
+}
+.card.editing .cut-table.with-passes .ruler svg {
+  width: 60px;
+}
+.card.editing .cut-table.with-passes .for-in select {
+  flex-basis: 70px;
+}
+@media (max-width: 900px) {
+  .card.editing .cut-table .col-hard {
+    display: none;
+  }
+  .cut-table .ruler {
+    grid-template-columns: auto;
+  }
+  .card.editing .cut-table th,
+  .card.editing .cut-table td {
+    padding: 4px 3px;
+  }
+  .card.editing .cut-table td .num-in {
+    min-width: 44px;
+  }
+  .card.editing .for-in {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.card.editing .cut-table.with-passes th,
+.card.editing .cut-table.with-passes td {
+  padding-left: 3px;
+  padding-right: 3px;
+}
+.card.editing .cut-table.with-passes th:first-child {
+  padding-left: 8px;
+}
+@media (max-width: 900px) {
+  .card.editing .for-in select {
+    flex: none;
+  }
+}
+
+/* What was written for another program, and the values an export offers. */
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.dialog h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+.dialog code {
+  font: inherit;
+  font-weight: 600;
+}
+.report-list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  max-height: 34vh;
+  overflow: auto;
+  font-size: 13px;
+}
+.report-list li + li {
+  margin-top: 4px;
+}
+.import-dialog {
+  max-width: 760px;
+  max-height: 88vh;
+  overflow: auto;
+}
+.import-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 12px 0 8px;
+}
+.import-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.import-tools .block > h3 {
+  margin: 0;
+}
+.import-changes {
+  margin: 0;
+  padding: 6px 12px 8px;
+  list-style: none;
+}
+.import-changes li + li {
+  margin-top: 4px;
+}
+.import-changes li.kept {
+  font-size: 12px;
+  padding-left: 24px;
+}
+.import-dialog .fold {
+  margin-top: 12px;
+}
+ul.plain {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
 }

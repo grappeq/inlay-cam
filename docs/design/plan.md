@@ -758,3 +758,95 @@ The second step of joining with `cnc-tooling-library`: its feeds model and its t
 - Known limits: profiles cannot be added or edited yet; the stops are a row of buttons,
   not the tooling library's ruler; no drawing of the cutter; the suggestions are for a
   Carvera Air and say nothing of the machine set in the app; nothing here has been cut.
+
+### What remains of joining with the tooling library (kept current)
+
+The phases of the join, and where each stands. Update this list whenever one moves.
+
+1. **One tool model.** Done.
+2. **Feeds model and tool sheet.** Done in function. Open: parity with the workbench's tool
+   list and sheet, tracked below.
+3. **Libraries for other programs.** Done on 2026-11-17. `export/makera.rs` and
+   `export/fusion.rs` write what the tooling library's generators write for the same
+   tools, byte for byte, with its warnings; `import/makera.rs` reads an app's export and
+   offers its differences to tick. Left out on purpose or for later: Makera CAM's
+   material thumbnails (a tool list has none; the workbench copies them from an export);
+   the Fusion libraries by group as one `.zip` (they are saved as separate files); file
+   names for those with letters folded as Unicode's NFKC does; dropping a `.tlslibrary`
+   on the window. Not tried: importing the written files into the real apps, which needs
+   the apps. The fixtures were made by running the tooling library's own generators on
+   the made-up list; the script that does so is not in this repository yet.
+4. **A server.** Not started. The same build served with one shared tool file, the HTTP API
+   for agents, token-checked writes, backups. Then the Python repository is archived.
+5. **What only the joined app can do.** Not started. Logging a run from a project's files
+   (which rows ran, for how long), hours in cut per row, wear from simulated time, a
+   calibration coupon per bit and material, a starter set of tools.
+
+Parity with the workbench, reached on 2026-11-16: the list's search, chips with "only"
+and "hide", four sort orders and the Needs attention kinds (`toolFind.ts`, ported with its
+tests); the drawing; editing in place; the suggestion at the foot of an edited table; tool
+settings at the foot of the sheet; a tool's description kept and written back as comments.
+
+Reached on 2026-11-17:
+
+- The suggestion's reasoning, one to one. The core gives a row everything at once
+  (`feeds::suggest_entry`: every stop with and without a ramped entry, adaptive clearing
+  and lubrication, the default combination, and `feeds::limits`). The reference fixture
+  now holds every combination for every made-up tool and material, 16 720 answers and the
+  limits, and the core must give the same. On the screen, `state/feedsView.ts` is the
+  workbench's `ruler.js` and the suggestion part of its `app.js`: a row is placed by
+  volume per revolution (a drill by plunge per revolution), flagged for a chip outside
+  the class's band or power over the hardest stop's cap, and matched against every
+  combination. Its tests are the workbench's own smoke-test cases. Differences that
+  remain, on purpose: a row here always has numbers, so there is no "empty" row and no
+  fill-in of blank fields; and a suggestion's stepover goes into the row in the row's own
+  unit, which the workbench also does.
+- Name templates (`naming.rs`, the workbench's examples as its tests), offered under the
+  name while a tool is edited.
+- A logged result and a wear entry can be corrected or removed.
+- "Goes to" for a cutting row, and the warnings for a material a Makera app does not have
+  and for a profile row an app gets for want of a plain one. Shown only once a material
+  is tied to a Makera material.
+- The known coatings as a pick list, and items to check added by hand.
+- The Settings pages, redone as a list of four beside the page picked, each setting on
+  one line with what it does beside it.
+
+Parity with the workbench, not yet there:
+
+- Suggestions while reading a sheet: they show only while it is edited, as in the
+  workbench.
+- The name check against Makera CAM's unreadable letters when a name is typed by hand
+  (the suggested name is checked).
+
+Found by testing on 2026-11-17, and since done:
+
+- "Generate" is off, with the reason under it, while a tool of the job has no cutting
+  settings for its material.
+- In the arrange bar, Ctrl+Z in a field with something typed takes the typing back and
+  leaves the drawing. Undo and redo put the drawing back and the inlays a deleted shape
+  took along; an inlay made or changed since keeps what it has now.
+- A resize the stock's edge holds back says so under the numbers. The line under the
+  canvas says it gives the bottom-left corner.
+- A number that is not kept says why under its field. A stepover wider than a diameter
+  made smaller is marked, and the save error names its row.
+- A tool's edited cutting table fits its sheet: at 900 px and under it drops the scale
+  while it is edited.
+- "Delete this tool…" is in Tool settings without editing too.
+- The tools list is as it was left when another tab was visited.
+- 300 lines of rules for replaced screens are out of `app.css`.
+
+Still open from that round: undo after deleting a shape that an inlay used, with the
+inlay changed since, has not been tried in the app. A tool's sheet does not ask before
+"Cancel" drops changes.
+
+Saved for later, asked for on 2026-11-16:
+
+- Go through the app, find the blocks of text that describe how things work, and get rid
+  of them: by a screen that needs no explaining, or by one shared way of showing help on
+  demand. A tooltip with a small picture of the thing (what "plunge from" is, what a tab
+  is, what stepover means on a V-bit) would say more than bare text. The Settings pages
+  now keep one line per setting and put the rest in the `title` of a column heading,
+  which is a stopgap, not that design.
+
+- A design pass over the Design tab, which the Tools redesign has not touched beyond the
+  arrange bar's reference point and facing's direction.

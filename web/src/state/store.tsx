@@ -272,11 +272,23 @@ function reducer(state: AppState, action: Action): AppState {
       const kept = [...to, state.project];
       return withSnapshots({
         ...state,
-        project: { ...state.project, design: other.design, jobs: other.jobs },
+        // The drawing goes back, and with it the inlays a deleted shape took along. What was done to inlays since stays:
+        // an inlay keeps its present settings, and one made since is kept where its shapes are still in the drawing.
+        project: {
+          ...state.project,
+          design: other.design,
+          jobs: [
+            ...other.jobs.map((old) => {
+              const now = state.project.jobs.find((j) => j.id === old.id);
+              return now ? { ...now, regionIds: old.regionIds } : old;
+            }),
+            ...state.project.jobs.filter((j) => !other.jobs.some((old) => old.id === j.id) && j.regionIds.every((id) => other.design?.regions.some((r) => r.id === id))),
+          ],
+        },
         undo: action.type === "undoDrawing" ? rest : kept,
         redo: action.type === "undoDrawing" ? kept : rest,
         lastEdit: null,
-        activeJobId: other.jobs.some((j) => j.id === state.activeJobId) ? state.activeJobId : null,
+        activeJobId: state.activeJobId,
         selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id)),
       });
     }

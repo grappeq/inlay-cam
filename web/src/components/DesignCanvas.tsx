@@ -339,7 +339,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   }
   const readout =
     shown &&
-    `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, ${mm(shown.x)} mm from the left, ${mm(
+    `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, its bottom-left corner ${mm(shown.x)} mm from the left and ${mm(
       shown.y,
     )} mm from the bottom`;
 

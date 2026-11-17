@@ -124,6 +124,7 @@ as ever; a tool that uses none of them is written exactly as it was then.
 | `number` | no, later | The tool number other CAM programs list it under. |
 | `coating`, `style` | no, later | The coating, and a word or two that sets the tool apart from others of its size. |
 | `note` | no, later | One line about the whole tool. |
+| `description` | no, later | Longer remarks, of any number of lines. In a `tools.yaml` these are the comment lines directly above the tool. |
 | `recommendedFor` | no, later | Keys of the materials the tool suits. Each once. |
 | `apps` | no, later | The Makera libraries the tool goes into: `cam`, `studio`, both or none. Missing means both. |
 | `fusionType` | no, later | `chamfer_mill` or `radius_mill`: the Fusion 360 tool type of a V-bit, when it was chosen by hand. |
@@ -220,7 +221,7 @@ Exported from the header as `<project name>.inlay.json`.
 | `name` | Shown in the header; used for the export file name. |
 | `design` | The imported drawing, or `null`. |
 | `jobs` | The inlays and the plain operations on the stock, in the order they are listed and, in one file for the stock, cut. |
-| `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
+| `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `description`, `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
 | `profiles` | Copies of the profiles the jobs' `rowProfiles` name, in the profile format above. May be missing. |
 | `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
 | `machine` | The machine the files are checked against, below. Default: the Carvera Air. The app overwrites it with the machine set in the browser whenever the project is open. |
@@ -344,6 +345,7 @@ in both cases, from when the app made inlays only.
 | `depth` | How far below the stock's surface the area ends up. 0 or more. Default 0. `above` + `depth` must be greater than 0. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
+| `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of the area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
 | `toolId` | The flat end mill, or `null` when not chosen yet. |
 
 Without regions the area is the whole stock; with regions it is the upright rectangle
@@ -455,9 +457,9 @@ The whole file is read: every tool, cutting row, material, toolpath profile and 
 - A tool this app cannot hold as it is written is left out and named with the reason, and
   the rest come in. The one known case is a `v_bit` without a `tip_diameter`: the tooling
   library's default, the body diameter, is not a V shape.
-- Comments cannot be kept. Comment lines directly above a tool, with no empty line
-  between, are joined into one line and added to its `note`. The others are dropped. The
-  import reports how many of each.
+- Comment lines directly above a tool, with no empty line between, become its
+  `description`, line for line. Other comments cannot be kept and are dropped. The import
+  reports how many of each.
 
 | `tools.yaml` | Becomes | Notes |
 |---|---|---|
@@ -486,7 +488,12 @@ or path, and new ones are added.
 line, in the order the tooling library's description gives them. Reading the written file
 gives the same tools, rows, materials, profiles and groups.
 
-- There are no comments.
+- A tool's `description` is written as comment lines directly above it. There are no
+  other comments.
+- Every tool is written with a `group`: one without is written under its kind ("End
+  mills", "V-bits"), since the format requires one, and reads back with that group.
+- A corner-rounding bit whose name does not say what it is gets `fusion: {type: radius
+  mill}`, and a `tip_angle` of 90 when it has none, so that it reads back as one.
 - A value equal to its default is left out: an unknown length, a shank as wide as the
   body, a shoulder equal to the flute length.
 - Text that a YAML reader of any version could take for a number, a date or a truth value
@@ -503,3 +510,46 @@ file that holds every key. `INLAY_TOOLS_YAML=path cargo test -p inlay-core real_
 reads a real file from outside the repository, checks that it comes back the same when
 written and read again, and with `INLAY_TOOLS_YAML_OUT=path` keeps the written file, to
 run the tooling library's own checks on it.
+
+## Libraries for other programs
+
+Written from the tool list by `inlay-core::export`. They are made as the tooling library
+makes them from the `tools.yaml` of the same tools, byte for byte: the fixtures
+`crates/inlay-core/tests/fixtures/export-*` are what its generators wrote for the made-up
+list `export-library.json`, and the tests require the same bytes.
+
+### Makera CAM and Makera Studio (`.tlslibrary`)
+
+Both are dumps of Qt's `QDataStream` with no header, compression or checksum, all
+big-endian: unsigned 32-bit numbers, doubles, one-byte truth values, and text as a byte
+length followed by UTF-16, where a length of `0xFFFFFFFF` is null. The layouts, decoded
+from one export of each app, are at the top of `export/makera.rs`.
+
+- A tool's id in a library is the one pinned in `ids`, else derived from its name, so
+  that the same list gives the same file. Groups and settings likewise.
+- Makera CAM: 8 doubles per tool (diameter, 0, tip diameter, half the tip angle, flutes,
+  0, 0, 0). No "All" group is written, since importing one adds a group called "All".
+  Materials go without their thumbnails, which a tool list does not hold.
+- Makera Studio: 13 doubles per tool (shank, `studioUnknown1`, shoulder, flute length,
+  diameter, tip diameter, flutes, length, half the tip angle, thread diameter, pitch, 0,
+  drill diameter). A setting without a `modified` time gets the time of the export.
+- Both apps import only the first top-level group of a file, so several are put under
+  one called "Imported".
+- Makera CAM drops every byte of value 13 when it reads a library and misreads the rest.
+  Cutting values are lowered to the nearest value without one; a count of 13 groups is
+  padded with an empty group the app skips; anything else that would hold one (a size
+  that would visibly change, a name with `č` in it) is refused.
+
+### Fusion 360 (`.json`)
+
+Autodesk's tool library schema, version 14. An end mill is a `flat end mill`, a ball end
+mill a `ball end mill`, a V-bit a `chamfer mill`, a corner-rounding bit a `radius mill`
+measured at its pilot, and so on. Every cutting row is a preset named after its material,
+with " – " and the profile for a row on one. Tools are ordered by top group, diameter,
+flute length and name. Guids are derived from names, so the same list gives the same file.
+
+### Reading an app's export back
+
+`inlay-core::import::makera` reads either layout (whichever takes the whole file) and
+compares it with the list at the rounding the writers use, so a library written from the
+list shows no differences, except where a value had to be moved for Makera CAM.

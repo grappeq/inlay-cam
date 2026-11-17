@@ -12,6 +12,38 @@ export function downloadText(fileName: string, text: string, mime = "application
   URL.revokeObjectURL(url);
 }
 
+/** Hands a file that is not text to the browser to save. */
+export function downloadBytes(fileName: string, bytes: Uint8Array, mime = "application/octet-stream"): void {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Opens the file picker for a file that is not text. Resolves to null when the user cancels. */
+export function pickBinaryFile(accept: string): Promise<{ name: string; bytes: Uint8Array } | null> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      try {
+        resolve({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      } catch (e) {
+        reject(e);
+      }
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 /** Opens the file picker. Resolves to null when the user cancels. */
 export function pickTextFile(accept: string): Promise<{ name: string; text: string } | null> {
   return new Promise((resolve, reject) => {

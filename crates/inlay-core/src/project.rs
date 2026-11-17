@@ -444,6 +444,10 @@ pub enum Inlay {
         /// The shape of the tool's path. Side to side by default.
         #[serde(default = "Pattern::raster")]
         pattern: Pattern,
+        /// Which way side-to-side passes run. Along the longer side by
+        /// default. Rings take no direction.
+        #[serde(default, skip_serializing_if = "PassDirection::is_longer")]
+        direction: PassDirection,
         #[serde(default)]
         tool_id: Option<String>,
     },
@@ -493,6 +497,25 @@ pub enum Pattern {
 impl Pattern {
     fn raster() -> Self {
         Pattern::Raster
+    }
+}
+
+/// Which way side-to-side passes run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PassDirection {
+    /// Along the longer side of the area: the fewest turns.
+    #[default]
+    Longer,
+    /// Along X: left and right as the stock lies on the machine.
+    X,
+    /// Along Y: to and from the front of the machine.
+    Y,
+}
+
+impl PassDirection {
+    fn is_longer(&self) -> bool {
+        *self == PassDirection::Longer
     }
 }
 
@@ -982,6 +1005,7 @@ mod tests {
             "facing",
             Inlay::Facing {
                 pattern: Pattern::Raster,
+                direction: PassDirection::Longer,
                 above: 6.0,
                 depth: 0.0,
                 margin: 9.0,

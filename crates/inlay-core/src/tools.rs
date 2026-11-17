@@ -370,6 +370,10 @@ pub struct Tool {
     /// One line about the whole tool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Longer remarks, of any number of lines. In a `tools.yaml` these are
+    /// the comment lines directly above the tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Materials the tool suits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recommended_for: Vec<Material>,
@@ -418,6 +422,7 @@ impl Tool {
             coating: None,
             style: None,
             note: None,
+            description: None,
             recommended_for: Vec::new(),
             apps: None,
             fusion_type: None,
@@ -447,11 +452,13 @@ impl Tool {
     }
 
     /// The tool as a project file carries it: what is needed to cut with it,
-    /// without where it was bought, what it cost, how many are left, what
-    /// was logged about it, or its ids in other programs. A project file is
+    /// without the owner's remarks on it, where it was bought, what it cost,
+    /// how many are left, what was logged about it, or its ids in other
+    /// programs. A project file is
     /// made to be passed on; those belong to the owner's tool list.
     pub fn for_sharing(&self) -> Tool {
         let mut tool = self.clone();
+        tool.description = None;
         tool.source = None;
         tool.inventory = None;
         tool.verify.clear();
@@ -570,7 +577,13 @@ impl Tool {
             positive(c.stepdown, "stepdown")?;
             // A percentage that comes to exactly the diameter may be off by rounding.
             if c.stepover > self.diameter * (1.0 + 1e-9) {
-                return Err("stepover must not be larger than the diameter".into());
+                return Err(format!(
+                    "the stepover for {}{} must not be larger than the diameter",
+                    c.material.0,
+                    c.profile
+                        .as_ref()
+                        .map_or(String::new(), |p| format!(" ({p})"))
+                ));
             }
             if c.passes == Some(0) {
                 return Err("passes must be greater than 0".into());

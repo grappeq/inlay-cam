@@ -97,7 +97,7 @@ export function useFileActions() {
     const comments =
       result.commentsMoved + result.commentsDropped === 0
         ? ""
-        : ` Comments are not kept as such: ${lines(result.commentsMoved)} above tools went into their notes, ${lines(result.commentsDropped)} ${result.commentsDropped === 1 ? "was" : "were"} dropped.`;
+        : ` ${lines(result.commentsMoved)} above tools ${result.commentsMoved === 1 ? "was" : "were"} kept as their remarks; ${lines(result.commentsDropped)} elsewhere ${result.commentsDropped === 1 ? "was" : "were"} dropped.`;
     info(summary(file.name, merged.added, merged.updated) + (result.skipped.length ? ` Left out ${result.skipped.length}: ${skipped}.` : "") + comments);
   }
 

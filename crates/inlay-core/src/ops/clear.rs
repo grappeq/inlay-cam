@@ -11,6 +11,7 @@
 use crate::geom::boolean::{difference, intersection};
 use crate::geom::offset::{offset, open};
 use crate::geom::{distance, Point, Region, Ring};
+use crate::project::PassDirection;
 use crate::toolpath::PathBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -339,7 +340,7 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
 const RASTER_INSET: f64 = 1e-4;
 
 /// Clears with the tool's centre kept inside `centres` in straight passes
-/// side to side, along the longer side of each area, one area at a time to
+/// side to side, along X or Y or the longer side of each area, one area at a time to
 /// full depth. With `walls`, each depth ends with a pass round the edge of
 /// the area, which straight passes alone leave scalloped where it is not
 /// straight. Returns the area the tool's edge reaches.
@@ -348,14 +349,21 @@ pub fn raster_centres(
     centres: &[Region],
     p: &ClearParams,
     walls: bool,
+    along: PassDirection,
 ) -> Vec<Region> {
     for area in centres {
-        raster_one(path, area, p, walls);
+        raster_one(path, area, p, walls, along);
     }
     offset(centres, p.tool_diameter / 2.0)
 }
 
-fn raster_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams, walls: bool) {
+fn raster_one(
+    path: &mut PathBuilder,
+    allowed: &Region,
+    p: &ClearParams,
+    walls: bool,
+    along: PassDirection,
+) {
     let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
     for q in &allowed.outer {
         for k in 0..2 {
@@ -364,11 +372,12 @@ fn raster_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams, walls: 
         }
     }
     // Passes run along `u` and step across `v`.
-    let (u, v) = if high[0] - low[0] >= high[1] - low[1] {
-        (0, 1)
-    } else {
-        (1, 0)
+    let along_x = match along {
+        PassDirection::X => true,
+        PassDirection::Y => false,
+        PassDirection::Longer => high[0] - low[0] >= high[1] - low[1],
     };
+    let (u, v) = if along_x { (0, 1) } else { (1, 0) };
     let span = (high[v] - low[v] - 2.0 * RASTER_INSET).max(0.0);
     let steps = (span / p.stepover).ceil().max(1.0) as usize;
     // Each row: the stretches of it that lie inside the area.
@@ -579,7 +588,7 @@ mod tests {
             let mut path = PathBuilder::new(5.0);
             path.start_tool(7, 12000);
             if raster {
-                raster_centres(&mut path, &centres, &p, true);
+                raster_centres(&mut path, &centres, &p, true, PassDirection::Longer);
             } else {
                 clear_centres(&mut path, &centres, &p);
             }
@@ -681,7 +690,7 @@ mod tests {
         let centres = centres(std::slice::from_ref(&region), &[], p.tool_diameter);
         let mut path = PathBuilder::new(5.0);
         path.start_tool(7, 12000);
-        let pocket = raster_centres(&mut path, &centres, &p, true);
+        let pocket = raster_centres(&mut path, &centres, &p, true, PassDirection::Longer);
         let moves = path.finish();
         let cuts = feeds(&moves);
         for q in &cuts {

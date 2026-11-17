@@ -71,6 +71,8 @@ export interface Tool {
   coating?: string;
   style?: string;
   note?: string;
+  /** Longer remarks, of any number of lines: in a tools.yaml, the comment lines above the tool. */
+  description?: string;
   recommendedFor?: Material[];
   /** The Makera libraries the tool goes into. Absent means both. */
   apps?: ("cam" | "studio")[];
@@ -173,6 +175,35 @@ export interface FeedSuggestion {
   options: FeedOptions;
 }
 
+/** What a row's own values are checked against, outside any stop. */
+export interface FeedLimits {
+  classLabel: string;
+  /** mm per tooth: the band a chip load should stay in at this tool's cutting diameter. */
+  chipFloor: number;
+  chipMax: number;
+  /** The diameter the band is for: a V-bit's is halfway between its tip and its body. */
+  cutDiameter?: number;
+  energy: number;
+  /** The cross-section of a full slot: depth × (width + depth × tan), or round × depth² for a corner rounder. */
+  slot: { width: number; tan: number; round: number };
+  /** The hardest stop's cap at `rpmMax`; proportionally less below it. */
+  powerCapW: number;
+  rpmMax: number;
+}
+
+/** Everything the feeds model has for one cutting row. */
+export interface FeedEntry {
+  /** Whether the model knows the material at all. */
+  covered: boolean;
+  /** The combination to start from, as a key of `combos`: the profile's, or the plain Slot-safe. */
+  default: string;
+  /** Every stop, with and without a ramped entry, adaptive clearing and (where it matters) lubrication, by keys such as `firm+ramp+adaptive+lube`. */
+  combos: Record<string, FeedSuggestion>;
+  limits: FeedLimits | null;
+  /** Whether lubrication changes anything for this material. */
+  lubrication: boolean;
+}
+
 /** One thing about one tool that wants looking at. */
 export interface Attention {
   toolId: string;
@@ -271,6 +302,9 @@ export interface PocketOp {
 }
 
 /** An area milled flat: the whole stock when the job has no shapes, else the rectangle around the shapes grown by the margin. */
+/** Which way side-to-side passes run: along the longer side of the area, along X (left and right) or along Y (to and from the front). */
+export type PassDirection = "longer" | "x" | "y";
+
 export interface FacingOp {
   type: "facing";
   /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
@@ -280,6 +314,8 @@ export interface FacingOp {
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
   margin: number;
   pattern: Pattern;
+  /** Which way side-to-side passes run. Absent: along the longer side of the area. */
+  direction?: PassDirection;
   toolId: string | null;
 }
 
@@ -503,4 +539,56 @@ export interface PocketPreview {
   heights: Float32Array;
   /** Tool path: x0 y0 z0 x1 y1 z1 rapid tool line, per straight piece, in the order they are cut. */
   path: Float32Array;
+}
+
+/** A tool list written for Makera CAM or Makera Studio. */
+export interface MakeraExport {
+  /** The file, byte by byte. */
+  bytes: number[];
+  warnings: string[];
+  tools: number;
+  settings: number;
+  materials: number;
+}
+
+/** A tool list written for Fusion 360: one library with every tool, and the same as one per top-level group. */
+export interface FusionExport {
+  library: string;
+  sections: { name: string; text: string }[];
+  warnings: string[];
+  tools: number;
+  presets: number;
+}
+
+/** One difference between an app's export and the tool list, to be taken or left. */
+export interface MakeraImportChange {
+  id: string;
+  /** A size of the tool, a value of a cutting row it has, or a row for a material it has none for. */
+  kind: "geometry" | "cutting" | "new";
+  key: string | null;
+  material: string | null;
+  materialLabel: string | null;
+  label: string;
+  unit: string | null;
+  from: number | null;
+  to: number | null;
+  /** For a new row: its values in words. */
+  values: string | null;
+  /** Ticked to begin with. */
+  selected: boolean;
+  note: string | null;
+  patch: unknown;
+}
+
+/** An export of Makera CAM or Makera Studio held against the tool list. */
+export interface MakeraImportPlan {
+  format: "cam" | "studio";
+  label: string;
+  exportTools: number;
+  matched: number;
+  matchedByName: number;
+  tools: { toolId: string; name: string; group: string; byName: boolean; notes: string[]; kept: string[]; changes: MakeraImportChange[] }[];
+  unchanged: { name: string; group: string; kept: string[] }[];
+  notImported: { record: string; reason: string }[];
+  notImportedMore: number;
 }

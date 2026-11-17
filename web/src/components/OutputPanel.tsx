@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { FitCheck, Job, Part, PocketPreview, Project } from "../core/types";
-import { JOB_LABELS, fmt, isInlay, missingFor } from "../state/model";
+import { JOB_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
 
@@ -30,7 +30,7 @@ function capital(text: string): string {
  * V-carve inlay the plug is then fitted into the pocket.
  */
 export function useOutput(job: Job) {
-  const { project, output } = useApp();
+  const { project, output, tools, lists } = useApp();
   const dispatch = useDispatch();
   // What is being worked on right now, in words, or null when idle.
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export function useOutput(job: Job) {
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
   // What has to be chosen before anything can be made.
-  const missing = missingFor(job);
+  const missing = missingFor(job) ?? missingSettings(job, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists);
 
   const generate = async () => {
     const out: Output = { jobId: job.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };

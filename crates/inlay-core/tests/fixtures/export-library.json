@@ -1,0 +1,448 @@
+{
+ "app": "wooden-inlays",
+ "kind": "tool-library",
+ "formatVersion": 1,
+ "materials": [
+  {
+   "key": "hardwood",
+   "cam": {
+    "id": "{00000000-0000-4000-8000-0000000000e1}",
+    "name": "Hardwood"
+   },
+   "studio": [
+    {
+     "id": "00000000-0000-7000-8000-0000000000e2",
+     "categoryId": "00000000-0000-7000-8000-0000000000e3",
+     "name": "Hard Wood"
+    }
+   ]
+  },
+  {
+   "key": "softwood",
+   "cam": {
+    "id": "{00000000-0000-4000-8000-0000000000f1}",
+    "name": "Softwood"
+   }
+  },
+  {
+   "key": "aluminum",
+   "cam": {
+    "id": "{00000000-0000-4000-8000-0000000000b1}",
+    "name": "Aluminum"
+   },
+   "studio": [
+    {
+     "id": "00000000-0000-7000-8000-0000000000b2",
+     "categoryId": "00000000-0000-7000-8000-0000000000b3",
+     "name": "6061 Aluminum"
+    }
+   ]
+  },
+  {
+   "key": "plastic",
+   "studio": [
+    {
+     "id": "00000000-0000-7000-8000-0000000000c2",
+     "categoryId": "00000000-0000-7000-8000-0000000000c3",
+     "name": "Acrylic"
+    },
+    {
+     "id": "{00000000-0000-4000-8000-0000000000c4}",
+     "categoryId": "00000000-0000-7000-8000-0000000000c3",
+     "name": "ABS",
+     "builtin": false,
+     "modified": "2026-03-04T05:06:07Z"
+    }
+   ]
+  },
+  {
+   "key": "brass",
+   "studio": [
+    {
+     "id": "00000000-0000-7000-8000-0000000000a2",
+     "categoryId": "00000000-0000-7000-8000-0000000000b3",
+     "name": "Brass"
+    }
+   ]
+  },
+  {
+   "key": "walnut",
+   "label": "Walnut",
+   "feedsAs": "hardwood",
+   "cam": {
+    "id": "{00000000-0000-4000-8000-0000000000a9}",
+    "name": "Walnut"
+   }
+  }
+ ],
+ "profiles": [
+  {
+   "key": "adaptive",
+   "label": "Adaptive",
+   "note": "Stepover is the optimal load.",
+   "level": "standard",
+   "ramping": true
+  },
+  {
+   "key": "contour",
+   "label": "Contour",
+   "level": "firm",
+   "slot": true
+  }
+ ],
+ "groups": [
+  {
+   "path": "End mills",
+   "ids": {
+    "cam": "{00000000-0000-4000-8000-000000000091}"
+   }
+  },
+  {
+   "path": "End mills/Wood"
+  }
+ ],
+ "tools": [
+  {
+   "id": "t-alu",
+   "name": "Ø6×18 3F Alu",
+   "kind": "flat_end",
+   "diameter": 6,
+   "fluteLength": 18,
+   "shoulderLength": 19,
+   "shankDiameter": 6,
+   "length": 50,
+   "flutes": 3,
+   "coating": "DLC",
+   "style": "Alu",
+   "group": "End mills/Metal",
+   "number": 4,
+   "studioUnknown1": 0.5,
+   "ids": {
+    "cam": "{00000000-0000-4000-8000-0000000000a1}"
+   },
+   "source": {
+    "url": "https://kortools.pl/produkt/frez-6",
+    "sizeNote": "6x18x6Dx50L"
+   },
+   "cutting": [
+    {
+     "material": "hardwood",
+     "rpm": 12000,
+     "feed": 2000,
+     "plunge": 180,
+     "stepdown": 1.75,
+     "camFlag": 1,
+     "camExtra": "",
+     "ids": {
+      "cam": "{00000000-0000-4000-8000-0000000000c1}",
+      "studio": "00000000-0000-7000-8000-0000000000d1"
+     },
+     "modified": "2026-01-02T03:04:05Z",
+     "stepover": 2.4,
+     "stepoverUnit": "percent"
+    },
+    {
+     "material": "aluminum",
+     "rpm": 12000,
+     "feed": 500,
+     "plunge": 60,
+     "stepdown": 0.5,
+     "stepover": 2.4
+    },
+    {
+     "material": "aluminum",
+     "rpm": 12000,
+     "feed": 800,
+     "plunge": 180,
+     "stepdown": 3,
+     "profile": "adaptive",
+     "stepover": 0.72
+    },
+    {
+     "material": "plastic",
+     "rpm": 12000,
+     "feed": 900,
+     "plunge": 300,
+     "stepdown": 1,
+     "stepover": 1.99998,
+     "stepoverUnit": "percent"
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-eighth",
+   "name": "Ø3.175×12 2F",
+   "kind": "flat_end",
+   "diameter": 3.175,
+   "fluteLength": 12,
+   "shankDiameter": 3.175,
+   "length": 38,
+   "flutes": 2,
+   "group": "End mills/Wood",
+   "number": 1,
+   "cutting": [
+    {
+     "material": "hardwood",
+     "rpm": 12000,
+     "feed": 13,
+     "plunge": 400,
+     "stepdown": 1.6,
+     "stepover": 1.27
+    },
+    {
+     "material": "softwood",
+     "rpm": 11000,
+     "feed": 2900,
+     "plunge": 500,
+     "stepdown": 2,
+     "stepover": 1.27,
+     "stepoverUnit": "percent"
+    },
+    {
+     "material": "walnut",
+     "rpm": 12000,
+     "feed": 1100,
+     "plunge": 300,
+     "stepdown": 1.2,
+     "stepover": 1.27
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-fallback",
+   "name": "Ø4×11 1F",
+   "kind": "flat_end",
+   "diameter": 4,
+   "fluteLength": 11,
+   "shankDiameter": 4,
+   "flutes": 1,
+   "group": "End mills/Metal",
+   "cutting": [
+    {
+     "material": "aluminum",
+     "rpm": 12000,
+     "feed": 900,
+     "plunge": 200,
+     "stepdown": 2,
+     "profile": "adaptive",
+     "stepover": 0.48
+    },
+    {
+     "material": "plastic",
+     "rpm": 12000,
+     "feed": 1400,
+     "plunge": 400,
+     "stepdown": 2,
+     "stepover": 1.6
+    },
+    {
+     "material": "brass",
+     "rpm": 10000,
+     "feed": 300,
+     "plunge": 80,
+     "stepdown": 0.4,
+     "stepover": 1.6
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-bare",
+   "name": "Ø8 roughing mill",
+   "kind": "flat_end",
+   "diameter": 8,
+   "shankDiameter": 8,
+   "group": "End mills/Metal",
+   "apps": [
+    "studio"
+   ],
+   "cutting": [
+    {
+     "material": "aluminum",
+     "rpm": 9000,
+     "feed": 400,
+     "plunge": 100,
+     "stepdown": 0.5,
+     "stepover": 3.2
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-ball",
+   "name": "Ø6 Ball 2F",
+   "kind": "ball_end",
+   "diameter": 6,
+   "fluteLength": 20,
+   "shankDiameter": 6,
+   "length": 50,
+   "flutes": 2,
+   "group": "Ball mills",
+   "apps": [
+    "cam"
+   ],
+   "cutting": [
+    {
+     "material": "hardwood",
+     "rpm": 12000,
+     "feed": 1200,
+     "plunge": 300,
+     "stepdown": 1,
+     "stepover": 0.6
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-vee",
+   "name": "60° V-groove Ø12",
+   "kind": "v_bit",
+   "diameter": 12,
+   "tipDiameter": 0.1,
+   "tipAngle": 60,
+   "fluteLength": 10,
+   "shankDiameter": 6,
+   "length": 45,
+   "flutes": 2,
+   "group": "V-bits",
+   "number": 6,
+   "cutting": [
+    {
+     "material": "hardwood",
+     "rpm": 12000,
+     "feed": 900,
+     "plunge": 300,
+     "stepdown": 1,
+     "stepover": 0.2
+    },
+    {
+     "material": "softwood",
+     "rpm": 12000,
+     "feed": 1200,
+     "plunge": 400,
+     "stepdown": 1.5,
+     "stepover": 0.2
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-engraver",
+   "name": "30° engraving bit",
+   "kind": "v_bit",
+   "diameter": 3.175,
+   "tipDiameter": 0,
+   "tipAngle": 30,
+   "shankDiameter": 3.175,
+   "length": 38,
+   "flutes": 1,
+   "group": "V-bits",
+   "fusionType": "chamfer_mill",
+   "cutting": [
+    {
+     "material": "brass",
+     "rpm": 12000,
+     "feed": 200,
+     "plunge": 80,
+     "stepdown": 0.05,
+     "stepover": 0.1
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-round",
+   "name": "Fillet D4 R1",
+   "kind": "corner_round",
+   "diameter": 4,
+   "tipDiameter": 2,
+   "tipAngle": 90,
+   "cornerRadius": 1,
+   "fluteLength": 1,
+   "shankDiameter": 4,
+   "length": 50,
+   "flutes": 4,
+   "group": "Form cutters",
+   "cutting": [
+    {
+     "material": "hardwood",
+     "rpm": 12000,
+     "feed": 900,
+     "plunge": 200,
+     "stepdown": 1,
+     "stepover": 0.5
+    },
+    {
+     "material": "aluminum",
+     "rpm": 12000,
+     "feed": 450,
+     "plunge": 100,
+     "stepdown": 1,
+     "stepover": 0.5
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-drill",
+   "name": "Ø2.7×16 Drill",
+   "kind": "drill",
+   "diameter": 2.7,
+   "tipAngle": 118,
+   "fluteLength": 16,
+   "shankDiameter": 2.7,
+   "length": 46,
+   "flutes": 2,
+   "group": "Drills",
+   "cutting": [
+    {
+     "material": "aluminum",
+     "rpm": 9000,
+     "feed": 100,
+     "plunge": 90,
+     "stepdown": 0.5,
+     "stepover": 1
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  },
+  {
+   "id": "t-thread",
+   "name": "M3 thread mill",
+   "kind": "thread_mill",
+   "diameter": 2.42,
+   "threadDiameter": 3,
+   "pitch": 0.5,
+   "drillDiameter": 2.5,
+   "fluteLength": 9,
+   "shankDiameter": 4,
+   "length": 50,
+   "flutes": 3,
+   "group": "Thread mills",
+   "cutting": [
+    {
+     "material": "aluminum",
+     "rpm": 12000,
+     "feed": 150,
+     "plunge": 60,
+     "stepdown": 0.5,
+     "passes": 3,
+     "stepover": 0.1
+    }
+   ],
+   "recommendedFor": [],
+   "verify": []
+  }
+ ]
+}

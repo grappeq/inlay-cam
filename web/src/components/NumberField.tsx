@@ -95,8 +95,9 @@ export function NumberField({ label, value, onChange, unit, min = 0, max = Infin
                     revert();
                     e.stopPropagation();
                   } else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "y" || e.key === "Z")) {
-                    // Undo belongs to the drawing here, not to the text in this box.
+                    // With something typed and not yet handed over, undo takes that back. Otherwise it belongs to the drawing.
                     e.preventDefault();
+                    if (text !== (value === undefined ? "" : fmt(value))) e.stopPropagation();
                     revert();
                   }
                 }

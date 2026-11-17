@@ -17,35 +17,64 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 ## 1. List your tools
 
 The header has three tabs. **Design** is the project you are working on. **Tools** holds
-your tools with the materials and profiles they refer to, and **Machine** your machine and
-what a new inlay starts with. What is under Tools and Machine is kept in this browser and
+your tools, and **Settings** the materials and profiles they refer to, your machine, and
+what a new inlay starts with. What is under Tools and Settings is kept in this browser and
 used by every project.
 
 ### The list
 
-Under **Tools** your tools are listed on the left, in their groups, and the one you pick
-is shown on the right.
+Under **Tools** your tools are listed on the left and the one you pick is shown on the
+right.
 
-- **Find a tool** takes any words from a tool's name, size, group, coating or kind:
-  `1/8 2f`, `60 v`, `upcut`. Every word must match.
-- **Needs attention** shows only the tools with something to look at: a cutting row whose
-  latest result is a failure or still to confirm, something noted as still to check, no
-  cutting settings at all, or no known flute length. A mark after a tool's name counts
-  them, in red when a row failed. A failed row stops counting when a later cut at the
-  same numbers is logged as ok, or when its numbers are changed.
-- The chips narrow the list to kinds of tool, and the choice beside them to tools with
-  cutting settings for one material.
+- The **filter** box reads sizes however they are typed: `1/8 2f`, `6x18`, `ø6`, `m3`,
+  `r1`, `s4` for a 4 mm shank. Words find a tool by its name, group, kind, style, coating,
+  the materials it suits, or the shop it came from. Every word must match.
+- The chips below narrow the list by **shank**, **flutes** and **style**, and the
+  **Material** choice by what a tool is recommended for. A press shows *only* tools with
+  that option; a second press *hides* them, and the chip is struck through; a third
+  clears it. Within one row "only" options add up; rows combine. "Reset" clears the
+  filter box and every chip. The chips are remembered.
+- **Sort** orders the list by group (in groups, by size within each), by diameter, by
+  flute length or by name. Outside "Group" the list is one run without headings.
+- **Needs attention** shows only the tools with something to look at, and lets you pick
+  one kind: a cutting row whose latest result is a failure or still to confirm, something
+  noted as still to check, no cutting settings at all, or no known flute length. A mark
+  after a tool's name counts them, in red when a row failed.
 - A group's heading folds it away. "in use" marks the tools the open project cuts with.
 
 **Add a tool** offers an end mill, a V-bit and a corner-rounding bit, which the app cuts
 with, and a ball end mill, a drill and a thread mill, which it keeps and writes for other
 programs and cuts nothing with.
 
-**Import and export**, at the top right, brings in and saves whole tool lists. A tool file
-is this app's own: everything under Tools, to keep or to move to another browser. A
-`tools.yaml` is the tooling library's list; its layout, and what is and is not kept, is in
-[formats.md](formats.md#toolsyaml). Either can also be dropped onto the window. An
-imported tool with the name of one you have replaces it.
+**Import and export**, at the foot of the list, brings in and saves whole tool lists. A
+tool file is this app's own: your tools, materials and profiles, to keep or to move to
+another browser. A `tools.yaml` is the tooling library's list; its layout, and what is and
+is not kept, is in [formats.md](formats.md#toolsyaml). Either can also be dropped onto the
+window. An imported tool with the name of one you have replaces it.
+
+The same menu writes your tools for other programs. After each, the app says what the
+file holds and what to know about it.
+
+- **Export for Makera CAM** and **Export for Makera Studio** write a `.tlslibrary`. In
+  the app, select the group the tools should go under and import the file. Both apps add
+  what they import as new tools, also when it is there already, so delete the old ones
+  first. A tool goes to the apps ticked under its Tool settings, "Goes to". Each app gets
+  one setting per material: the plain row, or for want of one the first row on a profile,
+  which the export warns about since the app may run it as a full slot. A material only
+  goes where it is tied to one of the app's own materials, which it is after a `tools.yaml`
+  with those ties was imported; materials added here have none. Makera CAM cannot read a
+  file with a byte of value 13 in it: a feed of 13 mm/min is written as 12, with a note,
+  and what cannot be moved that way is refused with the reason.
+- **Export for Fusion 360** writes a `.json` tool library with every tool, each cutting
+  row as a preset. "By group" writes one library per top group, since libraries are the
+  only folders Fusion's tool library has. A length that is not known is written as a
+  stand-in (flutes three diameters long, the tool 20 mm beyond its shoulder), and said so.
+- **Take values from a Makera export…** reads a `.tlslibrary` that Makera CAM or Makera
+  Studio exported and shows where its numbers differ from yours: sizes, cutting values,
+  and settings for a material a tool has no row for. Tick what to take. Tools are matched
+  by their id, else by exact name and group; one matched by name comes unticked. Only
+  numbers are taken: no name, group or material changes, and no tool is added. A 0 in
+  the export, which the apps use for "unknown", never replaces a value you have.
 
 ### A tool's sheet
 
@@ -56,26 +85,33 @@ drawn.
 
 **Cutting settings** has one line per row: what it is for, its speed, feed, plunge,
 stepover and depth, and **How hard** it cuts: a small scale of the feeds model's five
-stops, from Gentle to Aggressive, with a mark where the row sits by how much it removes.
-The taller tick is Slot-safe, the reviewed stop. Clicking a line opens it:
+stops, from gentle to aggressive, with a mark where the row sits. A row is measured by
+what it removes per turn of the spindle (feed over speed, times stepover, times depth),
+which is what the cutting force follows; a drill by how far it goes down per turn. The
+taller tick is the stop the row's suggestions start at: slot-safe, the reviewed stop, for
+a plain row. The word beside it says where the mark is: "slot-safe" on a stop, "≈ firm"
+near one, "below gentle", "above aggressive". Under the scale, "chip thick", "chip thin"
+or "power high" says that the row's own numbers are outside anything the model allows;
+hold the pointer over one for the numbers. Clicking a line opens it:
 
 - what its numbers come to: the chip per tooth with the band it should stay in, the speed
-  at the edge, and the power a full-width cut would take, with a warning when the chip is
-  thin enough to rub or the power is over what the spindle gives. A "!" on the line says
-  there is such a warning;
+  at the edge, and the power a full-width cut would take, with the same warnings in full;
+- where the row goes when the list is written for the Makera apps, once your materials
+  are tied to theirs (they are after a `tools.yaml` is imported);
 - its **field log**: the latest result and the entries behind it. A result counts only for
-  the numbers it was cut at: change the row and it is untested again;
+  the numbers it was cut at: change the row and it is untested again. "Correct" beside an
+  entry changes its result, words or date; "Remove" takes it out;
 - **Log a result…**, for after a cut: ok, worked but still to confirm, or failed, with a
   line on what happened. It is recorded at the numbers the row has at that moment, and
-  kept at once;
-- **What the feeds model would start from**: the five stops, and "Use these values" to
-  copy one into the row. They are rough starting points for a dry Carvera Air with a
-  spindle of about 200 W, where any cut may be a full slot. The model knows nothing of
-  your coating, workholding or coolant, and several stops are marked untested: read the
-  notes under them.
+  kept at once.
+
+A tool's **remarks**, when it has any, are folded under its name: longer notes of any
+length, which in a `tools.yaml` are the comment lines above the tool.
 
 Under **Stock and source**, "A cutter broke or wore out…" notes the loss and takes one off
-the count on hand.
+the count on hand; such an entry can be corrected or removed too. **Tool settings**, folded
+at the foot, holds the tool's group, kind and number, and which other programs' libraries
+it is meant for.
 
 ### Editing a tool
 
@@ -89,6 +125,45 @@ In a cutting row, the two choices at the left say which material the row is for 
 kind of cut ("any cut" is the plain row). The button beside the stepover switches it
 between mm and percent of the diameter. The × at the right deletes the row, and "Add a
 row" adds one for the next material without settings.
+
+Under the name, **Suggested** offers the standard name for a tool of its kind and sizes
+when the name is another: `Ø6×15 2F`, `Ø1 Ball S4 2F`, `90° Chamfer Ø6`, `R1 Corner Round
+Ø4`, `M6×1 Thread Mill 19 reach`, with the style word at the end. "Use" takes it. A name
+another tool has gets the overall length after it. The coating beside the name offers the
+common ones; any other can be typed. "Add something to check" under the remarks notes
+what is still to measure or try; it then shows under Needs attention until you press
+"Checked" on the sheet.
+
+Under the rows, **Suggestion** shows what the feeds model would start from for the row
+you are working on: the one you last clicked into, and to begin with the first plain row
+that holds none of the model's suggestions. A row that differs from every suggestion says
+"differs" beside its material.
+
+- The slider picks one of the five stops. A row on a profile starts at its profile's
+  stop, marked under the slider; a plain row starts where you left the last plain row.
+- **Ramped entry** suggests the plunge for a tool that goes down along a ramp.
+  **Adaptive** reshapes the suggestion for adaptive clearing: a light sideways cut taken
+  deep. It can be looked at for any row, but taken only into a row on a profile, since a
+  plain row may be run as a full slot. **Lubricated** changes the answer for titanium and
+  aluminium only.
+- "This row" and "Suggested" stand one above the other under the columns they belong to,
+  with what differs in bold. What the model does not stand behind for the kind of tool (a
+  drill's feed, stepover and depth) is in italics, and left as the row has it.
+- The line under them says where the numbers come from, and then how the row stands:
+  "✓ matches slot-safe · ramped" when it holds a suggestion exactly, whichever stop and
+  ways of cutting that is, or else where it sits, as its scale shows it.
+- "Use suggestion" copies the suggested values into the row. The stepover stays in the
+  unit the row has.
+
+Slot-safe is the reviewed stop: values for a dry Carvera Air with a spindle of about
+200 W, where any cut may be a full slot. The others are rough starting points or
+untested, and say so. The model knows nothing of your coating, workholding or coolant:
+read the notes under it.
+
+**Tool settings** has "Delete this tool…"; while editing it also changes the tool's kind.
+
+A number that cannot be used is marked, and says why under its field: the value the
+field had is kept, and comes back when you leave it.
 
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
@@ -106,36 +181,36 @@ row" adds one for the next material without settings.
 Tools are shared by all projects. A project keeps its own copy of the tools it uses, so it
 opens correctly elsewhere; the copy leaves out your stock, prices, sources and logs.
 
-### Your materials
+### Settings
 
-**Materials**, beside the tools, lists what you cut. Hardwood and softwood are always there. Add a
-material by name, such as oak or acrylic, then give your tools cutting settings for it. A
-material can be renamed at any time, and deleted once no cutting settings, tool or part
-of the open project uses it. Materials that came with an imported tool list are here too.
-For a material of your own, "Suggested feeds as" says which known material it cuts like,
-so that the tool sheet can suggest starting values for it.
+**Settings** lists four pages on the left, each with a line on what it holds now, and
+shows the one you pick. A column heading with a dotted line under it says more when the
+pointer is held over it.
+
+**Materials** lists what you cut. Hardwood and softwood are always there. Add a material
+by name, such as oak or acrylic, then give your tools cutting settings for it. A material
+can be renamed at any time, and deleted (the × at the right) once no cutting settings,
+tool or part of the open project uses it. Materials that came with an imported tool list
+are here too, with the materials of the Makera apps they are tied to. For a material of
+your own, "Suggestions as" says which known material it cuts like, so that a tool's sheet
+can suggest starting values for it and place its rows.
 
 The app's toolpaths have only been proven in wood. A part in any other material builds
 with a warning that says so: check its simulation with care and cut a test piece first.
 
-### Your profiles
+**Profiles**: a profile names one kind of toolpath, such as a finishing pass or a slot, so
+that a tool can keep a further cutting row tuned for it beside its plain one. You need
+none to cut. The page adds, renames and deletes them; deleting one also deletes its rows
+from your tools, after asking. "Suggestions start at" and the four marks under "Cut"
+(ramped, lubricated, full width, adaptive) only say where the suggestion on a tool's
+sheet begins for the profile's rows. A profile marked **Adaptive** is for other CAM
+programs: this app has no such toolpath and does not cut with its rows.
 
-A profile names one kind of toolpath, such as a finishing pass or a slot, so that a tool
-can keep a further cutting row tuned for it beside its plain one. You need none to cut.
-**Profiles**, beside the tools, adds, renames and deletes them; deleting one also deletes its rows
-from your tools, after asking. The ticks on a profile and its starting stop only say where
-the suggested values on a tool's sheet begin for its rows.
+**Machine** holds the limits every file is checked against. They start as those of the
+Carvera Air; "Fill in for" sets them for the Carvera.
 
-A profile ticked **Adaptive clearing** is for other CAM programs: this app has no such
-toolpath and does not cut with its rows.
-
-### Your machine
-
-The **Machine** page holds the limits every file is checked against. They start as those
-of the Carvera Air; "Fill in for" sets them for the Carvera.
-
-- **Travel in X and Y**: a file whose moves span more is refused.
-- **Top spindle speed**: a tool set to run faster is refused.
+- **Travel** in X and Y: a file whose moves span more is refused.
+- **Top spindle speed**: a tool set to turn faster is refused.
 - **Rapid speed** is only used for the time estimates.
 - **First tool number**: the tools of a file are numbered from here, in the order they are
   used. On a Carvera with a tool rack, T1 to T6 are the rack's slots and are loaded
@@ -143,12 +218,11 @@ of the Carvera Air; "Fill in for" sets them for the Carvera.
 
 The files are always written for the Carvera Community Firmware, whatever is set here.
 
-### Defaults for new inlays
-
-The **New inlays** page holds the clearances and tabs a new inlay starts with: travel
-height, plunge height, the tabs, and how parts are cut out. They are described under
-"Clearances and tabs" below. Each inlay keeps its own copy, so changing a default does not
-alter inlays you have already made.
+**New inlays** holds the clearances and tabs a new inlay starts with: travel height,
+plunge height, the ramp, the finishing pass, the tabs, and how parts are cut out. They are
+described under "Clearances and tabs" below. Each inlay keeps its own copy, so changing a
+value here does not alter inlays you have already made. A value of your own has "Put back
+the app's" beside it, and "Back to the app's values" puts them all back.
 
 ## 2. Bring in a drawing
 
@@ -221,7 +295,7 @@ Changing the selection:
 - Drag the squares on its frame to resize it. A corner keeps the proportions, unless
   Shift is held; a side stretches it one way. The opposite corner or side stays where it
   is; with Ctrl held, the middle does.
-- Type W or H, or a percentage under "Scale to". "Keep proportions" decides whether the
+- Type W or H, or a percentage under "Scale by", which scales what is selected as it is now. "Keep proportions" decides whether the
   other size follows. The small grid of five squares beside it chooses which point of the
   selection stays where it is: a corner, or the middle.
 - Turn it by 90° either way or by any angle, or mirror it.
@@ -334,7 +408,7 @@ how large the board must be.
 ### Clearances and tabs
 
 "Clearances and tabs", at the bottom of an inlay's panel, holds how that inlay's two files
-are cut. A new inlay starts with your defaults from the **Machine** tab; "Back to your
+are cut. A new inlay starts with your defaults from **Settings**, "New inlays"; "Back to your
 defaults" returns to them. The app's own values are in brackets.
 
 - **Travel height** (5 mm): how high above the board the tool moves between cuts. Raise it
@@ -386,8 +460,10 @@ click adds a shape to it or takes it away.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
-  surface* to remove what stands on it. The tool goes side to side in straight passes
-  along the longer side of the area; "The tool's path" can make it go in rings instead.
+  surface* to remove what stands on it. The tool goes side to side in straight passes;
+  "The passes run" chooses along the longer side of the area (the fewest turns), left and
+  right along X, or to and from the front along Y, which matters for the look of a faced
+  surface in wood. "The tool's path" can make it go in rings instead.
 
 ### Trimming a plug flush
 

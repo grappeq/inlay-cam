@@ -16,7 +16,9 @@ use crate::ops::clear::{centres, clear_centres, finish_walls, raster_centres, Cl
 use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
-use crate::project::{Inlay, InsertStyle, Job, Machine, Pattern, Project, Setup, Side};
+use crate::project::{
+    Inlay, InsertStyle, Job, Machine, PassDirection, Pattern, Project, Setup, Side,
+};
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
 use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
@@ -284,6 +286,10 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         pattern: match &job.inlay {
             Inlay::Pocket { pattern, .. } | Inlay::Facing { pattern, .. } => *pattern,
             _ => Pattern::Offset,
+        },
+        direction: match &job.inlay {
+            Inlay::Facing { direction, .. } => *direction,
+            _ => PassDirection::Longer,
         },
         errors,
         warnings,
@@ -633,6 +639,8 @@ struct Context<'a> {
     depth: f64,
     /// The shape of the path an end mill clears an area along.
     pattern: Pattern,
+    /// Which way its side-to-side passes run.
+    direction: PassDirection,
     errors: Vec<String>,
     warnings: Vec<String>,
 }
@@ -877,7 +885,7 @@ impl<'a> Context<'a> {
             let params = clear_params(tool, cutting, self.depth, ramp);
             let swept = match self.pattern {
                 Pattern::Offset => clear_centres(path, &where_to, &params),
-                Pattern::Raster => raster_centres(path, &where_to, &params, true),
+                Pattern::Raster => raster_centres(path, &where_to, &params, true, self.direction),
             };
             let fresh: f64 = swept
                 .iter()
@@ -2047,7 +2055,7 @@ fn facing(
     let params = clear_params(tool, cutting, total, ctx.setup().ramp_slope());
     match ctx.pattern {
         Pattern::Offset => clear_centres(&mut path, &where_to, &params),
-        Pattern::Raster => raster_centres(&mut path, &where_to, &params, false),
+        Pattern::Raster => raster_centres(&mut path, &where_to, &params, false, ctx.direction),
     };
     let mut moves = path.finish();
     // Worked out as if the top of the standing wood were the surface: lift it there.
@@ -4278,6 +4286,7 @@ mod tests {
     fn facing_the_whole_stock_starts_above_the_surface_and_leaves_it_flat() {
         let mut p = op_project(Inlay::Facing {
             pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
             above: 2.0,
             depth: 0.5,
             margin: 0.0,
@@ -4311,6 +4320,7 @@ mod tests {
     fn facing_over_shapes_covers_them_and_their_margin_only() {
         let p = op_project(Inlay::Facing {
             pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
             above: 3.0,
             depth: 0.0,
             margin: 2.0,
@@ -4336,6 +4346,7 @@ mod tests {
         let mut none = p.clone();
         none.jobs[0].inlay = Inlay::Facing {
             pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
             above: 0.0,
             depth: 0.0,
             margin: 0.0,
@@ -4543,6 +4554,7 @@ mod tests {
         let mut p = three_ops();
         p.jobs[2].inlay = Inlay::Facing {
             pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
             above: 4.0,
             depth: 0.0,
             margin: 3.0,
@@ -4656,10 +4668,69 @@ mod tests {
     }
 
     #[test]
+    fn facing_passes_run_the_way_that_is_asked_for() {
+        // The test board is wider than it is deep, so the longer side is X.
+        let facing = |direction| {
+            let mut p = op_project(Inlay::Facing {
+                pattern: Pattern::Raster,
+                direction,
+                above: 0.0,
+                depth: 0.5,
+                margin: 0.0,
+                tool_id: Some("t-endmill".into()),
+            });
+            p.jobs[0].region_ids = vec![];
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            for z in &preview.map.z {
+                assert!((*z + 0.5).abs() < 1e-4, "left at {z}");
+            }
+            // How far the level cuts travel along X, and along Y.
+            let level = |axis: usize| {
+                preview
+                    .built
+                    .interpreted
+                    .segments
+                    .iter()
+                    .filter(|s| !s.rapid && s.from[2] == s.to[2])
+                    .map(|s| (s.to[axis] - s.from[axis]).abs())
+                    .sum::<f64>()
+            };
+            (level(0), level(1))
+        };
+        let (x, y) = facing(PassDirection::Longer);
+        assert!(
+            x > 5.0 * y,
+            "along the longer side: {x} along X, {y} along Y"
+        );
+        assert_eq!(facing(PassDirection::X), (x, y));
+        let (x, y) = facing(PassDirection::Y);
+        assert!(y > 5.0 * x, "along Y: {x} along X, {y} along Y");
+
+        // A file without a direction means the longer side, and one with it keeps it.
+        let mut p = op_project(Inlay::Facing {
+            pattern: Pattern::Raster,
+            direction: PassDirection::Y,
+            above: 0.0,
+            depth: 0.5,
+            margin: 0.0,
+            tool_id: Some("t-endmill".into()),
+        });
+        let text = crate::project::project_to_file_json(&p);
+        assert!(text.contains("\"direction\": \"y\""));
+        assert_eq!(crate::project::project_from_file_json(&text).unwrap(), p);
+        if let Inlay::Facing { direction, .. } = &mut p.jobs[0].inlay {
+            *direction = PassDirection::Longer;
+        }
+        assert!(!crate::project::project_to_file_json(&p).contains("direction"));
+    }
+
+    #[test]
     fn facing_goes_side_to_side_unless_rings_are_asked_for() {
         let facing = |pattern| {
             let mut p = op_project(Inlay::Facing {
                 pattern,
+                direction: PassDirection::Longer,
                 above: 0.0,
                 depth: 0.5,
                 margin: 0.0,

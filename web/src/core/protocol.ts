@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Attention, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Attention, FusionExport, MakeraExport, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -23,6 +23,17 @@ export interface CoreApi {
   suggestFeeds(tool: Tool, material: string, options: FeedOptions): FeedSuggestion;
   /** The suggestion at each of the five stops, gentlest first. */
   suggestStops(tool: Tool, material: string, flags: FeedFlags): FeedSuggestion[];
+  /** The standard name to offer for a tool, or null. `named`: the name a V-bit is read by; `taken`: every other tool's name and shown name. */
+  suggestName(tool: Tool, named: string, taken: string[]): { name: string; accepted: string[] } | null;
+  /** A tool list as a Makera CAM or Makera Studio library. `now`: ISO-8601 UTC. */
+  exportMakera(library: ToolLibrary, app: "cam" | "studio", now: string): MakeraExport;
+  exportFusion(library: ToolLibrary): FusionExport;
+  /** Holds an export of Makera CAM or Makera Studio against the tool list. */
+  planMakeraImport(library: ToolLibrary, data: Uint8Array): MakeraImportPlan;
+  /** The tool list with the ticked changes of a plan made to it. */
+  applyMakeraImport(library: ToolLibrary, plan: MakeraImportPlan, selected: string[]): ToolLibrary;
+  /** Everything the feeds model has for one cutting row; `profile` is null for a plain row. */
+  suggestEntry(tool: Tool, material: string, profile: Profile | null): FeedEntry;
   /** Holds a cutting row's numbers against the feeds model. */
   checkRow(tool: Tool, material: string, values: { rpm: number; feed: number; plunge: number; stepover: number; stepdown: number; adaptive: boolean }): RowCheck;
   /** What wants looking at in a tool list, worst first. */
