@@ -45,9 +45,9 @@ export interface CoreApi {
    * every reason the part cannot be built, one per line of the error message.
    */
   previewPart(project: Project, jobId: string, part: Part): PocketPreview;
-  /** Builds one file that runs the stock's part of several jobs in the order given, and simulates it. */
-  previewCombined(project: Project, jobIds: string[]): PocketPreview;
-  /** Takes the stock through every inlay and operation of the project, in the order of the list. Fails only for a project without a drawing. */
+  /** For a facing: how far above the surface its first pass begins, as given or as the list gives it. Null for any other job. */
+  facingStart(project: Project, jobId: string): number | null;
+  /** Takes the stock through every inlay and operation of the project, in the order of the list, and makes the files for the stock. Fails only for a project without a drawing. */
   stockTimeline(project: Project): StockTimeline;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
   checkFit(project: Project, jobId: string): FitCheck;

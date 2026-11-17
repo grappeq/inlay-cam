@@ -84,15 +84,16 @@ libraries for other programs.
 ## The stock, step by step
 
 The list of inlays and operations is the order the stock goes through, with glue-ups as
-steps done by hand, and the stock can be looked at in 3D after each line. What that makes
-possible, and is not built:
+steps done by hand. The lines between two of them are one file, and the stock can be
+looked at in 3D after each line. What that makes possible, and is not built:
 
-- **Files from the order of the list.** A step done by hand is where the machine stops,
-  so each run of lines between two of them is one file. This would take the place of the
-  tick boxes and "One file for the stock".
-- **The trim reads its height from the stock.** A facing after a glue-up knows how far
-  the plug stands above the surface; today it holds a copy of the inlay's numbers, and
-  its panel offers to set them again after a change.
+- **A line left out of its file.** The tick boxes could do that. To decide whether it is
+  missed: a line still has a file of its own.
+- **The height of a facing from the simulated stock.** It is taken from the inlays' own
+  numbers, and the simulation only warns when they are too low. A plug that does not seat
+  stands higher than the numbers say.
+- **A trim's margin from the inlay.** It is still a copy, and the facing's panel offers
+  to set it again.
 - **Only what changed is worked out again.** Every press of the button builds and
   simulates the whole list. A change to one line leaves the lines above it as they were.
 - **More steps done by hand**: sawing the backer off, which the trim's "wood above the

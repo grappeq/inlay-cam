@@ -40,6 +40,10 @@ pub enum Move {
         clockwise: bool,
         feed: f64,
     },
+    /// A comment on a line of its own. Nothing moves.
+    Comment {
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,7 +195,7 @@ pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
             match &moves[i] {
                 Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. } => at = Some(*to),
                 Move::ToolChange { .. } | Move::RapidXy { .. } => at = None,
-                Move::SpindleOn { .. } | Move::SpindleOff => {}
+                Move::SpindleOn { .. } | Move::SpindleOff | Move::Comment { .. } => {}
             }
             out.push(moves[i].clone());
             i += 1;

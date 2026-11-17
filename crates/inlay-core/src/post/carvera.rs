@@ -87,6 +87,16 @@ fn tool_comment(t: &ProgramTool) -> String {
     format!("({head}{}{tail})", name.trim_end())
 }
 
+/// A comment as it is written: on a line of its own, with only the
+/// characters that cannot upset the parser, and no longer than a line may be.
+pub fn comment_line(text: &str) -> String {
+    let clean: String = comment_text(text)
+        .chars()
+        .take(MAX_LINE_LENGTH - 2)
+        .collect();
+    format!("({})", clean.trim_end())
+}
+
 pub fn write(program: &Program) -> String {
     let mut out = Writer {
         text: String::new(),
@@ -107,6 +117,7 @@ pub fn write(program: &Program) -> String {
     let mut work_offset_selected = false;
     for m in &program.moves {
         match *m {
+            Move::Comment { ref text } => out.comment(text),
             Move::ToolChange { number } => {
                 out.line(&format!("M6 T{number}"));
                 // The machine moved on its own: position and feed are unknown again.
@@ -175,11 +186,7 @@ impl Writer {
 
     /// Writes a comment line. Only characters that cannot upset the parser are kept.
     fn comment(&mut self, text: &str) {
-        let clean: String = comment_text(text)
-            .chars()
-            .take(MAX_LINE_LENGTH - 2)
-            .collect();
-        self.line(&format!("({clean})"));
+        self.line(&comment_line(text));
     }
 
     /// Writes one motion line with only the axes that change. Arcs always

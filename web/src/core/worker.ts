@@ -35,14 +35,7 @@ const api: CoreApi = {
       preview.free();
     }
   },
-  previewCombined: (project, jobIds) => {
-    const preview = wasm.previewCombined(JSON.stringify(project), JSON.stringify(jobIds));
-    try {
-      return { ...JSON.parse(preview.info), heights: preview.heights, path: preview.path };
-    } finally {
-      preview.free();
-    }
-  },
+  facingStart: (project, jobId) => wasm.facingStart(JSON.stringify(project), jobId) ?? null,
   stockTimeline: (project) => {
     const timeline = wasm.stockTimeline(JSON.stringify(project));
     try {

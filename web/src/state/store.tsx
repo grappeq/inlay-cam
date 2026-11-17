@@ -12,7 +12,7 @@ export type View = "design" | "settings";
 /** The pages of the settings view. */
 export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
-export type Stage = "drawing" | "pocket" | "plug" | "fit" | "stock" | "timeline";
+export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -38,11 +38,7 @@ export interface AppState {
   saveError: string | null;
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
-  /** The jobs ticked to go into one file for the stock. */
-  combine: string[];
-  /** The last file generated for several jobs at once. Not saved. */
-  combined: Combined | null;
-  /** The stock as it was last taken through the list, step by step. Not saved. */
+  /** The stock as it was last taken through the list, step by step, with the files that cut it. Not saved. */
   timeline: Timeline | null;
   /** The point of the list the stock is shown at: 0 for the fresh stock, n for the stock after the nth entry. */
   timelineAt: number;
@@ -75,15 +71,6 @@ export interface Output {
   fitErrors: string[];
 }
 
-/** One file that runs the stock's part of several jobs, in the order of the list. */
-export interface Combined {
-  jobIds: string[];
-  /** The project exactly as it was when this was generated. */
-  project: Project;
-  preview: PocketPreview | null;
-  errors: string[];
-}
-
 /** The stock taken through the whole list. */
 export interface Timeline {
   /** The project exactly as it was when this was worked out. */
@@ -110,8 +97,6 @@ export type Action =
   | { type: "saveResult"; error: string | null }
   | { type: "setOutput"; output: Output | null }
   | { type: "setStage"; stage: Stage }
-  | { type: "setCombine"; ids: string[] }
-  | { type: "setCombined"; combined: Combined | null }
   | { type: "setTimeline"; timeline: Timeline | null }
   | { type: "setTimelineAt"; at: number }
   /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
@@ -139,8 +124,6 @@ const initial: AppState = {
   notice: null,
   saveError: null,
   output: null,
-  combine: [],
-  combined: null,
   timeline: null,
   timelineAt: 0,
   stage: "drawing",
@@ -185,8 +168,6 @@ function reducer(state: AppState, action: Action): AppState {
         activeJobId: null,
         importReport: action.importReport ?? null,
         output: null,
-        combine: [],
-        combined: null,
         timeline: null,
         timelineAt: 0,
         stage: "drawing",
@@ -230,10 +211,6 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, output: action.output };
     case "setStage":
       return { ...state, stage: action.stage };
-    case "setCombine":
-      return { ...state, combine: action.ids };
-    case "setCombined":
-      return { ...state, combined: action.combined };
     case "setTimeline":
       return { ...state, timeline: action.timeline, timelineAt: Math.min(state.timelineAt, action.timeline?.result?.steps.length ?? 0) };
     case "setTimelineAt":
@@ -247,8 +224,6 @@ function reducer(state: AppState, action: Action): AppState {
           selection: [],
           activeJobId: null,
           output: null,
-          combine: [],
-          combined: null,
           timeline: null,
           timelineAt: 0,
           stage: "drawing",

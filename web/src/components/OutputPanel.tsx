@@ -192,86 +192,8 @@ function boardName(part: Part, job: Job): string {
       : "Insert board";
 }
 
-/**
- * One file for the stock from the jobs that are ticked in the list: each
- * inlay's pocket and each plain operation, in the order of the list.
- */
-export function StockFile() {
-  const { project, combine, combined, stage, activeJobId } = useApp();
-  const dispatch = useDispatch();
-  const [busy, setBusy] = useState(false);
-  const jobs = project.jobs.filter((j) => combine.includes(j.id));
-  const notReady = jobs.filter((j) => missingFor(j) !== null);
-  const stale = combined !== null && combined.project !== project;
-  if (project.jobs.length < 2 && jobs.length === 0 && !combined) return null;
-
-  const generate = async () => {
-    const jobIds = jobs.map((j) => j.id);
-    setBusy(true);
-    try {
-      const preview = await core.call("previewCombined", project, jobIds);
-      dispatch({ type: "setCombined", combined: { jobIds, project, preview, errors: [] } });
-      dispatch({ type: "setStage", stage: "stock" });
-    } catch (e) {
-      dispatch({ type: "setCombined", combined: { jobIds, project, preview: null, errors: message(e).split("\n") } });
-    } finally {
-      setBusy(false);
-    }
-  };
-  const names = (list: Job[]) => list.map((j) => `"${j.name}"`).join(", ");
-  const status = busy
-    ? "Working out the file…"
-    : jobs.length === 0
-      ? "Tick the inlays and operations it should cut, in the list above."
-      : notReady.length > 0
-        ? `Not ready yet: ${names(notReady)}. Open ${notReady.length === 1 ? "it" : "them"} to see what is missing.`
-        : `Cuts ${names(jobs)}, in this order.`;
-
-  return (
-    <section>
-      <h2>One file for the stock</h2>
-      <p className="hint">
-        Each inlay and operation has a file of its own. This puts several into one file instead: each inlay's pocket and each operation, in the
-        order of the list. A tool that the next one also starts with stays in the spindle.
-      </p>
-      <div className="row tools">
-        <button disabled={busy || jobs.length === 0 || notReady.length > 0} onClick={generate}>
-          {busy ? "Working…" : combined ? "Generate again" : "Generate one file"}
-        </button>
-      </div>
-      <p className={`status-line${!busy && notReady.length > 0 ? " warn" : ""}`} role="status">
-        {status}
-      </p>
-      {combined && (
-        <div className="results">
-          {stale && <p className="callout warn">The project has changed since this was made. Generate again before downloading.</p>}
-          {combined.errors.length > 0 && (
-            <div className="callout error" role="alert">
-              <p>The file could not be made:</p>
-              <ul>
-                {combined.errors.map((error) => (
-                  <li key={error}>{error}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {combined.preview && (
-            <PartCard
-              name="stock"
-              board="Stock"
-              preview={combined.preview}
-              stale={stale}
-              shown={stage === "stock" && activeJobId === null}
-              onShow={() => dispatch({ type: "setStage", stage: "stock" })}
-            />
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function PartCard(props: { name: string; board: string; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
+/** One file as it came out: its checks, its numbers and its download. */
+export function PartCard(props: { name: string; board: string; preview: Pick<PocketPreview, "built" | "problems">; stale: boolean; shown: boolean; onShow: () => void }) {
   const { preview, name, board } = props;
   const { built } = preview;
   const tools = built.stats.perTool;

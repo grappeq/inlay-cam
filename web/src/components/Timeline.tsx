@@ -4,6 +4,7 @@ import type { Built, Job, PocketPreview, Project, StockTimeline, TimelineStep } 
 import { fmt, jobColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { JobIcon } from "./icons";
+import { PartCard } from "./OutputPanel";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
 
 /** Whether a step has something to say: it could not be done, went wrong, or wants a look. */
@@ -34,10 +35,10 @@ function useWorkOut() {
 
 /**
  * In the panel, under the list: takes the stock through the list from top to
- * bottom and shows it in 3D at any point of it.
+ * bottom, makes the files that cut it, and shows it in 3D at any point.
  */
 export function StockSteps() {
-  const { project, timeline, stage } = useApp();
+  const { project, timeline, timelineAt, stage } = useApp();
   const dispatch = useDispatch();
   const { busy, workOut } = useWorkOut();
   if (project.jobs.length === 0) return null;
@@ -45,21 +46,27 @@ export function StockSteps() {
   const result = timeline?.result ?? null;
   const name = (id: string) => timeline?.project.jobs.find((j) => j.id === id)?.name ?? "?";
   const noted = result?.steps.map((step, index) => ({ step, index })).filter(({ step }) => troubled(step)) ?? [];
+  const show = (at: number) => {
+    dispatch({ type: "setTimelineAt", at });
+    dispatch({ type: "setStage", stage: "timeline" });
+  };
+  const several = (result?.files.length ?? 0) > 1;
 
   return (
     <section>
       <h2>The stock, step by step</h2>
       <p className="hint">
-        Takes the stock through the list from top to bottom: each file cuts it as the one before left it, and a glue-up puts the plug on it. Then any
-        point of the list can be looked at in 3D.
+        Takes the stock through the list from top to bottom. The lines from one glue-up to the next are cut by one file, since the machine stops there
+        anyway; a tool that the next line also starts with stays in the spindle. Each file is run on the stock as the one before left it, with what was
+        glued in on it, and the stock can be looked at in 3D after every line.
       </p>
       <div className="row tools">
         <button disabled={busy} onClick={() => workOut()}>
-          {busy ? "Working…" : result ? "Work out again" : "Show the stock in 3D"}
+          {busy ? "Working…" : result ? "Generate again" : "Generate the stock's files"}
         </button>
         {result && stage !== "timeline" && (
           <button className="link" onClick={() => dispatch({ type: "setStage", stage: "timeline" })}>
-            Show it
+            Show the stock in 3D
           </button>
         )}
       </div>
@@ -70,7 +77,7 @@ export function StockSteps() {
       )}
       {timeline && !busy && (
         <div className="results">
-          {stale && <p className="callout warn">The project has changed since this was worked out.</p>}
+          {stale && <p className="callout warn">The project has changed since these were made. Generate again before downloading.</p>}
           {timeline.errors.length > 0 && (
             <div className="callout error" role="alert">
               <p>The stock could not be worked out:</p>
@@ -81,20 +88,13 @@ export function StockSteps() {
               </ul>
             </div>
           )}
-          {result && noted.length === 0 && <p className="status-line">Every step went through without a problem.</p>}
           {noted.length > 0 && (
             <div className="callout warn">
               <p>Worth a look:</p>
               <ul>
                 {noted.map(({ step, index }) => (
                   <li key={step.jobId}>
-                    <button
-                      className="link"
-                      onClick={() => {
-                        dispatch({ type: "setTimelineAt", at: index + 1 });
-                        dispatch({ type: "setStage", stage: "timeline" });
-                      }}
-                    >
+                    <button className="link" onClick={() => show(index + 1)}>
                       {name(step.jobId)}
                     </button>
                     : {summary(step)}
@@ -103,6 +103,56 @@ export function StockSteps() {
               </ul>
             </div>
           )}
+          {result?.steps.map((step, index) => {
+            if (step.byHand) {
+              return (
+                <p className="by-hand-line" key={step.jobId}>
+                  By hand:{" "}
+                  <button className="link" onClick={() => show(index + 1)}>
+                    {name(step.jobId)}
+                  </button>
+                </p>
+              );
+            }
+            // A file is shown where its first line stands.
+            const file = step.file === null ? undefined : result.files[step.file];
+            if (!file || file.jobIds[0] !== step.jobId) return null;
+            const title = several ? `stock ${(step.file ?? 0) + 1}` : "stock";
+            const last = index + file.jobIds.length;
+            if (!file.built || !file.complete) {
+              const failed = result.steps.filter((s) => s.file === step.file && s.errors.length > 0);
+              return (
+                <div className="callout error" role="alert" key={step.jobId}>
+                  <p>The file {title} could not be made:</p>
+                  <ul>
+                    {file.errors.map((error) => (
+                      <li key={error}>{error}</li>
+                    ))}
+                    {failed.flatMap((s) =>
+                      s.errors.map((error) => (
+                        <li key={`${s.jobId} ${error}`}>
+                          {name(s.jobId)}: {error}
+                        </li>
+                      )),
+                    )}
+                  </ul>
+                </div>
+              );
+            }
+            return (
+              <div key={step.jobId}>
+                <PartCard
+                  name={title}
+                  board="Stock"
+                  preview={{ built: file.built, problems: file.problems }}
+                  stale={stale}
+                  shown={stage === "timeline" && timelineAt === last}
+                  onShow={() => show(last)}
+                />
+                <p className="hint file-lines">Cuts {file.jobIds.map((id) => `"${name(id)}"`).join(", then ")}.</p>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -164,8 +214,10 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   );
   const preview = useMemo<PocketPreview>(() => {
     const shown = at > 0 ? result.steps[at - 1] : null;
+    // The file a step is part of gives the tools' names and the lines' numbers.
+    const file = shown && shown.file !== null ? result.files[shown.file] : undefined;
     return {
-      built: shown?.built ?? noFile(made, result.thickness),
+      built: file?.built ?? noFile(made, result.thickness),
       problems: shown?.problems ?? [],
       cell: result.cell,
       nx: result.nx,
@@ -273,6 +325,7 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
     );
   }
   const seat = step.seat;
+  const file = step.file === null ? undefined : result.files[step.file];
   return (
     <>
       <p className="status-line" role="status">
@@ -281,8 +334,8 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
           ? `Glued in by hand, it stands ${fmt(Math.round(seat.above * 100) / 100)} mm above the surface${
               Math.abs(seat.proud) >= 0.02 ? `, ${fmt(Math.round(Math.abs(seat.proud) * 100) / 100)} mm ${seat.proud > 0 ? "higher" : "lower"} than designed` : ""
             }.`
-          : step.built
-            ? `${step.built.fileName}, cut into the stock as the step before left it.`
+          : file?.built
+            ? `Cut by ${file.built.fileName}${file.jobIds.length > 1 ? `, as part ${file.jobIds.indexOf(step.jobId) + 1} of ${file.jobIds.length}` : ""}, into the stock as the step before left it.`
             : ""}
       </p>
       {(step.problems.length > 0 || step.warnings.length > 0) && (

@@ -3521,10 +3521,27 @@ ul.plain {
   border-style: dashed;
   background: transparent;
 }
-/* Where the other lines have their tick box: a step done by hand goes into no file. */
-.job-row .no-tick {
-  width: 13px;
-  margin: 3px 3px 3px 4px;
+/* The list in the order it is cut: a grip, then, once a step done by hand splits it, the file each line goes into. */
+.job-row.ordered {
+  grid-template-columns: auto 1fr;
+}
+.job-row.ordered.filed {
+  grid-template-columns: auto 30px 1fr;
+}
+.file-number {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.by-hand-line {
+  margin: 10px 0;
+  padding: 5px 10px;
+  font-size: 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 5px;
+}
+.hint.file-lines {
+  margin: 4px 0 12px;
 }
 .hint.after-glue {
   margin-top: 12px;

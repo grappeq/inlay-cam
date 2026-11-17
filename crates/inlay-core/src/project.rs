@@ -75,6 +75,10 @@ fn is_zero(v: &f64) -> bool {
     *v == 0.0
 }
 
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 /// The most a tool change may be said to take, seconds.
 pub const MAX_TOOL_CHANGE_SECONDS: f64 = 3600.0;
 
@@ -503,6 +507,11 @@ pub enum Inlay {
         /// first, such as the backer of a glued-in plug, mm.
         #[serde(default)]
         above: f64,
+        /// Take that height from the list instead: how far the plugs and
+        /// inserts glued in before this facing, where it cuts, stand above
+        /// the surface by their inlays' numbers. `above` is then not used.
+        #[serde(default, skip_serializing_if = "is_false")]
+        above_auto: bool,
         /// How far below the stock's surface the area ends up, mm. Less
         /// than 0 ends it that far above the surface, in the wood that
         /// stands there, and leaves the rest of it proud.
@@ -911,6 +920,7 @@ impl Inlay {
             ),
             Inlay::Facing {
                 above,
+                above_auto,
                 depth,
                 margin,
                 ..
@@ -919,8 +929,10 @@ impl Inlay {
                     above.is_finite() && above >= 0.0,
                     "the wood above the surface must be 0 or more",
                 )?;
+                // With the height taken from the list, where the cut may
+                // end is known only when the file is made.
                 check(
-                    depth.is_finite() && depth >= -above,
+                    depth.is_finite() && (above_auto || depth >= -above),
                     "a facing cannot end higher than the wood above the surface it starts on",
                 )?;
                 check(
@@ -1225,6 +1237,7 @@ mod tests {
                 pattern: Pattern::Raster,
                 direction: PassDirection::Longer,
                 above: 6.0,
+                above_auto: false,
                 depth: 0.0,
                 margin: 9.0,
                 tool_id: Some("t-endmill".into()),
@@ -1290,6 +1303,7 @@ mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above,
+            above_auto: false,
             depth,
             margin: 9.0,
             tool_id: None,

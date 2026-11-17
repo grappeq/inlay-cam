@@ -57,7 +57,7 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, combined, timeline, stage, activeJobId, arranging } = useApp();
+  const { project, output, timeline, stage, activeJobId, arranging } = useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
@@ -66,15 +66,13 @@ function DesignView() {
   const pocket = mine?.parts.pocket ?? null;
   const plug = mine?.parts.plug ?? null;
   const fit = mine?.fit ?? null;
-  // The one file for the stock is looked at from the list, with no inlay or operation open.
-  const whole = !job ? (combined?.preview ?? null) : null;
   // Fall back to the drawing when what was asked for is not there (any more).
   const steps = timeline?.result ?? null;
   const shown: Stage =
-    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "stock" && whole) || (stage === "timeline" && steps)
+    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && steps)
       ? stage
       : "drawing";
-  const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : shown === "stock" ? whole : null;
+  const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
   const wood = stockColor(project);
   const plugWood = job && isInlay(job.inlay) ? jobColor(job, project.jobs) : wood;
   const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
@@ -84,7 +82,6 @@ function DesignView() {
   if (job && pocket) tabs.push(["pocket", `${capital(partName("pocket", job))} in 3D`]);
   if (job && plug) tabs.push(["plug", `${capital(partName("plug", job))} in 3D`]);
   if (fit) tabs.push(["fit", "Fit"]);
-  if (whole) tabs.push(["stock", "File for the stock in 3D"]);
   if (steps) tabs.push(["timeline", "Stock, step by step"]);
   const show = (to: Stage) => {
     // From an inlay or operation, the stock is shown as that one leaves it.

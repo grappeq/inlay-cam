@@ -525,8 +525,10 @@ panel. It adds a facing to the list as an operation of its own, named "Trim" and
 inlay's name, over the inlay's shapes and in its wood, and opens it. It goes in after the
 inlay's glue-up when the list has one, else at the end:
 
-- *Wood above the surface* is how far the plug stands above the stock once glued in: the
-  whole backer. If you saw the backer off first, type what is left standing instead.
+- *Take the wood above the surface from the list* is ticked. The height the cut starts at
+  is then how far the plug stands above the stock by the inlay's own numbers, as long as
+  the inlay's glue-up is above the facing in the list; it follows when the inlay changes.
+  If you saw the backer off first, untick the box and type what is left standing.
 - *Depth below the surface* is 0, so the cut ends flush with the stock. A depth under 0
   stops that far above the surface: -0.2 leaves the plug 0.2 mm proud, to sand flush.
 - *Margin* is the plug's own margin, so that the area is the plug's blank.
@@ -536,7 +538,10 @@ glue has set. Once an inlay has such a facing, its panel leads to it instead of 
 another. Loose inserts are not offered one.
 
 A facing made by hand over an inlay's shapes does the same: its panel says how far that
-plug stands above the surface and offers to fill in the fields.
+plug stands above the surface and offers to fill in the fields. Any facing can take its
+height from the list: it is the highest of the plugs and inserts glued in above it whose
+blanks reach into its area, each as an earlier facing over it left it. Without a glue-up
+above it there is nothing to take, and the panel says so.
 
 The file starts cutting at that height and travels above it. Z0 is still the stock's
 surface, so set it beside the plug, not on it. The 3D view of the file alone shows the
@@ -546,23 +551,42 @@ stock only, not the wood standing on it; "The stock, step by step" shows the plu
 
 Gluing a plug or inserts in is done by hand, and has no file. It can still be a line of
 the list: every inlay has "Add the glue-up as a step" under **The glue-up, and after it**
-in its panel. The step goes in right after the inlay, drawn with a dashed edge and without
-a tick box, since it goes into no file.
+in its panel. The step goes in right after the inlay, drawn with a dashed edge.
 
 Its place in the list is what it says. The lines above it find the stock without the plug;
 the lines below it find the plug on the stock. Drag it like any other line. Deleting an
 inlay deletes its glue-up with it.
 
+A glue-up is also where the machine stops, so it splits the list into files: once the list
+has one, every line shows the file for the stock it is cut by, "file 1", "file 2".
+
 ### The stock, step by step
 
-Each file on its own is simulated on a fresh board. **Show the stock in 3D**, under the
-list, takes one board through the whole list instead, from top to bottom: each inlay's
-pocket and each operation cuts the board as the line before left it, and a glue-up puts
-the plug or the inserts on it, in their wood.
+Every line of the list has a grip: drag it to put the list in the order to cut in, or
+select the grip and press the up or down arrow.
+
+Each inlay and operation can make a file of its own, simulated on a fresh board.
+**Generate the stock's files**, under the list, takes one board through the whole list
+instead, from top to bottom, and makes the files to cut it with:
+
+- The lines from one glue-up to the next are **one file**: each inlay's pocket and each
+  operation, in the order of the list. Tools keep one number each through the file, and a
+  tool that the next line also starts with stays in the spindle. A comment in the file,
+  "Step 2:" and the line's name, stands where each line begins. Without a glue-up the
+  whole list is one file.
+- Each file is run on the board as the file before left it, and a glue-up puts the plug or
+  the inserts on it, in their wood.
+
+The panel then shows the files in order, each with its checks, its time, its tools and its
+download, and the steps done by hand between them. A file with a line that cannot be made
+is not offered: the panel says which line, and why.
+
+An inlay's plug or insert always has its own file: it is cut from another board.
 
 Above the 3D view is the list again, as a row of buttons with a slider: pick a line to see
 the stock after it, or step through with the arrows. The view keeps its angle while you
-step. "Show tool path" draws the path of the line that is shown.
+step. "Show tool path" draws the path of the line that is shown, with the line numbers of
+its file.
 
 - A plug is put where the fit check puts it: turned over and lowered until it touches.
   The line under the buttons says how far it stands above the surface, and how much
@@ -573,26 +597,16 @@ step. "Show tool path" draws the path of the line that is shown.
   inlay, and where it goes deeper than the plug, the stock's wood shows again.
 - A line that cannot be made says why and leaves the board as it was; the lines after it
   go on from there.
-- A line whose file runs into wood it did not expect is marked with "!": an operation put
+- A line that runs into wood it did not expect is marked with "!": an operation put
   before the facing that trims a plug travels through the plug, and the simulation says
-  so with the G-code line.
+  so with the G-code line. A facing that starts lower than the wood stands is told how
+  far the tool would go into it at once.
 
-The panel lists the lines worth a look. After a change to the project, work it out again.
+The panel lists the lines worth a look. After a change to the project, generate again.
 
 The backer of a plug is drawn solid down to the stock, though it stands off it by the saw
-gap. The files are the same ones the lines make on their own: nothing is recalculated for
-the wood that is on the stock.
-
-### One file for the stock
-
-The list of inlays and operations has a grip and a tick box on every line. Drag a line by
-its grip to put the list in the order to cut in (or select the grip and press the up or
-down arrow), tick what one file should cut, and press **Generate one file**.
-The file cuts each ticked inlay's pocket and each ticked operation, in the order of the
-list. Tools keep one number each through the file, and a tool that the next line also
-starts with stays in the spindle. The file is simulated as a whole and shown in 3D.
-
-An inlay's plug or insert always has its own file: it is cut from another board.
+gap. Apart from where a facing starts, the cuts are the ones the lines make on their own:
+nothing else is recalculated for the wood that is on the stock.
 
 ## 5. Generate and check
 
@@ -653,7 +667,7 @@ Download each file and run it on its own board.
 - Set the work origin at the board's bottom-left corner, Z0 on its top face.
 - Tool numbers in the file start at T1, or at the first tool number set for your machine,
   in the order the tools are used. The firmware asks for each tool in turn.
-- The pocket file, the files of the other operations and the one file for the stock are
+- The pocket file, the files of the other operations and the files for the stock are
   for the stock. The plug or insert file is for its own board, of the size the app gives.
 
 Before the first real cut, run `machine-tests/m0-air-cut.cnc` as an air cut. It confirms

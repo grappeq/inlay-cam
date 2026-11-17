@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Job } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, glueOf, glueStep, insertAfter, isByHand, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutJob, withoutOrphans } from "./model";
+import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, isByHand, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutJob, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -102,14 +102,16 @@ describe("jobs", () => {
     expect(trim.name).toBe("Trim Walnut star");
     expect(trim.material).toBe("softwood");
     expect(trim.regionIds).toEqual([1, 2]);
-    expect(trim.inlay).toEqual({ type: "facing", above: 7, depth: 0, margin: 8, pattern: "raster", toolId: null });
+    expect(trim.inlay).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, pattern: "raster", toolId: null });
+    // Its height comes from the list, so it has nothing left to choose but its tool.
+    expect(missingFor({ ...trim, inlay: { ...trim.inlay, above: 0, toolId: "t" } as Job["inlay"] })).toBeNull();
     expect(trim.color).toBeUndefined();
     // It is found again as the inlay's trim, also with a lower start, until its shapes or its start say otherwise.
     expect(trimOf(inlay, [inlay, trim])).toBe(trim);
     const lower: Job = { ...trim, inlay: { ...trim.inlay, above: 1.5 } as Job["inlay"] };
     expect(trimOf(inlay, [inlay, lower])).toBe(lower);
     expect(trimOf(inlay, [inlay, { ...trim, regionIds: [1] }])).toBeUndefined();
-    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0 } as Job["inlay"] }])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0, aboveAuto: false } as Job["inlay"] }])).toBeUndefined();
     expect(trimOf(inlay, [inlay, job("facing", [1, 2])])).toBeUndefined();
     // A second one gets a name of its own.
     expect(trimFacing(inlay, [inlay, trim], DEFAULT_SETUP)!.name).toBe("Trim Walnut star 2");
@@ -152,5 +154,14 @@ describe("jobs", () => {
     expect(withoutJob(list, inlay.id)).toEqual([pocket]);
     // A list with nothing orphaned comes back as it is.
     expect(withoutOrphans(list)).toBe(list);
+
+    // The lines from one glue-up to the next share a file; the glue-up is in none.
+    const trim = trimFacing(inlay, list, DEFAULT_SETUP)!;
+    expect(fileNumbers(list)).toEqual([1, null, 2]);
+    expect(fileNumbers([inlay, pocket, glue, trim, pocket])).toEqual([1, 1, null, 2, 2]);
+    expect(fileNumbers([glue, glue, inlay])).toEqual([null, null, 1]);
+    expect(fileNumbers([inlay, pocket])).toEqual([1, 1]);
+    // A trim that takes its height from the list is still found as the inlay's.
+    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0 } as Job["inlay"] }])).toBeDefined();
   });
 });

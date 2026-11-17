@@ -316,6 +316,8 @@ export interface FacingOp {
   type: "facing";
   /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
   above: number;
+  /** Take that height from the list instead: how far what was glued in before this facing, where it cuts, stands above the surface. `above` is then not used. */
+  aboveAuto?: boolean;
   /** How far below the stock's surface the area ends up. Less than 0: that far above it. Never less than `-above`. */
   depth: number;
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
@@ -583,8 +585,8 @@ export interface TimelineStep {
   jobId: string;
   /** Done by hand: there is no file. */
   byHand: boolean;
-  /** The file that was run on the stock. */
-  built: Built | null;
+  /** The file the step is cut by: an index into the timeline's `files`. */
+  file: number | null;
   /** Problems found while cutting the stock as the steps before left it. */
   problems: { line: number; message: string }[];
   /** Why the step could not be done. The stock is then left as it was. */
@@ -592,8 +594,22 @@ export interface TimelineStep {
   warnings: string[];
   /** A glue-up: where the part rests, how much higher that is than designed, and how far it stands above the surface, mm. */
   seat: { height: number; proud: number; above: number } | null;
-  /** The tool path of the file, as in a preview. Empty without a file. */
+  /** The step's stretch of its file as a tool path, as in a preview, with the file's lines and tool numbers. Empty without a file. */
   path: Float32Array;
+}
+
+/** One file for the stock: the entries of the list from one step done by hand to the next. */
+export interface StockFile {
+  /** The ids of its entries, in the order they are cut. */
+  jobIds: string[];
+  /** The file. Null when nothing of it could be made. */
+  built: Built | null;
+  /** Every one of its entries is in the file. One that lacks an entry is not a file to cut with. */
+  complete: boolean;
+  /** Why the file could not be put together. */
+  errors: string[];
+  /** Problems found while it cut the stock as the steps before left it. */
+  problems: { line: number; message: string }[];
 }
 
 /** The stock taken through every inlay and operation, in the order of the list. */
@@ -607,6 +623,8 @@ export interface StockTimeline {
   thickness: number;
   /** The ids of the inlays glued in, in the order of their glue-ups. */
   glued: string[];
+  /** The files for the stock, in the order they are run. */
+  files: StockFile[];
   steps: TimelineStep[];
   /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). */
   snapshots: { heights: Float32Array; owners: Uint8Array }[];

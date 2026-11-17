@@ -220,7 +220,7 @@ Exported from the header as `<project name>.inlay.json`.
 | `id` | Identifies the project in browser storage. |
 | `name` | Shown in the header; used for the export file name. |
 | `design` | The imported drawing, or `null`. |
-| `jobs` | The inlays and the plain operations on the stock, in the order they are listed and, in one file for the stock, cut. |
+| `jobs` | The inlays, the plain operations on the stock and the steps done by hand, in the order they are listed and done. The jobs from one step done by hand to the next are cut by one file for the stock. |
 | `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `description`, `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
 | `profiles` | Copies of the profiles the jobs' `rowProfiles` name, in the profile format above. May be missing. |
 | `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
@@ -352,6 +352,7 @@ have their defaults.
 |---|---|
 | `type` | `facing` |
 | `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
+| `aboveAuto` | `true`: `above` is not used, and the height is taken from the jobs before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` jobs) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. Default `false`; may be missing, and is not written when `false`. |
 | `depth` | How far below the stock's surface the area ends up. Less than 0 ends it that far above the surface, in the wood standing there. Never less than `-above`. Default 0. `above` + `depth` must be greater than 0 for there to be anything to cut. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |

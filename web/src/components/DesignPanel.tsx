@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { core } from "../core/client";
 import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
 import {
@@ -15,6 +16,7 @@ import {
   MAX_TIP_CLEARANCE,
   VCARVE_TUNING,
   describeTool,
+  fileNumbers,
   fmt,
   glueOf,
   glueStep,
@@ -43,7 +45,7 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
-import { GenerateBar, Results, StockFile, useOutput } from "./OutputPanel";
+import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { StockSteps } from "./Timeline";
 
@@ -71,7 +73,6 @@ export function DesignPanel({ design }: { design: Design }) {
       <div className="panel-scroll">
         <JobsSection design={design} />
         <StockSteps />
-        <StockFile />
         <StockSection design={design} report={importReport} />
       </div>
     </aside>
@@ -248,7 +249,7 @@ function woodOf(job: Job, jobs: Job[]): string | undefined {
 }
 
 function JobsSection({ design }: { design: Design }) {
-  const { project, selection, tools, defaults, combine } = useApp();
+  const { project, selection, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const owners = regionOwners(project.jobs);
   const free = design.regions.filter((r) => !owners.has(r.id)).map((r) => r.id);
@@ -279,7 +280,9 @@ function JobsSection({ design }: { design: Design }) {
         return { ...p, jobs };
       },
     });
-  const tick = (id: string, on: boolean) => dispatch({ type: "setCombine", ids: on ? [...combine, id] : combine.filter((other) => other !== id) });
+  // Which file for the stock each line goes into, shown once a step done by hand splits the list into several.
+  const files = fileNumbers(project.jobs);
+  const filed = files.some((n) => n !== null && n > 1);
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
   const none = selection.length === 0;
   const several = project.jobs.length > 1;
@@ -311,19 +314,14 @@ function JobsSection({ design }: { design: Design }) {
           {project.jobs.map((job, index) => (
             <li
               key={job.id}
-              className={`job-row${several ? " ordered" : ""}${job.inlay.type === "glue" ? " by-hand" : ""}`}
+              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${job.inlay.type === "glue" ? " by-hand" : ""}`}
               {...(several ? sortable.row(index) : {})}
             >
               {several && <Grip {...sortable.grip(index, job.name)} />}
-              {several && job.inlay.type === "glue" && <span className="no-tick" aria-hidden="true" />}
-              {several && job.inlay.type !== "glue" && (
-                <input
-                  type="checkbox"
-                  checked={combine.includes(job.id)}
-                  onChange={(e) => tick(job.id, e.target.checked)}
-                  aria-label={`Put ${job.name} into the one file for the stock`}
-                  title="Put into the one file for the stock"
-                />
+              {filed && (
+                <span className="file-number" title={files[index] === null ? "Done by hand: in no file" : `Cut by file ${files[index]} for the stock`}>
+                  {files[index] === null ? "" : `file ${files[index]}`}
+                </span>
               )}
               <button className="job" onClick={() => dispatch({ type: "setActiveJob", id: job.id })}>
                 <span className="job-icon" style={woodOf(job, project.jobs) ? { color: woodOf(job, project.jobs) } : undefined}>
@@ -823,6 +821,24 @@ function GlueEditor({ job }: { job: Job }) {
   );
 }
 
+/** For a facing that takes its height from the list: that height, as the core works it out. Null until it is known. */
+function useListedHeight(job: Job, on: boolean): number | null {
+  const { project } = useApp();
+  const [height, setHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    let current = true;
+    core
+      .call("facingStart", project, job.id)
+      .then((above) => current && setHeight(above))
+      .catch(() => current && setHeight(null));
+    return () => {
+      current = false;
+    };
+  }, [project, job.id, on]);
+  return on ? height : null;
+}
+
 function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onChange: (change: Partial<FacingOp>) => void }) {
   const { project, tools } = useApp();
   const owners = regionOwners(project.jobs);
@@ -830,33 +846,59 @@ function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onC
   const inlays = [...new Set(job.regionIds.map((id) => owners.get(id)).filter((j): j is Job => j !== undefined))];
   const whole = job.regionIds.length === 0;
   const tool = resolveTool(inlay.toolId, tools, project);
-  const total = inlay.above + inlay.depth;
+  const listed = inlay.aboveAuto === true;
+  const height = useListedHeight(job, listed);
+  // Where the cut starts: as the list gives it, or as typed.
+  const above = listed ? (height ?? 0) : inlay.above;
+  const total = above + inlay.depth;
 
   return (
     <>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={listed}
+          // By hand, the field starts from what the list gave.
+          onChange={(e) => onChange(e.target.checked ? { aboveAuto: true } : { aboveAuto: undefined, above: round2(height ?? inlay.above), depth: Math.max(inlay.depth, -(height ?? inlay.above)) })}
+        />
+        Take the wood above the surface from the list
+      </label>
       <div className="row">
         {/* The cut cannot end above where it starts: less wood above takes a depth under 0 up with it. */}
-        <NumberField label="Wood above the surface" unit="mm" value={inlay.above} onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })} />
-        <NumberField label="Depth below the surface" unit="mm" min={-inlay.above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
+        <NumberField
+          label="Wood above the surface"
+          unit="mm"
+          value={listed ? round2(above) : inlay.above}
+          disabled={listed}
+          onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })}
+        />
+        <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
         {!whole && <NumberField label="Margin" unit="mm" value={inlay.margin} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
       </div>
+      {listed && height !== null && (
+        <p className={`status-line${height > 0 ? "" : " warn"}`} role="status">
+          {height > 0
+            ? `By the glue-ups above this facing in the list, ${fmt(round2(height))} mm of wood stand above the surface where it cuts.`
+            : "When the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or untick the box and give the height."}
+        </p>
+      )}
       <p className="hint">
         {whole
           ? "To flatten the stock, give a depth below its surface. The tool runs out over every edge."
-          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, give what is left standing instead."}{" "}
+          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, untick the box and give what is left standing."}{" "}
         The surface is where Z0 is set. A depth under 0 stops the cut that far above the surface, to leave the wood standing there a little proud.
       </p>
       {inlays.map((owner) => {
         const part = standingPart(owner);
         if (!part || part.above <= 0) return null;
-        const set = Math.abs(inlay.above - part.above) < 1e-9 && inlay.depth === 0 && Math.abs(inlay.margin - part.margin) < 1e-9;
+        const set = (listed || Math.abs(inlay.above - part.above) < 1e-9) && inlay.depth === 0 && Math.abs(inlay.margin - part.margin) < 1e-9;
         return (
           <p className="derived" key={owner.id}>
             The {part.what} of "{owner.name}" {part.what === "inserts" ? "stand" : "stands"} {fmt(part.above)} mm above the surface once glued in.{" "}
             {set ? (
               "The fields are set to trim it flush."
             ) : (
-              <button type="button" className="link" onClick={() => onChange({ above: round2(part.above), depth: 0, margin: part.margin })}>
+              <button type="button" className="link" onClick={() => onChange({ ...(listed ? {} : { above: round2(part.above) }), depth: 0, margin: part.margin })}>
                 Set the fields to trim {part.what === "inserts" ? "them" : "it"} flush
               </button>
             )}
@@ -865,12 +907,17 @@ function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onC
       })}
       {total > 0 && tool && (
         <p className="derived">
-          {fmt(round2(total))} mm in all{inlay.above > 0 ? `, from ${fmt(inlay.above)} mm above the surface` : ""}
+          {fmt(round2(total))} mm in all{above > 0 ? `, from ${fmt(round2(above))} mm above the surface` : ""}
           {inlay.depth < 0 ? ` down to ${fmt(-inlay.depth)} mm above it` : ""}. The tool's centre goes to the edge of the
           area, so it cuts {fmt(tool.diameter / 2)} mm beyond it.
         </p>
       )}
-      {inlay.above > 0 && <p className="hint">The 3D view shows the stock only: the wood above its surface is not drawn.</p>}
+      {above > 0 && (
+        <p className="hint">
+          The 3D view of this file alone shows the stock only: the wood above its surface is not drawn. "The stock, step by step" draws it, once the glue-up is a
+          step of the list.
+        </p>
+      )}
     </>
   );
 }

@@ -337,19 +337,30 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         (
             _,
             Inlay::Facing {
-                above,
+                above_auto,
                 margin,
                 tool_id,
                 ..
             },
-        ) => facing(
-            &mut ctx,
-            &regions,
-            design.placed_size(),
-            *above,
-            *margin,
-            tool_id.as_deref(),
-        ),
+        ) => {
+            let above = facing_start(project, job_id).map_or(0.0, |(_, above)| above);
+            if *above_auto && above + depth <= 0.0 {
+                ctx.errors.push(
+                    "There is nothing to face: when the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or give the wood above the surface by hand."
+                        .into(),
+                );
+                None
+            } else {
+                facing(
+                    &mut ctx,
+                    &regions,
+                    design.placed_size(),
+                    above,
+                    *margin,
+                    tool_id.as_deref(),
+                )
+            }
+        }
         (
             _,
             Inlay::Contour {
@@ -1635,7 +1646,10 @@ fn cut_piece_out(
                 shift(to);
                 shift(center);
             }
-            Move::ToolChange { .. } | Move::SpindleOn { .. } | Move::SpindleOff => {}
+            Move::ToolChange { .. }
+            | Move::SpindleOn { .. }
+            | Move::SpindleOff
+            | Move::Comment { .. } => {}
         }
     }
     for region in &mut cut.pocket {
@@ -2084,6 +2098,117 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
     })
 }
 
+/// The rectangle a facing covers: the whole stock without shapes, else the
+/// rectangle around the shapes grown by the margin.
+fn facing_rect(regions: &[Region], stock: (f64, f64), margin: f64) -> [f64; 4] {
+    match extent(regions) {
+        Some(b) => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin],
+        None => [0.0, 0.0, stock.0, stock.1],
+    }
+}
+
+/// Where a facing cuts and where it starts: its rectangle on the stock, and
+/// how far above the surface its first pass begins. That height is the one
+/// the facing gives, or the one the list gives when it is to be taken from
+/// there. `None` for any other job.
+pub fn facing_start(project: &Project, job_id: &str) -> Option<([f64; 4], f64)> {
+    let design = project.design.as_ref()?;
+    let index = project.jobs.iter().position(|j| j.id == job_id)?;
+    let job = &project.jobs[index];
+    let Inlay::Facing {
+        above,
+        above_auto,
+        margin,
+        ..
+    } = &job.inlay
+    else {
+        return None;
+    };
+    let rect = facing_rect(
+        &design.placed_regions(&job.region_ids),
+        design.placed_size(),
+        *margin,
+    );
+    let above = if *above_auto {
+        standing_in(project, index, rect)
+    } else {
+        *above
+    };
+    Some((rect, above))
+}
+
+/// How far glued-in wood stands above the surface within `rect` when the
+/// list has got to entry `index`, by the inlays' own numbers: the highest of
+/// the plugs and inserts glued in before it whose blanks reach into the
+/// rectangle, each as an earlier facing over it has left it.
+fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
+    let Some(design) = &project.design else {
+        return 0.0;
+    };
+    let overlap =
+        |a: &[f64; 4], b: &[f64; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    let mut standing: Vec<([f64; 4], f64)> = Vec::new();
+    for job in &project.jobs[..index] {
+        match &job.inlay {
+            Inlay::Glue { inlay_id } => {
+                let Some(inlay) = project.jobs.iter().find(|j| &j.id == inlay_id) else {
+                    continue;
+                };
+                let (height, margin) = match &inlay.inlay {
+                    Inlay::Vcarve {
+                        plug_thickness,
+                        engagement_depth,
+                        plug_margin,
+                        ..
+                    } => (plug_thickness - engagement_depth, *plug_margin),
+                    Inlay::Flat {
+                        insert_thickness,
+                        pocket_depth,
+                        insert_margin,
+                        insert_style,
+                        ..
+                    } => (
+                        insert_thickness - pocket_depth,
+                        // Loose inserts have no blank around them.
+                        if *insert_style == InsertStyle::Backer {
+                            *insert_margin
+                        } else {
+                            0.0
+                        },
+                    ),
+                    _ => continue,
+                };
+                if let Some(b) = extent(&design.placed_regions(&inlay.region_ids)) {
+                    if height > 0.0 {
+                        standing.push((
+                            [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin],
+                            height,
+                        ));
+                    }
+                }
+            }
+            Inlay::Facing { depth, margin, .. } => {
+                let faced = facing_rect(
+                    &design.placed_regions(&job.region_ids),
+                    design.placed_size(),
+                    *margin,
+                );
+                for (blank, height) in &mut standing {
+                    if overlap(blank, &faced) {
+                        *height = height.min((-depth).max(0.0));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    standing
+        .iter()
+        .filter(|(blank, _)| overlap(blank, &rect))
+        .map(|(_, height)| *height)
+        .fold(0.0, f64::max)
+}
+
 /// Facing: an area milled flat with an end mill, from `above` the stock's
 /// surface down to the job's depth below it. Without shapes the area is the
 /// whole stock; with shapes, the rectangle around them grown by `margin`. The
@@ -2115,10 +2240,7 @@ fn facing(
     // With shapes, the rectangle around them: a plug's blank is one, whatever
     // the shapes on it.
     let whole = regions.is_empty();
-    let [x0, y0, x1, y1] = match extent(regions) {
-        Some(b) => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin],
-        None => [0.0, 0.0, stock.0, stock.1],
-    };
+    let [x0, y0, x1, y1] = facing_rect(regions, stock, margin);
     let wanted = vec![Region::new(vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]])];
     // Cleared as an area one radius larger, the tool's centre covers `wanted`.
     let where_to = centres(&offset(&wanted, radius), &[], tool.diameter);
@@ -2145,19 +2267,20 @@ fn facing(
                 Move::RapidXy { .. }
                 | Move::ToolChange { .. }
                 | Move::SpindleOn { .. }
-                | Move::SpindleOff => {}
+                | Move::SpindleOff
+                | Move::Comment { .. } => {}
             }
         }
         ctx.warnings.push(if depth < 0.0 {
             format!(
-                "All {} mm are cut above the stock's surface, and the cut ends {} mm above it. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
+                "All {} mm are cut above the stock's surface, and the cut ends {} mm above it. The tool travels {} mm above the surface.",
                 num(total),
                 num(-depth),
                 num(safe + above)
             )
         } else {
             format!(
-                "The first {} mm are cut above the stock's surface. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
+                "The first {} mm are cut above the stock's surface. The tool travels {} mm above the surface.",
                 num(above),
                 num(safe + above)
             )
@@ -2464,10 +2587,6 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
     if job_ids.is_empty() {
         return Err(vec!["Tick what the file should cut.".to_string()]);
     }
-    let design = project
-        .design
-        .as_ref()
-        .ok_or_else(|| vec!["The project has no design.".to_string()])?;
     let name_of = |id: &str| {
         project
             .jobs
@@ -2491,13 +2610,70 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
     if !errors.is_empty() {
         return Err(errors);
     }
+    let borrowed: Vec<(&str, &Built)> = parts.iter().map(|(name, b)| (*name, b)).collect();
+    let mut built = join(project, &borrowed, "stock")?.built;
+
+    let mut warnings: Vec<String> = Vec::new();
+    // Wood standing above the surface is only allowed for by the job that faces it off.
+    for (i, id) in job_ids.iter().enumerate().skip(1) {
+        if let Some((_, above)) = facing_start(project, id) {
+            if above > 0.0 {
+                warnings.push(format!(
+                    "\"{}\" faces off {} mm of wood standing above the surface, but {} before it in this file {} as if the surface were clear. Make sure nothing stands in {} way, or put the facing first.",
+                    name_of(id),
+                    num(above),
+                    if i == 1 { "the job" } else { "the jobs" },
+                    if i == 1 { "travels" } else { "travel" },
+                    if i == 1 { "its" } else { "their" }
+                ));
+            }
+        }
+    }
+    warnings.append(&mut built.warnings);
+    built.warnings = warnings;
+    Ok(built)
+}
+
+/// What the comment says that stands where a part begins in a joined file.
+fn marker_text(index: usize, name: &str) -> String {
+    format!("Step {}: {name}", index + 1)
+}
+
+/// Several parts cut from the stock, joined into one file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Joined {
+    pub built: Built,
+    /// For each part, the line of the file its comment stands on: the part
+    /// is every line from there to the next part's.
+    pub starts: Vec<u32>,
+}
+
+/// Joins the files of several parts cut from the stock into one, in the
+/// order given; each comes with the name of its job. A tool that the next
+/// part also starts with stays in the spindle, and tools keep one number
+/// each through the whole file. `label` is what the file is called after
+/// the project's name: "stock", or "stock 2".
+pub fn join(
+    project: &Project,
+    parts: &[(&str, &Built)],
+    label: &str,
+) -> Result<Joined, Vec<String>> {
+    let design = project
+        .design
+        .as_ref()
+        .ok_or_else(|| vec!["The project has no design.".to_string()])?;
 
     let mut tools: Vec<ProgramTool> = Vec::new();
     let mut moves: Vec<Move> = Vec::new();
     // The tool in the spindle and its speed, and where the tool is.
     let mut loaded: Option<(u32, u32)> = None;
     let mut at: Option<[f64; 3]> = None;
-    for (_, built) in &parts {
+    for (index, (name, built)) in parts.iter().enumerate() {
+        // Says where the part begins, for whoever reads the file and for
+        // finding the part's lines again.
+        let mut marker = Some(Move::Comment {
+            text: marker_text(index, name),
+        });
         // This part's tool numbers as they are in the whole file.
         let mut numbers: HashMap<u32, u32> = HashMap::new();
         for t in &built.program.tools {
@@ -2531,6 +2707,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
                             if matches!(moves.last(), Some(Move::SpindleOff)) {
                                 moves.pop();
                             }
+                            moves.extend(marker.take());
                             if rpm != have_rpm {
                                 moves.push(Move::SpindleOn { rpm });
                             }
@@ -2556,6 +2733,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
                             continue;
                         }
                         _ => {
+                            moves.extend(marker.take());
                             moves.push(Move::ToolChange { number });
                             loaded = Some((number, rpm));
                             at = None;
@@ -2564,9 +2742,13 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
                 }
                 m @ (Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. }) => {
                     at = Some(*to);
+                    moves.extend(marker.take());
                     moves.push(m.clone());
                 }
-                m => moves.push(m.clone()),
+                m => {
+                    moves.extend(marker.take());
+                    moves.push(m.clone());
+                }
             }
             i += 1;
         }
@@ -2574,7 +2756,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
 
     let names: Vec<&str> = parts.iter().map(|(name, _)| *name).collect();
     let program = Program {
-        name: format!("{} - stock - {}", project.name, names.join(", ")),
+        name: format!("{} - {label} - {}", project.name, names.join(", ")),
         tools,
         safe_z: parts
             .iter()
@@ -2584,29 +2766,27 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
     };
     let (gcode, interpreted, stats) = finish(&program, &project.machine, "file")?;
 
-    let mut warnings: Vec<String> = Vec::new();
-    // Wood standing above the surface is only allowed for by the job that faces it off.
-    for (i, id) in job_ids.iter().enumerate().skip(1) {
-        let job = project.jobs.iter().find(|j| &j.id == id);
-        if let Some(Inlay::Facing { above, .. }) = job.map(|j| &j.inlay) {
-            if *above > 0.0 {
-                warnings.push(format!(
-                    "\"{}\" faces off {} mm of wood standing above the surface, but {} before it in this file {} as if the surface were clear. Make sure nothing stands in {} way, or put the facing first.",
-                    name_of(id),
-                    num(*above),
-                    if i == 1 { "the job" } else { "the jobs" },
-                    if i == 1 { "travels" } else { "travel" },
-                    if i == 1 { "its" } else { "their" }
-                ));
-            }
-        }
+    // Where each part's comment came to stand.
+    let mut starts: Vec<u32> = Vec::with_capacity(parts.len());
+    let mut lines = gcode.lines().enumerate();
+    for (index, (name, _)) in parts.iter().enumerate() {
+        let wanted = carvera::comment_line(&marker_text(index, name));
+        let line = lines
+            .find(|(_, text)| *text == wanted)
+            .map(|(at, _)| at as u32 + 1)
+            .ok_or_else(|| {
+                vec!["Internal error: a part of the joined file was not found again.".to_string()]
+            })?;
+        starts.push(line);
     }
-    for (name, built) in &parts {
+
+    let mut warnings: Vec<String> = Vec::new();
+    for (name, built) in parts {
         warnings.extend(built.warnings.iter().map(|w| format!("{name}: {w}")));
     }
     let pocket: Vec<Region> = parts.iter().flat_map(|(_, b)| b.pocket.clone()).collect();
     let (width, height) = design.placed_size();
-    Ok(Built {
+    let built = Built {
         part: Part::Pocket,
         stock: Stock {
             width,
@@ -2627,7 +2807,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
         shapes: extent(&pocket),
         file_name: format!(
             "{}.{}",
-            file_stem(&format!("{} stock", project.name)),
+            file_stem(&format!("{} {label}", project.name)),
             carvera::FILE_EXTENSION
         ),
         stats,
@@ -2636,7 +2816,8 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
         program,
         interpreted,
         pocket,
-    })
+    };
+    Ok(Joined { built, starts })
 }
 
 fn checked_tool<'a>(
@@ -4401,6 +4582,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 2.0,
+            above_auto: false,
             depth: 0.5,
             margin: 0.0,
             tool_id: Some("t-endmill".into()),
@@ -4435,6 +4617,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
+            above_auto: false,
             depth: 0.0,
             margin: 2.0,
             tool_id: Some("t-endmill".into()),
@@ -4461,6 +4644,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
+            above_auto: false,
             depth: -0.4,
             margin: 2.0,
             tool_id: Some("t-endmill".into()),
@@ -4482,6 +4666,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 0.0,
+            above_auto: false,
             depth: 0.0,
             margin: 0.0,
             tool_id: Some("t-endmill".into()),
@@ -4695,6 +4880,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 4.0,
+            above_auto: false,
             depth: 0.0,
             margin: 3.0,
             tool_id: Some("t-endmill".into()),
@@ -4926,6 +5112,7 @@ pub(crate) mod tests {
                 pattern: Pattern::Raster,
                 direction,
                 above: 0.0,
+                above_auto: false,
                 depth: 0.5,
                 margin: 0.0,
                 tool_id: Some("t-endmill".into()),
@@ -4963,6 +5150,7 @@ pub(crate) mod tests {
             pattern: Pattern::Raster,
             direction: PassDirection::Y,
             above: 0.0,
+            above_auto: false,
             depth: 0.5,
             margin: 0.0,
             tool_id: Some("t-endmill".into()),
@@ -4983,6 +5171,7 @@ pub(crate) mod tests {
                 pattern,
                 direction: PassDirection::Longer,
                 above: 0.0,
+                above_auto: false,
                 depth: 0.5,
                 margin: 0.0,
                 tool_id: Some("t-endmill".into()),

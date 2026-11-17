@@ -320,6 +320,16 @@ pub fn simulate_onto(
     tools: &HashMap<u32, Tool>,
     thickness: f64,
 ) -> Vec<SimProblem> {
+    simulate_segments(map, &program.segments, tools, thickness)
+}
+
+/// Cuts a block as it already is with a stretch of an interpreted program.
+pub fn simulate_segments(
+    map: &mut HeightMap,
+    segments: &[Segment],
+    tools: &HashMap<u32, Tool>,
+    thickness: f64,
+) -> Vec<SimProblem> {
     let mut problems: Vec<SimProblem> = Vec::new();
     // One report per line and kind is enough to find the cause.
     let mut report = |line: u32, message: String| {
@@ -333,7 +343,7 @@ pub fn simulate_onto(
     };
     let mut profiles: HashMap<u32, Option<(ToolProfile, Option<f64>)>> = HashMap::new();
 
-    for segment in &program.segments {
+    for segment in segments {
         let Segment {
             from,
             to,

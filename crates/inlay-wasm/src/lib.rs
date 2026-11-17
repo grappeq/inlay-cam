@@ -392,14 +392,14 @@ impl PocketPreview {
     /// 0, tool the tool's number, line the line of the file).
     #[wasm_bindgen(getter)]
     pub fn path(&self) -> Vec<f32> {
-        path_of(&self.preview.built)
+        path_of(&self.preview.built.interpreted.segments)
     }
 }
 
-/// A file's tool path as nine numbers per straight piece.
-fn path_of(built: &build::Built) -> Vec<f32> {
-    let mut out = Vec::with_capacity(built.interpreted.segments.len() * 9);
-    for s in &built.interpreted.segments {
+/// A tool path as nine numbers per straight piece.
+fn path_of(segments: &[inlay_core::gcode::Segment]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(segments.len() * 9);
+    for s in segments {
         out.extend(s.from.iter().chain(s.to.iter()).map(|v| *v as f32));
         out.push(if s.rapid { 1.0 } else { 0.0 });
         out.push(s.tool as f32);
@@ -424,11 +424,24 @@ pub struct StockTimeline {
 
 #[wasm_bindgen]
 impl StockTimeline {
-    /// `TimelineInfo` as JSON: the grid, the inlays glued in, and each
-    /// step with its file, problems, errors and seat.
+    /// `TimelineInfo` as JSON: the grid, the inlays glued in, the files
+    /// for the stock, and each step with its problems, errors and seat.
     #[wasm_bindgen(getter)]
     pub fn info(&self) -> String {
         let t = &self.timeline;
+        let files: Vec<_> = t
+            .files
+            .iter()
+            .map(|file| {
+                serde_json::json!({
+                    "jobIds": file.job_ids,
+                    "built": file.built,
+                    "complete": file.complete,
+                    "errors": file.errors,
+                    "problems": problems_json(&file.problems),
+                })
+            })
+            .collect();
         let steps: Vec<_> = t
             .steps
             .iter()
@@ -436,7 +449,7 @@ impl StockTimeline {
                 serde_json::json!({
                     "jobId": step.job_id,
                     "byHand": step.by_hand,
-                    "built": step.built,
+                    "file": step.file,
                     "problems": problems_json(&step.problems),
                     "errors": step.errors,
                     "warnings": step.warnings,
@@ -451,6 +464,7 @@ impl StockTimeline {
             "simulatedCell": t.simulated_cell,
             "thickness": t.thickness,
             "glued": t.glued,
+            "files": files,
             "steps": steps,
         })
         .to_string()
@@ -476,14 +490,14 @@ impl StockTimeline {
             .unwrap_or_default()
     }
 
-    /// The tool path of a step's file, as a preview's path. Empty for a
-    /// step without a file.
+    /// The tool path of a step: its stretch of its file, as a preview's
+    /// path, with the file's lines and tool numbers. Empty for a step
+    /// without a file.
     pub fn path(&self, step: usize) -> Vec<f32> {
         self.timeline
             .steps
             .get(step)
-            .and_then(|s| s.built.as_ref())
-            .map(path_of)
+            .map(|s| path_of(&s.segments))
             .unwrap_or_default()
     }
 }
@@ -518,19 +532,12 @@ pub fn preview_part(
         .map_err(reasons)
 }
 
-/// Builds one G-code file that runs the stock's part of several jobs in the
-/// order given (`job_ids_json` is a JSON list of job ids), and simulates it.
-/// Fails with every reason, one per line.
-#[wasm_bindgen(js_name = previewCombined)]
-pub fn preview_combined(project_json: &str, job_ids_json: &str) -> Result<PocketPreview, JsError> {
+/// For a facing: how far above the surface its first pass begins, as given
+/// or as the list gives it. `None` for any other job.
+#[wasm_bindgen(js_name = facingStart)]
+pub fn facing_start(project_json: &str, job_id: &str) -> Result<Option<f64>, JsError> {
     let project: Project = from_json(project_json, "project")?;
-    project.validate().map_err(err)?;
-    let job_ids: Vec<String> = from_json(job_ids_json, "job list")?;
-    build::preview_combined(&project, &job_ids)
-        .map(|preview| PocketPreview {
-            preview: Rc::new(preview),
-        })
-        .map_err(reasons)
+    Ok(build::facing_start(&project, job_id).map(|(_, above)| above))
 }
 
 /// Both parts of a V-carve inlay simulated and fitted together.

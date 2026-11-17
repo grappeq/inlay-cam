@@ -955,3 +955,36 @@ list to the next, and gluing is the one thing that changes the stock without the
 Not done, and on the roadmap: files from the order of the list in place of the tick
 boxes; the trim's height read from the stock; only the changed line and those after it
 worked out again; the backer's overhang drawn as it is.
+
+Files from the order of the list, and a facing that takes its height from it
+(2026-11-17). The second stage of the above.
+
+- **One file per run.** The jobs from one step done by hand to the next are one file,
+  since the machine stops there anyway; `timeline::file_numbers` says which. The tick
+  boxes and "One file for the stock" are gone, with `previewCombined`. What they could do
+  that this cannot is leave a line out of the file; a line still has its own file.
+- **The file that is shown is the file that is cut.** The timeline no longer runs each
+  job's own file: it joins a run (`build::join`, the body of the old `build_combined`,
+  which is kept for its tests) and runs that. To stop after every line it has to find the
+  lines of each part again, which arc fitting and the dropping of a tool change make
+  impossible to count. So the joined program has a comment where each part begins
+  (`Move::Comment`, "Step 2: name"), and the part is every line from its comment to the
+  next. The comment is also what someone reading the file at the machine wants. A run
+  with a line that cannot be built is joined from the rest, to show them, and marked not
+  complete, so that it is not offered for download.
+- **Names.** `<project> stock.cnc` for one file, `stock 1`, `stock 2` for several.
+- **A facing's height from the list** (`aboveAuto`, `build::facing_start`). The trim held
+  a copy of the inlay's numbers and offered to set them again. Now it can take the height
+  from the jobs before it: by the inlays' own numbers, not from the simulated stock.
+  Decided so because a file must not depend on a simulation having been run, and because
+  the two differ only when a plug does not seat, which is then a matter for the user. The
+  simulated stock is still asked: a facing that starts lower than the wood stands gets a
+  warning with the difference. The trim an inlay adds has it switched on. The margin is
+  still a copy.
+- The sentence "the simulation shows the stock only" is out of a facing's warnings: it is
+  not true of the stock step by step.
+- Checked by test: a run of two jobs as one file with one tool change, its two stretches
+  cut apart at the comment, the stock after each; file names; an incomplete run; a
+  facing's height after, before and without a glue-up and after an earlier facing; the
+  warning for a start that is too low. In the app: two files around a glue-up, and the
+  facing's panel.

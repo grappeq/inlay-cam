@@ -158,6 +158,25 @@ export function withoutOrphans(jobs: Job[]): Job[] {
   return kept.length === jobs.length ? jobs : kept;
 }
 
+/**
+ * Which file for the stock each line of the list goes into, counted from 1:
+ * the lines from one step done by hand to the next share a file. Null for a
+ * step done by hand. As the core numbers them.
+ */
+export function fileNumbers(jobs: Job[]): (number | null)[] {
+  let number = 0;
+  let open = false;
+  return jobs.map((job) => {
+    if (isByHand(job.inlay)) {
+      open = false;
+      return null;
+    }
+    if (!open) number++;
+    open = true;
+    return number;
+  });
+}
+
 /** The list with a job put in right after another, or at the end when that one is not there. */
 export function insertAfter(jobs: Job[], afterId: string | undefined, job: Job): Job[] {
   const at = jobs.findIndex((j) => j.id === afterId);
@@ -232,17 +251,19 @@ export function trimFacing(owner: Job, existing: Job[], setup: Setup): Job | nul
     ...job,
     name,
     material: owner.material,
-    inlay: { type: "facing", above: Math.round(part.above * 100) / 100, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
+    // The height is taken from the list where the list has the glue-up; the number is what is used until then, and by hand.
+    inlay: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
   };
 }
 
 /**
  * The facing that trims this inlay's plug, if the project has one: a facing
- * over exactly the inlay's shapes that starts above the surface.
+ * over exactly the inlay's shapes that starts above the surface, or takes
+ * where it starts from the list.
  */
 export function trimOf(owner: Job, jobs: Job[]): Job | undefined {
   const shapes = new Set(owner.regionIds);
-  return jobs.find((j) => j.inlay.type === "facing" && j.inlay.above > 0 && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
+  return jobs.find((j) => j.inlay.type === "facing" && (j.inlay.above > 0 || j.inlay.aboveAuto === true) && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
 }
 
 export function jobToolIds(job: Job): string[] {
@@ -284,7 +305,11 @@ export function missingFor(job: Job): string | null {
     case "pocket":
       return inlay.clearingToolIds.length === 0 ? "Choose an end mill first." : null;
     case "facing":
-      return inlay.toolId === null ? "Choose an end mill first." : inlay.above + inlay.depth <= 0 ? "Give the wood above the surface, a depth below it, or both." : null;
+      return inlay.toolId === null
+        ? "Choose an end mill first."
+        : !inlay.aboveAuto && inlay.above + inlay.depth <= 0
+          ? "Give the wood above the surface, a depth below it, or both."
+          : null;
     case "contour":
       return inlay.toolId === null ? "Choose an end mill first." : null;
     case "glue":
