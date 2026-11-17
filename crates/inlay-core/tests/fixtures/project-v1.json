@@ -88,6 +88,7 @@
           "glueGap": 0.3,
           "plugMargin": 8.0,
           "plugThickness": 10.0,
+          "relief": true,
           "sawGap": 1.5,
           "tabs": false,
           "type": "vcarve",
@@ -122,7 +123,29 @@
         ]
       }
     ],
+    "machine": {
+      "firstTool": 1,
+      "maxRpm": 13000,
+      "minRpm": 5000,
+      "name": "Carvera Air",
+      "rapidRate": 2000.0,
+      "travel": [
+        300.0,
+        200.0
+      ]
+    },
     "name": "Coaster",
+    "setup": {
+      "cutOutBorder": 5.0,
+      "finishAllowance": 0.1,
+      "plungeClearance": 1.0,
+      "rampAngle": 5.0,
+      "safeHeight": 5.0,
+      "tabSpacing": 40.0,
+      "tabThickness": 1.0,
+      "tabWidth": 4.0,
+      "throughCut": 0.2
+    },
     "tools": [
       {
         "cutting": [

@@ -33,13 +33,17 @@ libraries for other programs.
 - A calibration coupon per bit and material: one shape cut at several allowances, with
   the results kept.
 - A starter set of tools, so that a new user does not begin with an empty list. The list
-  is made: `crates/inlay-core/src/starter.rs` holds nine tools of Makera's Essential
-  Milling Bit Set, the ones this app cuts with, and two profiles, Clearing and Facing.
-  Their cutting rows for hardwood and softwood are what the feeds model suggests. Still
-  to do: offer it in the app. To decide: whether an empty list is filled by itself or on
-  a click, and how the set merges with tools already there.
-- To check on the bits themselves: overall lengths, and the chamfer bit's diameter and
-  tip, which Makera's listing does not give. Each is marked on its tool as to be checked.
+  is made: `crates/inlay-core/src/starter.rs` gives the 50 bits of Makera's that the
+  tooling library holds, the ones the Makera apps have built in, with the sizes, lengths,
+  coatings and flute counts checked there, and two profiles, Clearing and Facing. Their
+  cutting rows for hardwood and softwood are what the feeds model suggests; Makera's own
+  presets are not used, since a plain row has to be safe for a full-width slot. Still to
+  do: offer it in the app. To decide: whether an empty list is filled by itself or on a
+  click, how the set merges with tools already there, and whether a wood app should
+  start with all 50 or leave out the corn bits, drills and thread mills.
+- The set knows hardwood and softwood only: what else a bit suits (aluminium, brass,
+  plastic, PCB) is left out with the materials themselves. To decide: whether the
+  materials come with the set.
 - The set's engraving bits are as wide as their shank, 3.175 mm, so the 60° one reaches
   about 2.6 mm deep: less than a new V-carve inlay's 3 mm engagement plus glue gap. To
   decide: a wider V-bit in the set, or a shallower engagement for a new inlay.
