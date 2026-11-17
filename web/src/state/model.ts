@@ -110,6 +110,10 @@ export function defaultInlay(type: JobType): Inlay {
   }
 }
 
+/** How far a chamfering V-bit's tip is kept clear of the edge unless the chamfer says otherwise, mm, and the most it may be. As in the core. */
+export const DEFAULT_TIP_CLEARANCE = 0.2;
+export const MAX_TIP_CLEARANCE = 5;
+
 /** What each kind of job is called. */
 export const JOB_LABELS: Record<JobType, string> = {
   vcarve: "V-carve inlay",

@@ -421,6 +421,10 @@ pub enum Inlay {
         /// The shape of the tool's path. Rings by default.
         #[serde(default)]
         pattern: Pattern,
+        /// Which way side-to-side passes run, in each shape. Along its longer
+        /// side by default. Rings take no direction.
+        #[serde(default, skip_serializing_if = "PassDirection::is_longer")]
+        direction: PassDirection,
         /// Flat end mills, in the order they are used. Each cuts only what
         /// those before it left.
         #[serde(default)]
@@ -476,11 +480,35 @@ pub enum Inlay {
         /// Width of the bevel, seen from above, mm. A corner-rounding bit
         /// cuts its own radius, whatever this says.
         width: f64,
+        /// How far beyond its tip flat a V-bit's axis is kept from the edge,
+        /// mm. The tip, which hardly cuts, then runs in the air beside the
+        /// edge instead of rubbing along the wall under the chamfer. Not
+        /// used with a corner-rounding bit.
+        #[serde(
+            default = "default_tip_clearance",
+            skip_serializing_if = "is_default_tip_clearance"
+        )]
+        tip_clearance: f64,
         /// The V-bit or corner-rounding bit. Files written when a chamfer
         /// took a V-bit only give it as `vbitToolId`.
         #[serde(default, alias = "vbitToolId")]
         tool_id: Option<String>,
     },
+}
+
+/// How far a chamfering V-bit's tip is kept clear of the edge unless a
+/// chamfer says otherwise, mm.
+pub const DEFAULT_TIP_CLEARANCE: f64 = 0.2;
+
+/// The most a chamfering V-bit's tip may be kept clear of the edge, mm.
+pub const MAX_TIP_CLEARANCE: f64 = 5.0;
+
+fn default_tip_clearance() -> f64 {
+    DEFAULT_TIP_CLEARANCE
+}
+
+fn is_default_tip_clearance(v: &f64) -> bool {
+    *v == DEFAULT_TIP_CLEARANCE
 }
 
 /// The shape of the path a tool clears an area along.
@@ -733,10 +761,19 @@ impl Inlay {
                 depth.is_none_or(|d| d.is_finite() && d > 0.0),
                 "depth must be greater than 0",
             ),
-            Inlay::Chamfer { width, side, .. } => {
+            Inlay::Chamfer {
+                width,
+                side,
+                tip_clearance,
+                ..
+            } => {
                 check(
                     width.is_finite() && width > 0.0,
                     "chamfer width must be greater than 0",
+                )?;
+                check(
+                    tip_clearance.is_finite() && (0.0..=MAX_TIP_CLEARANCE).contains(&tip_clearance),
+                    "a chamfer's tip clearance must be from 0 to 5 mm",
                 )?;
                 check(
                     side != Side::On,
@@ -997,6 +1034,7 @@ mod tests {
             "pocket",
             Inlay::Pocket {
                 pattern: Pattern::Offset,
+                direction: PassDirection::Longer,
                 depth: 2.0,
                 clearing_tool_ids: vec!["t-endmill".into()],
             },
@@ -1026,6 +1064,7 @@ mod tests {
             Inlay::Chamfer {
                 side: Side::Outside,
                 width: 1.0,
+                tip_clearance: DEFAULT_TIP_CLEARANCE,
                 tool_id: Some("t-vbit".into()),
             },
         );
@@ -1070,9 +1109,17 @@ mod tests {
         bad.jobs[5].inlay = Inlay::Chamfer {
             side: Side::On,
             width: 1.0,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: None,
         };
         assert!(bad.validate().unwrap_err().contains("outside or inside"));
+        bad.jobs[5].inlay = Inlay::Chamfer {
+            side: Side::Outside,
+            width: 1.0,
+            tip_clearance: -0.1,
+            tool_id: None,
+        };
+        assert!(bad.validate().unwrap_err().contains("tip clearance"));
         let mut bad = p.clone();
         bad.jobs[0].color = Some("walnut".into());
         assert!(bad.validate().unwrap_err().contains("#rrggbb"));

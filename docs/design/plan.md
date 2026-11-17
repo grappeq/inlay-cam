@@ -825,3 +825,10 @@ Found by testing on 2026-11-17, and since done:
 
 Facing and chamfer show their options as small pictures to pick from, in place of
 dropdowns, and so does a pocket's path (2026-11-17, `PictureChoice.tsx`).
+
+A pocket cleared side to side takes the same choice of pass direction as facing, per
+shape. A chamfer's tip clearance, 0.2 mm in the code until now, is a field of the chamfer:
+it is a choice about one cut and one bit, so it sits with the width and not in the
+clearances. Neither is written to a file at its default, so files from before read the
+same. The core's other fixed numbers were listed, in
+[fixed-numbers.md](fixed-numbers.md) (2026-11-17).

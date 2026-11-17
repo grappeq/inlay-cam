@@ -11,6 +11,8 @@ import {
   SETUP_LIMITS,
   WOODS,
   cutOutDepth,
+  DEFAULT_TIP_CLEARANCE,
+  MAX_TIP_CLEARANCE,
   describeTool,
   fmt,
   isInlay,
@@ -418,7 +420,13 @@ function OpEditor({ job }: { job: Job }) {
               <div className="row">
                 <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
               </div>
-              <PatternField value={inlay.pattern} walls onChange={(pattern) => setInlay({ pattern })} />
+              <PatternField
+                value={inlay.pattern}
+                walls
+                onChange={(pattern) => setInlay({ pattern })}
+                direction={inlay.direction}
+                onDirection={(direction) => setInlay({ direction })}
+              />
             </>
           )}
           {inlay.type === "facing" && (
@@ -486,6 +494,14 @@ function OpEditor({ job }: { job: Job }) {
               {resolveTool(inlay.toolId, tools, project)?.kind !== "corner_round" && (
                 <div className="row">
                   <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && setInlay({ width: v })} />
+                  <NumberField
+                    label="Tip clear of the edge"
+                    unit="mm"
+                    min={0}
+                    max={MAX_TIP_CLEARANCE}
+                    value={inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE}
+                    onChange={(v) => v !== undefined && setInlay({ tipClearance: v === DEFAULT_TIP_CLEARANCE ? undefined : v })}
+                  />
                 </div>
               )}
               <ChamferNote inlay={inlay} />
@@ -620,7 +636,9 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
           ]}
           hint={
             direction === "longer"
-              ? "Along whichever side of the area is longer: the fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side."
+              ? walls
+                ? "In each shape, along whichever of its sides is longer: the fewest turns. In wood, a floor comes out cleanest along the grain: pick X or Y if the grain runs across."
+                : "Along whichever side of the area is longer: the fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side."
               : `${direction === "x" ? "Left and right" : "To and from the front"}. Cleanest when the grain runs ${direction === "x" ? "left to right" : "front to back"}.`
           }
         />
@@ -708,9 +726,10 @@ function ChamferNote({ inlay }: { inlay: ChamferOp }) {
     );
   }
   if (!bit || bit.kind !== "v_bit") return <p className="hint">Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood is gone.</p>;
-  // As the core works it out: the tip runs 0.2 mm beyond its flat from the edge.
-  const aside = (bit.tipDiameter ?? 0) / 2 + 0.2;
-  const depth = (inlay.width + 0.2) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180);
+  // As the core works it out: the tip runs its clearance beyond its flat from the edge.
+  const clear = inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE;
+  const aside = (bit.tipDiameter ?? 0) / 2 + clear;
+  const depth = (inlay.width + clear) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180);
   const widest = bit.diameter / 2 - aside;
   return (
     <>

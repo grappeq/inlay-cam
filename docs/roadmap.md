@@ -49,8 +49,6 @@ libraries for other programs.
 - A `.tlslibrary` dropped on the window. It can only be picked from the menu.
 - A warning when a corner-rounding bit's radius is not what its body and tip diameters
   give, since a `tools.yaml` keeps the diameters only.
-- A `tools.yaml` written here does not load in the tooling library when a material has
-  no record in either Makera app. To decide: warn on export, or leave such rows out.
 
 ## Operations and cutting settings
 
@@ -62,11 +60,10 @@ libraries for other programs.
   a job's `rowProfiles`). This is to be a plain choice for every bit of every operation.
 - **Cutting settings shown in the operation**: the numbers it will run with, able to be
   overridden there for that operation alone.
-- **Pass direction for pockets.** For a pocket cleared side to side, the same choice of
-  which way the passes run as Facing has: the longer side, X or Y.
-- **The chamfer's depth offset** as a setting. It is fixed in the code.
-- **Other fixed numbers.** Look through the core for them and decide for each whether it
-  should be a setting: the list first, then what to do about each.
+- **Other fixed numbers.** They are listed in
+  [design/fixed-numbers.md](design/fixed-numbers.md), each with a suggestion. To decide:
+  which become settings. The list also names numbers kept in two places, to be put right
+  either way.
 
 ## The screens
 

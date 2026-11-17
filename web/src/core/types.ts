@@ -292,19 +292,20 @@ export type Side = "outside" | "inside" | "on";
 /** The shapes cleared to a flat floor. */
 /** The shape of the path a tool clears an area along: rings that follow its outline, or straight passes side to side. */
 export type Pattern = "offset" | "raster";
+/** Which way side-to-side passes run: along the longer side of the area, along X (left and right) or along Y (to and from the front). */
+export type PassDirection = "longer" | "x" | "y";
 
 export interface PocketOp {
   type: "pocket";
   depth: number;
   pattern: Pattern;
+  /** Which way side-to-side passes run, in each shape. Absent: along its longer side. */
+  direction?: PassDirection;
   /** End mills, in the order they are used. */
   clearingToolIds: string[];
 }
 
 /** An area milled flat: the whole stock when the job has no shapes, else the rectangle around the shapes grown by the margin. */
-/** Which way side-to-side passes run: along the longer side of the area, along X (left and right) or along Y (to and from the front). */
-export type PassDirection = "longer" | "x" | "y";
-
 export interface FacingOp {
   type: "facing";
   /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
@@ -336,6 +337,8 @@ export interface ChamferOp {
   side: "outside" | "inside";
   /** Width of the bevel, seen from above. A corner-rounding bit cuts its own radius instead. */
   width: number;
+  /** How far beyond its tip flat a V-bit's axis is kept from the edge, so that the tip runs in the air. Absent: 0.2 mm. Not used with a corner-rounding bit. */
+  tipClearance?: number;
   /** The V-bit or corner-rounding bit. */
   toolId: string | null;
 }

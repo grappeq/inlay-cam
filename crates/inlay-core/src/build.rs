@@ -288,7 +288,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             _ => Pattern::Offset,
         },
         direction: match &job.inlay {
-            Inlay::Facing { direction, .. } => *direction,
+            Inlay::Pocket { direction, .. } | Inlay::Facing { direction, .. } => *direction,
             _ => PassDirection::Longer,
         },
         errors,
@@ -344,9 +344,17 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
             Inlay::Chamfer {
                 side,
                 width,
+                tip_clearance,
                 tool_id,
             },
-        ) => chamfer(&mut ctx, &regions, *side, *width, tool_id.as_deref()),
+        ) => chamfer(
+            &mut ctx,
+            &regions,
+            *side,
+            *width,
+            *tip_clearance,
+            tool_id.as_deref(),
+        ),
         (
             Part::Pocket,
             Inlay::Flat {
@@ -2228,11 +2236,6 @@ fn contour(
     })
 }
 
-/// How far beyond its tip flat a V-bit's axis is kept from the edge it
-/// chamfers, mm. The tip, which hardly cuts, then runs in the air beside the
-/// edge instead of rubbing along the wall under the chamfer.
-const CHAMFER_TIP_CLEAR: f64 = 0.2;
-
 /// How an edge-shaping bit is run along an outline: how far its axis is from
 /// the outline, on the side where the wood is gone, and how deep its tip is.
 struct EdgeCut {
@@ -2240,15 +2243,16 @@ struct EdgeCut {
     depth: f64,
 }
 
-/// How a V-bit is run to bevel an edge `width` wide, or a corner-rounding bit
-/// to round it over to its own radius. `None` for any other tool.
-fn edge_cut(bit: &Tool, width: f64) -> Option<EdgeCut> {
+/// How a V-bit is run to bevel an edge `width` wide, its axis `tip_clearance`
+/// beyond its tip flat from the edge, or a corner-rounding bit to round it
+/// over to its own radius. `None` for any other tool.
+fn edge_cut(bit: &Tool, width: f64, tip_clearance: f64) -> Option<EdgeCut> {
     match bit.kind {
         ToolKind::VBit => {
             let (half_angle, tip_radius) = vbit_shape(bit);
             Some(EdgeCut {
-                aside: tip_radius + CHAMFER_TIP_CLEAR,
-                depth: (width + CHAMFER_TIP_CLEAR) / half_angle.tan(),
+                aside: tip_radius + tip_clearance,
+                depth: (width + tip_clearance) / half_angle.tan(),
             })
         }
         // The tip's side runs along the wall, and the quarter circle above it
@@ -2269,12 +2273,13 @@ fn chamfer(
     regions: &[Region],
     side: Side,
     width: f64,
+    tip_clearance: f64,
     tool_id: Option<&str>,
 ) -> Option<Cut> {
     // The depth follows from the bit, and the bit is checked against the depth.
     let chosen = tool_id.and_then(|id| ctx.project.tools.iter().find(|t| t.id == id));
     let rounding = chosen.is_some_and(|t| t.kind == ToolKind::CornerRound);
-    if let Some(cut) = chosen.and_then(|bit| edge_cut(bit, width)) {
+    if let Some(cut) = chosen.and_then(|bit| edge_cut(bit, width, tip_clearance)) {
         ctx.depth = cut.depth;
     }
     let (bit, cutting) = ctx.tool(
@@ -2289,7 +2294,7 @@ fn chamfer(
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let EdgeCut { aside, depth } = edge_cut(bit, width)?;
+    let EdgeCut { aside, depth } = edge_cut(bit, width, tip_clearance)?;
     if !rounding {
         let widest = bit.diameter / 2.0 - aside;
         if width > widest + 1e-9 {
@@ -2735,7 +2740,7 @@ fn file_stem(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{BaseStock, Design, DesignRegion, Job};
+    use crate::project::{BaseStock, Design, DesignRegion, Job, DEFAULT_TIP_CLEARANCE};
     use crate::tools::fixtures::{end_mill, v_bit};
     use crate::tools::CuttingSettings;
 
@@ -4141,6 +4146,7 @@ mod tests {
     fn pocket_on_profile(key: &str, adaptive: Option<bool>) -> Project {
         let mut p = op_project(Inlay::Pocket {
             pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4228,6 +4234,7 @@ mod tests {
     fn a_job_in_another_material_uses_its_rows_and_says_it_is_unproven() {
         let mut p = op_project(Inlay::Pocket {
             pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4252,6 +4259,7 @@ mod tests {
     fn a_plain_pocket_is_cleared_to_its_depth_and_nothing_else_is_touched() {
         let p = op_project(Inlay::Pocket {
             pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4431,6 +4439,7 @@ mod tests {
             let p = op_project(Inlay::Chamfer {
                 side,
                 width,
+                tip_clearance: DEFAULT_TIP_CLEARANCE,
                 tool_id: Some("t-vbit".into()),
             });
             let preview = preview(&p, "j", Part::Pocket).unwrap();
@@ -4465,6 +4474,7 @@ mod tests {
         let p = op_project(Inlay::Chamfer {
             side: Side::Outside,
             width: 6.0,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: Some("t-vbit".into()),
         });
         let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
@@ -4475,6 +4485,7 @@ mod tests {
     fn three_ops() -> Project {
         let mut p = op_project(Inlay::Pocket {
             pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
             depth: 2.0,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4496,6 +4507,7 @@ mod tests {
         bevel.inlay = Inlay::Chamfer {
             side: Side::Inside,
             width: 1.0,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: Some("t-vbit".into()),
         };
         p.jobs.push(outline);
@@ -4540,6 +4552,7 @@ mod tests {
         bad.jobs[2].inlay = Inlay::Chamfer {
             side: Side::Inside,
             width: 1.0,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: None,
         };
         let reasons = build_combined(&bad, &ids(&["j", "v"]))
@@ -4580,6 +4593,7 @@ mod tests {
                 side,
                 // Ignored: the bit cuts its own radius.
                 width: 0.5,
+                tip_clearance: DEFAULT_TIP_CLEARANCE,
                 tool_id: Some("t-fillet".into()),
             });
             p.tools.push(fillet_bit());
@@ -4622,6 +4636,7 @@ mod tests {
         let p = op_project(Inlay::Chamfer {
             side: Side::Outside,
             width: 1.0,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: Some("t-endmill".into()),
         });
         let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
@@ -4635,6 +4650,7 @@ mod tests {
     fn a_pocket_cut_side_to_side_matches_one_cut_in_rings() {
         let mut p = op_project(Inlay::Pocket {
             pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
@@ -4665,6 +4681,115 @@ mod tests {
             }
         }
         assert!(level > 0.5 * all, "{level} of {all} mm");
+    }
+
+    #[test]
+    fn pocket_passes_run_the_way_that_is_asked_for() {
+        // The test rectangle is wider than it is deep, so its longer side is X.
+        let pocket = |direction| {
+            let p = op_project(Inlay::Pocket {
+                pattern: Pattern::Raster,
+                direction,
+                depth: 2.5,
+                clearing_tool_ids: vec!["t-endmill".into()],
+            });
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            // How far the level cuts travel along X only, and along Y only.
+            let level = |axis: usize| {
+                preview
+                    .built
+                    .interpreted
+                    .segments
+                    .iter()
+                    .filter(|s| {
+                        !s.rapid && s.from[2] == s.to[2] && s.from[1 - axis] == s.to[1 - axis]
+                    })
+                    .map(|s| (s.to[axis] - s.from[axis]).abs())
+                    .sum::<f64>()
+            };
+            (level(0), level(1), preview.map)
+        };
+        let (x, y, longer) = pocket(PassDirection::Longer);
+        assert!(
+            x > 2.0 * y,
+            "along the longer side: {x} along X, {y} along Y"
+        );
+        let (x2, y2, _) = pocket(PassDirection::X);
+        assert_eq!((x2, y2), (x, y));
+        let (x, y, across) = pocket(PassDirection::Y);
+        assert!(y > 2.0 * x, "along Y: {x} along X, {y} along Y");
+        // Either way the same wood is gone.
+        let (worst, share) = compare(&longer, &across, 0.05);
+        assert!(
+            share < 0.002,
+            "{share} of the cells differ, by up to {worst} mm"
+        );
+
+        // A file without a direction means the longer side, and one with it keeps it.
+        let mut p = op_project(Inlay::Pocket {
+            pattern: Pattern::Raster,
+            direction: PassDirection::Y,
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        let text = crate::project::project_to_file_json(&p);
+        assert!(text.contains("\"direction\": \"y\""));
+        assert_eq!(crate::project::project_from_file_json(&text).unwrap(), p);
+        if let Inlay::Pocket { direction, .. } = &mut p.jobs[0].inlay {
+            *direction = PassDirection::Longer;
+        }
+        assert!(!crate::project::project_to_file_json(&p).contains("direction"));
+    }
+
+    #[test]
+    fn a_chamfers_tip_clearance_moves_the_bit_and_not_the_bevel() {
+        // A 60 degree V-bit with a pointed tip: its axis runs the clearance
+        // from the edge, with the tip (width + clearance) / tan 30 deep.
+        let tan = 30f64.to_radians().tan();
+        let chamfer = |tip_clearance: f64| {
+            let p = op_project(Inlay::Chamfer {
+                side: Side::Outside,
+                width: 1.5,
+                tip_clearance,
+                tool_id: Some("t-vbit".into()),
+            });
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, []);
+            let deepest = preview
+                .built
+                .interpreted
+                .segments
+                .iter()
+                .map(|s| s.to[2])
+                .fold(0.0, f64::min);
+            assert!(
+                (deepest + (1.5 + tip_clearance) / tan).abs() < 1e-3,
+                "clearance {tip_clearance}: tip at {deepest}"
+            );
+            (p, preview.map)
+        };
+        let (p, usual) = chamfer(DEFAULT_TIP_CLEARANCE);
+        let (wide, far) = chamfer(1.0);
+        // The bevel on the wood that stays is the same.
+        let shape = rectangle();
+        for iy in 0..usual.ny {
+            for ix in 0..usual.nx {
+                let q = usual.centre(ix, iy);
+                if shape.contains(q) {
+                    let (a, b) = (usual.at(ix, iy), far.at(ix, iy));
+                    assert!((a - b).abs() < 0.1, "{a} and {b} at {q:?}");
+                }
+            }
+        }
+        // The usual clearance is not written to a file, another is, and a
+        // file without one means the usual.
+        let text = crate::project::project_to_file_json(&p);
+        assert!(!text.contains("tipClearance"));
+        assert_eq!(crate::project::project_from_file_json(&text).unwrap(), p);
+        let text = crate::project::project_to_file_json(&wide);
+        assert!(text.contains("\"tipClearance\": 1.0"), "{text}");
+        assert_eq!(crate::project::project_from_file_json(&text).unwrap(), wide);
     }
 
     #[test]

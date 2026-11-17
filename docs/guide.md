@@ -445,7 +445,8 @@ click adds a shape to it or takes it away.
   several in order. Inside corners are rounded to the smallest; what is really cut is drawn
   dashed after generating. "The tool's path" chooses between rings that follow the outline
   (the usual way) and straight passes side to side, which end with a pass round the walls
-  at each depth.
+  at each depth. For straight passes, "The passes run" chooses their direction as it does
+  for facing: along the longer side of each shape, along X, or along Y.
 - **Contour**: takes an end mill along the outlines. *Outside the shapes* keeps the shapes:
   the tool runs round them, and inside their holes. To cut round the outside of a part
   only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
@@ -457,6 +458,9 @@ click adds a shape to it or takes it away.
   own radius, and there is no width to give. Choose the side where the wood has been cut
   away: round the shapes, or inside them. Run it after that edge has been cut. The bit's
   tip runs beside the edge, where it expects air; in uncut wood it would leave a groove.
+  "Tip clear of the edge" is how far out a V-bit's tip runs, 0.2 mm unless changed. The
+  bevel stays as wide; more clearance takes the bit deeper and cuts the bevel higher up
+  its flutes, where it cuts better, and needs that much more room beside the edge.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the

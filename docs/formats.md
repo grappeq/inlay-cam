@@ -333,7 +333,8 @@ in both cases, from when the app made inlays only.
 |---|---|
 | `type` | `pocket` |
 | `depth` | Greater than 0, and less than the stock's thickness. |
-| `pattern` | The shape of the tool's path. `offset` (default): rings that follow the outline, from the middle outwards. `raster`: straight passes side to side along the longer side of each area, then once round its edge at each depth. |
+| `pattern` | The shape of the tool's path. `offset` (default): rings that follow the outline, from the middle outwards. `raster`: straight passes side to side, then once round the edge of each area at each depth. |
+| `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of each area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
 | `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |
 
 `inlay` for a facing: an area milled flat.
@@ -371,11 +372,14 @@ V-bit or rounded over with a corner-rounding bit.
 | `type` | `chamfer` |
 | `side` | `outside` (default): the wood outside the regions has been cut away, and the bit runs there. `inside`: the regions are pockets or openings, and the bit runs inside them. |
 | `width` | Width of the bevel seen from above. Greater than 0. Not used with a corner-rounding bit, which cuts its own radius. |
+| `tipClearance` | How far beyond its tip flat a V-bit's axis is kept from the outline. 0 to 5. Default 0.2; may be missing, and is not written when it is 0.2. Not used with a corner-rounding bit. |
 | `toolId` | The V-bit or corner-rounding bit, or `null` when not chosen yet. Files written when a chamfer took a V-bit only have `vbitToolId` instead, which is read the same. |
 
-A V-bit's axis runs its tip-flat radius plus 0.2 mm from the outline, on the side named,
-with the tip (`width` + 0.2) / tan(half the bit's angle) below the surface. The bevel is
-then `width` wide and the tip, which hardly cuts, is in the air beside the edge.
+A V-bit's axis runs its tip-flat radius plus `tipClearance` from the outline, on the side
+named, with the tip (`width` + `tipClearance`) / tan(half the bit's angle) below the
+surface. The bevel is then `width` wide whatever the clearance, and the tip, which hardly
+cuts, is in the air beside the edge. A larger clearance takes the bit deeper and further
+out, so the bevel is cut higher up the flutes.
 
 A corner-rounding bit's axis runs half its `tipDiameter` from the outline, so that the
 side of its tip is on the outline, with the tip `cornerRadius` below the surface. The edge
