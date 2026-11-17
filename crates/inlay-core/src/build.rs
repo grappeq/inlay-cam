@@ -353,7 +353,6 @@ pub fn build_with(
             _,
             Task::Facing {
                 above_auto,
-                margin,
                 tool_id,
                 ..
             },
@@ -374,7 +373,7 @@ pub fn build_with(
                     &regions,
                     design.placed_size(),
                     above,
-                    *margin,
+                    facing_margin(project, step),
                     tool_id.as_deref(),
                 )
             }
@@ -2125,6 +2124,43 @@ fn facing_rect(regions: &[Region], stock: (f64, f64), margin: f64) -> [f64; 4] {
     }
 }
 
+/// How far beyond the rectangle around its shapes a facing reaches: its own
+/// margin, or, when it takes it from the inlays, the widest plug margin of
+/// the inlays its shapes belong to. 0 for any other step.
+pub fn facing_margin(project: &Project, step: &Step) -> f64 {
+    let Task::Facing {
+        margin,
+        margin_auto,
+        ..
+    } = &step.task
+    else {
+        return 0.0;
+    };
+    if !*margin_auto {
+        return *margin;
+    }
+    project
+        .steps
+        .iter()
+        .filter(|other| {
+            other
+                .region_ids
+                .iter()
+                .any(|id| step.region_ids.contains(id))
+        })
+        .filter_map(|other| match &other.task {
+            Task::Vcarve { plug_margin, .. } => Some(*plug_margin),
+            Task::Flat {
+                insert_margin,
+                insert_style: InsertStyle::Backer,
+                ..
+            } => Some(*insert_margin),
+            _ => None,
+        })
+        .reduce(f64::max)
+        .unwrap_or(*margin)
+}
+
 /// Where a facing cuts and where it starts: its rectangle on the stock, and
 /// how far above the surface its first pass begins. That height is the one
 /// the facing gives, or the one the list gives when it is to be taken from
@@ -2134,10 +2170,7 @@ pub fn facing_start(project: &Project, step_id: &str) -> Option<([f64; 4], f64)>
     let index = project.steps.iter().position(|j| j.id == step_id)?;
     let step = &project.steps[index];
     let Task::Facing {
-        above,
-        above_auto,
-        margin,
-        ..
+        above, above_auto, ..
     } = &step.task
     else {
         return None;
@@ -2145,7 +2178,7 @@ pub fn facing_start(project: &Project, step_id: &str) -> Option<([f64; 4], f64)>
     let rect = facing_rect(
         &design.placed_regions(&step.region_ids),
         design.placed_size(),
-        *margin,
+        facing_margin(project, step),
     );
     let above = if *above_auto {
         standing_in(project, index, rect)
@@ -2206,11 +2239,11 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                     }
                 }
             }
-            Task::Facing { depth, margin, .. } => {
+            Task::Facing { depth, .. } => {
                 let faced = facing_rect(
                     &design.placed_regions(&step.region_ids),
                     design.placed_size(),
-                    *margin,
+                    facing_margin(project, step),
                 );
                 for (_, blank, height) in &mut standing {
                     if overlap(blank, &faced) {
@@ -2890,6 +2923,17 @@ pub fn preview_pocket(project: &Project, step_id: &str) -> Result<Preview, Vec<S
 /// part's board.
 pub fn preview(project: &Project, step_id: &str, part: Part) -> Result<Preview, Vec<String>> {
     Ok(simulated(build(project, step_id, part)?))
+}
+
+/// As [`preview`], with the height a facing that takes it from the list is
+/// to start at, as [`build_with`] takes it.
+pub fn preview_with(
+    project: &Project,
+    step_id: &str,
+    part: Part,
+    standing: Option<f64>,
+) -> Result<Preview, Vec<String>> {
+    Ok(simulated(build_with(project, step_id, part, standing)?))
 }
 
 /// Builds one file that runs several steps on the stock, and simulates it.
@@ -4612,6 +4656,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: 0.5,
             margin: 0.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         });
         p.steps[0].region_ids = vec![];
@@ -4647,6 +4692,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: 0.0,
             margin: 2.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         });
         let built = build(&p, "j", Part::Pocket).unwrap();
@@ -4674,6 +4720,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: -0.4,
             margin: 2.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         };
         let built = build(&proud, "j", Part::Pocket).unwrap();
@@ -4696,6 +4743,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: 0.0,
             margin: 0.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         };
         assert!(build(&none, "j", Part::Pocket).unwrap_err()[0].contains("nothing to face"));
@@ -4910,6 +4958,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: 0.0,
             margin: 3.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         };
         let ids = vec!["j".to_string(), "v".to_string()];
@@ -5142,6 +5191,7 @@ pub(crate) mod tests {
                 above_auto: false,
                 depth: 0.5,
                 margin: 0.0,
+                margin_auto: false,
                 tool_id: Some("t-endmill".into()),
             });
             p.steps[0].region_ids = vec![];
@@ -5180,6 +5230,7 @@ pub(crate) mod tests {
             above_auto: false,
             depth: 0.5,
             margin: 0.0,
+            margin_auto: false,
             tool_id: Some("t-endmill".into()),
         });
         let text = crate::project::project_to_file_json(&p);
@@ -5201,6 +5252,7 @@ pub(crate) mod tests {
                 above_auto: false,
                 depth: 0.5,
                 margin: 0.0,
+                margin_auto: false,
                 tool_id: Some("t-endmill".into()),
             });
             p.steps[0].region_ids = vec![];

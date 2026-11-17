@@ -89,13 +89,6 @@ looked at in 3D after each line. What that makes possible, and is not built:
 
 - **A line left out of its file.** The tick boxes could do that. To decide whether it is
   missed: a line still has a file of its own.
-- **A trim's margin from the inlay.** It is still a copy, and the facing's panel offers
-  to set it again.
-- **A facing's own file at the height on the stock.** Its file for the stock starts where
-  the wood stands on the simulated stock; its own file still goes by the inlays' numbers,
-  since it is made without the stock being worked out.
-- **The underside of glued-in wood.** It is drawn from above and from the side; from
-  below there is nothing to see of it.
 - **Sawing as the machine would see it.** What the saw leaves is one typed height, level;
   a hand saw leaves neither.
 

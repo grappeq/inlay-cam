@@ -539,7 +539,8 @@ function buildStock(
  * The wood that was glued in, as bodies of their own on the board: their tops,
  * and their edges down to their undersides. Where a body stands off the board,
  * as a backer does over the saw gap, its edge stops there and the gap shows;
- * where it sits in the board, its top runs on into the board's surface.
+ * where it sits in the board, its top runs on into the board's surface. Each
+ * has its underside too, for the view from below.
  */
 function buildBodies(grid: {
   dx: number;
@@ -561,13 +562,14 @@ function buildBodies(grid: {
   const colors: number[] = [];
   const colour = new THREE.Color();
   const corner = new THREE.Color();
+  const wall = new THREE.Color();
   const push = (x: number, y: number, height: number, c: THREE.Color) => {
     positions.push(x, y, height);
     colors.push(c.r, c.g, c.b);
   };
 
   // What each square of the grid is drawn as: the wood it is in, how high its top is at each corner, and how low its edge goes.
-  type Square = { of: number; tops: number[]; foot: number; hovers: boolean };
+  type Square = { of: number; tops: number[]; feet: number[]; hovers: boolean };
   const squares: (Square | null)[] = new Array((dx - 1) * (dy - 1)).fill(null);
   const at = (i: number, j: number) => (i < 0 || j < 0 || i >= dx - 1 || j >= dy - 1 ? null : squares[j * (dx - 1) + i]);
   for (let j = 0; j < dy - 1; j++) {
@@ -587,7 +589,14 @@ function buildBodies(grid: {
       if (foot === Infinity) foot = top;
       // Standing off what is beside it: the top stays level to the edge, and the edge stops at the underside.
       const hovers = foot > beside + GAP;
-      squares[j * (dx - 1) + i] = { of, foot, hovers, tops: ks.map((k) => (wood[k] > 0 ? z[k] : hovers ? top : z[k])) };
+      const lowest = foot;
+      squares[j * (dx - 1) + i] = {
+        of,
+        hovers,
+        tops: ks.map((k) => (wood[k] > 0 ? z[k] : hovers ? top : z[k])),
+        // The underside at each corner: the wood's own there, else the lowest of the square.
+        feet: ks.map((k) => (wood[k] > 0 && !Number.isNaN(under[k]) ? under[k] : lowest)),
+      };
     }
   }
 
@@ -599,9 +608,12 @@ function buildBodies(grid: {
       const ys = [yAt(j), yAt(j), yAt(j + 1), yAt(j + 1)];
       const shade = (height: number) => colour.copy(woods[square.of]).lerp(deeps[square.of], lowest < 0 && height < 0 ? (height / lowest) * 0.85 : 0);
       for (const c of [0, 1, 3, 1, 2, 3]) push(xs[c], ys[c], square.tops[c], shade(square.tops[c]));
+      // The underside, seen from below and through a gap: a shade darker, as it lies in shadow.
+      const belly = corner.copy(woods[square.of]).multiplyScalar(0.6);
+      for (const c of [0, 3, 1, 1, 3, 2]) push(xs[c], ys[c], Math.min(square.feet[c], square.tops[c]), belly);
       if (!square.hovers) continue;
       // An edge towards a square without this wood: a wall from the top down to the underside.
-      const edge = corner.copy(woods[square.of]).multiplyScalar(0.82);
+      const edge = wall.copy(woods[square.of]).multiplyScalar(0.82);
       const sides: [number, number, number, number][] = [
         [0, 1, 0, -1],
         [1, 2, 1, 0],
@@ -611,11 +623,11 @@ function buildBodies(grid: {
       for (const [a, b, di, dj] of sides) {
         if (at(i + di, j + dj)) continue;
         push(xs[a], ys[a], square.tops[a], edge);
-        push(xs[a], ys[a], square.foot, edge);
+        push(xs[a], ys[a], square.feet[a], edge);
         push(xs[b], ys[b], square.tops[b], edge);
         push(xs[b], ys[b], square.tops[b], edge);
-        push(xs[a], ys[a], square.foot, edge);
-        push(xs[b], ys[b], square.foot, edge);
+        push(xs[a], ys[a], square.feet[a], edge);
+        push(xs[b], ys[b], square.feet[b], edge);
       }
     }
   }

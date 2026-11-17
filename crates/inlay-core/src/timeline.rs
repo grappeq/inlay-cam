@@ -435,15 +435,31 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
     let mut keys: Vec<u64> = Vec::with_capacity(count);
     for (index, step) in project.steps.iter().enumerate() {
         let before = keys.last().copied().unwrap_or(base);
-        let other = match &step.task {
+        let other: String = match &step.task {
             Task::Glue { inlay_id } | Task::Saw { inlay_id, .. } => project
                 .steps
                 .iter()
                 .position(|s| &s.id == inlay_id)
-                .map_or("", |at| texts[at].as_str()),
-            _ => "",
+                .map_or(String::new(), |at| texts[at].clone()),
+            // Its margin is that of the inlays its shapes belong to.
+            Task::Facing {
+                margin_auto: true, ..
+            } => project
+                .steps
+                .iter()
+                .enumerate()
+                .filter(|(_, other)| {
+                    other.task.is_inlay()
+                        && other
+                            .region_ids
+                            .iter()
+                            .any(|id| step.region_ids.contains(id))
+                })
+                .map(|(at, _)| texts[at].as_str())
+                .collect(),
+            _ => String::new(),
         };
-        keys.push(hash_of(before, &[texts[index].as_str(), other]));
+        keys.push(hash_of(before, &[texts[index].as_str(), other.as_str()]));
     }
 
     // Every inlay's plug or inserts, simulated on their own board: what a
@@ -750,8 +766,16 @@ impl Pass<'_> {
                 ..
             }
         );
-        // Such a facing hangs on everything before it; any other part on itself alone.
-        let key = if listed {
+        // A facing that takes something from the list hangs on what the
+        // step's own key hangs on; any other part on itself alone.
+        let hangs = matches!(
+            step.task,
+            Task::Facing {
+                margin_auto: true,
+                ..
+            }
+        );
+        let key = if listed || hangs {
             hash_of(self.keys[index], &["part"])
         } else {
             hash_of(self.base, &[self.texts[index].as_str(), "part"])
@@ -921,6 +945,29 @@ impl Pass<'_> {
         }
         (record, cut)
     }
+}
+
+/// For a facing that takes the wood above the surface from the list: the
+/// height its file is to start at, as it stands on the stock when the list
+/// gets to it. Takes the stock through the list for it, going on from what
+/// `cache` holds. `None` for any other step.
+pub fn starts_above(project: &Project, step_id: &str, cache: &mut Cache) -> Option<f64> {
+    let step = project.steps.iter().find(|s| s.id == step_id)?;
+    if !matches!(
+        step.task,
+        Task::Facing {
+            above_auto: true,
+            ..
+        }
+    ) {
+        return None;
+    }
+    let timeline = timeline_with(project, cache).ok()?;
+    timeline
+        .steps
+        .iter()
+        .find(|went| went.step_id == step_id)?
+        .starts_above
 }
 
 /// For a facing: what there is to say when more wood stands where it cuts
@@ -1177,6 +1224,7 @@ mod tests {
                     above_auto: false,
                     depth: 0.0,
                     margin,
+                    margin_auto: false,
                     pattern: Pattern::Raster,
                     direction: PassDirection::Longer,
                     tool_id: Some("t-endmill".into()),
@@ -1575,6 +1623,63 @@ mod tests {
         );
         assert!(t.files[1].problems.is_empty(), "{:?}", t.files[1].problems);
         assert!(at(&t, 4, 20.0, 15.0).0.abs() < 0.02);
+    }
+
+    #[test]
+    fn a_trim_follows_its_inlays_margin_and_its_own_file_starts_on_the_stock() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        let mut follows = listed_trim(1.0);
+        if let Task::Facing { margin_auto, .. } = &mut follows.task {
+            *margin_auto = true;
+        }
+        p.steps.push(follows);
+        p.validate().unwrap();
+        // The inlay's margin is 8, whatever the facing's own number says.
+        assert_eq!(build::facing_margin(&p, &p.steps[2]), 8.0);
+        assert_eq!(
+            build::facing_start(&p, "trim").unwrap().0,
+            [-3.0, -3.0, 63.0, 43.0]
+        );
+        let mut cache = Cache::default();
+        let t = timeline_with(&p, &mut cache).unwrap();
+        // The whole blank is faced off: nothing of the backer is left at its rim.
+        assert_eq!(at(&t, 3, 0.5, 0.5).1, 0);
+        assert!(at(&t, 3, 0.5, 0.5).0.abs() < 0.02);
+
+        // The inlay's margin changes: the facing follows, and is done again.
+        if let Task::Flat { insert_margin, .. } = &mut p.steps[0].task {
+            *insert_margin = 10.0;
+        }
+        assert_eq!(build::facing_margin(&p, &p.steps[2]), 10.0);
+        let t = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 3);
+        assert_eq!(t, timeline(&p).unwrap());
+
+        // Shapes of no inlay: its own number.
+        let mut alone = p.clone();
+        alone.steps[2].region_ids.clear();
+        assert_eq!(build::facing_margin(&alone, &alone.steps[2]), 1.0);
+
+        // Its own file starts where its part of the stock's file does: on a
+        // plug glued in before its pocket, 4 mm up and not the 2 of the numbers.
+        let mut p = backer_project();
+        p.steps.insert(0, glue_up());
+        p.steps.insert(1, listed_trim(8.0));
+        let mut cache = Cache::default();
+        let standing = starts_above(&p, "trim", &mut cache).unwrap();
+        assert!((standing - 4.0).abs() < 0.03, "{standing}");
+        assert_eq!(starts_above(&p, "j", &mut cache), None);
+        let own = build::preview_with(&p, "trim", Part::Pocket, Some(standing)).unwrap();
+        let top = own
+            .built
+            .interpreted
+            .segments
+            .iter()
+            .filter(|s| !s.rapid)
+            .map(|s| s.from[2].max(s.to[2]))
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(top > 3.0, "the own file cuts no higher than {top}");
     }
 
     #[test]

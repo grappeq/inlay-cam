@@ -322,6 +322,8 @@ export interface FacingOp {
   depth: number;
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
   margin: number;
+  /** Take the margin from the inlays instead: the widest plug margin of the inlays the shapes belong to. `margin` is used while they belong to none with a plug. */
+  marginAuto?: boolean;
   pattern: Pattern;
   /** Which way side-to-side passes run. Absent: along the longer side of the area. */
   direction?: PassDirection;

@@ -21,6 +21,7 @@ import {
   glueOf,
   glueStep,
   hasBacker,
+  inlayMargin,
   insertAfter,
   isByHand,
   sawOf,
@@ -1035,6 +1036,10 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
   const height = useListedHeight(step, listed);
   // Where the cut starts: as the list gives it, or as typed.
   const above = listed ? (height ?? 0) : inlay.above;
+  // How far it reaches: as the inlays of its shapes give it, or as typed.
+  const fromInlay = inlayMargin(step, project.steps);
+  const follows = inlay.marginAuto === true && fromInlay !== null;
+  const margin = follows ? fromInlay : inlay.margin;
   const total = above + inlay.depth;
 
   return (
@@ -1058,12 +1063,23 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
           onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })}
         />
         <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
-        {!whole && <NumberField label="Margin" unit="mm" value={inlay.margin} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
+        {!whole && <NumberField label="Margin" unit="mm" value={margin} disabled={follows} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
       </div>
+      {!whole && fromInlay !== null && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={follows}
+            // By hand, the field starts from what the inlay gave.
+            onChange={(e) => onChange(e.target.checked ? { marginAuto: true } : { marginAuto: undefined, margin: fromInlay })}
+          />
+          Take the margin from the inlay's plug
+        </label>
+      )}
       {listed && height !== null && (
         <p className={`status-line${height > 0 ? "" : " warn"}`} role="status">
           {height > 0
-            ? `By the glue-ups above this facing in the list, ${fmt(round2(height))} mm of wood stand above the surface where it cuts. Its file for the stock starts where the wood stands on the stock itself, which "Stock, step by step" works out.`
+            ? `By the glue-ups above this facing in the list, ${fmt(round2(height))} mm of wood stand above the surface where it cuts. Its files start where the wood stands on the stock itself, which is worked out when they are made.`
             : "When the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or untick the box and give the height."}
         </p>
       )}
@@ -1076,14 +1092,14 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
       {inlays.map((owner) => {
         const part = standingPart(owner);
         if (!part || part.above <= 0) return null;
-        const set = (listed || Math.abs(inlay.above - part.above) < 1e-9) && inlay.depth === 0 && Math.abs(inlay.margin - part.margin) < 1e-9;
+        const set = (listed || Math.abs(inlay.above - part.above) < 1e-9) && inlay.depth === 0 && Math.abs(margin - part.margin) < 1e-9;
         return (
           <p className="derived" key={owner.id}>
             The {part.what} of "{owner.name}" {part.what === "inserts" ? "stand" : "stands"} {fmt(part.above)} mm above the surface once glued in.{" "}
             {set ? (
               "The fields are set to trim it flush."
             ) : (
-              <button type="button" className="link" onClick={() => onChange({ ...(listed ? {} : { above: round2(part.above) }), depth: 0, margin: part.margin })}>
+              <button type="button" className="link" onClick={() => onChange({ ...(listed ? {} : { above: round2(part.above) }), depth: 0, ...(follows ? {} : { margin: part.margin }) })}>
                 Set the fields to trim {part.what === "inserts" ? "them" : "it"} flush
               </button>
             )}

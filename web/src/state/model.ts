@@ -281,9 +281,22 @@ export function trimFacing(owner: Step, existing: Step[], setup: Setup): Step | 
     ...step,
     name,
     material: owner.material,
-    // The height is taken from the list where the list has the glue-up; the number is what is used until then, and by hand.
-    task: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
+    // The height is taken from the list and the margin from the inlay, so that both follow it; the numbers are what is used by hand.
+    task: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, marginAuto: true, pattern: "raster", toolId: null },
   };
+}
+
+/**
+ * The margin a facing that takes it from the inlays is cut with: the widest
+ * plug margin of the inlays its shapes belong to, as the core works it out.
+ * Null when they belong to none with a plug on a backer.
+ */
+export function inlayMargin(step: Step, steps: Step[]): number | null {
+  const margins = steps
+    .filter((other) => other.regionIds.some((id) => step.regionIds.includes(id)))
+    .map((other) => (other.task.type === "vcarve" ? other.task.plugMargin : other.task.type === "flat" && other.task.insertStyle === "backer" ? other.task.insertMargin : null))
+    .filter((m): m is number => m !== null);
+  return margins.length > 0 ? Math.max(...margins) : null;
 }
 
 /**

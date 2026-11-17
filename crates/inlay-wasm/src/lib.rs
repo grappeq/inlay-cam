@@ -568,6 +568,23 @@ pub fn preview_part(
         "plug" => build::Part::Plug,
         other => return Err(JsError::new(&format!("Unknown part \"{other}\"."))),
     };
+    // A facing that takes the wood above the surface from the list starts
+    // where that wood stands on the stock, as its part of the stock's file
+    // does: the stock is taken through the list for it, from what is kept.
+    let standing = (part == build::Part::Pocket)
+        .then(|| {
+            TIMELINE.with(|kept| {
+                inlay_core::timeline::starts_above(&project, step_id, &mut kept.borrow_mut())
+            })
+        })
+        .flatten();
+    if standing.is_some() {
+        return build::preview_with(&project, step_id, part, standing)
+            .map(|preview| PocketPreview {
+                preview: Rc::new(preview),
+            })
+            .map_err(reasons);
+    }
     preview_of(&project, project_json, step_id, part)
         .map(|preview| PocketPreview { preview })
         .map_err(reasons)

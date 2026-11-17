@@ -528,13 +528,16 @@ inlay's glue-up when the list has one, else at the end:
 - *Take the wood above the surface from the list* is ticked. The height the cut starts at
   is then how far the plug stands above the stock by the inlay's own numbers, as long as
   the inlay's glue-up is above the facing in the list; it follows when the inlay changes.
-  That is the height of the facing's own file. In a file for the stock the facing starts
-  where the wood stands on the stock itself, as "Stock, step by step" works it out: a
-  plug that rests a little high is then not run into. If you saw the backer off first,
-  add that as a step, below; the facing then starts at what the saw left.
+  That is the number the panel shows. The facing's files, its own and its part of a file
+  for the stock, start where the wood stands on the stock itself, which is worked out
+  when they are made: a plug that rests a little high is then not run into. If you saw
+  the backer off first, add that as a step, below; the facing then starts at what the
+  saw left.
 - *Depth below the surface* is 0, so the cut ends flush with the stock. A depth under 0
   stops that far above the surface: -0.2 leaves the plug 0.2 mm proud, to sand flush.
-- *Margin* is the plug's own margin, so that the area is the plug's blank.
+- *Take the margin from the inlay's plug* is ticked: the margin is the plug's own, so that
+  the area is the plug's blank, and stays so when the inlay's margin is changed. Untick
+  it to type another.
 
 Choose its end mill and generate its file like any other operation's; run it once the
 glue has set. Once an inlay has such a facing, its panel leads to it instead of offering
@@ -633,8 +636,8 @@ the files are generated again. Generating again does only what the change touche
 lines up to the first one that changed are taken as they came out, so a change near the
 end of the list is quick, and one at its top does everything anew.
 
-Glued-in wood is drawn as a body of its own: a backer stands off the stock by the saw
-gap, and the stock shows under its edge. Apart from where a facing starts, the cuts are
+Glued-in wood is drawn as a body of its own, underside included: a backer stands off the
+stock by the saw gap, and the stock shows under its edge. Apart from where a facing starts, the cuts are
 the ones the lines make on their own: nothing else is recalculated for the wood that is
 on the stock.
 

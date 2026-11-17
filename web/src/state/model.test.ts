@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Step } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -102,7 +102,11 @@ describe("steps", () => {
     expect(trim.name).toBe("Trim Walnut star");
     expect(trim.material).toBe("softwood");
     expect(trim.regionIds).toEqual([1, 2]);
-    expect(trim.task).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, pattern: "raster", toolId: null });
+    expect(trim.task).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, marginAuto: true, pattern: "raster", toolId: null });
+    // Its margin is the inlay's, whatever that is changed to; of shapes that belong to no plug there is none to take.
+    expect(inlayMargin(trim, [inlay, trim])).toBe(8);
+    expect(inlayMargin(trim, [{ ...inlay, task: { ...inlay.task, plugMargin: 11 } as Step["task"] }, trim])).toBe(11);
+    expect(inlayMargin({ ...trim, regionIds: [9] }, [inlay, trim])).toBeNull();
     // Its height comes from the list, so it has nothing left to choose but its tool.
     expect(missingFor({ ...trim, task: { ...trim.task, above: 0, toolId: "t" } as Step["task"] })).toBeNull();
     expect(trim.color).toBeUndefined();

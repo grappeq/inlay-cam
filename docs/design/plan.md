@@ -1069,3 +1069,17 @@ Four things left over from the stock step by step (2026-11-17).
   with nothing changed, the last step changed, a step added, the inlay changed and the
   stock changed, each against a pass from nothing. In the app: glue-up, sawing and trim
   stepped through and turned.
+
+Three more of them (2026-11-18).
+
+- **A trim's margin follows its inlay** (`marginAuto`, `build::facing_margin`): the widest
+  plug margin of the inlays the facing's shapes belong to, in place of a copy made when
+  the trim was added. The trim an inlay adds has it switched on. Such a facing hangs on
+  those inlays, so they are in its key, and it is done again when they change.
+- **A facing's own file starts on the stock too.** `previewPart` asks
+  `timeline::starts_above`, which takes the stock through the list from what the cache
+  holds, and builds the file for that height. The first time that costs what the whole
+  list costs; after it, and after "Stock, step by step" has been opened, next to nothing.
+  The panel still shows the number the inlays give, which needs no simulation.
+- **The underside of glued-in wood** is drawn, a shade darker, and its walls end on it
+  corner by corner in place of the lowest point of the square.

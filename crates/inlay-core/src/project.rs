@@ -542,6 +542,12 @@ pub enum Task {
         /// How far beyond the rectangle around the chosen shapes the area reaches, mm.
         #[serde(default)]
         margin: f64,
+        /// Take the margin from the inlays instead: the widest plug margin
+        /// of the inlays the facing's shapes belong to, so that the area is
+        /// their blank whatever that is changed to. `margin` is used while
+        /// its shapes belong to no such inlay.
+        #[serde(default, skip_serializing_if = "is_false")]
+        margin_auto: bool,
         /// The shape of the tool's path. Side to side by default.
         #[serde(default = "Pattern::raster")]
         pattern: Pattern,
@@ -1298,6 +1304,7 @@ mod tests {
                 above_auto: false,
                 depth: 0.0,
                 margin: 9.0,
+                margin_auto: false,
                 tool_id: Some("t-endmill".into()),
             },
         );
@@ -1364,6 +1371,7 @@ mod tests {
             above_auto: false,
             depth,
             margin: 9.0,
+            margin_auto: false,
             tool_id: None,
         };
         proud.steps[3].task = facing(6.0, -0.2);
