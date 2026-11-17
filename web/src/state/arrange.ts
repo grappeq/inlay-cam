@@ -4,10 +4,13 @@
 //
 // A drawing made of outlines is stored as the areas between them: a plate
 // with a circle drawn on it is the plate with a hole, and the disc that fills
-// the hole. To the user these are two outlines, one inside the other. So the
-// functions here keep the two views in step: a shape always takes along
-// everything inside it, the hole it fills in the shape around it moves with
-// it, and is closed when the shape is deleted or leaves.
+// the hole. To the user these are two outlines, one inside the other, and
+// each is selected and changed by itself. So the functions here act on the
+// outlines they are given and on nothing else, and keep the stored areas in
+// step: the hole an outline fills in the shape around it moves with it, and
+// is closed when the outline is deleted or leaves. What lies inside an
+// outline and is not given with it stays where it is, and gets its hole in
+// whatever is around it afterwards. Outlines given together move together.
 
 import type { Design, DesignRegion, Project, Ring } from "../core/types";
 
@@ -116,7 +119,7 @@ function links(design: Design): Links {
   return out;
 }
 
-/** The shapes with everything that lies inside them, each once. */
+/** The shapes with everything that lies inside them, each once. Nothing is selected this way; it tells what fills what. */
 export function withInside(design: Design, ids: number[]): number[] {
   const { children } = links(design);
   const known = new Set(design.regions.map((r) => r.id));
@@ -138,16 +141,41 @@ export function partOf(design: Design, id: number): number[] {
   return withInside(design, [top]);
 }
 
-/** How many separate parts the drawing has. */
-export function countParts(design: Design): number {
-  const { parent } = links(design);
-  return design.regions.filter((r) => !parent.has(r.id)).length;
-}
-
-/** Of a set of shapes closed under "inside", the outermost ones. */
+/** Of a set of shapes, those whose surrounding shape is not in the set. */
 function tops(design: Design, chosen: Set<number>): number[] {
   const { parent } = links(design);
   return [...chosen].filter((id) => !chosen.has(parent.get(id)?.id ?? -1));
+}
+
+/** The outlines an action is for: the ones named that are in the drawing, each once. */
+function pick(design: Design, ids: number[]): Set<number> {
+  const known = new Set(design.regions.map((r) => r.id));
+  return new Set(ids.filter((id) => known.has(id)));
+}
+
+/**
+ * Lets go of what lies inside the chosen shapes and is not chosen itself:
+ * the holes those shapes fill are closed, and their ids returned as `left`.
+ */
+function release(design: Design, chosen: Set<number>): { design: Design; left: number[] } {
+  const { parent } = links(design);
+  const drop = new Map<number, Set<number>>();
+  const left: number[] = [];
+  for (const [inner, link] of parent) {
+    if (!chosen.has(link.id) || chosen.has(inner)) continue;
+    drop.set(link.id, (drop.get(link.id) ?? new Set()).add(link.hole));
+    left.push(inner);
+  }
+  if (left.length === 0) return { design, left };
+  return {
+    design: { ...design, regions: design.regions.map((r) => (drop.has(r.id) ? { ...r, holes: r.holes.filter((_, h) => !drop.get(r.id)!.has(h)) } : r)) },
+    left,
+  };
+}
+
+/** Cuts the holes again for shapes that were let go of, into whatever each now lies wholly inside. */
+function settle(design: Design, left: number[]): Design {
+  return left.length > 0 ? openHoles(design, left, new Set(left)) : design;
 }
 
 /** Closes the holes that the outermost of the chosen shapes fill in the shapes around them. */
@@ -169,7 +197,7 @@ function closeHoles(design: Design, chosen: Set<number>): Design {
 /**
  * Cuts a hole for each of the given shapes into the shape it now lies
  * wholly inside, if there is one. A shape that only partly covers another
- * is left as it is; `overlapping` reports it.
+ * is left as it is: shapes may lie on top of each other.
  */
 function openHoles(design: Design, moved: number[], chosen: Set<number>): Design {
   let regions = design.regions;
@@ -209,15 +237,15 @@ function chosenBox(design: Design, chosen: Set<number>): Box | null {
 }
 
 /**
- * Applies `f` to the chosen shapes and everything inside them. `flips` says
- * that `f` mirrors. Shapes pushed past the page's left or bottom edge are
- * brought back onto it.
+ * Applies `f` to the chosen outlines. `flips` says that `f` mirrors. Shapes
+ * pushed past the page's left or bottom edge are brought back onto it.
  */
 function transform(design: Design, ids: number[], f: (p: Point) => Point, flips: boolean): Design {
-  const chosen = new Set(withInside(design, ids));
+  const chosen = pick(design, ids);
   if (chosen.size === 0) return design;
-  const moved = tops(design, chosen);
-  const closed = closeHoles(design, chosen);
+  const freed = release(design, chosen);
+  const moved = tops(freed.design, chosen);
+  const closed = closeHoles(freed.design, chosen);
 
   const mapped = (g: (p: Point) => Point, rings: DesignRegion[]) =>
     rings.map((r) => {
@@ -237,7 +265,7 @@ function transform(design: Design, ids: number[], f: (p: Point) => Point, flips:
     flips = false;
     regions = mapped(([x, y]) => [x + dx, y + dy], regions);
   }
-  return grow(openHoles({ ...closed, regions }, moved, chosen));
+  return grow(settle(openHoles({ ...closed, regions }, moved, chosen), freed.left));
 }
 
 export function moveShapes(design: Design, ids: number[], dx: number, dy: number): Design {
@@ -257,7 +285,7 @@ export function scaleShapes(design: Design, ids: number[], factor: number, ancho
  * top-right corner.
  */
 export function stretchShapes(design: Design, ids: number[], fx: number, fy: number, anchor: [number, number]): Design {
-  const box = chosenBox(design, new Set(withInside(design, ids)));
+  const box = chosenBox(design, pick(design, ids));
   if (!box || !(fx > 0) || !(fy > 0) || !Number.isFinite(fx) || !Number.isFinite(fy) || (fx === 1 && fy === 1)) return design;
   const ax = box[0] + anchor[0] * (box[2] - box[0]);
   const ay = box[1] + anchor[1] * (box[3] - box[1]);
@@ -266,14 +294,14 @@ export function stretchShapes(design: Design, ids: number[], fx: number, fy: num
 
 /** Mirrors the shapes in place: left to right ("x") or top to bottom ("y"). */
 export function mirrorShapes(design: Design, ids: number[], axis: "x" | "y"): Design {
-  const box = chosenBox(design, new Set(withInside(design, ids)));
+  const box = chosenBox(design, pick(design, ids));
   if (!box) return design;
   return transform(design, ids, ([x, y]) => (axis === "x" ? [box[0] + box[2] - x, y] : [x, box[1] + box[3] - y]), true);
 }
 
 /** Turns the shapes counter-clockwise by `degrees` about the middle of their box. */
 export function rotateShapes(design: Design, ids: number[], degrees: number): Design {
-  const box = chosenBox(design, new Set(withInside(design, ids)));
+  const box = chosenBox(design, pick(design, ids));
   if (!box || !Number.isFinite(degrees) || degrees % 360 === 0) return design;
   const cx = (box[0] + box[2]) / 2;
   const cy = (box[1] + box[3]) / 2;
@@ -287,7 +315,7 @@ export function rotateShapes(design: Design, ids: number[], degrees: number): De
 
 /** Puts the middle of the shapes on the middle of the board, across ("x") or up ("y"). */
 export function centreShapes(design: Design, ids: number[], axis: "x" | "y"): Design {
-  const box = chosenBox(design, new Set(withInside(design, ids)));
+  const box = chosenBox(design, pick(design, ids));
   if (!box) return design;
   const dx = axis === "x" ? design.width / 2 - (box[0] + box[2]) / 2 : 0;
   const dy = axis === "y" ? design.height / 2 - (box[1] + box[3]) / 2 : 0;
@@ -304,18 +332,19 @@ function withoutShapes(project: Project, gone: Set<number>): Project["jobs"] {
 }
 
 /**
- * Removes the shapes, and everything inside them, from the drawing and from
- * the inlays that used them. The holes they filled are closed. An inlay left
- * without shapes is removed too.
+ * Removes the shapes from the drawing and from the inlays that used them.
+ * The holes they filled are closed. What was inside one stays, as a hole in
+ * whatever is now around it. An inlay left without shapes is removed too.
  */
 export function removeShapes(project: Project, ids: number[]): Project {
   if (!project.design) return project;
-  const gone = new Set(withInside(project.design, ids));
+  const gone = pick(project.design, ids);
   if (gone.size === 0) return project;
+  const { left } = release(project.design, gone);
   const closed = closeHoles(project.design, gone);
   return {
     ...project,
-    design: { ...closed, regions: closed.regions.filter((r) => !gone.has(r.id)) },
+    design: settle({ ...closed, regions: closed.regions.filter((r) => !gone.has(r.id)) }, left),
     jobs: withoutShapes(project, gone),
   };
 }
@@ -323,18 +352,19 @@ export function removeShapes(project: Project, ids: number[]): Project {
 /** The inlays that would lose all their shapes if these were removed. */
 export function emptiedJobs(project: Project, ids: number[]): string[] {
   if (!project.design) return [];
-  const gone = new Set(withInside(project.design, ids));
+  const gone = pick(project.design, ids);
   return project.jobs.filter((j) => j.regionIds.length > 0 && j.regionIds.every((id) => gone.has(id))).map((j) => j.name);
 }
 
-/** Removes every shape but these (and what is inside them), then fits the board to them. */
+/** Removes every shape but these, then fits the board to them. */
 export function keepOnly(project: Project, ids: number[], margin: number): Project {
   if (!project.design) return project;
-  const kept = new Set(withInside(project.design, ids));
+  const kept = pick(project.design, ids);
   if (kept.size === 0) return project;
   const others = project.design.regions.filter((r) => !kept.has(r.id)).map((r) => r.id);
   const gone = new Set(others);
-  const design = { ...project.design, regions: project.design.regions.filter((r) => kept.has(r.id)) };
+  // A kept outline loses the holes of what was inside it and is not kept.
+  const design = { ...project.design, regions: release(project.design, kept).design.regions.filter((r) => kept.has(r.id)) };
   return {
     ...project,
     design: trimBoard(design, margin),
@@ -343,17 +373,18 @@ export function keepOnly(project: Project, ids: number[], margin: number): Proje
 }
 
 /**
- * Copies the shapes, with everything inside them, and puts the copy `gap` to
- * the right of the originals. Returns the new design and the copies' ids.
+ * Copies the shapes and puts the copy `gap` to the right of the originals.
+ * Returns the new design and the copies' ids. A copy has no holes for what
+ * lies inside its original and was not copied with it.
  */
 export function duplicateShapes(design: Design, ids: number[], gap: number): { design: Design; ids: number[] } {
-  const chosen = new Set(withInside(design, ids));
+  const chosen = pick(design, ids);
   const box = chosenBox(design, chosen);
   if (!box) return { design, ids: [] };
   let next = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
   const dx = box[2] - box[0] + gap;
   const shift = (ring: Ring): Ring => ring.map(([x, y]) => [x + dx, y]);
-  const copies = design.regions.filter((r) => chosen.has(r.id)).map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
+  const copies = release(design, chosen).design.regions.filter((r) => chosen.has(r.id)).map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
   const copied = new Set(copies.map((c) => c.id));
   const added = { ...design, regions: [...design.regions, ...copies] };
   return { design: grow(openHoles(added, tops(added, copied), copied)), ids: [...copied] };
@@ -365,7 +396,7 @@ export function duplicateShapes(design: Design, ids: number[], gap: number): { d
  * It joins the drawing as an outline does anywhere here: lying wholly inside
  * another shape it becomes a hole in that shape, and a part that lies wholly
  * inside it becomes a hole in it. An outline that only partly covers another
- * is left as it is; `overlapping` reports it.
+ * is left as it is: shapes may lie on top of each other.
  */
 export function addShape(design: Design, outline: Ring): { design: Design; id: number } {
   const id = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
@@ -400,45 +431,6 @@ export function trimBoard(design: Design, margin: number): Design {
   };
 }
 
-/**
- * Points along an outline to test against another shape: its corners, and
- * points along each side no more than about a millimetre apart, so that two
- * bars crossing each other are noticed although neither has a corner in the
- * other. Outlines that merely run along each other, as a shape and the hole
- * it fills do, are told apart by how deep the points lie, not by whether
- * edges cross: drawn numbers are never exact enough for that.
- */
-function probes(ring: Ring): Point[] {
-  return ring.flatMap((p, i) => {
-    const q = ring[(i + 1) % ring.length];
-    const steps = Math.max(1, Math.min(24, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]))));
-    return Array.from({ length: steps }, (_, k): Point => [p[0] + ((q[0] - p[0]) * k) / steps, p[1] + ((q[1] - p[1]) * k) / steps]);
-  });
-}
-
-/** The ids of shapes that lie partly or wholly on top of another shape's area. */
-export function overlapping(design: Design): number[] {
-  const out = new Set<number>();
-  const boxes = design.regions.map((r) => ringBox(r.outer));
-  for (let i = 0; i < design.regions.length; i++) {
-    for (let k = i + 1; k < design.regions.length; k++) {
-      const a = boxes[i];
-      const b = boxes[k];
-      if (a[0] >= b[2] || b[0] >= a[2] || a[1] >= b[3] || b[1] >= a[3]) continue;
-      const p = design.regions[i];
-      const q = design.regions[k];
-      const hit =
-        probes(p.outer).some((v) => inArea(v, q)) ||
-        probes(q.outer).some((v) => inArea(v, p));
-      if (hit) {
-        out.add(p.id);
-        out.add(q.id);
-      }
-    }
-  }
-  return [...out];
-}
-
 /** The shapes whose outlines lie wholly inside a box given in the design's millimetres. */
 export function shapesInBox(design: Design, box: Box): number[] {
   return design.regions
@@ -458,7 +450,7 @@ export interface Placed {
 
 /** The selection's box as it lies on the board: left, bottom, width, height, in board millimetres. */
 export function placedBox(design: Design, ids: number[]): Placed | null {
-  const box = chosenBox(design, new Set(withInside(design, ids)));
+  const box = chosenBox(design, pick(design, ids));
   if (!box) return null;
   const s = design.scale;
   return {

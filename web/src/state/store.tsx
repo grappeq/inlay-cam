@@ -5,7 +5,6 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type
 import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
-import { partOf, withInside } from "./arrange";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots } from "./model";
 
@@ -46,8 +45,6 @@ export interface AppState {
   stage: Stage;
   /** The drawing is being edited (the screens' "Edit"): shapes are drawn, and clicks select shapes to move, resize or delete. */
   arranging: boolean;
-  /** While arranging, a click selects the whole part a shape belongs to. */
-  wholeParts: boolean;
   /** While arranging, the shape a drag on the stock draws. Without one, a drag selects and moves. */
   drawTool: DrawTool | null;
   /** What the drawing tools take besides the drag: corner radius, sides. */
@@ -106,7 +103,6 @@ export type Action =
   /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
   | { type: "addDrawing"; design: Design; replace: boolean }
   | { type: "setArranging"; on: boolean }
-  | { type: "setWholeParts"; on: boolean }
   | { type: "setDrawTool"; tool: DrawTool | null }
   | { type: "setDrawOptions"; options: DrawOptions }
   | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[] }
@@ -133,7 +129,6 @@ const initial: AppState = {
   combined: null,
   stage: "drawing",
   arranging: false,
-  wholeParts: true,
   drawTool: null,
   drawOptions: DEFAULT_DRAW_OPTIONS,
   undo: [],
@@ -256,8 +251,6 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "setArranging":
       return { ...state, arranging: action.on, drawTool: null, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
-    case "setWholeParts":
-      return { ...state, wholeParts: action.on };
     case "setDrawTool":
       // A drawing tool starts with nothing selected: the selection's frame would be in its way.
       return { ...state, drawTool: action.tool, selection: action.tool ? [] : state.selection, lastEdit: null };
@@ -321,13 +314,9 @@ function normalised(project: Project): Project {
 
 function clickRegion(state: AppState, id: number, add: boolean): AppState {
   if (state.arranging && state.project.design) {
-    // A shape is picked with everything inside it; a whole part, from its outermost outline in.
-    const ids = state.wholeParts ? partOf(state.project.design, id) : withInside(state.project.design, [id]);
-    if (!add) return { ...state, selection: ids };
-    const selection = state.selection.includes(id)
-      ? state.selection.filter((r) => !ids.includes(r))
-      : [...state.selection, ...ids.filter((r) => !state.selection.includes(r))];
-    return { ...state, selection };
+    // One outline is picked, without what lies inside it.
+    if (!add) return { ...state, selection: [id] };
+    return { ...state, selection: state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id] };
   }
   const owner = regionOwners(state.project.jobs).get(id);
   const active = state.project.jobs.find((j) => j.id === state.activeJobId);

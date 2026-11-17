@@ -2,13 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { Design, DesignRegion, Project, Ring } from "../core/types";
 import {
   boxOf,
-  countParts,
   duplicateShapes,
   emptiedJobs,
   keepOnly,
   mirrorShapes,
   moveShapes,
-  overlapping,
   partOf,
   removeShapes,
   rotateShapes,
@@ -70,7 +68,6 @@ describe("parts", () => {
     const d = design();
     expect(sorted(partOf(d, 2))).toEqual([0, 1, 2]);
     expect(partOf(d, 3)).toEqual([3]);
-    expect(countParts(d)).toBe(2);
     expect(sorted(withInside(d, [1]))).toEqual([1, 2]);
   });
 
@@ -95,8 +92,8 @@ describe("parts", () => {
 });
 
 describe("deleting", () => {
-  it("closes the hole the shape filled and takes along what was inside it", () => {
-    const p = removeShapes(project(), [1]);
+  it("of an outline and what is inside it closes the hole they filled", () => {
+    const p = removeShapes(project(), [1, 2]);
     expect(sorted(p.design!.regions.map((r) => r.id))).toEqual([0, 3]);
     expect(shape(p.design!, 0).holes).toEqual([]);
   });
@@ -126,36 +123,22 @@ describe("deleting", () => {
 
 describe("moving", () => {
   it("takes the hole along while the shape stays inside the plate", () => {
-    const d = moveShapes(design(), [1], 5, 0);
+    const d = moveShapes(design(), [1, 2], 5, 0);
     expect(boxOf([shape(d, 2)])).toEqual([30, 25, 40, 35]);
     expect(shape(d, 0).holes.length).toBe(1);
     expect(Math.min(...shape(d, 0).holes[0].map((p) => p[0]))).toBe(25);
     expect(sorted(partOf(d, 1))).toEqual([0, 1, 2]);
-    expect(overlapping(d)).toEqual([]);
   });
 
   it("into another plate closes the old hole and opens one there", () => {
-    const d = moveShapes(design(), [1], 70, 0);
+    const d = moveShapes(design(), [1, 2], 70, 0);
     expect(shape(d, 0).holes).toEqual([]);
     expect(shape(d, 3).holes.length).toBe(1);
     expect(area(shape(d, 3).holes[0])).toBeLessThan(0);
     expect(sorted(partOf(d, 2))).toEqual([1, 2, 3]);
-    expect(overlapping(d)).toEqual([]);
   });
 
-  it("onto another shape's edge is allowed, and reported", () => {
-    const d = moveShapes(design(), [3], -30, 0);
-    expect(sorted(overlapping(d))).toEqual([0, 3]);
-  });
-
-  it("reports bars that cross without a corner in each other, but not outlines that nearly coincide", () => {
-    const d = design();
-    d.regions = [
-      { id: 0, outer: square(0, 20, 100, 24), holes: [] },
-      { id: 1, outer: square(30, 0, 34, 50), holes: [] },
-    ];
-    expect(sorted(overlapping(d))).toEqual([0, 1]);
-
+  it("takes a disc for what fills a hole although the two outlines are a rounding error apart", () => {
     // A disc in its hole, the two outlines a rounding error apart.
     const circle = (r: number, turn: number): Ring =>
       Array.from({ length: 64 }, (_, i) => [50 + r * Math.cos((i / 64) * 2 * Math.PI + turn), 30 + r * Math.sin((i / 64) * 2 * Math.PI + turn)]);
@@ -164,7 +147,6 @@ describe("moving", () => {
       { id: 0, outer: square(10, 5, 90, 55), holes: [[...circle(12 + 1.2e-7, 0)].reverse()] },
       { id: 1, outer: circle(12, 1e-8), holes: [] },
     ];
-    expect(overlapping(e)).toEqual([]);
     expect(sorted(partOf(e, 1))).toEqual([0, 1]);
   });
 
@@ -179,7 +161,8 @@ describe("moving", () => {
 
 describe("resizing, mirroring and turning", () => {
   it("keep outlines counter-clockwise and holes clockwise", () => {
-    for (const d of [mirrorShapes(design(), [0], "x"), mirrorShapes(design(), [0], "y"), rotateShapes(design(), [0], 90), scaleShapes(design(), [0], 0.5, "left")]) {
+    const all = [0, 1, 2];
+    for (const d of [mirrorShapes(design(), all, "x"), mirrorShapes(design(), all, "y"), rotateShapes(design(), all, 90), scaleShapes(design(), all, 0.5, "left")]) {
       for (const id of [0, 1, 2]) {
         expect(area(shape(d, id).outer)).toBeGreaterThan(0);
         for (const h of shape(d, id).holes) expect(area(h)).toBeLessThan(0);
@@ -189,16 +172,16 @@ describe("resizing, mirroring and turning", () => {
   });
 
   it("mirror in place", () => {
-    const d = mirrorShapes(design(), [0], "x");
+    const d = mirrorShapes(design(), [0, 1, 2], "x");
     expect(boxOf([shape(d, 0)])).toEqual([10, 10, 70, 50]);
     // The ring was 10 from the plate's left edge; now it is 10 from its right.
     expect(boxOf([shape(d, 1)])).toEqual([40, 20, 60, 40]);
   });
 
   it("turn about the middle, exactly for quarter turns", () => {
-    const d = rotateShapes(design(), [0], 90);
+    const d = rotateShapes(design(), [0, 1, 2], 90);
     expect(boxOf([shape(d, 0)])).toEqual([20, 0, 60, 60]);
-    const back = rotateShapes(d, [0], -90);
+    const back = rotateShapes(d, [0, 1, 2], -90);
     expect(boxOf([shape(back, 1)])).toEqual([20, 20, 40, 40]);
   });
 
@@ -208,10 +191,9 @@ describe("resizing, mirroring and turning", () => {
     const middle = stretchShapes(design(), [3], 0.5, 0.5, [0.5, 0.5]);
     expect(boxOf([shape(middle, 3)])).toEqual([90, 20, 110, 40]);
     // The ring and the disc in the plate stretch with it, and stay its hole.
-    const plate = stretchShapes(design(), [0], 1, 0.5, [0, 1]);
+    const plate = stretchShapes(design(), [0, 1, 2], 1, 0.5, [0, 1]);
     expect(boxOf([shape(plate, 1)])).toEqual([20, 35, 40, 45]);
     expect(sorted(partOf(plate, 2))).toEqual([0, 1, 2]);
-    expect(overlapping(plate)).toEqual([]);
   });
 
   it("know how far a box can grow before it leaves the board", () => {
@@ -229,15 +211,12 @@ describe("resizing, mirroring and turning", () => {
 
 describe("copying", () => {
   it("makes a second part beside the first, with new ids", () => {
-    const { design: d, ids } = duplicateShapes(design(), [0], 5);
+    const { design: d, ids } = duplicateShapes(design(), [0, 1, 2], 5);
     expect(ids.length).toBe(3);
     expect(new Set([...ids, 0, 1, 2, 3]).size).toBe(7);
-    expect(countParts(d)).toBe(3);
     const outerCopy = d.regions.find((r) => ids.includes(r.id) && r.outer.length === 4 && boxOf([r])![2] - boxOf([r])![0] === 60)!;
     expect(boxOf([outerCopy])).toEqual([75, 10, 135, 50]);
     expect(sorted(partOf(d, outerCopy.id))).toEqual(sorted(ids));
-    // The copy lands on the second plate, which is reported.
-    expect(overlapping(d).length).toBeGreaterThan(0);
   });
 });
 
@@ -251,5 +230,50 @@ describe("the board", () => {
 
   it("finds the shapes inside a dragged box", () => {
     expect(sorted(shapesInBox(design(), [15, 15, 45, 45]))).toEqual([1, 2]);
+  });
+});
+
+describe("an outline without what is inside it", () => {
+  it("moves without what is inside it, and the holes follow where everything lies", () => {
+    // The ring leaves the first plate for the second; its disc stays behind.
+    const d = moveShapes(design(), [1], 65, 0);
+    expect(boxOf([shape(d, 1)])).toEqual([85, 20, 105, 40]);
+    expect(boxOf([shape(d, 2)])).toEqual([25, 25, 35, 35]);
+    expect(shape(d, 1).holes).toEqual([]);
+    // The first plate's hole is now the disc's; the second plate has one for the ring.
+    expect(shape(d, 0).holes.length).toBe(1);
+    expect(area(shape(d, 0).holes[0])).toBe(-100);
+    expect(shape(d, 3).holes.length).toBe(1);
+    expect(area(shape(d, 3).holes[0])).toBe(-400);
+    expect(sorted(partOf(d, 2))).toEqual([0, 2]);
+    expect(sorted(partOf(d, 1))).toEqual([1, 3]);
+  });
+
+  it("is resized about what stays inside it", () => {
+    const d = stretchShapes(design(), [1], 1.2, 1.2, [0.5, 0.5]);
+    expect(boxOf([shape(d, 1)])).toEqual([18, 18, 42, 42]);
+    expect(boxOf([shape(d, 2)])).toEqual([25, 25, 35, 35]);
+    expect(shape(d, 1).holes.length).toBe(1);
+    expect(area(shape(d, 1).holes[0])).toBe(-100);
+    expect(area(shape(d, 0).holes[0])).toBeCloseTo(-576, 9);
+    expect(sorted(partOf(d, 2))).toEqual([0, 1, 2]);
+  });
+
+  it("is deleted without what is inside it", () => {
+    const p = removeShapes(project(), [1]);
+    expect(sorted(p.design!.regions.map((r) => r.id))).toEqual([0, 2, 3]);
+    expect(shape(p.design!, 0).holes.length).toBe(1);
+    expect(area(shape(p.design!, 0).holes[0])).toBe(-100);
+    // The outermost outline goes, and what was in it is a part of its own.
+    const q = removeShapes(project(), [0]);
+    expect(sorted(q.design!.regions.map((r) => r.id))).toEqual([1, 2, 3]);
+    expect(sorted(partOf(q.design!, 2))).toEqual([1, 2]);
+  });
+
+  it("is copied without the holes of what is inside it", () => {
+    const { design: d, ids } = duplicateShapes(design(), [1], 100);
+    expect(ids.length).toBe(1);
+    expect(shape(d, ids[0]).holes).toEqual([]);
+    expect(shape(d, 1).holes.length).toBe(1);
   });
 });

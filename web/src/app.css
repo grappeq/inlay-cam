@@ -1216,10 +1216,6 @@ legend .check {
   border-radius: 6px;
   pointer-events: none;
 }
-.region.overlap {
-  stroke: var(--danger);
-  stroke-width: 3;
-}
 .canvas.arranging .region.selected {
   fill: var(--select);
   fill-opacity: 1;

@@ -279,13 +279,16 @@ the selection's position and size as numbers. The panel at the side shows what i
 selected, the stock's size and the keys. "Pick shapes", or "Done editing" in the panel,
 goes back.
 
-The app treats the drawing as outlines here: an outline takes along everything inside it, the hole it makes in the
-shape around it moves with it, and the hole closes when the outline is deleted.
+The app treats the drawing as outlines here, and each outline is a shape of its own. A
+shape that lies inside another, such as the disc in a ring, is not part of it: moving,
+resizing or deleting the ring leaves the disc where it is. The hole a shape makes in the
+shape around it follows the shape, and closes when the shape is deleted or moved out.
 
 Selecting:
 
-- Click a part to select it. A part is an outer outline with everything inside it. Untick
-  "Select whole parts" to pick an outline inside a part, such as a hole or a letter.
+- Click a shape to select it: that one outline, without what lies inside it. To take a
+  part with everything in it, drag a box around it, or Shift-click its shapes. Shapes
+  selected together move together.
 - Shift-click adds to the selection or takes away from it. Drag across empty board to
   select what the box encloses. Click empty board, or press Escape, to clear it.
 - The size and position of the selection are shown under the drawing, and in the fields
@@ -322,9 +325,11 @@ The board and the view:
   view; double-click empty board, or press "Whole board", to see all of it.
 
 Shapes keep their inlays when they are moved, resized or turned. A shape dropped wholly
-inside another becomes a hole in it, as if it had been drawn there. Shapes that lie
-partly on top of each other are outlined in red and listed; move them apart before making
-inlays from them. There is no snapping or aligning of one part to another.
+inside another becomes a hole in it, as if it had been drawn there. Shapes may lie
+partly on top of each other, and filled shapes of an imported drawing stay whole where
+one covers another: the app does not cut one around the other. Shapes of one inlay are
+merged; two inlays over the same wood only work cut one after the other, the second into
+the first once it is glued in. There is no snapping or aligning of one part to another.
 
 ### Drawing shapes
 
@@ -348,8 +353,9 @@ A drawn shape is an outline like any imported one, and from then on it is nothin
 a circle is not kept as a circle, and its curve is made of straight runs that stay within
 0.01 mm of it, as imported curves are. It joins the drawing as outlines do: drawn wholly
 inside another shape it is a hole in that shape and the piece that fills it, and drawn
-around other parts it gets a hole for each. Drawn partly over another shape, the two are
-outlined in red like any others that overlap. Nothing is drawn past the stock's left or
+around other parts it gets a hole for each. It stays a shape of its own either way: a
+click selects it without what is inside it. Drawn partly over another shape, both
+stay whole. Nothing is drawn past the stock's left or
 bottom edge; the stock grows to the right and upwards when a shape reaches past it.
 
 ## 3. Make an inlay

@@ -868,3 +868,28 @@ as well; the code still says `arranging`. And the toolbar keeps its height: the
 selection's numbers are always there, empty without a selection, and a drawing tool's
 options lie over them. Before, the bar changed height with every selection, and the
 drawing under it moved.
+
+Found by the user the same day: a rectangle drawn around a picture could not be selected
+without the shapes in it, so it could not be moved, resized or deleted by itself. Since a
+drawn shape gets holes for what it is drawn around, it was the outside of those shapes,
+and an outline always took along what is inside it.
+
+A choice of three ways to select was built first (whole parts, an outline with what is
+inside it, one outline alone) and found too much: the user asked for the last as the only
+one. So selecting changed for imported drawings too. A click selects one outline, and the
+functions of `state/arrange.ts` act on the outlines they are given and nothing else: they
+let go of what is inside (`release`), act, and cut the holes again from where everything
+then lies (`settle`). "Select whole parts" is gone; a part with everything in it is
+selected by dragging a box around it. Outlines selected together still move as one, holes
+and all.
+
+Not done: an outline moved or resized gets no holes for shapes it newly comes to lie
+around; only what it held before is looked at. Such shapes are reported as overlapping.
+
+The red marking of shapes that lie on top of each other is gone, with its warning
+(2026-11-17). It asked the user to move such shapes apart "before making inlays from
+them", and nothing after the drawing needed that: an inlay is the union of its shapes,
+and the core never looked at the check. A filled drawing of a disc with a star on it came
+in all red, though the star cut into the glued-in disc is an inlay in an inlay. The one
+case it could have warned of, two inlays cut in one go over the same wood, cannot be told
+from the drawing.

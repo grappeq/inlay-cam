@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
-import { addShape, moveOnBoard, overlapping, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
+import { addShape, moveOnBoard, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
 import { drawnRing } from "../state/shapes";
 import { fmt, isInlay, jobColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
@@ -123,7 +123,6 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   // A plain operation uses shapes without owning them; they are marked while it is open.
   const used = useMemo(() => new Set(active && !isInlay(active.inlay) ? active.regionIds : []), [active]);
   const wood = stockColor(project);
-  const overlaps = useMemo(() => (arranging ? new Set(overlapping(design)) : new Set<number>()), [arranging, design]);
 
   const width = design.width * design.scale;
   const height = design.height * design.scale;
@@ -310,9 +309,13 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
       const ring = done?.kind === "draw" ? done.ring : null;
       if (!from.moved || !ring) return;
       // The new shape comes in selected, with the tool put away: it can be moved, or its size typed, at once.
-      const { id } = addShape(design, ring);
+      const added = addShape(design, ring);
       dispatch({ type: "setDrawTool", tool: null });
-      dispatch({ type: "editDrawing", update: (p) => (p.design ? { ...p, design: addShape(p.design, ring).design } : p), select: [id] });
+      dispatch({
+        type: "editDrawing",
+        update: (p) => (p.design ? { ...p, design: addShape(p.design, ring).design } : p),
+        select: [added.id],
+      });
       return;
     }
     if (from.kind === "handle") {
@@ -386,7 +389,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="group"
         aria-label={
-          drawTool ? `Drawing. Drag on the stock to draw ${drawTool === "ellipse" ? "an" : "a"} ${drawTool}.` : arranging ? "Drawing, being edited. Click a part to select it, drag it to move it." : "Drawing. Click a shape to select it."
+          drawTool ? `Drawing. Drag on the stock to draw ${drawTool === "ellipse" ? "an" : "a"} ${drawTool}.` : arranging ? "Drawing, being edited. Click a shape to select it, drag it to move it." : "Drawing. Click a shape to select it."
         }
         style={{ "--shape-edge": inkOn(wood) } as React.CSSProperties}
         onPointerDown={onPointerDown}
@@ -414,9 +417,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
               data-region={id}
               d={d}
               fillRule="evenodd"
-              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}${
-                overlaps.has(id) ? " overlap" : ""
-              }`}
+              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}`}
               // The selection colour wins over the inlay's.
               style={owner && !selected ? { fill: jobColor(owner, project.jobs) } : undefined}
               transform={selected ? shift : undefined}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Ring } from "../core/types";
-import { addShape, overlapping, partOf, removeShapes } from "./arrange";
+import { addShape, partOf, removeShapes } from "./arrange";
 import { DEFAULT_DRAW_OPTIONS, FLATTEN, drawnRing, ellipseRing, polygonRing, rectangleRing } from "./shapes";
 
 const area = (ring: Ring) => ring.reduce((sum, [x, y], i) => sum + x * ring[(i + 1) % ring.length][1] - ring[(i + 1) % ring.length][0] * y, 0) / 2;
@@ -140,7 +140,6 @@ describe("a drawn shape joins the drawing", () => {
     expect(id).toBe(5);
     expect(d.regions.length).toBe(3);
     expect(shape(d, 5).holes).toEqual([]);
-    expect(overlapping(d)).toEqual([]);
   });
 
   it("on an empty stock", () => {
@@ -159,7 +158,6 @@ describe("a drawn shape joins the drawing", () => {
     expect(shape(d, 0).holes.length).toBe(1);
     expect(area(shape(d, 0).holes[0])).toBeCloseTo(-area(shape(d, id).outer), 9);
     expect(partOf(d, id).sort()).toEqual([0, id]);
-    expect(overlapping(d)).toEqual([]);
     // Deleting it closes the hole again.
     const project = { design: d, jobs: [] } as unknown as Parameters<typeof removeShapes>[0];
     expect(shape(removeShapes(project, [id]).design!, 0).holes).toEqual([]);
@@ -169,14 +167,12 @@ describe("a drawn shape joins the drawing", () => {
     const { design: d, id } = addShape(design(), square(5, 5, 75, 55));
     expect(shape(d, id).holes.length).toBe(2);
     expect(partOf(d, 0).sort()).toEqual([0, 4, id]);
-    expect(overlapping(d)).toEqual([]);
   });
 
-  it("and is reported when it only partly covers another", () => {
+  it("and is left whole, like the other, when it only partly covers it", () => {
     const { design: d, id } = addShape(design(), square(40, 40, 60, 60));
     expect(shape(d, id).holes).toEqual([]);
     expect(shape(d, 0).holes).toEqual([]);
-    expect(overlapping(d).sort()).toEqual([0, id]);
   });
 
   it("and makes the stock grow to hold it", () => {

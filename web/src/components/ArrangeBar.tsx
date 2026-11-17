@@ -12,7 +12,6 @@ import {
   rotateOnBoard,
   stretchLimits,
   stretchOnBoard,
-  withInside,
 } from "../state/arrange";
 import { DRAW_LIMITS, type DrawTool } from "../state/shapes";
 import { useApp, useDispatch } from "../state/store";
@@ -114,13 +113,13 @@ export function ArrangeBar({ design }: { design: Design }) {
   };
   const none = selection.length === 0;
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
-  const everything = withInside(design, selection).length === design.regions.length;
+  const everything = selection.length === design.regions.length;
 
   const remove = () => {
     if (none) return;
     if (everything) return say("This would leave the stock without shapes. To start over, replace the drawing.");
     const inUse = new Set(project.jobs.flatMap((j) => j.regionIds));
-    const used = withInside(design, selection).filter((id) => inUse.has(id)).length;
+    const used = selection.filter((id) => inUse.has(id)).length;
     const emptied = emptiedJobs(project, selection);
     const consequence =
       emptied.length > 0
@@ -136,7 +135,7 @@ export function ArrangeBar({ design }: { design: Design }) {
   };
   const keep = () => {
     if (none || everything) return;
-    const kept = withInside(design, selection);
+    const kept = selection;
     const others = design.regions.length - kept.length;
     const emptied = emptiedJobs(
       project,
