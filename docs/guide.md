@@ -528,7 +528,10 @@ inlay's glue-up when the list has one, else at the end:
 - *Take the wood above the surface from the list* is ticked. The height the cut starts at
   is then how far the plug stands above the stock by the inlay's own numbers, as long as
   the inlay's glue-up is above the facing in the list; it follows when the inlay changes.
-  If you saw the backer off first, untick the box and type what is left standing.
+  That is the height of the facing's own file. In a file for the stock the facing starts
+  where the wood stands on the stock itself, as "Stock, step by step" works it out: a
+  plug that rests a little high is then not run into. If you saw the backer off first,
+  add that as a step, below; the facing then starts at what the saw left.
 - *Depth below the surface* is 0, so the cut ends flush with the stock. A depth under 0
   stops that far above the surface: -0.2 leaves the plug 0.2 mm proud, to sand flush.
 - *Margin* is the plug's own margin, so that the area is the plug's blank.
@@ -551,13 +554,21 @@ stock only, not the wood standing on it; "Stock, step by step" shows the plug to
 
 Gluing a plug or inserts in is done by hand, and has no file. It can still be a line of
 the list: **Glue-up**, under "Steps done by hand" where inlays and operations are added,
-adds it for every inlay that has none yet, or for the inlays of the selected shapes. An
+adds it. With one inlay that has none yet it is for that one; with several it asks which,
+by name and wood, or takes all of them; with shapes selected it is for their inlays. An
 inlay's own panel has "Add the glue-up as a step" as well, under **The glue-up, and after
 it**. The step goes in right after its inlay, drawn with a dashed edge.
 
 Its place in the list is what it says. The lines above it find the stock without the plug;
 the lines below it find the plug on the stock. Drag it like any other line. Deleting an
 inlay deletes its glue-up with it.
+
+**Saw off the backer**, beside it, is the other step done by hand, for a plug on a backer
+that has its glue-up in the list; it asks which plug in the same way, and the inlay's
+panel offers it too. It goes in after the
+glue-up. Its one number is how far above the surface the saw leaves the plug standing,
+which starts at the inlay's saw gap: the most the saw can leave. From that step on the
+backer is gone, with all of the blank around the shapes, and the plug stands that high.
 
 A glue-up is also where the machine stops, so it splits the list into files: once the list
 has one, every line shows the file for the stock it is cut by, "file 1", "file 2".
@@ -614,15 +625,18 @@ its file.
   go on from there.
 - A line that runs into wood it did not expect is marked with "!": an operation put
   before the facing that trims a plug travels through the plug, and the simulation says
-  so with the G-code line. A facing that starts lower than the wood stands is told how
-  far the tool would go into it at once.
+  so with the G-code line. A facing with a height typed in that starts lower than the wood
+  stands is told how far the tool would go into it at once.
 
 After a change to the project the tab and the view say so, and the downloads wait until
-the files are generated again.
+the files are generated again. Generating again does only what the change touches: the
+lines up to the first one that changed are taken as they came out, so a change near the
+end of the list is quick, and one at its top does everything anew.
 
-The backer of a plug is drawn solid down to the stock, though it stands off it by the saw
-gap. Apart from where a facing starts, the cuts are the ones the lines make on their own:
-nothing else is recalculated for the wood that is on the stock.
+Glued-in wood is drawn as a body of its own: a backer stands off the stock by the saw
+gap, and the stock shows under its edge. Apart from where a facing starts, the cuts are
+the ones the lines make on their own: nothing else is recalculated for the wood that is
+on the stock.
 
 ## 5. Generate and check
 

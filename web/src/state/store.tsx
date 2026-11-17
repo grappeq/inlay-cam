@@ -6,7 +6,7 @@ import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
@@ -332,7 +332,7 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   const active = state.project.steps.find((j) => j.id === state.activeStepId);
 
   // A step done by hand has no shapes of its own.
-  if (active?.task.type === "glue") return state;
+  if (active && isByHand(active.task)) return state;
   if (active) {
     // A shape is one wood, so one inlay; a plain operation takes any shape.
     if (isInlay(active.task) && owner && owner.id !== active.id) {

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Built, Step, StockFile, StockTimeline, TimelineStep } from "../core/types";
-import { fmt, stepColor } from "../state/model";
+import { fmt, isByHand, stepColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
@@ -26,7 +26,7 @@ function rows(result: StockTimeline, steps: Step[]): Row[] {
   result.steps.forEach((step, index) => {
     if (step.byHand) {
       const listed = steps.find((j) => j.id === step.stepId);
-      if (listed?.task.type === "glue") part(listed.task.inlayId);
+      if (listed && isByHand(listed.task)) part(listed.task.inlayId);
       out.push({ kind: "hand", step, at: index + 1 });
       return;
     }
@@ -101,14 +101,15 @@ export function FilesList() {
                 if (row.kind === "hand") {
                   const { step } = row;
                   const listed = made.steps.find((j) => j.id === step.stepId);
-                  const inlay = listed?.task.type === "glue" ? made.steps.find((j) => listed.task.type === "glue" && j.id === listed.task.inlayId) : undefined;
+                  const by = listed?.task;
+                  const inlay = by && isByHand(by) ? made.steps.find((j) => j.id === by.inlayId) : undefined;
                   return (
                     <li className="file-row by-hand" key={`hand ${step.stepId}`}>
                       <span className="file-row-n">{n}</span>
                       <div className="file-row-main">
                         <button className="link" onClick={() => show(row.at)} title="Show the stock after this step in 3D">
                           <span className="job-icon" style={inlay ? { color: stepColor(inlay, made.steps) } : undefined}>
-                            <StepIcon type="glue" />
+                            <StepIcon type={by?.type === "saw" ? "saw" : "glue"} />
                           </span>
                           {name(step.stepId)}
                         </button>

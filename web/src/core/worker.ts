@@ -43,7 +43,7 @@ const api: CoreApi = {
       return {
         ...info,
         steps: info.steps.map((step: object, i: number) => ({ ...step, path: timeline.path(i) })),
-        snapshots: [...Array(info.steps.length + 1).keys()].map((i) => ({ heights: timeline.heights(i), owners: timeline.owners(i) })),
+        snapshots: [...Array(info.steps.length + 1).keys()].map((i) => ({ heights: timeline.heights(i), owners: timeline.owners(i), unders: timeline.unders(i), floors: timeline.floors(i) })),
       };
     } finally {
       timeline.free();

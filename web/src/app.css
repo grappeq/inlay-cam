@@ -3720,3 +3720,28 @@ ul.plain {
 .files-foot button {
   flex: none;
 }
+
+/* Which inlay a step done by hand is for, when there are several */
+.pick-inlay {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  margin: 6px 0 2px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.pick-inlay .muted {
+  flex: 1 0 100%;
+  font-size: 12px;
+}
+.pick-inlay button:not(.link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 13px;
+}

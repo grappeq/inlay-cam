@@ -7,7 +7,10 @@
 //! is then there for the steps that follow, to be faced off, cut into, or
 //! run into.
 
-use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use serde::Serialize;
 
@@ -118,6 +121,41 @@ impl Workpiece {
         }
     }
 
+    /// Saws the wood of one glue-up off level, `leave` above the stock's
+    /// surface: what it has above that is gone, and where all of it was
+    /// above, as a backer is, the surface is what lay under it. Returns how
+    /// far above the saw's level its top stood.
+    fn saw(&mut self, body: usize, leave: f32) -> f32 {
+        let Some(wood) = self.bodies.get(body) else {
+            return 0.0;
+        };
+        let mut over = 0.0f32;
+        for j in 0..wood.h {
+            for i in 0..wood.w {
+                let (k, cell) = (j * wood.w + i, (wood.y0 + j) * self.map.nx + wood.x0 + i);
+                if wood.under[k].is_nan() || self.owner[cell] != body as u8 + 1 {
+                    continue;
+                }
+                over = over.max(self.map.z[cell] - leave);
+                self.map.z[cell] = self.map.z[cell].min(leave);
+            }
+        }
+        self.settle();
+        over
+    }
+
+    /// The highest the surface stands within a rectangle of the stock.
+    fn top_in(&self, rect: [f64; 4]) -> Option<f64> {
+        let (x0, y0, w, h) = self.window(rect)?;
+        let mut top = f32::NEG_INFINITY;
+        for j in 0..h {
+            for i in 0..w {
+                top = top.max(self.map.at(x0 + i, y0 + j));
+            }
+        }
+        Some(top as f64)
+    }
+
     /// The cells of the grid that lie within the rectangle, as a window:
     /// first cell and size.
     fn window(&self, [x0, y0, x1, y1]: [f64; 4]) -> Option<(usize, usize, usize, usize)> {
@@ -136,22 +174,46 @@ impl Workpiece {
         let (dx, dy) = (nx.div_ceil(stride), ny.div_ceil(stride));
         let mut heights = Vec::with_capacity(dx * dy);
         let mut owners = Vec::with_capacity(dx * dy);
+        let mut unders = Vec::with_capacity(dx * dy);
+        let mut floors = Vec::with_capacity(dx * dy);
         for j in 0..dy {
             for i in 0..dx {
-                let mut lowest = (f32::INFINITY, 0);
+                let mut lowest = (f32::INFINITY, 0u8);
+                let mut at = 0;
                 for jj in j * stride..((j + 1) * stride).min(ny) {
                     for ii in i * stride..((i + 1) * stride).min(nx) {
                         let cell = jj * nx + ii;
                         if self.map.z[cell] < lowest.0 {
                             lowest = (self.map.z[cell], self.owner[cell]);
+                            at = cell;
                         }
                     }
                 }
                 heights.push(lowest.0);
                 owners.push(lowest.1);
+                // Under glued-in wood: where its underside is, and the surface it was put on.
+                let below = (lowest.1 > 0)
+                    .then(|| &self.bodies[lowest.1 as usize - 1])
+                    .and_then(|wood| {
+                        let (x, y) = (at % nx, at / nx);
+                        (x >= wood.x0
+                            && y >= wood.y0
+                            && x < wood.x0 + wood.w
+                            && y < wood.y0 + wood.h)
+                            .then(|| (y - wood.y0) * wood.w + x - wood.x0)
+                            .map(|k| (wood.under[k], wood.floor[k]))
+                    })
+                    .unwrap_or((f32::NAN, f32::NAN));
+                unders.push(below.0);
+                floors.push(below.1);
             }
         }
-        Snapshot { heights, owners }
+        Snapshot {
+            heights,
+            owners,
+            unders,
+            floors,
+        }
     }
 }
 
@@ -188,6 +250,9 @@ pub struct StepRun {
     pub warnings: Vec<String>,
     /// A glue-up: how the part sits.
     pub seat: Option<Seat>,
+    /// A facing that takes the wood above the surface from the list: the
+    /// height it was given, as measured on the stock, mm.
+    pub starts_above: Option<f64>,
 }
 
 impl StepRun {
@@ -201,6 +266,7 @@ impl StepRun {
             errors: Vec::new(),
             warnings: Vec::new(),
             seat: None,
+            starts_above: None,
         }
     }
 }
@@ -238,13 +304,32 @@ pub struct PartFile {
 }
 
 /// The stock at one point of the list, thinned for drawing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Snapshot {
     /// Height per cell, row by row from Y = 0.
     pub heights: Vec<f32>,
     /// Whose wood each cell is in: 0 for the stock's own, else the number
     /// of an entry of [`Timeline::glued`], counted from 1.
     pub owners: Vec<u8>,
+    /// Where a cell is in glued-in wood: the height of that wood's
+    /// underside there. NaN elsewhere.
+    pub unders: Vec<f32>,
+    /// And the surface that wood was put on, which shows where it stands
+    /// off it. NaN elsewhere.
+    pub floors: Vec<f32>,
+}
+
+/// Two are the same when every cell is: "no wood here" is the same as itself.
+impl PartialEq for Snapshot {
+    fn eq(&self, other: &Self) -> bool {
+        let same = |a: &[f32], b: &[f32]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+        };
+        same(&self.heights, &other.heights)
+            && self.owners == other.owners
+            && same(&self.unders, &other.unders)
+            && same(&self.floors, &other.floors)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -265,7 +350,52 @@ pub struct Timeline {
     /// The plug or insert file of every inlay, in the order of the list.
     pub parts: Vec<PartFile>,
     /// The fresh stock, then the stock after each step.
-    pub snapshots: Vec<Snapshot>,
+    pub snapshots: Vec<Rc<Snapshot>>,
+}
+
+/// The stock is kept after each of this many steps at the end of the list,
+/// to go on from when the list is taken through again. Each is a copy of
+/// the whole block.
+const KEPT_STOCKS: usize = 24;
+
+/// What one step came to, kept to be used again while nothing before the
+/// step, and nothing of it, has changed.
+#[derive(Debug, Clone)]
+struct Outcome {
+    /// Problems found while cutting, each with its line counted from where
+    /// the step begins in its file.
+    problems: Vec<(u32, String)>,
+    /// What a step done by hand could not do.
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    seat: Option<Seat>,
+    starts_above: Option<f64>,
+    snapshot: Rc<Snapshot>,
+    /// The stock after the step.
+    after: Option<Rc<Workpiece>>,
+}
+
+/// What taking a project's stock through its list came to last time. Given
+/// to [`timeline_with`] again, only the steps from the first that changed
+/// are built, glued and cut anew.
+#[derive(Debug, Default)]
+pub struct Cache {
+    plugs: HashMap<u64, Rc<Result<Preview, Vec<String>>>>,
+    builds: HashMap<u64, Rc<Result<Built, Vec<String>>>>,
+    outcomes: HashMap<u64, Outcome>,
+    /// How many steps the last call did anew.
+    pub redone: usize,
+}
+
+/// A number for what something hangs on: `seed` for what came before, and
+/// the texts that come with it.
+fn hash_of(seed: u64, parts: &[&str]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    for part in parts {
+        part.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Takes the stock through every inlay and operation of the project, in the
@@ -274,45 +404,110 @@ pub struct Timeline {
 /// says why and leaves the stock as it was; the steps after it go on from
 /// there.
 pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
+    timeline_with(project, &mut Cache::default())
+}
+
+/// As [`timeline`], going on from what `cache` holds of the last time: the
+/// steps up to the first that has changed are not done again.
+pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, Vec<String>> {
     let design = project
         .design
         .as_ref()
         .ok_or_else(|| vec!["The project has no design.".to_string()])?;
     let (width, height) = design.placed_size();
     let simulated_cell = HeightMap::cell_for(width, height, 2_000_000.0, 0.05);
-    let mut stock = Workpiece::new(width, height, simulated_cell);
-    let stride = stock
-        .map
-        .nx
-        .max(stock.map.ny)
-        .div_ceil(DISPLAY_CELLS)
-        .max(1);
+    let fresh = Workpiece::new(width, height, simulated_cell);
+    let (nx, ny) = (fresh.map.nx, fresh.map.ny);
+    let stride = nx.max(ny).div_ceil(DISPLAY_CELLS).max(1);
     let several = file_numbers(project).iter().flatten().max() > Some(&1);
+    let count = project.steps.len();
+
+    // What a step's outcome hangs on: everything that is not a step, then
+    // every step up to it. A glue-up or a sawing also hangs on its inlay,
+    // wherever in the list that is.
+    let text = |step: &Step| serde_json::to_string(step).unwrap_or_default();
+    let base = {
+        let mut bare = project.clone();
+        bare.steps.clear();
+        hash_of(0, &[&serde_json::to_string(&bare).unwrap_or_default()])
+    };
+    let texts: Vec<String> = project.steps.iter().map(text).collect();
+    let mut keys: Vec<u64> = Vec::with_capacity(count);
+    for (index, step) in project.steps.iter().enumerate() {
+        let before = keys.last().copied().unwrap_or(base);
+        let other = match &step.task {
+            Task::Glue { inlay_id } | Task::Saw { inlay_id, .. } => project
+                .steps
+                .iter()
+                .position(|s| &s.id == inlay_id)
+                .map_or("", |at| texts[at].as_str()),
+            _ => "",
+        };
+        keys.push(hash_of(before, &[texts[index].as_str(), other]));
+    }
 
     // Every inlay's plug or inserts, simulated on their own board: what a
     // glue-up puts on the stock, and a file to cut either way.
-    let mut plugs: HashMap<&str, Result<Preview, Vec<String>>> = project
-        .steps
-        .iter()
-        .filter(|step| step.task.is_inlay())
-        .map(|step| {
-            (
-                step.id.as_str(),
-                build::preview(project, &step.id, Part::Plug),
-            )
-        })
-        .collect();
+    let mut used_plugs: HashSet<u64> = HashSet::new();
+    let mut plugs: HashMap<&str, Rc<Result<Preview, Vec<String>>>> = HashMap::new();
+    for (index, step) in project.steps.iter().enumerate() {
+        if !step.task.is_inlay() {
+            continue;
+        }
+        let key = hash_of(base, &[texts[index].as_str()]);
+        used_plugs.insert(key);
+        let plug = cache
+            .plugs
+            .entry(key)
+            .or_insert_with(|| Rc::new(build::preview(project, &step.id, Part::Plug)))
+            .clone();
+        plugs.insert(step.id.as_str(), plug);
+    }
 
+    // Where to go on from: after the last step that is known and has its
+    // stock kept. Everything before it is taken as it came out last time.
+    let known = keys
+        .iter()
+        .take_while(|key| cache.outcomes.contains_key(key))
+        .count();
+    let resume = (0..=known)
+        .rev()
+        .find(|&r| r == 0 || cache.outcomes[&keys[r - 1]].after.is_some())
+        .unwrap_or(0);
+    cache.redone = count - resume;
+    let stock = if resume == 0 {
+        fresh
+    } else {
+        (**cache.outcomes[&keys[resume - 1]].after.as_ref().unwrap()).clone()
+    };
+
+    let mut pass = Pass {
+        project,
+        base,
+        texts: &texts,
+        keys: &keys,
+        resume,
+        stride,
+        stock,
+        cache,
+        used_builds: HashSet::new(),
+    };
     let mut glued: Vec<String> = Vec::new();
     let mut files: Vec<StockFile> = Vec::new();
     let mut steps: Vec<StepRun> = Vec::new();
-    let mut snapshots = vec![stock.snapshot(stride)];
+    let flat = (nx.div_ceil(stride)) * (ny.div_ceil(stride));
+    let mut snapshots = vec![Rc::new(Snapshot {
+        heights: vec![0.0; flat],
+        owners: vec![0; flat],
+        unders: vec![f32::NAN; flat],
+        floors: vec![f32::NAN; flat],
+    })];
     // The entries since the last step done by hand.
-    let mut run: Vec<&Step> = Vec::new();
-    for index in 0..=project.steps.len() {
+    let mut run: Vec<usize> = Vec::new();
+    for index in 0..=count {
         let step = project.steps.get(index);
-        if let Some(step) = step.filter(|j| !j.task.is_by_hand()) {
-            run.push(step);
+        if step.is_some_and(|s| !s.task.is_by_hand()) {
+            run.push(index);
             continue;
         }
         if !run.is_empty() {
@@ -321,7 +516,7 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
             } else {
                 "stock".to_string()
             };
-            let (file, cut) = cut_run(project, &mut stock, &run, &label, files.len(), stride);
+            let (file, cut) = pass.cut_run(&run, &label, files.len());
             files.push(file);
             for (went, snapshot) in cut {
                 steps.push(went);
@@ -330,55 +525,38 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
             run.clear();
         }
         let Some(step) = step else { break };
-        let Task::Glue { inlay_id } = &step.task else {
-            continue;
-        };
-        let mut went = StepRun::of(step, None);
-        let later = project.steps[index..].iter().any(|j| &j.id == inlay_id);
-        match glue(
-            project,
-            &mut stock,
-            inlay_id,
-            glued.contains(inlay_id),
-            &plugs,
-        ) {
-            Ok(seat) => {
-                glued.push(inlay_id.clone());
-                let name = name_of(project, inlay_id);
-                if later {
-                    went.warnings.push(format!(
-                        "The pocket of \"{name}\" is cut later in the list, so there is nothing to glue into yet. Move this step below it."
-                    ));
-                } else if seat.proud > PROUD {
-                    went.warnings.push(format!(
-                        "It rests {} mm higher than designed: something on the stock holds it up.",
-                        num(seat.proud)
-                    ));
-                }
-                went.seat = Some(seat);
-            }
-            Err(errors) => went.errors = errors,
+        let (went, snapshot) = pass.by_hand(index, step, &glued, &plugs);
+        if let (Task::Glue { inlay_id }, Some(_)) = (&step.task, &went.seat) {
+            glued.push(inlay_id.clone());
         }
         steps.push(went);
-        snapshots.push(stock.snapshot(stride));
+        snapshots.push(snapshot);
     }
+
+    // What is not part of this list any more is let go.
+    let Pass {
+        cache, used_builds, ..
+    } = pass;
+    cache.outcomes.retain(|key, _| keys.contains(key));
+    cache.builds.retain(|key, _| used_builds.contains(key));
+    cache.plugs.retain(|key, _| used_plugs.contains(key));
 
     let parts = project
         .steps
         .iter()
         .filter_map(|step| {
-            let part = plugs.remove(step.id.as_str())?;
-            Some(match part {
+            let part = plugs.get(step.id.as_str())?;
+            Some(match part.as_ref() {
                 Ok(preview) => PartFile {
                     step_id: step.id.clone(),
-                    built: Some(preview.built),
+                    built: Some(preview.built.clone()),
                     errors: Vec::new(),
-                    problems: preview.problems,
+                    problems: preview.problems.clone(),
                 },
                 Err(errors) => PartFile {
                     step_id: step.id.clone(),
                     built: None,
-                    errors,
+                    errors: errors.clone(),
                     problems: Vec::new(),
                 },
             })
@@ -387,8 +565,8 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
 
     Ok(Timeline {
         cell: simulated_cell * stride as f64,
-        nx: stock.map.nx.div_ceil(stride),
-        ny: stock.map.ny.div_ceil(stride),
+        nx: nx.div_ceil(stride),
+        ny: ny.div_ceil(stride),
         simulated_cell,
         thickness: project.base.thickness,
         glued,
@@ -421,111 +599,335 @@ pub fn file_numbers(project: &Project) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// Makes the one file of a run of entries and cuts the stock with it, entry
-/// by entry. Returns the file, and each entry as it went with the stock
-/// after it.
-fn cut_run(
-    project: &Project,
-    stock: &mut Workpiece,
-    run: &[&Step],
-    label: &str,
-    file: usize,
+/// What one part cuts the stock with: its moves, the tools by their
+/// numbers, how deep the stock goes, and the line of its file it begins on.
+type Stretch = (Vec<Segment>, HashMap<u32, Tool>, f64, u32);
+
+/// One going through the list: the stock as it stands, and what is known
+/// from the last time.
+struct Pass<'a> {
+    project: &'a Project,
+    base: u64,
+    texts: &'a [String],
+    keys: &'a [u64],
+    /// The first step that is done anew. The stock is the one after the
+    /// step before it.
+    resume: usize,
     stride: usize,
-) -> (StockFile, Vec<(StepRun, Snapshot)>) {
-    let parts: Vec<Result<Built, Vec<String>>> = run
-        .iter()
-        .map(|step| build::build(project, &step.id, Part::Pocket))
-        .collect();
-    let good: Vec<(&str, &Built)> = run
-        .iter()
-        .zip(&parts)
-        .filter_map(|(step, part)| part.as_ref().ok().map(|built| (step.name.as_str(), built)))
-        .collect();
-    let mut record = StockFile {
-        step_ids: run.iter().map(|step| step.id.clone()).collect(),
-        built: None,
-        complete: good.len() == parts.len(),
-        errors: Vec::new(),
-        problems: Vec::new(),
-    };
-    let tools_of = |built: &Built| -> HashMap<u32, Tool> {
-        built
-            .program
-            .tools
-            .iter()
-            .map(|t| (t.number, t.tool.clone()))
-            .collect()
-    };
+    stock: Workpiece,
+    cache: &'a mut Cache,
+    used_builds: HashSet<u64>,
+}
 
-    // What each part that could be made cuts the stock with: its stretch of
-    // the joined file, or its own file when they could not be joined.
-    let mut stretches: Vec<(Vec<Segment>, HashMap<u32, Tool>, f64)> = Vec::new();
-    match (!good.is_empty()).then(|| build::join(project, &good, label)) {
-        Some(Ok(joined)) => {
-            let tools = tools_of(&joined.built);
-            let thickness = joined.built.stock.thickness + joined.built.stock.through;
-            for (k, from) in joined.starts.iter().enumerate() {
-                let to = joined.starts.get(k + 1).copied().unwrap_or(u32::MAX);
-                let segments = joined
-                    .built
-                    .interpreted
-                    .segments
+impl Pass<'_> {
+    /// Keeps what a step came to, with the stock after it if the step is
+    /// near enough to the end of the list.
+    fn keep(&mut self, index: usize, went: &StepRun, start: u32) -> Rc<Snapshot> {
+        let snapshot = Rc::new(self.stock.snapshot(self.stride));
+        let after = (index + KEPT_STOCKS >= self.keys.len()).then(|| Rc::new(self.stock.clone()));
+        self.cache.outcomes.insert(
+            self.keys[index],
+            Outcome {
+                problems: went
+                    .problems
                     .iter()
-                    .filter(|s| s.line >= *from && s.line < to)
-                    .cloned()
-                    .collect();
-                stretches.push((segments, tools.clone(), thickness));
-            }
-            record.built = Some(joined.built);
-        }
-        Some(Err(errors)) => {
-            record.errors = errors;
-            record.complete = false;
-            for (_, built) in &good {
-                stretches.push((
-                    built.interpreted.segments.clone(),
-                    tools_of(built),
-                    built.stock.thickness + built.stock.through,
-                ));
-            }
-        }
-        None => {}
+                    .map(|p| (p.line.saturating_sub(start), p.message.clone()))
+                    .collect(),
+                errors: if went.by_hand {
+                    went.errors.clone()
+                } else {
+                    Vec::new()
+                },
+                warnings: went.warnings.clone(),
+                seat: went.seat,
+                starts_above: went.starts_above,
+                snapshot: snapshot.clone(),
+                after,
+            },
+        );
+        snapshot
     }
 
-    let mut stretches = stretches.into_iter();
-    let mut cut: Vec<(StepRun, Snapshot)> = Vec::new();
-    for (step, part) in run.iter().zip(&parts) {
-        let mut went = StepRun::of(step, Some(file));
-        match (part, stretches.next()) {
-            (Ok(_), Some((segments, tools, thickness))) => {
-                went.warnings
-                    .extend(facing_start_warning(project, stock, step));
-                went.problems =
-                    sim::simulate_segments(&mut stock.map, &segments, &tools, thickness);
-                stock.settle();
-                record.problems.extend(went.problems.iter().cloned());
-                went.segments = segments;
-            }
-            (Err(errors), _) => went.errors = errors.clone(),
-            (Ok(_), None) => {}
+    /// A step as it came out last time. `start` is where it begins in its
+    /// file now.
+    fn known(&self, index: usize, went: &mut StepRun, start: u32) -> Rc<Snapshot> {
+        let outcome = &self.cache.outcomes[&self.keys[index]];
+        went.problems = outcome
+            .problems
+            .iter()
+            .map(|(line, message)| SimProblem {
+                line: start + line,
+                message: message.clone(),
+            })
+            .collect();
+        if went.by_hand {
+            went.errors = outcome.errors.clone();
         }
-        cut.push((went, stock.snapshot(stride)));
+        went.warnings = outcome.warnings.clone();
+        went.seat = outcome.seat;
+        went.starts_above = outcome.starts_above;
+        outcome.snapshot.clone()
     }
-    (record, cut)
+
+    /// A step done by hand: a glue-up, or the sawing off of a backer.
+    fn by_hand(
+        &mut self,
+        index: usize,
+        step: &Step,
+        glued: &[String],
+        plugs: &HashMap<&str, Rc<Result<Preview, Vec<String>>>>,
+    ) -> (StepRun, Rc<Snapshot>) {
+        let mut went = StepRun::of(step, None);
+        if index < self.resume {
+            let snapshot = self.known(index, &mut went, 0);
+            return (went, snapshot);
+        }
+        let project = self.project;
+        match &step.task {
+            Task::Glue { inlay_id } => {
+                let later = project.steps[index..].iter().any(|j| &j.id == inlay_id);
+                match glue(
+                    project,
+                    &mut self.stock,
+                    inlay_id,
+                    glued.contains(inlay_id),
+                    plugs,
+                ) {
+                    Ok(seat) => {
+                        let name = name_of(project, inlay_id);
+                        if later {
+                            went.warnings.push(format!(
+                                "The pocket of \"{name}\" is cut later in the list, so there is nothing to glue into yet. Move this step below it."
+                            ));
+                        } else if seat.proud > PROUD {
+                            went.warnings.push(format!(
+                                "It rests {} mm higher than designed: something on the stock holds it up.",
+                                num(seat.proud)
+                            ));
+                        }
+                        went.seat = Some(seat);
+                    }
+                    Err(errors) => went.errors = errors,
+                }
+            }
+            Task::Saw { inlay_id, leave } => {
+                let name = name_of(project, inlay_id);
+                match glued.iter().position(|id| id == inlay_id) {
+                    None => went.errors.push(format!(
+                        "\"{name}\" is not glued in when the list gets here, so there is no backer to saw off. Put this step below its glue-up."
+                    )),
+                    Some(body) => {
+                        let over = self.stock.saw(body, *leave as f32);
+                        if over <= SLIVER {
+                            went.warnings.push(format!(
+                                "Nothing of \"{name}\" stands more than {} mm above the surface any more: there is nothing to saw off.",
+                                num(*leave)
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        let snapshot = self.keep(index, &went, 0);
+        (went, snapshot)
+    }
+
+    /// The file of one part cut from the stock, as it was built last time
+    /// or anew. A facing that takes the wood above the surface from the
+    /// list is given what stands on `on`, the stock as it is when the
+    /// facing gets to it.
+    fn part(
+        &mut self,
+        index: usize,
+        on: Option<&Workpiece>,
+    ) -> (Rc<Result<Built, Vec<String>>>, Option<f64>) {
+        let step = &self.project.steps[index];
+        let listed = matches!(
+            step.task,
+            Task::Facing {
+                above_auto: true,
+                ..
+            }
+        );
+        // Such a facing hangs on everything before it; any other part on itself alone.
+        let key = if listed {
+            hash_of(self.keys[index], &["part"])
+        } else {
+            hash_of(self.base, &[self.texts[index].as_str(), "part"])
+        };
+        self.used_builds.insert(key);
+        let standing = (listed && index >= self.resume)
+            .then(|| build::facing_start(self.project, &step.id))
+            .flatten()
+            .and_then(|(rect, _)| on.unwrap_or(&self.stock).top_in(rect))
+            // A hair over, so that the first pass starts in the air.
+            .map(|top| (top.max(0.0) * 100.0).ceil() / 100.0);
+        if !self.cache.builds.contains_key(&key) || (listed && index >= self.resume) {
+            let built = build::build_with(self.project, &step.id, Part::Pocket, standing);
+            self.cache.builds.insert(key, Rc::new(built));
+        }
+        (self.cache.builds[&key].clone(), standing)
+    }
+
+    /// Makes the one file of a run of entries and cuts the stock with it,
+    /// entry by entry. Returns the file, and each entry as it went with the
+    /// stock after it.
+    fn cut_run(
+        &mut self,
+        run: &[usize],
+        label: &str,
+        file: usize,
+    ) -> (StockFile, Vec<(StepRun, Rc<Snapshot>)>) {
+        let project = self.project;
+        let tools_of = |built: &Built| -> HashMap<u32, Tool> {
+            built
+                .program
+                .tools
+                .iter()
+                .map(|t| (t.number, t.tool.clone()))
+                .collect()
+        };
+        let listed = |index: usize| {
+            matches!(
+                project.steps[index].task,
+                Task::Facing {
+                    above_auto: true,
+                    ..
+                }
+            )
+        };
+
+        // The parts, in order. A facing that takes its height from the
+        // stock needs the stock as the parts before it in this file leave
+        // it: those are run on a copy, each from its own file, which cuts
+        // the same wood as its stretch of the joined one.
+        let mut ahead: Option<Workpiece> = None;
+        let mut parts: Vec<Rc<Result<Built, Vec<String>>>> = Vec::new();
+        let mut starts_above: Vec<Option<f64>> = Vec::new();
+        for (k, &index) in run.iter().enumerate() {
+            let (part, standing) = self.part(index, ahead.as_ref());
+            let more = run[k + 1..]
+                .iter()
+                .any(|&later| later >= self.resume && listed(later));
+            if let (true, true, Ok(built)) = (more, index >= self.resume, part.as_ref()) {
+                let copy = ahead.get_or_insert_with(|| self.stock.clone());
+                sim::simulate_segments(
+                    &mut copy.map,
+                    &built.interpreted.segments,
+                    &tools_of(built),
+                    built.stock.thickness + built.stock.through,
+                );
+                copy.settle();
+            }
+            parts.push(part);
+            starts_above.push(standing);
+        }
+        drop(ahead);
+
+        let good: Vec<(&str, &Built)> = run
+            .iter()
+            .zip(&parts)
+            .filter_map(|(&index, part)| {
+                part.as_ref()
+                    .as_ref()
+                    .ok()
+                    .map(|built| (project.steps[index].name.as_str(), built))
+            })
+            .collect();
+        let mut record = StockFile {
+            step_ids: run
+                .iter()
+                .map(|&index| project.steps[index].id.clone())
+                .collect(),
+            built: None,
+            complete: good.len() == parts.len(),
+            errors: Vec::new(),
+            problems: Vec::new(),
+        };
+
+        // What each part that could be made cuts the stock with: its
+        // stretch of the joined file and the line that begins on, or its
+        // own file when they could not be joined.
+        let mut stretches: Vec<Stretch> = Vec::new();
+        match (!good.is_empty()).then(|| build::join(project, &good, label)) {
+            Some(Ok(joined)) => {
+                let tools = tools_of(&joined.built);
+                let thickness = joined.built.stock.thickness + joined.built.stock.through;
+                for (k, from) in joined.starts.iter().enumerate() {
+                    let to = joined.starts.get(k + 1).copied().unwrap_or(u32::MAX);
+                    let segments = joined
+                        .built
+                        .interpreted
+                        .segments
+                        .iter()
+                        .filter(|s| s.line >= *from && s.line < to)
+                        .cloned()
+                        .collect();
+                    stretches.push((segments, tools.clone(), thickness, *from));
+                }
+                record.built = Some(joined.built);
+            }
+            Some(Err(errors)) => {
+                record.errors = errors;
+                record.complete = false;
+                for (_, built) in &good {
+                    stretches.push((
+                        built.interpreted.segments.clone(),
+                        tools_of(built),
+                        built.stock.thickness + built.stock.through,
+                        0,
+                    ));
+                }
+            }
+            None => {}
+        }
+
+        let mut stretches = stretches.into_iter();
+        let mut cut: Vec<(StepRun, Rc<Snapshot>)> = Vec::new();
+        for (k, &index) in run.iter().enumerate() {
+            let step = &project.steps[index];
+            let mut went = StepRun::of(step, Some(file));
+            let stretch = match parts[k].as_ref() {
+                Ok(_) => stretches.next(),
+                Err(errors) => {
+                    went.errors = errors.clone();
+                    None
+                }
+            };
+            let start = stretch.as_ref().map_or(0, |s| s.3);
+            let snapshot = if index < self.resume {
+                let snapshot = self.known(index, &mut went, start);
+                if let Some((segments, ..)) = stretch {
+                    went.segments = segments;
+                }
+                snapshot
+            } else {
+                if let Some((segments, tools, thickness, _)) = stretch {
+                    went.starts_above = starts_above[k];
+                    if went.starts_above.is_none() {
+                        went.warnings
+                            .extend(facing_start_warning(project, &self.stock, step));
+                    }
+                    went.problems =
+                        sim::simulate_segments(&mut self.stock.map, &segments, &tools, thickness);
+                    self.stock.settle();
+                    went.segments = segments;
+                }
+                self.keep(index, &went, start)
+            };
+            record.problems.extend(went.problems.iter().cloned());
+            cut.push((went, snapshot));
+        }
+        (record, cut)
+    }
 }
 
 /// For a facing: what there is to say when more wood stands where it cuts
 /// than it starts above.
 fn facing_start_warning(project: &Project, stock: &Workpiece, step: &Step) -> Option<String> {
     let (rect, above) = build::facing_start(project, &step.id)?;
-    let (x0, y0, w, h) = stock.window(rect)?;
-    let mut top = f32::NEG_INFINITY;
-    for j in 0..h {
-        for i in 0..w {
-            top = top.max(stock.map.at(x0 + i, y0 + j));
-        }
-    }
-    let top = top as f64;
+    let top = stock.top_in(rect)?;
     (top > above + PROUD).then(|| {
         format!(
             "Wood stands {} mm above the surface where this facing cuts, but its first pass starts {} mm above it: the tool would go {} mm into the wood at once.",
@@ -550,7 +952,7 @@ fn glue(
     stock: &mut Workpiece,
     inlay_id: &str,
     done: bool,
-    plugs: &HashMap<&str, Result<Preview, Vec<String>>>,
+    plugs: &HashMap<&str, Rc<Result<Preview, Vec<String>>>>,
 ) -> Result<Seat, Vec<String>> {
     let step: &Step = project
         .steps
@@ -575,6 +977,7 @@ fn glue(
     let plug = plugs
         .get(inlay_id)
         .ok_or_else(not_an_inlay)?
+        .as_ref()
         .as_ref()
         .map_err(|errors| -> Vec<String> {
             errors
@@ -1060,6 +1463,172 @@ mod tests {
             "{:?}",
             t.steps[2].warnings
         );
+    }
+
+    fn saw(leave: f64) -> Step {
+        step(
+            "saw",
+            Task::Saw {
+                inlay_id: "j".into(),
+                leave,
+            },
+        )
+    }
+
+    fn listed_trim(margin: f64) -> Step {
+        let mut step = trim(0.0, margin);
+        if let Task::Facing { above_auto, .. } = &mut step.task {
+            *above_auto = true;
+        }
+        step
+    }
+
+    #[test]
+    fn a_backer_is_sawn_off_and_the_rest_faced_flush() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        p.steps.push(saw(0.5));
+        p.steps.push(listed_trim(8.0));
+        p.validate().unwrap();
+        assert_eq!(file_numbers(&p), vec![Some(1), None, None, Some(2)]);
+        // By the list, half a millimetre is left for the facing.
+        assert!((build::facing_start(&p, "trim").unwrap().1 - 0.5).abs() < 1e-9);
+        let t = timeline(&p).unwrap();
+        for s in &t.steps {
+            assert!(s.errors.is_empty(), "{:?}", s.errors);
+            assert!(s.problems.is_empty(), "{:?}", s.problems);
+            assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        }
+        // Glued in: the backer covers shapes and margin alike, 2 mm up, and
+        // stands off the stock around the shapes.
+        let glued = &t.snapshots[2];
+        let cell = |x: f64, y: f64| (y / t.cell) as usize * t.nx + (x / t.cell) as usize;
+        assert_eq!(at(&t, 2, 2.0, 2.0).1, 1);
+        assert!(glued.unders[cell(2.0, 2.0)] > 1.0 && glued.floors[cell(2.0, 2.0)] == 0.0);
+        assert!(glued.unders[cell(20.0, 15.0)] < -1.9);
+        assert!(glued.unders[cell(58.0, 38.0)].is_nan() == (at(&t, 2, 58.0, 38.0).1 == 0));
+        // Sawn off: the backer is gone, and the plug stands half a millimetre.
+        assert_eq!(at(&t, 3, 2.0, 2.0), (0.0, 0));
+        assert_eq!(at(&t, 3, 37.5, 30.0), (0.0, 0));
+        let (z, owner) = at(&t, 3, 20.0, 15.0);
+        assert!((z - 0.5).abs() < 1e-6 && owner == 1, "{z} {owner}");
+        // Faced: flush, from where the stock says the wood stands.
+        assert!((t.steps[3].starts_above.unwrap() - 0.5).abs() < 0.011);
+        let (z, owner) = at(&t, 4, 20.0, 15.0);
+        assert!(z.abs() < 0.02 && owner == 1, "{z} {owner}");
+
+        // Sawn before it is glued in, and sawn where nothing stands any more.
+        let mut early = backer_project();
+        early.steps.push(saw(0.5));
+        early.steps.push(glue_up());
+        let t = timeline(&early).unwrap();
+        assert!(t.steps[1].errors[0].contains("not glued in"));
+        assert_eq!(t.snapshots[1], t.snapshots[2]);
+        let mut twice = p.clone();
+        twice.steps.push(Step {
+            id: "again".into(),
+            ..saw(0.5)
+        });
+        let t = timeline(&twice).unwrap();
+        assert!(t.steps[4].warnings[0].contains("nothing to saw off"));
+    }
+
+    #[test]
+    fn a_facing_starts_where_the_wood_stands_on_the_stock() {
+        // Glued in before its pocket is cut, the plug lies on the surface:
+        // 4 mm up, where the inlay's numbers say 2.
+        let mut p = backer_project();
+        p.steps.insert(0, glue_up());
+        p.steps.insert(1, listed_trim(8.0));
+        assert!((build::facing_start(&p, "trim").unwrap().1 - 2.0).abs() < 1e-9);
+        let t = timeline(&p).unwrap();
+        let went = &t.steps[1];
+        assert!(went.errors.is_empty(), "{:?}", went.errors);
+        assert!((went.starts_above.unwrap() - 4.0).abs() < 0.03, "{went:?}");
+        // The file was made for that height: nothing runs into the plug.
+        assert!(went.problems.is_empty(), "{:?}", went.problems);
+        assert!(went.warnings.is_empty(), "{:?}", went.warnings);
+        assert!(at(&t, 2, 20.0, 15.0).0.abs() < 0.02);
+
+        // In one file with a facing before it, it starts where that one left the wood.
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        if let Task::Facing { depth, .. } = &mut p.steps.last_mut().unwrap().task {
+            *depth = 0.0;
+        }
+        let mut rough = trim(2.0, 8.0);
+        rough.id = "rough".into();
+        if let Task::Facing { depth, .. } = &mut rough.task {
+            *depth = -1.0;
+        }
+        p.steps.push(rough);
+        p.steps.push(listed_trim(8.0));
+        let t = timeline(&p).unwrap();
+        assert_eq!(
+            t.files[1].step_ids,
+            vec!["rough".to_string(), "trim".to_string()]
+        );
+        assert!(
+            (t.steps[3].starts_above.unwrap() - 1.0).abs() < 0.03,
+            "{:?}",
+            t.steps[3]
+        );
+        assert!(t.files[1].problems.is_empty(), "{:?}", t.files[1].problems);
+        assert!(at(&t, 4, 20.0, 15.0).0.abs() < 0.02);
+    }
+
+    #[test]
+    fn only_the_steps_from_the_first_that_changed_are_done_again() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        p.steps.push(listed_trim(8.0));
+        let mut cache = Cache::default();
+        let first = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 3);
+        assert_eq!(first, timeline(&p).unwrap());
+        // Nothing changed: nothing is done, and nothing comes out different.
+        let again = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 0);
+        assert_eq!(again, first);
+
+        // The last step changed: it alone is done again.
+        if let Task::Facing { depth, .. } = &mut p.steps[2].task {
+            *depth = 0.5;
+        }
+        let changed = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 1);
+        assert_eq!(changed, timeline(&p).unwrap());
+        assert_ne!(changed.snapshots[3], first.snapshots[3]);
+
+        // A step added at the end; then the inlay changed, which the glue-up hangs on too.
+        p.steps.push(Step {
+            region_ids: vec![1],
+            ..step(
+                "extra",
+                Task::Pocket {
+                    depth: 1.0,
+                    pattern: Pattern::Offset,
+                    direction: PassDirection::Longer,
+                    clearing_tool_ids: vec!["t-endmill".into()],
+                },
+            )
+        });
+        let longer = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 1);
+        assert_eq!(longer, timeline(&p).unwrap());
+        if let Task::Flat { pocket_depth, .. } = &mut p.steps[0].task {
+            *pocket_depth = 1.5;
+        }
+        let deeper = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 4);
+        assert_eq!(deeper, timeline(&p).unwrap());
+
+        // Something that is not a step: everything again.
+        p.base.thickness = 20.0;
+        timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 4);
+        // What is kept is for this list only.
+        assert_eq!(cache.outcomes.len(), 4);
     }
 
     #[test]

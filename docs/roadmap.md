@@ -89,17 +89,15 @@ looked at in 3D after each line. What that makes possible, and is not built:
 
 - **A line left out of its file.** The tick boxes could do that. To decide whether it is
   missed: a line still has a file of its own.
-- **The height of a facing from the simulated stock.** It is taken from the inlays' own
-  numbers, and the simulation only warns when they are too low. A plug that does not seat
-  stands higher than the numbers say.
 - **A trim's margin from the inlay.** It is still a copy, and the facing's panel offers
   to set it again.
-- **Only what changed is worked out again.** Every press of the button builds and
-  simulates the whole list. A change to one line leaves the lines above it as they were.
-- **More steps done by hand**: sawing the backer off, which the trim's "wood above the
-  surface" stands in for today.
-- **The backer drawn as it is.** The 3D view draws a plug solid down to the stock; the
-  saw gap under its backer is not shown.
+- **A facing's own file at the height on the stock.** Its file for the stock starts where
+  the wood stands on the simulated stock; its own file still goes by the inlays' numbers,
+  since it is made without the stock being worked out.
+- **The underside of glued-in wood.** It is drawn from above and from the side; from
+  below there is nothing to see of it.
+- **Sawing as the machine would see it.** What the saw leaves is one typed height, level;
+  a hand saw leaves neither.
 
 ## The screens
 

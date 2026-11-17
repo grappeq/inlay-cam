@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Step } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -152,6 +152,19 @@ describe("steps", () => {
     expect(withoutStep(list, pocket.id)).toEqual([inlay, glue]);
     expect(withoutStep(list, glue.id)).toEqual([inlay, pocket]);
     expect(withoutStep(list, inlay.id)).toEqual([pocket]);
+    // Sawing the backer off: after the glue-up, leaving the saw gap at most; it goes when the backer does.
+    const saw = sawStep(inlay, list)!;
+    expect(saw.task).toEqual({ type: "saw", inlayId: inlay.id, leave: 1.5 });
+    expect([isByHand(saw.task), missingFor(saw), stepToolIds(saw)]).toEqual([true, null, []]);
+    const sawn = insertAfter(list, glue.id, saw);
+    expect(sawOf(inlay, sawn)).toBe(saw);
+    expect(fileNumbers(sawn)).toEqual([1, null, null, 2]);
+    expect(withoutStep(sawn, inlay.id)).toEqual([pocket]);
+    const flat = step("flat", [3]);
+    expect(sawStep(flat, [flat])).toBeNull();
+    const loose = { ...saw, task: { ...saw.task, inlayId: flat.id } as Step["task"] };
+    expect(withoutOrphans([flat, loose])).toEqual([flat]);
+
     // A list with nothing orphaned comes back as it is.
     expect(withoutOrphans(list)).toBe(list);
 

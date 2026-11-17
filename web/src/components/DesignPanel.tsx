@@ -20,7 +20,11 @@ import {
   fmt,
   glueOf,
   glueStep,
+  hasBacker,
   insertAfter,
+  isByHand,
+  sawOf,
+  sawStep,
   isInlay,
   stepColor,
   stepSetup,
@@ -69,7 +73,7 @@ export function DesignPanel({ design }: { design: Design }) {
   const setPage = (page: "list" | "files") => dispatch({ type: "setPanelPage", page });
 
   if (arranging) return <ArrangePanel design={design} />;
-  if (active?.task.type === "glue") return <GlueEditor key={active.id} step={active} />;
+  if (active && isByHand(active.task)) return <HandEditor key={active.id} step={active} />;
   if (active) return isInlay(active.task) ? <StepEditor key={active.id} step={active as InlayStep} /> : <OpEditor key={active.id} step={active} />;
   return (
     <aside className="panel" aria-label="Stock, inlays and operations">
@@ -236,6 +240,7 @@ const OPERATION_HINTS: Record<StepType, string> = {
   contour: "Cuts along the outlines of the shapes: round them, inside them or on them, to a depth or right through.",
   chamfer: "Shapes the top edge along the outlines: bevelled with a V-bit, or rounded over with a corner-rounding (fillet) bit.",
   facing: "Mills an area flat: the whole stock, or the rectangle around the shapes, as when trimming a glued-in plug flush.",
+  saw: "Done by hand, with no file: the backer of a glued-in plug is sawn off, a little above the stock. The facing after it finds only what the saw left standing.",
   glue: "Done by hand, with no file: an inlay's plug or inserts are glued into the pocket. The steps below it in the list find the stock with that wood on it.",
 };
 
@@ -256,13 +261,15 @@ function describeStep(step: Step): string {
     case "chamfer":
       return `Chamfer or rounded edge, ${shapes}`;
     case "glue":
+    case "saw":
       return "By hand, no file";
   }
 }
 
-/** The colour of the wood a line of the list is about: an inlay's own, or that of the inlay a glue-up glues in. */
+/** The colour of the wood a line of the list is about: an inlay's own, or that of the inlay a step done by hand is about. */
 function woodOf(step: Step, steps: Step[]): string | undefined {
-  const inlay = step.task.type === "glue" ? steps.find((j) => j.task.type !== "glue" && step.task.type === "glue" && j.id === step.task.inlayId) : step;
+  const task = step.task;
+  const inlay = isByHand(task) ? steps.find((j) => j.id === task.inlayId) : step;
   return inlay && isInlay(inlay.task) ? stepColor(inlay, steps) : undefined;
 }
 
@@ -305,15 +312,32 @@ function StepsSection({ design }: { design: Design }) {
   const unglued = project.steps.filter((j) => isInlay(j.task) && !glueOf(j, project.steps));
   const pickedInlays = unglued.filter((j) => j.regionIds.some((id) => selection.includes(id)));
   const toGlue = pickedInlays.length > 0 ? pickedInlays : unglued;
-  const addGlueUps = () =>
+  const addGlueUps = (inlays: Step[]) =>
     dispatch({
       type: "updateProject",
       update: (p) => {
         let steps = p.steps;
-        for (const inlay of toGlue) {
+        for (const inlay of inlays) {
           const step = glueStep(inlay, steps);
           // Right after the inlay, whose place in the list is where its pocket is cut.
           if (step) steps = insertAfter(steps, inlay.id, step);
+        }
+        return { ...p, steps };
+      },
+    });
+  // The backers that can be sawn off: of plugs that are glued in, and not sawn off yet.
+  const unsawn = project.steps.filter((j) => hasBacker(j.task) && glueOf(j, project.steps) && !sawOf(j, project.steps));
+  const pickedSawn = unsawn.filter((j) => j.regionIds.some((id) => selection.includes(id)));
+  const toSaw = pickedSawn.length > 0 ? pickedSawn : unsawn;
+  const addSaws = (inlays: Step[]) =>
+    dispatch({
+      type: "updateProject",
+      update: (p) => {
+        let steps = p.steps;
+        for (const inlay of inlays) {
+          const added = sawStep(inlay, steps);
+          // Right after the glue-up: the trim, if there is one, comes after it.
+          if (added) steps = insertAfter(steps, glueOf(inlay, steps)?.id ?? inlay.id, added);
         }
         return { ...p, steps };
       },
@@ -322,6 +346,15 @@ function StepsSection({ design }: { design: Design }) {
   const none = selection.length === 0;
   const several = project.steps.length > 1;
   const sortable = useSortable(project.steps.length, move);
+  // The step done by hand that is being added, while there are several inlays it could be for and one is still to be picked.
+  const [picking, setPicking] = useState<"glue" | "saw" | null>(null);
+  const byHand = (kind: "glue" | "saw") => {
+    const [inlays, add] = kind === "glue" ? ([toGlue, addGlueUps] as const) : ([toSaw, addSaws] as const);
+    // One it can be for: that one. Several: ask which.
+    if (inlays.length === 1) add(inlays);
+    else setPicking(picking === kind ? null : kind);
+  };
+  const candidates = picking === "glue" ? toGlue : picking === "saw" ? toSaw : [];
   // What the kind under the pointer does, in place of a line under every button.
   const [about, setAbout] = useState<StepType | null>(null);
   const choice = (type: StepType, label: string, disabled: boolean) => (
@@ -349,7 +382,7 @@ function StepsSection({ design }: { design: Design }) {
           {project.steps.map((step, index) => (
             <li
               key={step.id}
-              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${step.task.type === "glue" ? " by-hand" : ""}`}
+              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${isByHand(step.task) ? " by-hand" : ""}`}
               {...(several ? sortable.row(index) : {})}
             >
               {several && <Grip {...sortable.grip(index, step.name)} />}
@@ -409,17 +442,59 @@ function StepsSection({ design }: { design: Design }) {
               <button
                 className="choice"
                 disabled={toGlue.length === 0}
+                aria-expanded={toGlue.length > 1 ? picking === "glue" : undefined}
                 title={toGlue.length === 0 ? "Every inlay has its glue-up in the list already." : OPERATION_HINTS.glue}
-                onClick={addGlueUps}
+                onClick={() => byHand("glue")}
                 onPointerEnter={() => setAbout("glue")}
                 onPointerLeave={() => setAbout(null)}
                 onFocus={() => setAbout("glue")}
                 onBlur={() => setAbout(null)}
               >
                 <StepIcon type="glue" />
-                <strong>{toGlue.length > 1 ? `Glue-up, for ${toGlue.length} inlays` : "Glue-up"}</strong>
+                <strong>Glue-up{toGlue.length > 1 ? "…" : ""}</strong>
+              </button>
+              <button
+                className="choice"
+                disabled={toSaw.length === 0}
+                aria-expanded={toSaw.length > 1 ? picking === "saw" : undefined}
+                title={toSaw.length === 0 ? "For a plug on a backer that has its glue-up in the list, and is not sawn off yet." : OPERATION_HINTS.saw}
+                onClick={() => byHand("saw")}
+                onPointerEnter={() => setAbout("saw")}
+                onPointerLeave={() => setAbout(null)}
+                onFocus={() => setAbout("saw")}
+                onBlur={() => setAbout(null)}
+              >
+                <StepIcon type="saw" />
+                <strong>Saw off the backer{toSaw.length > 1 ? "…" : ""}</strong>
               </button>
             </div>
+            {picking && candidates.length > 1 && (
+              <div className="pick-inlay" role="group" aria-label={picking === "glue" ? "Which inlay to glue in" : "Which inlay's backer to saw off"}>
+                <span className="muted">{picking === "glue" ? "Glue in which inlay?" : "Saw the backer off which inlay?"}</span>
+                {candidates.map((inlay) => (
+                  <button
+                    key={inlay.id}
+                    onClick={() => {
+                      (picking === "glue" ? addGlueUps : addSaws)([inlay]);
+                      // The last but one picked leaves one, which needs no asking.
+                      if (candidates.length <= 2) setPicking(null);
+                    }}
+                  >
+                    <span className="swatch" style={{ background: stepColor(inlay, project.steps) }} />
+                    {inlay.name}
+                  </button>
+                ))}
+                <button
+                  className="link"
+                  onClick={() => {
+                    (picking === "glue" ? addGlueUps : addSaws)(candidates);
+                    setPicking(null);
+                  }}
+                >
+                  All {candidates.length}
+                </button>
+              </div>
+            )}
           </>
         )}
         <p className="hint choice-about">
@@ -739,6 +814,12 @@ function TrimOffer({ step }: { step: Step }) {
   const trims = part.what === "plug" && part.above > 0;
   const made = trimOf(step, project.steps);
   const glue = glueOf(step, project.steps);
+  const saw = sawOf(step, project.steps);
+  const addSaw = () => {
+    const added = sawStep(step, project.steps);
+    if (!added) return;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, glueOf(step, p.steps)?.id ?? step.id, added) }) });
+  };
 
   const addGlue = () => {
     const added = glueStep(step, project.steps);
@@ -753,8 +834,8 @@ function TrimOffer({ step }: { step: Step }) {
     // Where the tool list leaves no choice of end mill, make it.
     const endMills = tools.filter((t) => t.kind === "flat_end");
     if (endMills.length === 1) trim.task.toolId = endMills[0].id;
-    // After the glue-up when the list has it: the facing cuts what the glue-up put there.
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, glueOf(step, p.steps)?.id, trim) }) });
+    // After the glue-up, and the sawing, when the list has them: the facing cuts what they leave.
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, (sawOf(step, p.steps) ?? glueOf(step, p.steps))?.id, trim) }) });
     dispatch({ type: "setActiveStep", id: trim.id });
   };
 
@@ -776,6 +857,26 @@ function TrimOffer({ step }: { step: Step }) {
         <button type="button" onClick={addGlue}>
           Add the glue-up as a step
         </button>
+      )}
+      {trims && glue && (
+        <>
+          <p className="hint after-glue">
+            The backer can be sawn off by hand before the plug is trimmed, which leaves the facing little to do. As a step in the list, it tells the facing how
+            much is left standing.
+          </p>
+          {saw ? (
+            <p className="derived">
+              "{saw.name}" is in the list.{" "}
+              <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: saw.id })}>
+                Open it
+              </button>
+            </p>
+          ) : (
+            <button type="button" onClick={addSaw}>
+              Add sawing the backer off as a step
+            </button>
+          )}
+        </>
       )}
       {trims && <TrimPart step={step} above={part.above} made={made} add={add} />}
     </section>
@@ -807,15 +908,20 @@ function TrimPart({ above, made, add }: { step: Step; above: number; made: Step 
   );
 }
 
-/** The panel of a glue-up: a step done by hand, which has a name and a place in the list, and nothing to set. */
-function GlueEditor({ step }: { step: Step }) {
+/** The panel of a step done by hand: a glue-up, or the sawing off of a backer. It has a name and a place in the list, and little to set. */
+function HandEditor({ step }: { step: Step }) {
   const { project } = useApp();
   const dispatch = useDispatch();
-  const inlay = step.task.type === "glue" ? project.steps.find((j) => step.task.type === "glue" && j.id === step.task.inlayId) : undefined;
+  const task = step.task;
+  const inlay = isByHand(task) ? project.steps.find((j) => j.id === task.inlayId) : undefined;
   const part = inlay ? standingPart(inlay) : null;
   const what = part?.what === "inserts" ? "inserts" : "plug";
+  const sawing = task.type === "saw";
   const back = () => dispatch({ type: "setActiveStep", id: null });
-  const before = inlay !== undefined && project.steps.indexOf(step) < project.steps.indexOf(inlay);
+  const at = project.steps.indexOf(step);
+  // A glue-up belongs below its inlay; a sawing below the glue-up.
+  const glue = inlay ? glueOf(inlay, project.steps) : undefined;
+  const before = inlay !== undefined && at < project.steps.indexOf(sawing ? (glue ?? inlay) : inlay);
 
   const remove = () => {
     dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
@@ -823,7 +929,7 @@ function GlueEditor({ step }: { step: Step }) {
   };
 
   return (
-    <aside className="panel" aria-label={`Glue-up ${step.name}`}>
+    <aside className="panel" aria-label={`${sawing ? "Sawing off" : "Glue-up"} ${step.name}`}>
       <div className="panel-scroll">
         <section>
           <div className="editor-head">
@@ -831,8 +937,8 @@ function GlueEditor({ step }: { step: Step }) {
               ‹ All inlays and operations
             </button>
             <span className="tag">
-              <StepIcon type="glue" />
-              Glue-up, by hand
+              <StepIcon type={sawing ? "saw" : "glue"} />
+              {sawing ? "Sawing off, by hand" : "Glue-up, by hand"}
             </span>
           </div>
           <label className="field">
@@ -841,7 +947,8 @@ function GlueEditor({ step }: { step: Step }) {
           </label>
           {inlay && (
             <p className="derived">
-              <span className="swatch" style={{ background: stepColor(inlay, project.steps) }} /> Glues in the {what} of "{inlay.name}".{" "}
+              <span className="swatch" style={{ background: stepColor(inlay, project.steps) }} /> {sawing ? `Saws the backer off the plug of` : `Glues in the ${what} of`} "
+              {inlay.name}".{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: inlay.id })}>
                 Open the inlay
               </button>
@@ -850,19 +957,42 @@ function GlueEditor({ step }: { step: Step }) {
         </section>
         <section>
           <h3>What this step does</h3>
+          {task.type === "saw" ? (
+            <>
+              <p className="hint">
+                Nothing is cut by the machine and there is no file: the backer is sawn off by hand, through the gap between it and the stock. What is left of
+                the plug stands a little above the surface, and nothing of its blank is left around it.
+              </p>
+              <div className="row">
+                <NumberField
+                  label="Left standing above the surface"
+                  unit="mm"
+                  value={task.leave}
+                  onChange={(v) => v !== undefined && dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, task: { ...task, leave: v } }) })}
+                  hint="At most what the saw can leave: the inlay's saw gap."
+                />
+              </div>
+            </>
+          ) : (
+            <p className="hint">
+              Nothing is cut and there is no file: the {what} {what === "plug" ? "is" : "are"} glued into the pocket by hand.
+              {part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}
+            </p>
+          )}
           <p className="hint">
-            Nothing is cut and there is no file: the {what} {what === "plug" ? "is" : "are"} glued into the pocket by hand.
-            {part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}
-          </p>
-          <p className="hint">
-            Its place in the list is what counts. The steps above it find the stock without the {what}; the steps below it find the {what} there, to face{" "}
-            {what === "plug" ? "it" : "them"} off, to cut into {what === "plug" ? "it" : "them"}, or to run into {what === "plug" ? "it" : "them"}. Drag it in
-            the list to move it. "Stock, step by step", above the drawing, shows the stock at every step.
+            Its place in the list is what counts.{" "}
+            {sawing
+              ? "The steps above it find the plug with its backer; the steps below it find what the saw left, and a facing that takes its height from the list starts there."
+              : `The steps above it find the stock without the ${what}; the steps below it find the ${what} there, to face ${what === "plug" ? "it" : "them"} off, to cut into ${
+                  what === "plug" ? "it" : "them"
+                }, or to run into ${what === "plug" ? "it" : "them"}.`}{" "}
+            Drag it in the list to move it. "Stock, step by step", above the drawing, shows the stock at every step.
           </p>
           {before && (
             <p className="status-line warn" role="status">
-              This step is above "{inlay?.name}" in the list, so its pocket is not cut yet when the {what} {what === "plug" ? "is" : "are"} glued in. Move it
-              below.
+              {sawing
+                ? `This step is above the glue-up of "${inlay?.name}" in the list, so there is no backer to saw off yet. Move it below.`
+                : `This step is above "${inlay?.name}" in the list, so its pocket is not cut yet when the ${what} ${what === "plug" ? "is" : "are"} glued in. Move it below.`}
             </p>
           )}
           <div className="row end">
@@ -933,14 +1063,14 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
       {listed && height !== null && (
         <p className={`status-line${height > 0 ? "" : " warn"}`} role="status">
           {height > 0
-            ? `By the glue-ups above this facing in the list, ${fmt(round2(height))} mm of wood stand above the surface where it cuts.`
+            ? `By the glue-ups above this facing in the list, ${fmt(round2(height))} mm of wood stand above the surface where it cuts. Its file for the stock starts where the wood stands on the stock itself, which "Stock, step by step" works out.`
             : "When the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or untick the box and give the height."}
         </p>
       )}
       <p className="hint">
         {whole
           ? "To flatten the stock, give a depth below its surface. The tool runs out over every edge."
-          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, untick the box and give what is left standing."}{" "}
+          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, add that as a step, and the list gives what is left standing."}{" "}
         The surface is where Z0 is set. A depth under 0 stops the cut that far above the surface, to leave the wood standing there a little proud.
       </p>
       {inlays.map((owner) => {

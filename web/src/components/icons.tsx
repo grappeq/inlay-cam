@@ -75,6 +75,16 @@ const STEP_ICONS: Record<StepType, ReactNode> = {
       <path d="M13.5 12l2.5 2-2.5 2" />
     </>
   ),
+  // In section: the plug in its pocket, and the backer coming off above the cut.
+  saw: (
+    <>
+      <path d="M1.5 12.5H5l1.5 3.5h7l1.5-3.5h3.5V18h-17z" {...WOOD} stroke="none" />
+      <path d="M1.5 12.5H5l1.5 3.5h7l1.5-3.5h3.5" />
+      <path d="M7 12.5V9.6h6v2.9" fill="currentColor" fillOpacity="0.45" stroke="none" />
+      <path d="M1.5 8.6h17" strokeDasharray="2 1.6" />
+      <path d="M4 2.5h12v3H4z" fill="currentColor" stroke="none" transform="rotate(-7 10 4)" />
+    </>
+  ),
   // In section: the plug, turned over, going down into its pocket.
   glue: (
     <>

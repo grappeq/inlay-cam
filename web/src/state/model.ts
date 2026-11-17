@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutResult, CuttingSettings, Design, GlueStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutResult, CuttingSettings, Design, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -102,6 +102,8 @@ export function defaultInlay(type: StepType): Task {
       return { type, side: "outside", width: 1, toolId: null };
     case "glue":
       return { type, inlayId: "" };
+    case "saw":
+      return { type, inlayId: "", leave: 1.5 };
   }
 }
 
@@ -118,6 +120,7 @@ export const STEP_LABELS: Record<StepType, string> = {
   contour: "Contour",
   chamfer: "Chamfer",
   glue: "Glue-up",
+  saw: "Sawing off",
 };
 
 /** True for an inlay, which has a second part; false for a plain operation on the stock. */
@@ -126,8 +129,30 @@ export function isInlay(inlay: Task): inlay is TrueInlay {
 }
 
 /** True for a step done by hand, which has no file and no tools. */
-export function isByHand(inlay: Task): inlay is GlueStep {
-  return inlay.type === "glue";
+export function isByHand(inlay: Task): inlay is GlueStep | SawStep {
+  return inlay.type === "glue" || inlay.type === "saw";
+}
+
+/** True for an inlay whose second part is one plug on a backer: a V-carve inlay, or a flat one made that way. */
+export function hasBacker(inlay: Task): boolean {
+  return inlay.type === "vcarve" || (inlay.type === "flat" && inlay.insertStyle === "backer");
+}
+
+/**
+ * The step that saws the backer off an inlay's glued-in plug. What it leaves
+ * standing starts at the saw gap: the saw runs somewhere in it, and at worst
+ * right under the backer. Null for anything without a backer.
+ */
+export function sawStep(owner: Step, existing: Step[]): Step | null {
+  if (!isInlay(owner.task) || !hasBacker(owner.task)) return null;
+  let name = `Saw the backer off ${owner.name}`;
+  for (let n = 2; existing.some((j) => j.name === name); n++) name = `Saw the backer off ${owner.name} ${n}`;
+  return { id: newId(), name, material: owner.material, regionIds: [], task: { type: "saw", inlayId: owner.id, leave: owner.task.sawGap } };
+}
+
+/** The step that saws this inlay's backer off, if the list has one. */
+export function sawOf(owner: Step, steps: Step[]): Step | undefined {
+  return steps.find((j) => j.task.type === "saw" && j.task.inlayId === owner.id);
 }
 
 /**
@@ -152,9 +177,14 @@ export function withoutStep(steps: Step[], id: string): Step[] {
   return withoutOrphans(steps.filter((j) => j.id !== id));
 }
 
-/** The list without glue-ups whose inlay is not in it. The same list when there are none. */
+/** The list without the steps done by hand whose inlay is not in it, or has no backer left to saw off. The same list when there are none. */
 export function withoutOrphans(steps: Step[]): Step[] {
-  const kept = steps.filter((j) => j.task.type !== "glue" || steps.some((other) => other.id === (j.task as GlueStep).inlayId && isInlay(other.task)));
+  const kept = steps.filter((j) => {
+    const task = j.task;
+    if (!isByHand(task)) return true;
+    const inlay = steps.find((other) => other.id === task.inlayId);
+    return inlay !== undefined && isInlay(inlay.task) && (task.type !== "saw" || hasBacker(inlay.task));
+  });
   return kept.length === steps.length ? steps : kept;
 }
 
@@ -273,7 +303,7 @@ export function stepToolIds(step: Step): string[] {
       ? [...inlay.clearingToolIds, inlay.vbitToolId]
       : inlay.type === "flat" || inlay.type === "pocket"
         ? [...inlay.clearingToolIds]
-        : inlay.type === "glue"
+        : inlay.type === "glue" || inlay.type === "saw"
           ? []
           : [inlay.toolId];
   if (step.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(step.cutOutToolId);
@@ -294,7 +324,7 @@ export function cutOutDepth(step: Step, project: Project): number {
 /** What has to be chosen before a step's files can be made, or null when nothing is missing. */
 export function missingFor(step: Step): string | null {
   const inlay = step.task;
-  if (step.regionIds.length === 0 && inlay.type !== "facing" && inlay.type !== "glue") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
+  if (step.regionIds.length === 0 && inlay.type !== "facing" && !isByHand(inlay)) return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
   switch (inlay.type) {
     case "vcarve":
       return inlay.vbitToolId === null ? "Choose a V-bit first, under Wood and tools." : null;
@@ -313,6 +343,7 @@ export function missingFor(step: Step): string | null {
     case "contour":
       return inlay.toolId === null ? "Choose an end mill first." : null;
     case "glue":
+    case "saw":
       return null;
   }
 }

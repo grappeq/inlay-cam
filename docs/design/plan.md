@@ -1032,3 +1032,40 @@ out as the version 2 one. An older build of the app refuses a version 2 file.
 Done as one mechanical renaming with the compilers and the tests as the check, and by hand
 where a name stood for two things: a step of the list and its run in the timeline. The
 names of CSS classes were left (`job-row`), since the stylesheet has a `.step` of its own.
+
+
+Four things left over from the stock step by step (2026-11-17).
+
+- **Sawing the backer off is a step** (`Task::Saw { inlay_id, leave }`), done by hand like
+  a glue-up, so it splits the files too. On the stock it lowers the plug's wood to `leave`
+  above the surface; where all of that wood was higher, as the backer is over the saw
+  gap, nothing is left and the surface is what lay under it. `leave` starts at the
+  inlay's saw gap, the most a saw running in the gap can leave. The height a facing takes
+  from the list goes down to it.
+- **A facing's height from the stock.** `aboveAuto` went by the inlays' numbers, and the
+  simulation warned when a plug stood higher. In a file for the stock the facing is now
+  built for what stands on the stock where it cuts (`build_with`, `Workpiece::top_in`),
+  rounded up to 0.01 so that the first pass starts in the air. For a facing that is not
+  the first part of its file, the parts before it are run on a copy of the stock first,
+  each from its own file. The facing's own file keeps the inlays' numbers: it is made
+  without the stock.
+- **Only what changed is done again** (`timeline::Cache`, held by the wasm module). A
+  step's outcome hangs on everything that is not a step and on every step up to it, a
+  glue-up or sawing also on its inlay; that chain is hashed into one key per step. What
+  is kept per key: the step's problems (lines counted from where it begins, since a tool
+  added later in the same file moves them), warnings, seat, snapshot, and for the last
+  24 steps the stock after it. A new pass finds the first step whose key is unknown,
+  goes back to the nearest kept stock, and goes on from there. Builds and plugs are kept
+  by what they hang on. The files are joined every time: their names and tool lists hang
+  on the whole list, and joining is cheap beside cutting.
+- **Glued-in wood as a body of its own in 3D.** A snapshot also has, per cell in such
+  wood, its underside and the surface it was put on. The board is drawn as what lies
+  under the wood; the wood's top is drawn over it, level to its edge where it stands off
+  what is beside it, with a wall down to its underside, and running on into the board
+  where it sits in it. So the saw gap shows under a backer, and a V-carved plug sawn off
+  above the surface shows the wedge under its rim.
+- Checked by test: sawing, before and after its glue-up and twice; a facing's start on a
+  plug that lies 2 mm high, and after a facing before it in the same file; a second pass
+  with nothing changed, the last step changed, a step added, the inlay changed and the
+  stock changed, each against a pass from nothing. In the app: glue-up, sawing and trim
+  stepped through and turned.

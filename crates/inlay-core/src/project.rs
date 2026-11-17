@@ -599,6 +599,17 @@ pub enum Task {
         /// The id of the step whose plug or inserts are glued in.
         inlay_id: String,
     },
+    /// A step done by hand, with no file: the backer of a glued-in plug
+    /// sawn off, which leaves the plug standing a little above the stock
+    /// and nothing of its blank around it.
+    #[serde(rename_all = "camelCase")]
+    Saw {
+        /// The id of the step whose plug is sawn off.
+        inlay_id: String,
+        /// How far above the stock's surface the saw leaves the plug
+        /// standing, mm.
+        leave: f64,
+    },
 }
 
 /// The finer points of a V-carve inlay. Each has a usual value, is left out
@@ -850,13 +861,26 @@ impl Task {
             Task::Facing { tool_id, .. }
             | Task::Contour { tool_id, .. }
             | Task::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
-            Task::Glue { .. } => Vec::new(),
+            Task::Glue { .. } | Task::Saw { .. } => Vec::new(),
         }
+    }
+
+    /// True for an inlay whose second part is one plug on a backer: a
+    /// V-carve inlay, or a flat one made that way.
+    pub fn has_backer(&self) -> bool {
+        matches!(
+            self,
+            Task::Vcarve { .. }
+                | Task::Flat {
+                    insert_style: InsertStyle::Backer,
+                    ..
+                }
+        )
     }
 
     /// True for a step done by hand, which has no file.
     pub fn is_by_hand(&self) -> bool {
-        matches!(self, Task::Glue { .. })
+        matches!(self, Task::Glue { .. } | Task::Saw { .. })
     }
 
     /// True for an inlay, which has a second part; false for a plain
@@ -876,6 +900,10 @@ impl Task {
         match *self {
             // What it refers to is checked with the rest of the project.
             Task::Glue { .. } => Ok(()),
+            Task::Saw { leave, .. } => check(
+                leave.is_finite() && leave >= 0.0,
+                "what the saw leaves standing must be 0 or more",
+            ),
             Task::Vcarve {
                 engagement_depth,
                 glue_gap,
@@ -1051,6 +1079,14 @@ impl Project {
                 if !glued.is_some_and(|other| other.task.is_inlay()) {
                     return Err(fail(
                         "it glues in an inlay that is not in the project".into(),
+                    ));
+                }
+            }
+            if let Task::Saw { inlay_id, .. } = &step.task {
+                let sawn = self.steps.iter().find(|other| &other.id == inlay_id);
+                if !sawn.is_some_and(|other| other.task.has_backer()) {
+                    return Err(fail(
+                        "it saws the backer off an inlay that is not in the project, or has no backer".into(),
                     ));
                 }
             }
@@ -1390,6 +1426,32 @@ mod tests {
         // A glue-up glues in an inlay, not another glue-up.
         p.steps[1] = glue("glue");
         assert!(p.validate().unwrap_err().contains("not in the project"));
+
+        // Sawing the backer off is a step by hand too, for an inlay that has a backer.
+        let saw = |of: &str, leave: f64| Step {
+            id: "saw".into(),
+            task: Task::Saw {
+                inlay_id: of.into(),
+                leave,
+            },
+            ..glue("j1")
+        };
+        p.steps[1] = glue("j1");
+        p.steps.insert(2, saw("j1", 1.5));
+        let text = project_to_file_json(&p);
+        assert!(text.contains("\"type\": \"saw\"") && text.contains("\"leave\": 1.5"));
+        let read = project_from_file_json(&text).unwrap();
+        assert_eq!(read, p);
+        assert!(read.steps[2].task.is_by_hand() && read.steps[2].tool_ids().is_empty());
+        p.steps[2] = saw("j1", -1.0);
+        assert!(p.validate().unwrap_err().contains("0 or more"));
+        // The sample's second inlay is flat with a backer; make it loose, and it has none.
+        p.steps[2] = saw("j2", 1.0);
+        p.validate().unwrap();
+        if let Task::Flat { insert_style, .. } = &mut p.steps[3].task {
+            *insert_style = InsertStyle::Loose;
+        }
+        assert!(p.validate().unwrap_err().contains("has no backer"));
     }
 
     #[test]

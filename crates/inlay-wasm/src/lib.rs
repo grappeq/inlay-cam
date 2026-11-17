@@ -466,6 +466,7 @@ impl StockTimeline {
                     "errors": step.errors,
                     "warnings": step.warnings,
                     "seat": step.seat,
+                    "startsAbove": step.starts_above,
                 })
             })
             .collect();
@@ -503,6 +504,25 @@ impl StockTimeline {
             .unwrap_or_default()
     }
 
+    /// Where a cell is in glued-in wood at that point: the height of that
+    /// wood's underside. NaN elsewhere.
+    pub fn unders(&self, at: usize) -> Vec<f32> {
+        self.timeline
+            .snapshots
+            .get(at)
+            .map(|s| s.unders.clone())
+            .unwrap_or_default()
+    }
+
+    /// And the surface that wood was put on. NaN elsewhere.
+    pub fn floors(&self, at: usize) -> Vec<f32> {
+        self.timeline
+            .snapshots
+            .get(at)
+            .map(|s| s.floors.clone())
+            .unwrap_or_default()
+    }
+
     /// The tool path of a step: its stretch of its file, as a preview's
     /// path, with the file's lines and tool numbers. Empty for a step
     /// without a file.
@@ -515,14 +535,22 @@ impl StockTimeline {
     }
 }
 
+thread_local! {
+    static TIMELINE: RefCell<inlay_core::timeline::Cache> = RefCell::new(Default::default());
+}
+
 /// Takes the stock through every inlay and operation of the project.
 #[wasm_bindgen(js_name = stockTimeline)]
 pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
-    inlay_core::timeline::timeline(&project)
-        .map(|timeline| StockTimeline { timeline })
-        .map_err(reasons)
+    // What the last call came to is kept, so that only the steps from the
+    // first that changed are done again.
+    TIMELINE.with(|kept| {
+        inlay_core::timeline::timeline_with(&project, &mut kept.borrow_mut())
+            .map(|timeline| StockTimeline { timeline })
+            .map_err(reasons)
+    })
 }
 
 /// Builds the G-code for one part of a step ("pocket" or "plug") and

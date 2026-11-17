@@ -51,6 +51,7 @@ fn part_name(part: Part, task: &Task) -> &'static str {
         (_, Task::Contour { .. }) => "contour",
         (_, Task::Chamfer { .. }) => "chamfer",
         (_, Task::Glue { .. }) => "glue-up",
+        (_, Task::Saw { .. }) => "sawing",
     }
 }
 
@@ -182,6 +183,18 @@ pub fn build_pocket(project: &Project, step_id: &str) -> Result<Built, Vec<Strin
 /// Builds the file for one part of a step. On failure returns every reason
 /// found, in plain words.
 pub fn build(project: &Project, step_id: &str, part: Part) -> Result<Built, Vec<String>> {
+    build_with(project, step_id, part, None)
+}
+
+/// As [`build`], for a facing that takes the wood above the surface from
+/// the list: with `standing`, that height is the one given, as measured on
+/// the stock, in place of the one the inlays' numbers come to.
+pub fn build_with(
+    project: &Project,
+    step_id: &str,
+    part: Part,
+    standing: Option<f64>,
+) -> Result<Built, Vec<String>> {
     let machine = &project.machine;
     let step = project
         .steps
@@ -216,7 +229,9 @@ pub fn build(project: &Project, step_id: &str, part: Part) -> Result<Built, Vec<
             project.base.thickness,
         ),
         // Worked out from the V-bit once it is known.
-        (_, Task::Chamfer { .. } | Task::Glue { .. }) => (0.0, project.base.thickness),
+        (_, Task::Chamfer { .. } | Task::Glue { .. } | Task::Saw { .. }) => {
+            (0.0, project.base.thickness)
+        }
         (Part::Pocket, Task::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
         (
             Part::Pocket,
@@ -327,7 +342,7 @@ pub fn build(project: &Project, step_id: &str, part: Part) -> Result<Built, Vec<
     }
     let cut = match (part, &step.task) {
         // Turned away above.
-        (_, Task::Glue { .. }) => None,
+        (_, Task::Glue { .. } | Task::Saw { .. }) => None,
         (
             _,
             Task::Pocket {
@@ -343,7 +358,10 @@ pub fn build(project: &Project, step_id: &str, part: Part) -> Result<Built, Vec<
                 ..
             },
         ) => {
-            let above = facing_start(project, step_id).map_or(0.0, |(_, above)| above);
+            let above = standing
+                .filter(|_| *above_auto)
+                .or_else(|| facing_start(project, step_id).map(|(_, above)| above))
+                .unwrap_or(0.0);
             if *above_auto && above + depth <= 0.0 {
                 ctx.errors.push(
                     "There is nothing to face: when the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or give the wood above the surface by hand."
@@ -2147,7 +2165,7 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
     };
     let overlap =
         |a: &[f64; 4], b: &[f64; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-    let mut standing: Vec<([f64; 4], f64)> = Vec::new();
+    let mut standing: Vec<(&str, [f64; 4], f64)> = Vec::new();
     for step in &project.steps[..index] {
         match &step.task {
             Task::Glue { inlay_id } => {
@@ -2181,6 +2199,7 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                 if let Some(b) = extent(&design.placed_regions(&inlay.region_ids)) {
                     if height > 0.0 {
                         standing.push((
+                            inlay_id.as_str(),
                             [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin],
                             height,
                         ));
@@ -2193,9 +2212,17 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                     design.placed_size(),
                     *margin,
                 );
-                for (blank, height) in &mut standing {
+                for (_, blank, height) in &mut standing {
                     if overlap(blank, &faced) {
                         *height = height.min((-depth).max(0.0));
+                    }
+                }
+            }
+            // Sawn off: what the saw left is what stands.
+            Task::Saw { inlay_id, leave } => {
+                for (id, _, height) in &mut standing {
+                    if *id == inlay_id.as_str() {
+                        *height = height.min(*leave);
                     }
                 }
             }
@@ -2204,8 +2231,8 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
     }
     standing
         .iter()
-        .filter(|(blank, _)| overlap(blank, &rect))
-        .map(|(_, height)| *height)
+        .filter(|(_, blank, _)| overlap(blank, &rect))
+        .map(|(_, _, height)| *height)
         .fold(0.0, f64::max)
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
-import { fmt, stepColor, stockColor } from "../state/model";
+import { fmt, isByHand, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { StepIcon } from "./icons";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
@@ -152,7 +152,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   const chip = (index: number) => {
     const s = result.steps[index];
     const j = stepOf(s.stepId);
-    const glued = j?.task.type === "glue" ? stepOf(j.task.inlayId) : undefined;
+    const glued = j && isByHand(j.task) ? stepOf(j.task.inlayId) : undefined;
     return (
       <button key={s.stepId} className={s.byHand ? "step by-hand" : "step"} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
         <span className="job-icon" style={glued ? { color: stepColor(glued, made.steps) } : undefined}>
@@ -222,6 +222,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
         thickness={result.thickness}
         color={colors[0]}
         owners={result.snapshots[at].owners}
+        below={result.snapshots[at]}
         colors={colors}
         keepCamera={camera.current}
         simulatedCell={result.simulatedCell}
@@ -264,8 +265,10 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
           ? `Glued in by hand, it stands ${fmt(Math.round(seat.above * 100) / 100)} mm above the surface${
               Math.abs(seat.proud) >= 0.02 ? `, ${fmt(Math.round(Math.abs(seat.proud) * 100) / 100)} mm ${seat.proud > 0 ? "higher" : "lower"} than designed` : ""
             }.`
-          : file?.built
-            ? `Cut by ${file.built.fileName}${file.stepIds.length > 1 ? `, as part ${file.stepIds.indexOf(step.stepId) + 1} of ${file.stepIds.length}` : ""}, into the stock as the step before left it.`
+          : step.byHand
+            ? "Done by hand."
+            : file?.built
+            ? `${step.startsAbove !== null ? `Its first pass starts ${fmt(step.startsAbove)} mm above the surface, where the wood stands on the stock. ` : ""}Cut by ${file.built.fileName}${file.stepIds.length > 1 ? `, as part ${file.stepIds.indexOf(step.stepId) + 1} of ${file.stepIds.length}` : ""}, into the stock as the step before left it.`
             : ""}
       </p>
       {(step.problems.length > 0 || step.warnings.length > 0) && (

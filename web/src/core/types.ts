@@ -358,12 +358,21 @@ export interface GlueStep {
   inlayId: string;
 }
 
+/** A step done by hand, with no file: the backer of a glued-in plug sawn off. */
+export interface SawStep {
+  type: "saw";
+  /** The id of the step whose plug is sawn off. */
+  inlayId: string;
+  /** How far above the stock's surface the saw leaves the plug standing, mm. */
+  leave: number;
+}
+
 /** An inlay proper: a pocket in the stock and the plug or insert that fills it. */
 export type TrueInlay = VcarveInlay | FlatInlay;
 /** A plain operation on the stock: one file, no second part. */
 export type Operation = PocketOp | FacingOp | ContourOp | ChamferOp;
 /** What a step does to the stock. The name is from when the app made inlays only. */
-export type Task = TrueInlay | Operation | GlueStep;
+export type Task = TrueInlay | Operation | GlueStep | SawStep;
 export type StepType = Task["type"];
 
 export interface Step {
@@ -594,6 +603,8 @@ export interface TimelineStep {
   warnings: string[];
   /** A glue-up: where the part rests, how much higher that is than designed, and how far it stands above the surface, mm. */
   seat: { height: number; proud: number; above: number } | null;
+  /** A facing that takes the wood above the surface from the list: the height its file was given, as measured on the stock, mm. */
+  startsAbove: number | null;
   /** The step's stretch of its file as a tool path, as in a preview, with the file's lines and tool numbers. Empty without a file. */
   path: Float32Array;
 }
@@ -628,8 +639,8 @@ export interface StockTimeline {
   /** The plug or insert file of every inlay, in the order of the list: each is cut from a board of its own. */
   parts: { stepId: string; built: Built | null; errors: string[]; problems: { line: number; message: string }[] }[];
   steps: TimelineStep[];
-  /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). */
-  snapshots: { heights: Float32Array; owners: Uint8Array }[];
+  /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). Where a cell is in glued-in wood, `unders` has the height of that wood's underside and `floors` the surface it was put on; NaN elsewhere. */
+  snapshots: { heights: Float32Array; owners: Uint8Array; unders: Float32Array; floors: Float32Array }[];
 }
 
 /** A tool list written for Makera CAM or Makera Studio. */

@@ -50,6 +50,11 @@ interface Props {
   color?: string;
   /** Whose wood each cell is in: 0 for the board's own, else an index into `colors`. Without it the board is one wood. */
   owners?: Uint8Array;
+  /**
+   * With `owners`, for the cells that are in glued-in wood: the height of that wood's underside, and of the surface it was put on. The wood is then
+   * drawn as a body of its own, standing off the board where it does.
+   */
+  below?: { unders: Float32Array; floors: Float32Array };
   /** The colours `owners` points into, as #rrggbb. */
   colors?: string[];
   /** Filled in as the camera is moved, and read when the view is set up again. */
@@ -59,7 +64,7 @@ interface Props {
 }
 
 /** The simulated stock in 3D, with the tool path as an optional overlay. */
-export function Viewer3D({ preview, thickness, color = WOOD, owners, colors, keepCamera, simulatedCell }: Props) {
+export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colors, keepCamera, simulatedCell }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const pathView = useRef<PathView | null>(null);
   const stockGroup = useRef<THREE.Group | null>(null);
@@ -140,7 +145,7 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, colors, kee
       controls.update();
     };
 
-    const stock = buildStock(preview, thickness, color, owners, colors);
+    const stock = buildStock(preview, thickness, color, owners, colors, below);
     scene.add(stock);
     stockGroup.current = stock;
     const path = buildPath(preview, reach);
@@ -245,7 +250,7 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, colors, kee
       pathView.current = null;
       stockGroup.current = null;
     };
-  }, [preview, thickness, color, owners, colors, keepCamera]);
+  }, [preview, thickness, color, owners, below, colors, keepCamera]);
 
   useEffect(() => {
     const path = pathView.current;
@@ -422,7 +427,14 @@ function buildDimensions(preview: PocketPreview, reach: number, ink: string): Di
 }
 
 /** The cut surface plus the four sides of the board. */
-function buildStock(preview: PocketPreview, thickness: number, color: string, owners?: Uint8Array, palette?: string[]): THREE.Group {
+function buildStock(
+  preview: PocketPreview,
+  thickness: number,
+  color: string,
+  owners?: Uint8Array,
+  palette?: string[],
+  below?: { unders: Float32Array; floors: Float32Array },
+): THREE.Group {
   // Cut surfaces are drawn darker the deeper they lie; the sides a shade darker than the top.
   const top = new THREE.Color(color);
   const side = top.clone().multiplyScalar(0.82);
@@ -437,6 +449,9 @@ function buildStock(preview: PocketPreview, thickness: number, color: string, ow
   // When thinning, keep the deepest cell of each block so narrow cuts stay visible.
   const z = new Float32Array(dx * dy);
   const wood = new Uint8Array(dx * dy);
+  // Under glued-in wood: its underside, and the surface it was put on.
+  const under = new Float32Array(dx * dy).fill(NaN);
+  const floor = new Float32Array(dx * dy).fill(NaN);
   let lowest = 0;
   for (let j = 0; j < dy; j++) {
     for (let i = 0; i < dx; i++) {
@@ -447,6 +462,10 @@ function buildStock(preview: PocketPreview, thickness: number, color: string, ow
           if (h < min) {
             min = h;
             if (owners) wood[j * dx + i] = owners[jj * nx + ii] < woods.length ? owners[jj * nx + ii] : 0;
+            if (below) {
+              under[j * dx + i] = below.unders[jj * nx + ii];
+              floor[j * dx + i] = below.floors[jj * nx + ii];
+            }
           }
         }
       }
@@ -457,14 +476,19 @@ function buildStock(preview: PocketPreview, thickness: number, color: string, ow
   const xAt = (i: number) => Math.min(nx * cell, (i + 0.5) * step * cell);
   const yAt = (j: number) => Math.min(ny * cell, (j + 0.5) * step * cell);
 
+  const bodies = below !== undefined && wood.some((w) => w > 0);
   const positions = new Float32Array(dx * dy * 3);
   const colors = new Float32Array(dx * dy * 3);
   const colour = new THREE.Color();
   for (let j = 0; j < dy; j++) {
     for (let i = 0; i < dx; i++) {
       const k = j * dx + i;
-      positions.set([xAt(i), yAt(j), z[k]], k * 3);
-      colour.copy(woods[wood[k]]).lerp(deeps[wood[k]], lowest < 0 && z[k] < 0 ? (z[k] / lowest) * 0.85 : 0);
+      // With glued-in wood drawn as bodies of its own, the board is what lies under it.
+      const lifted = bodies && wood[k] > 0 && !Number.isNaN(floor[k]);
+      const height = lifted ? floor[k] : z[k];
+      const of = lifted ? 0 : wood[k];
+      positions.set([xAt(i), yAt(j), height], k * 3);
+      colour.copy(woods[of]).lerp(deeps[of], lowest < 0 && height < 0 ? (height / lowest) * 0.85 : 0);
       colors.set([colour.r, colour.g, colour.b], k * 3);
     }
   }
@@ -507,7 +531,100 @@ function buildStock(preview: PocketPreview, thickness: number, color: string, ow
   const group = new THREE.Group();
   group.add(new THREE.Mesh(surface, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, ...behind })));
   group.add(new THREE.Mesh(sides, new THREE.MeshStandardMaterial({ color: side, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, ...behind })));
+  if (bodies) group.add(buildBodies({ dx, dy, z, wood, under, lowest, xAt, yAt, woods, deeps, behind }));
   return group;
+}
+
+/**
+ * The wood that was glued in, as bodies of their own on the board: their tops,
+ * and their edges down to their undersides. Where a body stands off the board,
+ * as a backer does over the saw gap, its edge stops there and the gap shows;
+ * where it sits in the board, its top runs on into the board's surface.
+ */
+function buildBodies(grid: {
+  dx: number;
+  dy: number;
+  z: Float32Array;
+  wood: Uint8Array;
+  under: Float32Array;
+  lowest: number;
+  xAt: (i: number) => number;
+  yAt: (j: number) => number;
+  woods: THREE.Color[];
+  deeps: THREE.Color[];
+  behind: object;
+}): THREE.Mesh {
+  const { dx, dy, z, wood, under, lowest, xAt, yAt, woods, deeps } = grid;
+  // A gap under this is none: the wood sits on what is beside it.
+  const GAP = 0.05;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const colour = new THREE.Color();
+  const corner = new THREE.Color();
+  const push = (x: number, y: number, height: number, c: THREE.Color) => {
+    positions.push(x, y, height);
+    colors.push(c.r, c.g, c.b);
+  };
+
+  // What each square of the grid is drawn as: the wood it is in, how high its top is at each corner, and how low its edge goes.
+  type Square = { of: number; tops: number[]; foot: number; hovers: boolean };
+  const squares: (Square | null)[] = new Array((dx - 1) * (dy - 1)).fill(null);
+  const at = (i: number, j: number) => (i < 0 || j < 0 || i >= dx - 1 || j >= dy - 1 ? null : squares[j * (dx - 1) + i]);
+  for (let j = 0; j < dy - 1; j++) {
+    for (let i = 0; i < dx - 1; i++) {
+      const ks = [j * dx + i, j * dx + i + 1, (j + 1) * dx + i + 1, (j + 1) * dx + i];
+      let [of, top, foot, beside] = [0, -Infinity, Infinity, -Infinity];
+      for (const k of ks) {
+        if (wood[k] > 0) {
+          of = Math.max(of, wood[k]);
+          top = Math.max(top, z[k]);
+          if (!Number.isNaN(under[k])) foot = Math.min(foot, under[k]);
+        } else {
+          beside = Math.max(beside, z[k]);
+        }
+      }
+      if (of === 0) continue;
+      if (foot === Infinity) foot = top;
+      // Standing off what is beside it: the top stays level to the edge, and the edge stops at the underside.
+      const hovers = foot > beside + GAP;
+      squares[j * (dx - 1) + i] = { of, foot, hovers, tops: ks.map((k) => (wood[k] > 0 ? z[k] : hovers ? top : z[k])) };
+    }
+  }
+
+  for (let j = 0; j < dy - 1; j++) {
+    for (let i = 0; i < dx - 1; i++) {
+      const square = at(i, j);
+      if (!square) continue;
+      const xs = [xAt(i), xAt(i + 1), xAt(i + 1), xAt(i)];
+      const ys = [yAt(j), yAt(j), yAt(j + 1), yAt(j + 1)];
+      const shade = (height: number) => colour.copy(woods[square.of]).lerp(deeps[square.of], lowest < 0 && height < 0 ? (height / lowest) * 0.85 : 0);
+      for (const c of [0, 1, 3, 1, 2, 3]) push(xs[c], ys[c], square.tops[c], shade(square.tops[c]));
+      if (!square.hovers) continue;
+      // An edge towards a square without this wood: a wall from the top down to the underside.
+      const edge = corner.copy(woods[square.of]).multiplyScalar(0.82);
+      const sides: [number, number, number, number][] = [
+        [0, 1, 0, -1],
+        [1, 2, 1, 0],
+        [2, 3, 0, 1],
+        [3, 0, -1, 0],
+      ];
+      for (const [a, b, di, dj] of sides) {
+        if (at(i + di, j + dj)) continue;
+        push(xs[a], ys[a], square.tops[a], edge);
+        push(xs[a], ys[a], square.foot, edge);
+        push(xs[b], ys[b], square.tops[b], edge);
+        push(xs[b], ys[b], square.tops[b], edge);
+        push(xs[a], ys[a], square.foot, edge);
+        push(xs[b], ys[b], square.foot, edge);
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(colors), 3));
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, ...grid.behind }));
 }
 
 /** Cutting moves, a set of lines per tool, and the moves in the air; with a marker for the tool. */

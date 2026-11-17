@@ -357,7 +357,7 @@ have their defaults.
 |---|---|
 | `type` | `facing` |
 | `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
-| `aboveAuto` | `true`: `above` is not used, and the height is taken from the steps before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` steps) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. Default `false`; may be missing, and is not written when `false`. |
+| `aboveAuto` | `true`: `above` is not used, and the height is taken from the steps before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` steps) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier `saw` step or facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. That is the height of the facing's own file; in a file for the stock, made by taking the stock through the steps, it is what stands on the simulated stock where the facing cuts, rounded up to 0.01. Default `false`; may be missing, and is not written when `false`. |
 | `depth` | How far below the stock's surface the area ends up. Less than 0 ends it that far above the surface, in the wood standing there. Never less than `-above`. Default 0. `above` + `depth` must be greater than 0 for there to be anything to cut. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
@@ -415,6 +415,18 @@ A glue-up has no file, no tools and no regions; its `material` and `setup` mean 
 What it says is its place among the steps: when the stock is taken through them in order,
 the steps after it find that wood on the stock. A version of the app from before glue-ups
 refuses a file that has one.
+
+`task` for sawing a backer off: the backer of a glued-in plug sawn off, by hand.
+
+| Field | Meaning |
+|---|---|
+| `type` | `saw` |
+| `inlayId` | The `id` of the step whose plug is sawn off. It must be a V-carve inlay, or a flat one with `insertStyle` `backer`. |
+| `leave` | How far above the stock's surface the saw leaves the plug standing. 0 or more. |
+
+Like a glue-up it has no file, tools or regions, and says what it says by its place: the
+steps after it find the plug `leave` high and nothing of its blank around it. It does
+nothing before the inlay's glue-up.
 
 ## SVG import
 
