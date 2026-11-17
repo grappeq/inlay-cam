@@ -351,7 +351,7 @@ have their defaults.
 |---|---|
 | `type` | `facing` |
 | `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
-| `depth` | How far below the stock's surface the area ends up. 0 or more. Default 0. `above` + `depth` must be greater than 0. |
+| `depth` | How far below the stock's surface the area ends up. Less than 0 ends it that far above the surface, in the wood standing there. Never less than `-above`. Default 0. `above` + `depth` must be greater than 0 for there to be anything to cut. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
 | `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of the area; `x`, left and right; `y`, to and from the front. Rings take no direction. |

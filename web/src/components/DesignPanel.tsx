@@ -23,8 +23,11 @@ import {
   regionOwners,
   resolveTool,
   sameSetup,
+  standingPart,
   stockColor,
   toolChoices,
+  trimFacing,
+  trimOf,
   usualCutOutTool,
 } from "../state/model";
 import { useFileActions } from "../state/files";
@@ -649,13 +652,49 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
   );
 }
 
-/** How far a glued-in part of an inlay stands above the stock, and how far its blank reaches beyond its shapes. */
-function standingPart(owner: Job): { above: number; margin: number; what: string } | null {
-  const inlay = owner.inlay;
-  if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth, margin: inlay.plugMargin, what: "plug" };
-  if (inlay.type !== "flat") return null;
-  const above = inlay.insertThickness - inlay.pocketDepth;
-  return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, what: "plug" } : { above, margin: 1, what: "inserts" };
+/**
+ * In an inlay's panel: what happens after the glue-up. Offers a facing that
+ * trims the plug flush, as an operation of its own in the list, or leads to
+ * the one there is. Nothing for loose inserts, which are not one plug.
+ */
+function TrimOffer({ job }: { job: Job }) {
+  const { project, tools, defaults } = useApp();
+  const dispatch = useDispatch();
+  const part = standingPart(job);
+  if (!part || part.what !== "plug" || !(part.above > 0) || job.regionIds.length === 0) return null;
+  const made = trimOf(job, project.jobs);
+
+  const add = () => {
+    const trim = trimFacing(job, project.jobs, defaults);
+    if (!trim || trim.inlay.type !== "facing") return;
+    // Where the tool list leaves no choice of end mill, make it.
+    const endMills = tools.filter((t) => t.kind === "flat_end");
+    if (endMills.length === 1) trim.inlay.toolId = endMills[0].id;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: [...p.jobs, trim] }) });
+    dispatch({ type: "setActiveJob", id: trim.id });
+  };
+
+  return (
+    <section>
+      <h3>After the glue-up</h3>
+      <p className="hint">
+        Glued in, the plug stands {fmt(round2(part.above))} mm above the stock's surface. A facing mills it down flush, over the plug's blank. It is an operation
+        of its own in the list, with a file of its own, to run once the glue has set.
+      </p>
+      {made ? (
+        <p className="derived">
+          "{made.name}" trims this plug.{" "}
+          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: made.id })}>
+            Open it
+          </button>
+        </p>
+      ) : (
+        <button type="button" onClick={add}>
+          Add a facing to trim the plug flush
+        </button>
+      )}
+    </section>
+  );
 }
 
 function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onChange: (change: Partial<FacingOp>) => void }) {
@@ -670,15 +709,16 @@ function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onC
   return (
     <>
       <div className="row">
-        <NumberField label="Wood above the surface" unit="mm" value={inlay.above} onChange={(v) => v !== undefined && onChange({ above: v })} />
-        <NumberField label="Depth below the surface" unit="mm" value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
+        {/* The cut cannot end above where it starts: less wood above takes a depth under 0 up with it. */}
+        <NumberField label="Wood above the surface" unit="mm" value={inlay.above} onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })} />
+        <NumberField label="Depth below the surface" unit="mm" min={-inlay.above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
         {!whole && <NumberField label="Margin" unit="mm" value={inlay.margin} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
       </div>
       <p className="hint">
         {whole
           ? "To flatten the stock, give a depth below its surface. The tool runs out over every edge."
-          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank."}{" "}
-        The surface is where Z0 is set.
+          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, give what is left standing instead."}{" "}
+        The surface is where Z0 is set. A depth under 0 stops the cut that far above the surface, to leave the wood standing there a little proud.
       </p>
       {inlays.map((owner) => {
         const part = standingPart(owner);
@@ -699,7 +739,8 @@ function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onC
       })}
       {total > 0 && tool && (
         <p className="derived">
-          {fmt(round2(total))} mm in all{inlay.above > 0 ? `, from ${fmt(inlay.above)} mm above the surface` : ""}. The tool's centre goes to the edge of the
+          {fmt(round2(total))} mm in all{inlay.above > 0 ? `, from ${fmt(inlay.above)} mm above the surface` : ""}
+          {inlay.depth < 0 ? ` down to ${fmt(-inlay.depth)} mm above it` : ""}. The tool's centre goes to the edge of the
           area, so it cuts {fmt(tool.diameter / 2)} mm beyond it.
         </p>
       )}
@@ -1017,6 +1058,8 @@ function JobEditor({ job }: { job: InlayJob }) {
             </button>
           </details>
         </section>
+
+        <TrimOffer job={job} />
 
         <section>
           <Results job={job} state={output} />

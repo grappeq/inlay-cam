@@ -503,7 +503,9 @@ pub enum Inlay {
         /// first, such as the backer of a glued-in plug, mm.
         #[serde(default)]
         above: f64,
-        /// How far below the stock's surface the area ends up, mm.
+        /// How far below the stock's surface the area ends up, mm. Less
+        /// than 0 ends it that far above the surface, in the wood that
+        /// stands there, and leaves the rest of it proud.
         #[serde(default)]
         depth: f64,
         /// How far beyond the rectangle around the chosen shapes the area reaches, mm.
@@ -902,8 +904,8 @@ impl Inlay {
                     "the wood above the surface must be 0 or more",
                 )?;
                 check(
-                    depth.is_finite() && depth >= 0.0,
-                    "the depth below the surface must be 0 or more",
+                    depth.is_finite() && depth >= -above,
+                    "a facing cannot end higher than the wood above the surface it starts on",
                 )?;
                 check(
                     margin.is_finite() && margin >= 0.0,
@@ -1257,6 +1259,26 @@ mod tests {
             }
         ));
         assert_eq!(old.jobs[5].tool_ids(), vec!["t-vbit"]);
+
+        // A facing may end above the surface, but not above where it starts.
+        let mut proud = p.clone();
+        let facing = |above: f64, depth: f64| Inlay::Facing {
+            pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
+            above,
+            depth,
+            margin: 9.0,
+            tool_id: None,
+        };
+        proud.jobs[3].inlay = facing(6.0, -0.2);
+        assert_eq!(
+            project_from_file_json(&project_to_file_json(&proud)).unwrap(),
+            proud
+        );
+        proud.jobs[3].inlay = facing(6.0, -6.5);
+        assert!(proud.validate().unwrap_err().contains("cannot end higher"));
+        proud.jobs[3].inlay = facing(0.0, -0.1);
+        assert!(proud.validate().unwrap_err().contains("cannot end higher"));
 
         // A chamfer has no "on the line", and a colour is #rrggbb.
         let mut bad = p.clone();

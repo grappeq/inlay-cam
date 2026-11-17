@@ -161,6 +161,48 @@ export function newJob(type: JobType, regionIds: number[], existing: Job[], setu
   return job;
 }
 
+/**
+ * How far a glued-in part of an inlay stands above the stock, and how far
+ * its blank reaches beyond its shapes. Null for a plain operation.
+ */
+export function standingPart(owner: Job): { above: number; margin: number; what: "plug" | "inserts" } | null {
+  const inlay = owner.inlay;
+  if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth, margin: inlay.plugMargin, what: "plug" };
+  if (inlay.type !== "flat") return null;
+  const above = inlay.insertThickness - inlay.pocketDepth;
+  return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, what: "plug" } : { above, margin: 1, what: "inserts" };
+}
+
+/**
+ * A facing that trims an inlay's glued-in plug flush with the stock: over
+ * the plug's blank, from the top of its backer down to the surface. In the
+ * plug's wood, since that is what it cuts. Null for an inlay without a plug
+ * on a backer (loose inserts, a plain operation) and for a plug that does
+ * not stand above the surface.
+ */
+export function trimFacing(owner: Job, existing: Job[], setup: Setup): Job | null {
+  const part = standingPart(owner);
+  if (!part || part.what !== "plug" || !(part.above > 0) || owner.regionIds.length === 0) return null;
+  const job = newJob("facing", [...owner.regionIds], existing, setup);
+  let name = `Trim ${owner.name}`;
+  for (let n = 2; existing.some((j) => j.name === name); n++) name = `Trim ${owner.name} ${n}`;
+  return {
+    ...job,
+    name,
+    material: owner.material,
+    inlay: { type: "facing", above: Math.round(part.above * 100) / 100, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
+  };
+}
+
+/**
+ * The facing that trims this inlay's plug, if the project has one: a facing
+ * over exactly the inlay's shapes that starts above the surface.
+ */
+export function trimOf(owner: Job, jobs: Job[]): Job | undefined {
+  const shapes = new Set(owner.regionIds);
+  return jobs.find((j) => j.inlay.type === "facing" && j.inlay.above > 0 && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
+}
+
 export function jobToolIds(job: Job): string[] {
   const inlay = job.inlay;
   const ids: (string | null)[] =

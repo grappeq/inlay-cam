@@ -2126,11 +2126,20 @@ fn facing(
                 | Move::SpindleOff => {}
             }
         }
-        ctx.warnings.push(format!(
-            "The first {} mm are cut above the stock's surface. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
-            num(above),
-            num(safe + above)
-        ));
+        ctx.warnings.push(if depth < 0.0 {
+            format!(
+                "All {} mm are cut above the stock's surface, and the cut ends {} mm above it. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
+                num(total),
+                num(-depth),
+                num(safe + above)
+            )
+        } else {
+            format!(
+                "The first {} mm are cut above the stock's surface. The simulation shows the stock only, so that wood is not drawn. The tool travels {} mm above the surface.",
+                num(above),
+                num(safe + above)
+            )
+        });
     }
     ctx.warnings.push(if whole {
         format!(
@@ -4423,6 +4432,27 @@ mod tests {
                 "the tool's centre went to {got}, not {wanted}"
             );
         }
+        // A depth under 0 ends the cut that far above the surface.
+        let mut proud = p.clone();
+        proud.jobs[0].inlay = Inlay::Facing {
+            pattern: Pattern::Raster,
+            direction: PassDirection::Longer,
+            above: 3.0,
+            depth: -0.4,
+            margin: 2.0,
+            tool_id: Some("t-endmill".into()),
+        };
+        let built = build(&proud, "j", Part::Pocket).unwrap();
+        let heights: Vec<f64> = cuts(&built).iter().map(|q| q[2]).collect();
+        let lowest = heights.iter().copied().fold(f64::INFINITY, f64::min);
+        let highest = heights.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        assert!((lowest - 0.4).abs() < 1e-9, "ends at {lowest}");
+        // The plunge begins its feed 1 mm above the wood.
+        assert!(highest <= 4.0 + 1e-9, "starts at {highest}");
+        assert!(built
+            .warnings
+            .iter()
+            .any(|w| w.contains("ends 0.4 mm above")));
         // Nothing to do at all is refused.
         let mut none = p.clone();
         none.jobs[0].inlay = Inlay::Facing {

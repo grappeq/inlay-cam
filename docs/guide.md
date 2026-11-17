@@ -511,16 +511,32 @@ click adds a shape to it or takes it away.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
-  surface* to remove what stands on it. The tool goes side to side in straight passes;
+  surface* to remove what stands on it. With wood above the surface, the depth may be less
+  than 0: the cut then ends that far above the surface. The tool goes side to side in straight passes;
   "The passes run" chooses along the longer side of the area (the fewest turns), left and
   right along X, or to and from the front along Y, which matters for the look of a faced
   surface in wood. "The tool's path" can make it go in rings instead.
 
 ### Trimming a plug flush
 
-Facing over the shapes of an inlay removes its plug's backer after the glue-up. The panel
-says how far that plug stands above the surface and offers to fill in the fields: that
-height above, 0 below, and the plug's own margin, so that the area is the plug's blank.
+An inlay with a plug on a backer (a V-carve inlay, or a flat inlay made as "One plug")
+has **After the glue-up** in its panel, with "Add a facing to trim the plug flush". It
+adds a facing to the list as an operation of its own, named "Trim" and the inlay's name,
+over the inlay's shapes and in its wood, and opens it:
+
+- *Wood above the surface* is how far the plug stands above the stock once glued in: the
+  whole backer. If you saw the backer off first, type what is left standing instead.
+- *Depth below the surface* is 0, so the cut ends flush with the stock. A depth under 0
+  stops that far above the surface: -0.2 leaves the plug 0.2 mm proud, to sand flush.
+- *Margin* is the plug's own margin, so that the area is the plug's blank.
+
+Choose its end mill and generate its file like any other operation's; run it once the
+glue has set. Once an inlay has such a facing, its panel leads to it instead of offering
+another. Loose inserts are not offered one.
+
+A facing made by hand over an inlay's shapes does the same: its panel says how far that
+plug stands above the surface and offers to fill in the fields.
+
 The file starts cutting at that height and travels above it. Z0 is still the stock's
 surface, so set it beside the plug, not on it. The 3D view shows the stock only, not the
 wood standing on it.

@@ -316,7 +316,7 @@ export interface FacingOp {
   type: "facing";
   /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
   above: number;
-  /** How far below the stock's surface the area ends up. */
+  /** How far below the stock's surface the area ends up. Less than 0: that far above it. Never less than `-above`. */
   depth: number;
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
   margin: number;

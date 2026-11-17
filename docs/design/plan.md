@@ -893,3 +893,21 @@ and the core never looked at the check. A filled drawing of a disc with a star o
 in all red, though the star cut into the glued-in disc is an inlay in an inlay. The one
 case it could have warned of, two inlays cut in one go over the same wood, cannot be told
 from the drawing.
+
+A facing that trims a glued-in plug, from the inlay (2026-11-17). Facing could do this
+already (wood above the surface, and an offer to fill the fields in), but the way there
+was to add a facing, Shift-click the inlay's shapes and find the offer. An inlay with a
+plug on a backer now has "After the glue-up" in its panel, with one button: it adds the
+facing to the list as an operation of its own, set to the plug's blank, from the top of
+the backer down to flush, in the plug's wood. Decided with the user: one number says
+where the cut starts, the whole backer by default and to be lowered when the backer is
+sawn off first; flush, with nothing left proud; not for loose inserts; an operation in
+the list, not a third file of the inlay. The numbers are copies: after a change to the
+inlay the facing's panel offers to set them again, as before. `trimFacing` and `trimOf`
+in `state/model.ts`.
+
+A facing may end above the surface (2026-11-17): its depth below the surface can be less
+than 0, down to the wood above the surface with the sign turned, so that a plug is left a
+little proud for sanding. The user proposed the negative depth; a second field for it was
+weighed and left, since one number already says where the cut ends. The check in
+`project.rs` took the place of "0 or more"; files from before read the same.

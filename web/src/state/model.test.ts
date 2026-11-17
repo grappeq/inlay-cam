@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Job } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners } from "./model";
+import { DEFAULT_SETUP, addDrawing, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -92,5 +92,40 @@ describe("jobs", () => {
     expect(facing.inlay.type === "facing" && facing.inlay.pattern).toBe("raster");
     const pocket = job("pocket", [1]);
     expect(pocket.inlay.type === "pocket" && pocket.inlay.pattern).toBe("offset");
+  });
+
+  it("makes a facing that trims a glued-in plug flush", () => {
+    const inlay = { ...job("vcarve", [1, 2]), name: "Walnut star", material: "softwood" };
+    // 10 mm of plug, 3 mm of it in the pocket.
+    expect(standingPart(inlay)).toEqual({ above: 7, margin: 8, what: "plug" });
+    const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
+    expect(trim.name).toBe("Trim Walnut star");
+    expect(trim.material).toBe("softwood");
+    expect(trim.regionIds).toEqual([1, 2]);
+    expect(trim.inlay).toEqual({ type: "facing", above: 7, depth: 0, margin: 8, pattern: "raster", toolId: null });
+    expect(trim.color).toBeUndefined();
+    // It is found again as the inlay's trim, also with a lower start, until its shapes or its start say otherwise.
+    expect(trimOf(inlay, [inlay, trim])).toBe(trim);
+    const lower: Job = { ...trim, inlay: { ...trim.inlay, above: 1.5 } as Job["inlay"] };
+    expect(trimOf(inlay, [inlay, lower])).toBe(lower);
+    expect(trimOf(inlay, [inlay, { ...trim, regionIds: [1] }])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0 } as Job["inlay"] }])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, job("facing", [1, 2])])).toBeUndefined();
+    // A second one gets a name of its own.
+    expect(trimFacing(inlay, [inlay, trim], DEFAULT_SETUP)!.name).toBe("Trim Walnut star 2");
+  });
+
+  it("offers the trim for a plug on a backer only", () => {
+    const flat = job("flat", [3]);
+    // Loose inserts are not one plug.
+    expect(trimFacing(flat, [flat], DEFAULT_SETUP)).toBeNull();
+    if (flat.inlay.type === "flat") Object.assign(flat.inlay, { insertStyle: "backer", insertThickness: 8, insertMargin: 6 });
+    const trim = trimFacing(flat, [flat], DEFAULT_SETUP)!;
+    expect(trim.inlay.type === "facing" && [trim.inlay.above, trim.inlay.margin]).toEqual([5, 6]);
+    // No plug above the surface, no shapes, or no inlay: nothing to trim.
+    if (flat.inlay.type === "flat") flat.inlay.insertThickness = 3;
+    expect(trimFacing(flat, [flat], DEFAULT_SETUP)).toBeNull();
+    expect(trimFacing(job("vcarve", []), [], DEFAULT_SETUP)).toBeNull();
+    expect(trimFacing(job("pocket", [1]), [], DEFAULT_SETUP)).toBeNull();
   });
 });
