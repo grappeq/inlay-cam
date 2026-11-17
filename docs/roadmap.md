@@ -73,6 +73,12 @@ libraries for other programs.
   what a tab is, what stepover means on a V-bit) would say more than bare text. The
   Settings pages keep one line per setting and put the rest in the `title` of a column
   heading, which is a stopgap. Facing and chamfer already show their options as pictures.
+  A chamfer's numbers are a case for it. Its width, the tip's clearance, the bit's tip
+  flat and its angle give how far outside the outline the bit runs and how deep, and the
+  panel says so in a sentence that is hard to follow. A picture of the bit against the
+  edge in section, with those numbers marked on it, would show it: the bevel's width and
+  height, the gap between the tip and the wall, and the room the bit needs beside the
+  edge.
 - **A design pass over the Design tab**, which has not had what the Tools and Settings
   tabs got. Known from testing: at 800 px wide the drawing is small beside the panel.
 - **Whether "Cancel" on a tool's sheet should ask** before it drops changes. It does not.
