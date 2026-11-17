@@ -13,7 +13,7 @@ use super::dxf::import_dxf;
 use super::svg::{import_svg, SvgImport};
 use crate::build::{build, check_fit, preview, Part};
 use crate::geom::ring_area;
-use crate::project::{BaseStock, Inlay, InsertStyle, Job, Project};
+use crate::project::{BaseStock, InsertStyle, Project, Step, Task};
 use crate::tools::fixtures::{end_mill, v_bit};
 use crate::tools::{CuttingSettings, Material};
 
@@ -173,7 +173,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
     )];
     let tools = vec!["t-endmill".to_string()];
     let inlay = match kind {
-        Kind::Vcarve => Inlay::Vcarve {
+        Kind::Vcarve => Task::Vcarve {
             engagement_depth: 2.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
@@ -186,7 +186,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             relief: false,
             tuning: Default::default(),
         },
-        Kind::Flat | Kind::FlatBacker => Inlay::Flat {
+        Kind::Flat | Kind::FlatBacker => Task::Flat {
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: true,
@@ -206,7 +206,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
         id: "p".into(),
         name: "Test".into(),
         design: Some(import.design.clone()),
-        jobs: vec![Job {
+        steps: vec![Step {
             id: "j".into(),
             name: "Inlay".into(),
             material: Material::HARDWOOD,
@@ -215,7 +215,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             color: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
-            inlay,
+            task: inlay,
         }],
         tools: vec![end_mill(), vbit],
         profiles: Vec::new(),
@@ -341,7 +341,7 @@ fn a_wide_stepover_leaves_no_wood_standing_on_a_plug() {
     project.tools[1].tip_angle = Some(30.0);
     project.tools[1].tip_diameter = Some(0.2);
     project.tools[1].diameter = 4.0;
-    if let Inlay::Vcarve { cut_out, .. } = &mut project.jobs[0].inlay {
+    if let Task::Vcarve { cut_out, .. } = &mut project.steps[0].task {
         *cut_out = false;
     }
 
@@ -411,7 +411,7 @@ fn any_two_shapes_of_a_drawing_can_be_carved_together() {
 /// `cargo test -p inlay-core --release full_bed -- --ignored --nocapture`
 #[test]
 #[ignore]
-fn full_bed_job_timing() {
+fn full_bed_step_timing() {
     let case = cases()
         .into_iter()
         .find(|c| c.file == "svg-14-full-bed.svg")

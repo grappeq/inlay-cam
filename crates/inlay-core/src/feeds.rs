@@ -146,7 +146,7 @@ struct MaterialClass {
     speed_limit: bool,
     /// A class that is itself untested: every result carries this.
     caution: Option<&'static str>,
-    // Field-calibrated rules, from a first job in aluminium.
+    // Field-calibrated rules, from a first step in aluminium.
     drill_peck_per_d: Option<f64>,
     one_flute_chip: Option<(f64, f64)>,
     chamfer_chip: Option<f64>,

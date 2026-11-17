@@ -103,7 +103,7 @@ struct Ramp {
     db: f64,
 }
 
-/// One carving job, whichever side of the outline the bit works on.
+/// One carving step, whichever side of the outline the bit works on.
 struct Carving<'a> {
     /// Depth of the flat floor below Z0, mm.
     floor: f64,
@@ -361,13 +361,13 @@ pub fn plug_relief(
     Ok(total)
 }
 
-fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut VcarveReport) {
-    let passes = (job.floor / p.stepdown).ceil().max(1.0) as usize;
+fn carve(path: &mut PathBuilder, step: &Carving, p: &VcarveParams, report: &mut VcarveReport) {
+    let passes = (step.floor / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {
-        let z = job.floor * pass as f64 / passes as f64;
-        let above = job.floor * (pass - 1) as f64 / passes as f64;
+        let z = step.floor * pass as f64 / passes as f64;
+        let above = step.floor * (pass - 1) as f64 / passes as f64;
 
-        for level in (job.rings_at)(z) {
+        for level in (step.rings_at)(z) {
             for ring in level.rings() {
                 let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
                 plunge_to(path, ring[start], z, p);
@@ -378,7 +378,7 @@ fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut V
             }
         }
 
-        let cuts: Vec<Ramp> = job
+        let cuts: Vec<Ramp> = step
             .ramps
             .iter()
             .flat_map(|r| pass_cuts(r, above, z))
@@ -391,7 +391,7 @@ fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut V
         }
     }
 
-    for piece in &job.rest {
+    for piece in &step.rest {
         // Starting a hair inside drops the hair-thin leftovers where two
         // boundaries run side by side.
         let mut level = offset(std::slice::from_ref(piece), -SLIVER);
@@ -407,7 +407,7 @@ fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut V
                 break;
             }
             area = now;
-            floor_rings(path, &level, &job.allowed, job.floor, p);
+            floor_rings(path, &level, &step.allowed, step.floor, p);
 
             // Thinning the points matters: otherwise every ring's rounded
             // corners are rounded again by the next and the count explodes.
@@ -427,7 +427,7 @@ fn carve(path: &mut PathBuilder, job: &Carving, p: &VcarveParams, report: &mut V
                 .iter()
                 .flat_map(|r| difference(r, &continuing))
                 .collect();
-            floor_rings(path, &offset(&thin, -SLIVER), &job.allowed, job.floor, p);
+            floor_rings(path, &offset(&thin, -SLIVER), &step.allowed, step.floor, p);
             level = next;
         }
     }

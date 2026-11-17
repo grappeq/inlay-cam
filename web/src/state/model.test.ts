@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Design, Job } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, isByHand, isInlay, jobToolIds, missingFor, newJob, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutJob, withoutOrphans } from "./model";
+import type { Design, Step } from "../core/types";
+import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, insertAfter, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -58,13 +58,13 @@ describe("addDrawing", () => {
   });
 });
 
-describe("jobs", () => {
-  const job = (type: Parameters<typeof newJob>[0], regionIds: number[], existing: Job[] = []) => newJob(type, regionIds, existing, DEFAULT_SETUP);
+describe("steps", () => {
+  const step = (type: Parameters<typeof newStep>[0], regionIds: number[], existing: Step[] = []) => newStep(type, regionIds, existing, DEFAULT_SETUP);
 
   it("only inlays own shapes and have a colour", () => {
-    const inlay = job("vcarve", [1, 2]);
-    const contour = job("contour", [2, 3], [inlay]);
-    expect(isInlay(inlay.inlay) && !isInlay(contour.inlay)).toBe(true);
+    const inlay = step("vcarve", [1, 2]);
+    const contour = step("contour", [2, 3], [inlay]);
+    expect(isInlay(inlay.task) && !isInlay(contour.task)).toBe(true);
     expect(inlay.color).toMatch(/^#[0-9a-f]{6}$/);
     expect(contour.color).toBeUndefined();
     const owners = regionOwners([inlay, contour]);
@@ -73,74 +73,74 @@ describe("jobs", () => {
   });
 
   it("gives new inlays different woods", () => {
-    const a = job("vcarve", [1]);
-    const b = job("flat", [2], [a]);
+    const a = step("vcarve", [1]);
+    const b = step("flat", [2], [a]);
     expect(b.color).not.toBe(a.color);
   });
 
   it("says what an operation still needs", () => {
-    const facing = job("facing", []);
+    const facing = step("facing", []);
     expect(missingFor(facing)).toMatch(/end mill/);
-    if (facing.inlay.type === "facing") facing.inlay.toolId = "t";
+    if (facing.task.type === "facing") facing.task.toolId = "t";
     expect(missingFor(facing)).toBeNull();
-    expect(jobToolIds(facing)).toEqual(["t"]);
-    const chamfer = job("chamfer", []);
+    expect(stepToolIds(facing)).toEqual(["t"]);
+    const chamfer = step("chamfer", []);
     expect(missingFor(chamfer)).toMatch(/shapes/);
     chamfer.regionIds = [1];
     expect(missingFor(chamfer)).toMatch(/corner-rounding/);
     // Facing goes side to side unless asked otherwise; a pocket follows its outline.
-    expect(facing.inlay.type === "facing" && facing.inlay.pattern).toBe("raster");
-    const pocket = job("pocket", [1]);
-    expect(pocket.inlay.type === "pocket" && pocket.inlay.pattern).toBe("offset");
+    expect(facing.task.type === "facing" && facing.task.pattern).toBe("raster");
+    const pocket = step("pocket", [1]);
+    expect(pocket.task.type === "pocket" && pocket.task.pattern).toBe("offset");
   });
 
   it("makes a facing that trims a glued-in plug flush", () => {
-    const inlay = { ...job("vcarve", [1, 2]), name: "Walnut star", material: "softwood" };
+    const inlay = { ...step("vcarve", [1, 2]), name: "Walnut star", material: "softwood" };
     // 10 mm of plug, 3 mm of it in the pocket.
     expect(standingPart(inlay)).toEqual({ above: 7, margin: 8, what: "plug" });
     const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
     expect(trim.name).toBe("Trim Walnut star");
     expect(trim.material).toBe("softwood");
     expect(trim.regionIds).toEqual([1, 2]);
-    expect(trim.inlay).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, pattern: "raster", toolId: null });
+    expect(trim.task).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, pattern: "raster", toolId: null });
     // Its height comes from the list, so it has nothing left to choose but its tool.
-    expect(missingFor({ ...trim, inlay: { ...trim.inlay, above: 0, toolId: "t" } as Job["inlay"] })).toBeNull();
+    expect(missingFor({ ...trim, task: { ...trim.task, above: 0, toolId: "t" } as Step["task"] })).toBeNull();
     expect(trim.color).toBeUndefined();
     // It is found again as the inlay's trim, also with a lower start, until its shapes or its start say otherwise.
     expect(trimOf(inlay, [inlay, trim])).toBe(trim);
-    const lower: Job = { ...trim, inlay: { ...trim.inlay, above: 1.5 } as Job["inlay"] };
+    const lower: Step = { ...trim, task: { ...trim.task, above: 1.5 } as Step["task"] };
     expect(trimOf(inlay, [inlay, lower])).toBe(lower);
     expect(trimOf(inlay, [inlay, { ...trim, regionIds: [1] }])).toBeUndefined();
-    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0, aboveAuto: false } as Job["inlay"] }])).toBeUndefined();
-    expect(trimOf(inlay, [inlay, job("facing", [1, 2])])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, { ...trim, task: { ...trim.task, above: 0, aboveAuto: false } as Step["task"] }])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, step("facing", [1, 2])])).toBeUndefined();
     // A second one gets a name of its own.
     expect(trimFacing(inlay, [inlay, trim], DEFAULT_SETUP)!.name).toBe("Trim Walnut star 2");
   });
 
   it("offers the trim for a plug on a backer only", () => {
-    const flat = job("flat", [3]);
+    const flat = step("flat", [3]);
     // Loose inserts are not one plug.
     expect(trimFacing(flat, [flat], DEFAULT_SETUP)).toBeNull();
-    if (flat.inlay.type === "flat") Object.assign(flat.inlay, { insertStyle: "backer", insertThickness: 8, insertMargin: 6 });
+    if (flat.task.type === "flat") Object.assign(flat.task, { insertStyle: "backer", insertThickness: 8, insertMargin: 6 });
     const trim = trimFacing(flat, [flat], DEFAULT_SETUP)!;
-    expect(trim.inlay.type === "facing" && [trim.inlay.above, trim.inlay.margin]).toEqual([5, 6]);
+    expect(trim.task.type === "facing" && [trim.task.above, trim.task.margin]).toEqual([5, 6]);
     // No plug above the surface, no shapes, or no inlay: nothing to trim.
-    if (flat.inlay.type === "flat") flat.inlay.insertThickness = 3;
+    if (flat.task.type === "flat") flat.task.insertThickness = 3;
     expect(trimFacing(flat, [flat], DEFAULT_SETUP)).toBeNull();
-    expect(trimFacing(job("vcarve", []), [], DEFAULT_SETUP)).toBeNull();
-    expect(trimFacing(job("pocket", [1]), [], DEFAULT_SETUP)).toBeNull();
+    expect(trimFacing(step("vcarve", []), [], DEFAULT_SETUP)).toBeNull();
+    expect(trimFacing(step("pocket", [1]), [], DEFAULT_SETUP)).toBeNull();
   });
 
   it("makes a glue-up for an inlay, which goes when the inlay goes", () => {
-    const inlay = { ...job("vcarve", [1]), name: "Walnut star" };
-    const pocket = job("pocket", [2], [inlay]);
+    const inlay = { ...step("vcarve", [1]), name: "Walnut star" };
+    const pocket = step("pocket", [2], [inlay]);
     expect(glueStep(pocket, [inlay, pocket])).toBeNull();
     const glue = glueStep(inlay, [inlay, pocket])!;
     expect(glue.name).toBe("Glue in Walnut star");
-    expect(glue.inlay).toEqual({ type: "glue", inlayId: inlay.id });
-    expect(isByHand(glue.inlay) && !isInlay(glue.inlay)).toBe(true);
+    expect(glue.task).toEqual({ type: "glue", inlayId: inlay.id });
+    expect(isByHand(glue.task) && !isInlay(glue.task)).toBe(true);
     // Done by hand: no shapes, no tools, nothing to choose.
-    expect([glue.regionIds, jobToolIds(glue), missingFor(glue)]).toEqual([[], [], null]);
+    expect([glue.regionIds, stepToolIds(glue), missingFor(glue)]).toEqual([[], [], null]);
     expect(regionOwners([inlay, glue]).size).toBe(1);
 
     // It goes in right after its inlay, and the trim after it.
@@ -149,9 +149,9 @@ describe("jobs", () => {
     expect(glueOf(inlay, list)).toBe(glue);
     expect(insertAfter(list, undefined, pocket).length).toBe(4);
 
-    expect(withoutJob(list, pocket.id)).toEqual([inlay, glue]);
-    expect(withoutJob(list, glue.id)).toEqual([inlay, pocket]);
-    expect(withoutJob(list, inlay.id)).toEqual([pocket]);
+    expect(withoutStep(list, pocket.id)).toEqual([inlay, glue]);
+    expect(withoutStep(list, glue.id)).toEqual([inlay, pocket]);
+    expect(withoutStep(list, inlay.id)).toEqual([pocket]);
     // A list with nothing orphaned comes back as it is.
     expect(withoutOrphans(list)).toBe(list);
 
@@ -162,6 +162,6 @@ describe("jobs", () => {
     expect(fileNumbers([glue, glue, inlay])).toEqual([null, null, 1]);
     expect(fileNumbers([inlay, pocket])).toEqual([1, 1]);
     // A trim that takes its height from the list is still found as the inlay's.
-    expect(trimOf(inlay, [inlay, { ...trim, inlay: { ...trim.inlay, above: 0 } as Job["inlay"] }])).toBeDefined();
+    expect(trimOf(inlay, [inlay, { ...trim, task: { ...trim.task, above: 0 } as Step["task"] }])).toBeDefined();
   });
 });

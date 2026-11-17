@@ -15,7 +15,7 @@ use crate::analysis::PlugFrame;
 use crate::build::{self, Built, Part, Preview};
 use crate::gcode::Segment;
 use crate::geom::{Point, Region};
-use crate::project::{Inlay, InsertStyle, Job, Project};
+use crate::project::{InsertStyle, Project, Step, Task};
 use crate::sim::{self, HeightMap, SimProblem};
 use crate::tools::Tool;
 
@@ -170,8 +170,8 @@ pub struct Seat {
 
 /// One entry of the list, as it went.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Step {
-    pub job_id: String,
+pub struct StepRun {
+    pub step_id: String,
     /// Done by hand: there is no file.
     pub by_hand: bool,
     /// The file the step is cut by: an index into [`Timeline::files`].
@@ -190,11 +190,11 @@ pub struct Step {
     pub seat: Option<Seat>,
 }
 
-impl Step {
-    fn of(job: &Job, file: Option<usize>) -> Self {
-        Step {
-            job_id: job.id.clone(),
-            by_hand: job.inlay.is_by_hand(),
+impl StepRun {
+    fn of(step: &Step, file: Option<usize>) -> Self {
+        StepRun {
+            step_id: step.id.clone(),
+            by_hand: step.task.is_by_hand(),
             file,
             segments: Vec::new(),
             problems: Vec::new(),
@@ -210,7 +210,7 @@ impl Step {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StockFile {
     /// The ids of its entries, in the order they are cut.
-    pub job_ids: Vec<String>,
+    pub step_ids: Vec<String>,
     /// The file. `None` when nothing of it could be made.
     pub built: Option<Built>,
     /// Every one of its entries is in the file. A file that lacks one is
@@ -223,12 +223,12 @@ pub struct StockFile {
     pub problems: Vec<SimProblem>,
 }
 
-/// The second file of an inlay: its plug or its inserts, cut from a board of
+/// The second file of an task: its plug or its inserts, cut from a board of
 /// their own.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartFile {
     /// The id of the inlay.
-    pub job_id: String,
+    pub step_id: String,
     /// The file. `None` when it could not be made.
     pub built: Option<Built>,
     /// Why it could not be made.
@@ -261,7 +261,7 @@ pub struct Timeline {
     pub glued: Vec<String>,
     /// The files for the stock, in the order they are run.
     pub files: Vec<StockFile>,
-    pub steps: Vec<Step>,
+    pub steps: Vec<StepRun>,
     /// The plug or insert file of every inlay, in the order of the list.
     pub parts: Vec<PartFile>,
     /// The fresh stock, then the stock after each step.
@@ -292,27 +292,27 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
     // Every inlay's plug or inserts, simulated on their own board: what a
     // glue-up puts on the stock, and a file to cut either way.
     let mut plugs: HashMap<&str, Result<Preview, Vec<String>>> = project
-        .jobs
+        .steps
         .iter()
-        .filter(|job| job.inlay.is_inlay())
-        .map(|job| {
+        .filter(|step| step.task.is_inlay())
+        .map(|step| {
             (
-                job.id.as_str(),
-                build::preview(project, &job.id, Part::Plug),
+                step.id.as_str(),
+                build::preview(project, &step.id, Part::Plug),
             )
         })
         .collect();
 
     let mut glued: Vec<String> = Vec::new();
     let mut files: Vec<StockFile> = Vec::new();
-    let mut steps: Vec<Step> = Vec::new();
+    let mut steps: Vec<StepRun> = Vec::new();
     let mut snapshots = vec![stock.snapshot(stride)];
     // The entries since the last step done by hand.
-    let mut run: Vec<&Job> = Vec::new();
-    for index in 0..=project.jobs.len() {
-        let job = project.jobs.get(index);
-        if let Some(job) = job.filter(|j| !j.inlay.is_by_hand()) {
-            run.push(job);
+    let mut run: Vec<&Step> = Vec::new();
+    for index in 0..=project.steps.len() {
+        let step = project.steps.get(index);
+        if let Some(step) = step.filter(|j| !j.task.is_by_hand()) {
+            run.push(step);
             continue;
         }
         if !run.is_empty() {
@@ -323,18 +323,18 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
             };
             let (file, cut) = cut_run(project, &mut stock, &run, &label, files.len(), stride);
             files.push(file);
-            for (step, snapshot) in cut {
-                steps.push(step);
+            for (went, snapshot) in cut {
+                steps.push(went);
                 snapshots.push(snapshot);
             }
             run.clear();
         }
-        let Some(job) = job else { break };
-        let Inlay::Glue { inlay_id } = &job.inlay else {
+        let Some(step) = step else { break };
+        let Task::Glue { inlay_id } = &step.task else {
             continue;
         };
-        let mut step = Step::of(job, None);
-        let later = project.jobs[index..].iter().any(|j| &j.id == inlay_id);
+        let mut went = StepRun::of(step, None);
+        let later = project.steps[index..].iter().any(|j| &j.id == inlay_id);
         match glue(
             project,
             &mut stock,
@@ -346,37 +346,37 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
                 glued.push(inlay_id.clone());
                 let name = name_of(project, inlay_id);
                 if later {
-                    step.warnings.push(format!(
+                    went.warnings.push(format!(
                         "The pocket of \"{name}\" is cut later in the list, so there is nothing to glue into yet. Move this step below it."
                     ));
                 } else if seat.proud > PROUD {
-                    step.warnings.push(format!(
+                    went.warnings.push(format!(
                         "It rests {} mm higher than designed: something on the stock holds it up.",
                         num(seat.proud)
                     ));
                 }
-                step.seat = Some(seat);
+                went.seat = Some(seat);
             }
-            Err(errors) => step.errors = errors,
+            Err(errors) => went.errors = errors,
         }
-        steps.push(step);
+        steps.push(went);
         snapshots.push(stock.snapshot(stride));
     }
 
     let parts = project
-        .jobs
+        .steps
         .iter()
-        .filter_map(|job| {
-            let part = plugs.remove(job.id.as_str())?;
+        .filter_map(|step| {
+            let part = plugs.remove(step.id.as_str())?;
             Some(match part {
                 Ok(preview) => PartFile {
-                    job_id: job.id.clone(),
+                    step_id: step.id.clone(),
                     built: Some(preview.built),
                     errors: Vec::new(),
                     problems: preview.problems,
                 },
                 Err(errors) => PartFile {
-                    job_id: job.id.clone(),
+                    step_id: step.id.clone(),
                     built: None,
                     errors,
                     problems: Vec::new(),
@@ -405,10 +405,10 @@ pub fn timeline(project: &Project) -> Result<Timeline, Vec<String>> {
 pub fn file_numbers(project: &Project) -> Vec<Option<usize>> {
     let (mut number, mut open) = (0, false);
     project
-        .jobs
+        .steps
         .iter()
-        .map(|job| {
-            if job.inlay.is_by_hand() {
+        .map(|step| {
+            if step.task.is_by_hand() {
                 open = false;
                 return None;
             }
@@ -427,22 +427,22 @@ pub fn file_numbers(project: &Project) -> Vec<Option<usize>> {
 fn cut_run(
     project: &Project,
     stock: &mut Workpiece,
-    run: &[&Job],
+    run: &[&Step],
     label: &str,
     file: usize,
     stride: usize,
-) -> (StockFile, Vec<(Step, Snapshot)>) {
+) -> (StockFile, Vec<(StepRun, Snapshot)>) {
     let parts: Vec<Result<Built, Vec<String>>> = run
         .iter()
-        .map(|job| build::build(project, &job.id, Part::Pocket))
+        .map(|step| build::build(project, &step.id, Part::Pocket))
         .collect();
     let good: Vec<(&str, &Built)> = run
         .iter()
         .zip(&parts)
-        .filter_map(|(job, part)| part.as_ref().ok().map(|built| (job.name.as_str(), built)))
+        .filter_map(|(step, part)| part.as_ref().ok().map(|built| (step.name.as_str(), built)))
         .collect();
     let mut record = StockFile {
-        job_ids: run.iter().map(|job| job.id.clone()).collect(),
+        step_ids: run.iter().map(|step| step.id.clone()).collect(),
         built: None,
         complete: good.len() == parts.len(),
         errors: Vec::new(),
@@ -493,31 +493,31 @@ fn cut_run(
     }
 
     let mut stretches = stretches.into_iter();
-    let mut cut: Vec<(Step, Snapshot)> = Vec::new();
-    for (job, part) in run.iter().zip(&parts) {
-        let mut step = Step::of(job, Some(file));
+    let mut cut: Vec<(StepRun, Snapshot)> = Vec::new();
+    for (step, part) in run.iter().zip(&parts) {
+        let mut went = StepRun::of(step, Some(file));
         match (part, stretches.next()) {
             (Ok(_), Some((segments, tools, thickness))) => {
-                step.warnings
-                    .extend(facing_start_warning(project, stock, job));
-                step.problems =
+                went.warnings
+                    .extend(facing_start_warning(project, stock, step));
+                went.problems =
                     sim::simulate_segments(&mut stock.map, &segments, &tools, thickness);
                 stock.settle();
-                record.problems.extend(step.problems.iter().cloned());
-                step.segments = segments;
+                record.problems.extend(went.problems.iter().cloned());
+                went.segments = segments;
             }
-            (Err(errors), _) => step.errors = errors.clone(),
+            (Err(errors), _) => went.errors = errors.clone(),
             (Ok(_), None) => {}
         }
-        cut.push((step, stock.snapshot(stride)));
+        cut.push((went, stock.snapshot(stride)));
     }
     (record, cut)
 }
 
 /// For a facing: what there is to say when more wood stands where it cuts
 /// than it starts above.
-fn facing_start_warning(project: &Project, stock: &Workpiece, job: &Job) -> Option<String> {
-    let (rect, above) = build::facing_start(project, &job.id)?;
+fn facing_start_warning(project: &Project, stock: &Workpiece, step: &Step) -> Option<String> {
+    let (rect, above) = build::facing_start(project, &step.id)?;
     let (x0, y0, w, h) = stock.window(rect)?;
     let mut top = f32::NEG_INFINITY;
     for j in 0..h {
@@ -536,11 +536,11 @@ fn facing_start_warning(project: &Project, stock: &Workpiece, job: &Job) -> Opti
     })
 }
 
-fn name_of<'a>(project: &'a Project, job_id: &str) -> &'a str {
+fn name_of<'a>(project: &'a Project, step_id: &str) -> &'a str {
     project
-        .jobs
+        .steps
         .iter()
-        .find(|j| j.id == job_id)
+        .find(|j| j.id == step_id)
         .map_or("?", |j| j.name.as_str())
 }
 
@@ -552,15 +552,15 @@ fn glue(
     done: bool,
     plugs: &HashMap<&str, Result<Preview, Vec<String>>>,
 ) -> Result<Seat, Vec<String>> {
-    let job: &Job = project
-        .jobs
+    let step: &Step = project
+        .steps
         .iter()
         .find(|j| j.id == inlay_id)
         .ok_or_else(|| vec!["The inlay it glues in no longer exists.".to_string()])?;
     if done {
         return Err(vec![format!(
             "\"{}\" is glued in already, further up the list.",
-            job.name
+            step.name
         )]);
     }
     if stock.bodies.len() >= u8::MAX as usize {
@@ -569,7 +569,7 @@ fn glue(
     let not_an_inlay = || {
         vec![format!(
             "\"{}\" is not an inlay: it has nothing to glue in.",
-            job.name
+            step.name
         )]
     };
     let plug = plugs
@@ -579,19 +579,19 @@ fn glue(
         .map_err(|errors| -> Vec<String> {
             errors
                 .iter()
-                .map(|e| format!("{}: {e}", job.name))
+                .map(|e| format!("{}: {e}", step.name))
                 .collect()
         })?;
-    match &job.inlay {
-        Inlay::Vcarve {
+    match &step.task {
+        Task::Vcarve {
             engagement_depth, ..
         } => seat_plug(stock, plug, -engagement_depth),
-        Inlay::Flat {
+        Task::Flat {
             insert_style: InsertStyle::Backer,
             pocket_depth,
             ..
         } => seat_plug(stock, plug, -pocket_depth),
-        Inlay::Flat { pocket_depth, .. } => seat_inserts(stock, &plug.built, -pocket_depth),
+        Task::Flat { pocket_depth, .. } => seat_inserts(stock, &plug.built, -pocket_depth),
         _ => Err(not_an_inlay()),
     }
 }
@@ -739,8 +739,8 @@ mod tests {
     use crate::project::{PassDirection, Pattern};
     use crate::tools::Material;
 
-    fn step(id: &str, inlay: Inlay) -> Job {
-        Job {
+    fn step(id: &str, task: Task) -> Step {
+        Step {
             id: id.into(),
             name: id.into(),
             material: Material::HARDWOOD,
@@ -749,14 +749,14 @@ mod tests {
             setup: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
-            inlay,
+            task,
         }
     }
 
-    fn glue_up() -> Job {
+    fn glue_up() -> Step {
         step(
             "glue",
-            Inlay::Glue {
+            Task::Glue {
                 inlay_id: "j".into(),
             },
         )
@@ -764,12 +764,12 @@ mod tests {
 
     /// A facing over the inlay's shapes and `margin` around them, from
     /// `above` the surface down to it.
-    fn trim(above: f64, margin: f64) -> Job {
-        Job {
+    fn trim(above: f64, margin: f64) -> Step {
+        Step {
             region_ids: vec![0, 1],
             ..step(
                 "trim",
-                Inlay::Facing {
+                Task::Facing {
                     above,
                     above_auto: false,
                     depth: 0.0,
@@ -793,8 +793,8 @@ mod tests {
     fn a_plug_on_a_backer_is_glued_in_and_faced_flush() {
         let mut p = backer_project();
         // 4 mm board in a 2 mm pocket: the backer's back is 2 mm above the surface.
-        p.jobs.push(glue_up());
-        p.jobs.push(trim(2.0, 8.0));
+        p.steps.push(glue_up());
+        p.steps.push(trim(2.0, 8.0));
         p.validate().unwrap();
         let t = timeline(&p).unwrap();
         assert_eq!(t.steps.len(), 3);
@@ -841,9 +841,9 @@ mod tests {
     #[test]
     fn a_v_carved_plug_seats_in_its_pocket() {
         let mut p = vcarve_project(true);
-        p.jobs.push(glue_up());
+        p.steps.push(glue_up());
         // 8 mm blank, 2 mm in: 6 mm stands above the surface.
-        p.jobs.push(trim(6.0, 6.0));
+        p.steps.push(trim(6.0, 6.0));
         let t = timeline(&p).unwrap();
         for s in &t.steps {
             assert!(s.errors.is_empty(), "{:?}", s.errors);
@@ -863,7 +863,7 @@ mod tests {
     #[test]
     fn loose_inserts_stand_in_their_pockets() {
         let mut p = project();
-        p.jobs.push(glue_up());
+        p.steps.push(glue_up());
         let t = timeline(&p).unwrap();
         assert!(t.steps[1].errors.is_empty(), "{:?}", t.steps[1].errors);
         let seat = t.steps[1].seat.unwrap();
@@ -885,7 +885,7 @@ mod tests {
     fn a_glue_up_out_of_place_says_so_and_a_cut_into_the_plug_is_a_problem() {
         // Glued before its pocket is cut: the plug lies on the surface.
         let mut p = backer_project();
-        p.jobs.insert(0, glue_up());
+        p.steps.insert(0, glue_up());
         let t = timeline(&p).unwrap();
         let seat = t.steps[0].seat.unwrap();
         assert!((seat.proud - 2.0).abs() < 0.02, "{seat:?}");
@@ -899,8 +899,8 @@ mod tests {
 
         // Glued in twice.
         let mut p = backer_project();
-        p.jobs.push(glue_up());
-        p.jobs.push(Job {
+        p.steps.push(glue_up());
+        p.steps.push(Step {
             id: "again".into(),
             ..glue_up()
         });
@@ -910,7 +910,7 @@ mod tests {
 
         // An inlay that cannot be built stops its glue-up, not the list.
         let mut p = backer_project();
-        p.jobs.push(glue_up());
+        p.steps.push(glue_up());
         p.tools.clear();
         let t = timeline(&p).unwrap();
         assert!(!t.steps[0].errors.is_empty() && !t.steps[1].errors.is_empty());
@@ -921,11 +921,11 @@ mod tests {
     fn the_lines_between_glue_ups_are_one_file_each() {
         let mut p = backer_project();
         // A plain pocket in the same run as the inlay's own, then the glue-up, then the trim.
-        p.jobs.push(Job {
+        p.steps.push(Step {
             region_ids: vec![1],
             ..step(
                 "extra",
-                Inlay::Pocket {
+                Task::Pocket {
                     depth: 1.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
@@ -933,11 +933,11 @@ mod tests {
                 },
             )
         });
-        if let Inlay::Flat { .. } = &p.jobs[0].inlay {
-            p.jobs[0].region_ids = vec![0];
+        if let Task::Flat { .. } = &p.steps[0].task {
+            p.steps[0].region_ids = vec![0];
         }
-        p.jobs.push(glue_up());
-        p.jobs.push(Job {
+        p.steps.push(glue_up());
+        p.steps.push(Step {
             region_ids: vec![0],
             ..trim(2.0, 8.0)
         });
@@ -946,14 +946,14 @@ mod tests {
         assert_eq!(t.files.len(), 2);
         // The inlay's plug comes with them: the one file that is not cut from the stock.
         assert_eq!(t.parts.len(), 1);
-        assert_eq!(t.parts[0].job_id, "j");
+        assert_eq!(t.parts[0].step_id, "j");
         let plug = t.parts[0].built.as_ref().unwrap();
         assert!(plug.part == Part::Plug && t.parts[0].problems.is_empty());
         assert_eq!(
-            t.files[0].job_ids,
+            t.files[0].step_ids,
             vec!["j".to_string(), "extra".to_string()]
         );
-        assert_eq!(t.files[1].job_ids, vec!["trim".to_string()]);
+        assert_eq!(t.files[1].step_ids, vec!["trim".to_string()]);
         let steps: Vec<Option<usize>> = t.steps.iter().map(|s| s.file).collect();
         assert_eq!(steps, vec![Some(0), Some(0), None, Some(1)]);
         for file in &t.files {
@@ -987,7 +987,7 @@ mod tests {
         );
 
         // Without a glue-up there is one file, called after the stock alone.
-        p.jobs.retain(|j| j.id != "glue" && j.id != "trim");
+        p.steps.retain(|j| j.id != "glue" && j.id != "trim");
         let t = timeline(&p).unwrap();
         assert_eq!(t.files.len(), 1);
         assert_eq!(
@@ -996,9 +996,9 @@ mod tests {
         );
 
         // A line that cannot be made leaves its file incomplete; the rest is still shown.
-        if let Inlay::Pocket {
+        if let Task::Pocket {
             clearing_tool_ids, ..
-        } = &mut p.jobs[1].inlay
+        } = &mut p.steps[1].task
         {
             clearing_tool_ids.clear();
         }
@@ -1011,15 +1011,15 @@ mod tests {
     #[test]
     fn a_facing_takes_its_height_from_the_list() {
         let auto = |p: &mut Project| {
-            let mut job = trim(0.0, 8.0);
-            if let Inlay::Facing { above_auto, .. } = &mut job.inlay {
+            let mut step = trim(0.0, 8.0);
+            if let Task::Facing { above_auto, .. } = &mut step.task {
                 *above_auto = true;
             }
-            p.jobs.push(job);
+            p.steps.push(step);
         };
         // After the glue-up: the 2 mm the backer stands above the surface.
         let mut p = backer_project();
-        p.jobs.push(glue_up());
+        p.steps.push(glue_up());
         auto(&mut p);
         p.validate().unwrap();
         let (rect, above) = build::facing_start(&p, "trim").unwrap();
@@ -1034,9 +1034,9 @@ mod tests {
 
         // A second facing over it finds it flush already, and has nothing to do.
         let mut again = p.clone();
-        let mut second = again.jobs[2].clone();
+        let mut second = again.steps[2].clone();
         second.id = "second".into();
-        again.jobs.push(second);
+        again.steps.push(second);
         assert_eq!(build::facing_start(&again, "second").unwrap().1, 0.0);
         let reasons = build::build(&again, "second", Part::Pocket).unwrap_err();
         assert!(
@@ -1047,13 +1047,13 @@ mod tests {
         // Before the glue-up nothing stands there.
         let mut p = backer_project();
         auto(&mut p);
-        p.jobs.push(glue_up());
+        p.steps.push(glue_up());
         assert_eq!(build::facing_start(&p, "trim").unwrap().1, 0.0);
 
         // A height given by hand that is too low is found on the stock itself.
         let mut p = backer_project();
-        p.jobs.push(glue_up());
-        p.jobs.push(trim(0.5, 8.0));
+        p.steps.push(glue_up());
+        p.steps.push(trim(0.5, 8.0));
         let t = timeline(&p).unwrap();
         assert!(
             t.steps[2].warnings[0].contains("1.5 mm into the wood at once"),
@@ -1066,13 +1066,13 @@ mod tests {
     fn a_pocket_cut_through_a_plug_ends_in_the_wood_under_it() {
         // A second inlay's worth: a plain pocket deeper than the plug goes in.
         let mut p = backer_project();
-        p.jobs.push(glue_up());
-        p.jobs.push(trim(2.0, 8.0));
-        p.jobs.push(Job {
+        p.steps.push(glue_up());
+        p.steps.push(trim(2.0, 8.0));
+        p.steps.push(Step {
             region_ids: vec![0],
             ..step(
                 "deep",
-                Inlay::Pocket {
+                Task::Pocket {
                     depth: 3.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,

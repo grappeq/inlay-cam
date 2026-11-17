@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutResult, CuttingSettings, Design, GlueStep, Inlay, Job, JobType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutResult, CuttingSettings, Design, GlueStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -53,8 +53,8 @@ export function sameSetup(a: Setup, b: Setup): boolean {
 }
 
 /** The clearances and tabs an inlay's files are cut with. */
-export function jobSetup(job: Job, project: Project): Setup {
-  return job.setup ?? project.setup;
+export function stepSetup(step: Step, project: Project): Setup {
+  return step.setup ?? project.setup;
 }
 
 /** Reads the machine kept in browser storage; anything unusable in it falls back to the usual value. */
@@ -83,10 +83,10 @@ export function readMachine(text: string | undefined): Machine {
 }
 
 export function newProject(name = "Untitled inlay"): Project {
-  return { id: newId(), name, design: null, jobs: [], tools: [], base: { thickness: 18 }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
+  return { id: newId(), name, design: null, steps: [], tools: [], base: { thickness: 18 }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
 }
 
-export function defaultInlay(type: JobType): Inlay {
+export function defaultInlay(type: StepType): Task {
   switch (type) {
     case "vcarve":
       return { type, engagementDepth: 3, glueGap: 0.3, sawGap: 1.5, clearingToolIds: [], vbitToolId: null, plugMargin: 8, plugThickness: 10, cutOut: false, tabs: true, relief: true };
@@ -109,8 +109,8 @@ export function defaultInlay(type: JobType): Inlay {
 export const DEFAULT_TIP_CLEARANCE = coreValues.chamfer.tipClearance.default;
 export const MAX_TIP_CLEARANCE = coreValues.chamfer.tipClearance.max;
 
-/** What each kind of job is called. */
-export const JOB_LABELS: Record<JobType, string> = {
+/** What each kind of step is called. */
+export const STEP_LABELS: Record<StepType, string> = {
   vcarve: "V-carve inlay",
   flat: "Flat inlay",
   pocket: "Pocket",
@@ -121,12 +121,12 @@ export const JOB_LABELS: Record<JobType, string> = {
 };
 
 /** True for an inlay, which has a second part; false for a plain operation on the stock. */
-export function isInlay(inlay: Inlay): inlay is TrueInlay {
+export function isInlay(inlay: Task): inlay is TrueInlay {
   return inlay.type === "vcarve" || inlay.type === "flat";
 }
 
 /** True for a step done by hand, which has no file and no tools. */
-export function isByHand(inlay: Inlay): inlay is GlueStep {
+export function isByHand(inlay: Task): inlay is GlueStep {
   return inlay.type === "glue";
 }
 
@@ -135,27 +135,27 @@ export function isByHand(inlay: Inlay): inlay is GlueStep {
  * on, the stock has their wood on it for the steps below it in the list.
  * Null for a plain operation.
  */
-export function glueStep(owner: Job, existing: Job[]): Job | null {
-  if (!isInlay(owner.inlay)) return null;
+export function glueStep(owner: Step, existing: Step[]): Step | null {
+  if (!isInlay(owner.task)) return null;
   let name = `Glue in ${owner.name}`;
   for (let n = 2; existing.some((j) => j.name === name); n++) name = `Glue in ${owner.name} ${n}`;
-  return { id: newId(), name, material: owner.material, regionIds: [], inlay: { type: "glue", inlayId: owner.id } };
+  return { id: newId(), name, material: owner.material, regionIds: [], task: { type: "glue", inlayId: owner.id } };
 }
 
 /** The step that glues this inlay in, if the list has one. */
-export function glueOf(owner: Job, jobs: Job[]): Job | undefined {
-  return jobs.find((j) => j.inlay.type === "glue" && j.inlay.inlayId === owner.id);
+export function glueOf(owner: Step, steps: Step[]): Step | undefined {
+  return steps.find((j) => j.task.type === "glue" && j.task.inlayId === owner.id);
 }
 
-/** The list without a job, and without the glue-up of an inlay that is gone. */
-export function withoutJob(jobs: Job[], id: string): Job[] {
-  return withoutOrphans(jobs.filter((j) => j.id !== id));
+/** The list without a step, and without the glue-up of an inlay that is gone. */
+export function withoutStep(steps: Step[], id: string): Step[] {
+  return withoutOrphans(steps.filter((j) => j.id !== id));
 }
 
 /** The list without glue-ups whose inlay is not in it. The same list when there are none. */
-export function withoutOrphans(jobs: Job[]): Job[] {
-  const kept = jobs.filter((j) => j.inlay.type !== "glue" || jobs.some((other) => other.id === (j.inlay as GlueStep).inlayId && isInlay(other.inlay)));
-  return kept.length === jobs.length ? jobs : kept;
+export function withoutOrphans(steps: Step[]): Step[] {
+  const kept = steps.filter((j) => j.task.type !== "glue" || steps.some((other) => other.id === (j.task as GlueStep).inlayId && isInlay(other.task)));
+  return kept.length === steps.length ? steps : kept;
 }
 
 /**
@@ -163,11 +163,11 @@ export function withoutOrphans(jobs: Job[]): Job[] {
  * the lines from one step done by hand to the next share a file. Null for a
  * step done by hand. As the core numbers them.
  */
-export function fileNumbers(jobs: Job[]): (number | null)[] {
+export function fileNumbers(steps: Step[]): (number | null)[] {
   let number = 0;
   let open = false;
-  return jobs.map((job) => {
-    if (isByHand(job.inlay)) {
+  return steps.map((step) => {
+    if (isByHand(step.task)) {
       open = false;
       return null;
     }
@@ -177,10 +177,10 @@ export function fileNumbers(jobs: Job[]): (number | null)[] {
   });
 }
 
-/** The list with a job put in right after another, or at the end when that one is not there. */
-export function insertAfter(jobs: Job[], afterId: string | undefined, job: Job): Job[] {
-  const at = jobs.findIndex((j) => j.id === afterId);
-  return at < 0 ? [...jobs, job] : [...jobs.slice(0, at + 1), job, ...jobs.slice(at + 1)];
+/** The list with a step put in right after another, or at the end when that one is not there. */
+export function insertAfter(steps: Step[], afterId: string | undefined, step: Step): Step[] {
+  const at = steps.findIndex((j) => j.id === afterId);
+  return at < 0 ? [...steps, step] : [...steps.slice(0, at + 1), step, ...steps.slice(at + 1)];
 }
 
 /** Woods to colour an inlay or the stock with, light to dark. */
@@ -197,37 +197,37 @@ export const WOODS: { name: string; color: string }[] = [
 /** The stock's colour when none is chosen. */
 export const DEFAULT_STOCK_COLOR = "#dcbd8e";
 /** Colours for inlays from before they had one of their own, by position in the list. */
-const OLD_JOB_COLORS = ["#c2552d", "#2f7f6f", "#8a5fbf", "#b8892b", "#3f78b5", "#b04a7a"];
+const OLD_STEP_COLORS = ["#c2552d", "#2f7f6f", "#8a5fbf", "#b8892b", "#3f78b5", "#b04a7a"];
 /** The woods new inlays are given in turn: ones that stand out from a light stock. */
 const NEW_INLAY_WOODS = ["#5d3d24", "#b06a3c", "#a8432b", "#3b2a20", "#6d3a5c", "#c9a56b"];
 
 /** The colour an inlay is drawn in. */
-export function jobColor(job: Job, jobs: Job[]): string {
-  return job.color ?? OLD_JOB_COLORS[Math.max(0, jobs.indexOf(job)) % OLD_JOB_COLORS.length];
+export function stepColor(step: Step, steps: Step[]): string {
+  return step.color ?? OLD_STEP_COLORS[Math.max(0, steps.indexOf(step)) % OLD_STEP_COLORS.length];
 }
 
 export function stockColor(project: Project): string {
   return project.base.color ?? DEFAULT_STOCK_COLOR;
 }
 
-export function newJob(type: JobType, regionIds: number[], existing: Job[], setup: Setup): Job {
-  const label = JOB_LABELS[type];
-  let n = existing.filter((j) => j.inlay.type === type).length + 1;
+export function newStep(type: StepType, regionIds: number[], existing: Step[], setup: Setup): Step {
+  const label = STEP_LABELS[type];
+  let n = existing.filter((j) => j.task.type === type).length + 1;
   while (existing.some((j) => j.name === `${label} ${n}`)) n++;
-  const job: Job = { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, setup, inlay: defaultInlay(type) };
-  if (isInlay(job.inlay)) {
+  const step: Step = { id: newId(), name: `${label} ${n}`, material: "hardwood", regionIds, setup, task: defaultInlay(type) };
+  if (isInlay(step.task)) {
     const taken = new Set(existing.map((j) => j.color));
-    job.color = NEW_INLAY_WOODS.find((c) => !taken.has(c)) ?? NEW_INLAY_WOODS[existing.length % NEW_INLAY_WOODS.length];
+    step.color = NEW_INLAY_WOODS.find((c) => !taken.has(c)) ?? NEW_INLAY_WOODS[existing.length % NEW_INLAY_WOODS.length];
   }
-  return job;
+  return step;
 }
 
 /**
  * How far a glued-in part of an inlay stands above the stock, and how far
  * its blank reaches beyond its shapes. Null for a plain operation.
  */
-export function standingPart(owner: Job): { above: number; margin: number; what: "plug" | "inserts" } | null {
-  const inlay = owner.inlay;
+export function standingPart(owner: Step): { above: number; margin: number; what: "plug" | "inserts" } | null {
+  const inlay = owner.task;
   if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth, margin: inlay.plugMargin, what: "plug" };
   if (inlay.type !== "flat") return null;
   const above = inlay.insertThickness - inlay.pocketDepth;
@@ -241,18 +241,18 @@ export function standingPart(owner: Job): { above: number; margin: number; what:
  * on a backer (loose inserts, a plain operation) and for a plug that does
  * not stand above the surface.
  */
-export function trimFacing(owner: Job, existing: Job[], setup: Setup): Job | null {
+export function trimFacing(owner: Step, existing: Step[], setup: Setup): Step | null {
   const part = standingPart(owner);
   if (!part || part.what !== "plug" || !(part.above > 0) || owner.regionIds.length === 0) return null;
-  const job = newJob("facing", [...owner.regionIds], existing, setup);
+  const step = newStep("facing", [...owner.regionIds], existing, setup);
   let name = `Trim ${owner.name}`;
   for (let n = 2; existing.some((j) => j.name === name); n++) name = `Trim ${owner.name} ${n}`;
   return {
-    ...job,
+    ...step,
     name,
     material: owner.material,
     // The height is taken from the list where the list has the glue-up; the number is what is used until then, and by hand.
-    inlay: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
+    task: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, pattern: "raster", toolId: null },
   };
 }
 
@@ -261,13 +261,13 @@ export function trimFacing(owner: Job, existing: Job[], setup: Setup): Job | nul
  * over exactly the inlay's shapes that starts above the surface, or takes
  * where it starts from the list.
  */
-export function trimOf(owner: Job, jobs: Job[]): Job | undefined {
+export function trimOf(owner: Step, steps: Step[]): Step | undefined {
   const shapes = new Set(owner.regionIds);
-  return jobs.find((j) => j.inlay.type === "facing" && (j.inlay.above > 0 || j.inlay.aboveAuto === true) && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
+  return steps.find((j) => j.task.type === "facing" && (j.task.above > 0 || j.task.aboveAuto === true) && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
 }
 
-export function jobToolIds(job: Job): string[] {
-  const inlay = job.inlay;
+export function stepToolIds(step: Step): string[] {
+  const inlay = step.task;
   const ids: (string | null)[] =
     inlay.type === "vcarve"
       ? [...inlay.clearingToolIds, inlay.vbitToolId]
@@ -276,25 +276,25 @@ export function jobToolIds(job: Job): string[] {
         : inlay.type === "glue"
           ? []
           : [inlay.toolId];
-  if (job.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(job.cutOutToolId);
+  if (step.cutOutToolId !== undefined && cutsPlugOut(inlay)) ids.push(step.cutOutToolId);
   return [...new Set(ids.filter((id): id is string => id !== null))];
 }
 
 /** Whether the inlay's plug is cut out of a larger board as the last step of its file. */
-export function cutsPlugOut(inlay: Inlay): boolean {
+export function cutsPlugOut(inlay: Task): boolean {
   return isInlay(inlay) && inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer");
 }
 
 /** How deep the cut that frees a plug from its board goes. */
-export function cutOutDepth(job: Job, project: Project): number {
-  const board = job.inlay.type === "vcarve" ? job.inlay.plugThickness : job.inlay.type === "flat" ? job.inlay.insertThickness : 0;
-  return board + jobSetup(job, project).throughCut;
+export function cutOutDepth(step: Step, project: Project): number {
+  const board = step.task.type === "vcarve" ? step.task.plugThickness : step.task.type === "flat" ? step.task.insertThickness : 0;
+  return board + stepSetup(step, project).throughCut;
 }
 
-/** What has to be chosen before a job's files can be made, or null when nothing is missing. */
-export function missingFor(job: Job): string | null {
-  const inlay = job.inlay;
-  if (job.regionIds.length === 0 && inlay.type !== "facing" && inlay.type !== "glue") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
+/** What has to be chosen before a step's files can be made, or null when nothing is missing. */
+export function missingFor(step: Step): string | null {
+  const inlay = step.task;
+  if (step.regionIds.length === 0 && inlay.type !== "facing" && inlay.type !== "glue") return `Click shapes in the drawing to add them to this ${isInlay(inlay) ? "inlay" : "operation"} first.`;
   switch (inlay.type) {
     case "vcarve":
       return inlay.vbitToolId === null ? "Choose a V-bit first, under Wood and tools." : null;
@@ -317,12 +317,12 @@ export function missingFor(job: Job): string | null {
   }
 }
 
-/** The first of a job's tools that has no cutting settings for the job's material, as a sentence; null when all have. */
-export function missingSettings(job: Job, tools: Tool[], lists: ToolLists): string | null {
-  for (const id of jobToolIds(job)) {
+/** The first of a step's tools that has no cutting settings for the step's material, as a sentence; null when all have. */
+export function missingSettings(step: Step, tools: Tool[], lists: ToolLists): string | null {
+  for (const id of stepToolIds(step)) {
     const tool = tools.find((t) => t.id === id);
-    if (tool && !tool.cutting.some((c) => c.material === job.material)) {
-      return `"${tool.name}" has no cutting settings for ${materialLabel(job.material, lists).toLowerCase()}. Add them in the tool list, or choose another tool.`;
+    if (tool && !tool.cutting.some((c) => c.material === step.material)) {
+      return `"${tool.name}" has no cutting settings for ${materialLabel(step.material, lists).toLowerCase()}. Add them in the tool list, or choose another tool.`;
     }
   }
   return null;
@@ -391,28 +391,28 @@ export function emptyDesign(): Design {
  * of the inlay's end mills whose cutting edges reach through the board, as
  * the core picks it.
  */
-export function usualCutOutTool(job: Job, tools: Tool[], project: Project): Tool | undefined {
-  const depth = cutOutDepth(job, project);
-  if (!isInlay(job.inlay)) return undefined;
-  return job.inlay.clearingToolIds
+export function usualCutOutTool(step: Step, tools: Tool[], project: Project): Tool | undefined {
+  const depth = cutOutDepth(step, project);
+  if (!isInlay(step.task)) return undefined;
+  return step.task.clearingToolIds
     .map((id) => resolveTool(id, tools, project))
     .filter((t): t is Tool => t !== undefined && t.kind === "flat_end")
     .sort((a, b) => b.diameter - a.diameter)
     .find((t) => t.fluteLength === undefined || t.fluteLength >= depth);
 }
 
-/** The tool a job refers to: the current one from the tool list, else the copy kept in the project. */
+/** The tool a step refers to: the current one from the tool list, else the copy kept in the project. */
 export function resolveTool(id: string | null, tools: Tool[], project: Project): Tool | undefined {
   if (id === null) return undefined;
   return tools.find((t) => t.id === id) ?? project.tools.find((t) => t.id === id);
 }
 
 /**
- * The copies of tools a project should carry: one per tool its jobs use,
+ * The copies of tools a project should carry: one per tool its steps use,
  * refreshed from the tool list where the tool still exists there.
  */
 export function toolSnapshots(project: Project, tools: Tool[]): Tool[] {
-  const ids = new Set(project.jobs.flatMap(jobToolIds));
+  const ids = new Set(project.steps.flatMap(stepToolIds));
   const out: Tool[] = [];
   for (const id of ids) {
     const tool = resolveTool(id, tools, project);
@@ -439,9 +439,9 @@ export function toolChoices(kind: ToolKind | ToolKind[], tools: Tool[], project:
  * belongs to one inlay at most; plain operations use any shapes, also those
  * of an inlay or of each other, and own none.
  */
-export function regionOwners(jobs: Job[]): Map<number, Job> {
-  const owners = new Map<number, Job>();
-  for (const job of jobs) if (isInlay(job.inlay)) for (const id of job.regionIds) owners.set(id, job);
+export function regionOwners(steps: Step[]): Map<number, Step> {
+  const owners = new Map<number, Step>();
+  for (const step of steps) if (isInlay(step.task)) for (const id of step.regionIds) owners.set(id, step);
   return owners;
 }
 
@@ -453,7 +453,7 @@ export interface MergeResult {
 
 /**
  * Merges imported tools into the list. A tool with the same name as an
- * existing one replaces it and keeps its id, so jobs keep pointing at it.
+ * existing one replaces it and keeps its id, so steps keep pointing at it.
  */
 export function mergeTools(current: Tool[], incoming: Tool[]): MergeResult {
   const tools = [...current];
@@ -624,9 +624,9 @@ export function isAdaptive(key: string, profile: Profile | undefined): boolean {
   return profile?.adaptive ?? key === "adaptive";
 }
 
-/** The copies of profiles a project should carry: one per profile its jobs' row choices name. */
+/** The copies of profiles a project should carry: one per profile its steps' row choices name. */
 export function profileSnapshots(project: Project, lists: ToolLists): Profile[] {
-  const keys = new Set(project.jobs.flatMap((j) => Object.values(j.rowProfiles ?? {})));
+  const keys = new Set(project.steps.flatMap((j) => Object.values(j.rowProfiles ?? {})));
   return [...keys]
     .sort()
     .map((key) => findProfile(key, lists, project))

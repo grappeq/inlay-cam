@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { Built, Job, StockFile, StockTimeline, TimelineStep } from "../core/types";
-import { fmt, jobColor } from "../state/model";
+import type { Built, Step, StockFile, StockTimeline, TimelineStep } from "../core/types";
+import { fmt, stepColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
-import { JobIcon } from "./icons";
+import { StepIcon } from "./icons";
 import { formatMinutes, partName } from "./OutputPanel";
 import { useWorkOut } from "./Timeline";
 
@@ -14,28 +14,28 @@ type Row =
   | { kind: "hand"; step: TimelineStep; at: number };
 
 /** Everything there is to do, in the order to do it: a part is cut before the glue-up that needs it. */
-function rows(result: StockTimeline, jobs: Job[]): Row[] {
+function rows(result: StockTimeline, steps: Step[]): Row[] {
   const out: Row[] = [];
   const shown = new Set<string>();
   const part = (inlayId: string) => {
-    const found = result.parts.find((p) => p.jobId === inlayId);
+    const found = result.parts.find((p) => p.stepId === inlayId);
     if (!found || shown.has(inlayId)) return;
     shown.add(inlayId);
     out.push({ kind: "part", part: found });
   };
   result.steps.forEach((step, index) => {
     if (step.byHand) {
-      const job = jobs.find((j) => j.id === step.jobId);
-      if (job?.inlay.type === "glue") part(job.inlay.inlayId);
+      const listed = steps.find((j) => j.id === step.stepId);
+      if (listed?.task.type === "glue") part(listed.task.inlayId);
       out.push({ kind: "hand", step, at: index + 1 });
       return;
     }
     const file = step.file === null ? undefined : result.files[step.file];
     // A file stands where its first line does.
-    if (file && file.jobIds[0] === step.jobId) out.push({ kind: "stock", file, number: (step.file ?? 0) + 1, last: index + file.jobIds.length });
+    if (file && file.stepIds[0] === step.stepId) out.push({ kind: "stock", file, number: (step.file ?? 0) + 1, last: index + file.stepIds.length });
   });
   // Parts that no glue-up in the list asks for yet.
-  for (const p of result.parts) part(p.jobId);
+  for (const p of result.parts) part(p.stepId);
   return out;
 }
 
@@ -63,7 +63,7 @@ export function FilesList() {
   // Names and colours are those of the project as it was when the files were made.
   const made = timeline?.project ?? project;
   const stale = timeline !== null && made !== project;
-  const name = (id: string) => made.jobs.find((j) => j.id === id)?.name ?? "?";
+  const name = (id: string) => made.steps.find((j) => j.id === id)?.name ?? "?";
   const several = (result?.files.length ?? 0) > 1;
   const show = (at: number) => {
     dispatch({ type: "setTimelineAt", at });
@@ -96,21 +96,21 @@ export function FilesList() {
           {!busy && stale && <p className="callout warn">The project has changed since these were made. Generate again before downloading.</p>}
           {!busy && result && (
             <ol className="file-rows">
-              {rows(result, made.jobs).map((row, index) => {
+              {rows(result, made.steps).map((row, index) => {
                 const n = index + 1;
                 if (row.kind === "hand") {
                   const { step } = row;
-                  const job = made.jobs.find((j) => j.id === step.jobId);
-                  const inlay = job?.inlay.type === "glue" ? made.jobs.find((j) => job.inlay.type === "glue" && j.id === job.inlay.inlayId) : undefined;
+                  const listed = made.steps.find((j) => j.id === step.stepId);
+                  const inlay = listed?.task.type === "glue" ? made.steps.find((j) => listed.task.type === "glue" && j.id === listed.task.inlayId) : undefined;
                   return (
-                    <li className="file-row by-hand" key={`hand ${step.jobId}`}>
+                    <li className="file-row by-hand" key={`hand ${step.stepId}`}>
                       <span className="file-row-n">{n}</span>
                       <div className="file-row-main">
                         <button className="link" onClick={() => show(row.at)} title="Show the stock after this step in 3D">
-                          <span className="job-icon" style={inlay ? { color: jobColor(inlay, made.jobs) } : undefined}>
-                            <JobIcon type="glue" />
+                          <span className="job-icon" style={inlay ? { color: stepColor(inlay, made.steps) } : undefined}>
+                            <StepIcon type="glue" />
                           </span>
-                          {name(step.jobId)}
+                          {name(step.stepId)}
                         </button>
                         <span className="muted">
                           By hand, no file.
@@ -126,12 +126,12 @@ export function FilesList() {
                   );
                 }
                 if (row.kind === "part") {
-                  const inlay = made.jobs.find((j) => j.id === row.part.jobId);
+                  const inlay = made.steps.find((j) => j.id === row.part.stepId);
                   if (!inlay) return null;
                   const what = partName("plug", inlay);
                   return (
                     <FileRow
-                      key={`part ${row.part.jobId}`}
+                      key={`part ${row.part.stepId}`}
                       n={n}
                       title={`${what === "insert" ? "Inserts" : "Plug"} of "${inlay.name}"`}
                       note="Cut from a board of its own."
@@ -144,14 +144,14 @@ export function FilesList() {
                 }
                 const { file } = row;
                 const missing = result.steps
-                  .filter((s) => file.jobIds.includes(s.jobId) && s.errors.length > 0)
-                  .flatMap((s) => s.errors.map((e) => `${name(s.jobId)}: ${e}`));
+                  .filter((s) => file.stepIds.includes(s.stepId) && s.errors.length > 0)
+                  .flatMap((s) => s.errors.map((e) => `${name(s.stepId)}: ${e}`));
                 return (
                   <FileRow
                     key={`stock ${row.number}`}
                     n={n}
                     title={`Stock${several ? `, file ${row.number}` : ""}`}
-                    note={`Cuts ${file.jobIds.map((id) => `"${name(id)}"`).join(", then ")}.`}
+                    note={`Cuts ${file.stepIds.map((id) => `"${name(id)}"`).join(", then ")}.`}
                     built={file.complete ? file.built : null}
                     problems={file.problems.length}
                     errors={[...file.errors, ...missing]}

@@ -1,4 +1,4 @@
-//! Turns an inlay job into a G-code file, and simulates that file.
+//! Turns an inlay step into a G-code file, and simulates that file.
 //!
 //! This is the whole pipeline in one place: geometry -> moves -> G-code text
 //! -> interpreted moves -> simulated stock.
@@ -17,13 +17,13 @@ use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{
-    Inlay, InsertStyle, Job, Machine, PassDirection, Pattern, Project, Setup, Side, VcarveTuning,
+    InsertStyle, Machine, PassDirection, Pattern, Project, Setup, Side, Step, Task, VcarveTuning,
 };
 use crate::sim::{self, HeightMap};
 use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
 use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
 
-/// The two halves of an inlay: each is cut from its own board, with its own file.
+/// The two halves of an task: each is cut from its own board, with its own file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Part {
@@ -34,23 +34,23 @@ pub enum Part {
 }
 
 /// What a part of this kind of inlay is called.
-fn part_name(part: Part, inlay: &Inlay) -> &'static str {
-    match (part, inlay) {
+fn part_name(part: Part, task: &Task) -> &'static str {
+    match (part, task) {
         (Part::Pocket, _) => "pocket",
-        (Part::Plug, Inlay::Vcarve { .. }) => "plug",
+        (Part::Plug, Task::Vcarve { .. }) => "plug",
         (
             Part::Plug,
-            Inlay::Flat {
+            Task::Flat {
                 insert_style: InsertStyle::Backer,
                 ..
             },
         ) => "plug",
-        (Part::Plug, Inlay::Flat { .. }) => "insert",
-        (_, Inlay::Pocket { .. }) => "pocket",
-        (_, Inlay::Facing { .. }) => "facing",
-        (_, Inlay::Contour { .. }) => "contour",
-        (_, Inlay::Chamfer { .. }) => "chamfer",
-        (_, Inlay::Glue { .. }) => "glue-up",
+        (Part::Plug, Task::Flat { .. }) => "insert",
+        (_, Task::Pocket { .. }) => "pocket",
+        (_, Task::Facing { .. }) => "facing",
+        (_, Task::Contour { .. }) => "contour",
+        (_, Task::Chamfer { .. }) => "chamfer",
+        (_, Task::Glue { .. }) => "glue-up",
     }
 }
 
@@ -115,7 +115,7 @@ pub struct Built {
     pub file_name: String,
     pub gcode: String,
     pub stats: Stats,
-    /// Things worth knowing that do not stop the job.
+    /// Things worth knowing that do not stop the step.
     pub warnings: Vec<String>,
     /// For a plug: where its blank lies on the base board once turned over.
     #[serde(skip)]
@@ -174,33 +174,33 @@ pub struct ToolStats {
     pub minutes: f64,
 }
 
-/// Builds the pocket file for a job.
-pub fn build_pocket(project: &Project, job_id: &str) -> Result<Built, Vec<String>> {
-    build(project, job_id, Part::Pocket)
+/// Builds the pocket file for a step.
+pub fn build_pocket(project: &Project, step_id: &str) -> Result<Built, Vec<String>> {
+    build(project, step_id, Part::Pocket)
 }
 
-/// Builds the file for one part of a job. On failure returns every reason
+/// Builds the file for one part of a step. On failure returns every reason
 /// found, in plain words.
-pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<String>> {
+pub fn build(project: &Project, step_id: &str, part: Part) -> Result<Built, Vec<String>> {
     let machine = &project.machine;
-    let job = project
-        .jobs
+    let step = project
+        .steps
         .iter()
-        .find(|j| j.id == job_id)
+        .find(|j| j.id == step_id)
         .ok_or_else(|| vec!["This inlay no longer exists.".to_string()])?;
-    if job.inlay.is_by_hand() {
+    if step.task.is_by_hand() {
         return Err(vec![format!(
             "\"{}\" is done by hand: it has no file.",
-            job.name
+            step.name
         )]);
     }
-    let through_cut = Setup::of(project, job).through_cut;
+    let through_cut = Setup::of(project, step).through_cut;
     let design = project
         .design
         .as_ref()
         .ok_or_else(|| vec!["The project has no design.".to_string()])?;
 
-    let plain = !job.inlay.is_inlay();
+    let plain = !step.task.is_inlay();
     if plain && part == Part::Plug {
         return Err(vec![
             "Only an inlay has a second part. This operation has one file.".to_string(),
@@ -208,19 +208,19 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     }
 
     // How deep the part is cut, and how thick its board is.
-    let (depth, thickness) = match (part, &job.inlay) {
-        (_, Inlay::Pocket { depth, .. }) => (*depth, project.base.thickness),
-        (_, Inlay::Facing { depth, .. }) => (*depth, project.base.thickness),
-        (_, Inlay::Contour { depth, .. }) => (
+    let (depth, thickness) = match (part, &step.task) {
+        (_, Task::Pocket { depth, .. }) => (*depth, project.base.thickness),
+        (_, Task::Facing { depth, .. }) => (*depth, project.base.thickness),
+        (_, Task::Contour { depth, .. }) => (
             depth.unwrap_or(project.base.thickness + through_cut),
             project.base.thickness,
         ),
         // Worked out from the V-bit once it is known.
-        (_, Inlay::Chamfer { .. } | Inlay::Glue { .. }) => (0.0, project.base.thickness),
-        (Part::Pocket, Inlay::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
+        (_, Task::Chamfer { .. } | Task::Glue { .. }) => (0.0, project.base.thickness),
+        (Part::Pocket, Task::Flat { pocket_depth, .. }) => (*pocket_depth, project.base.thickness),
         (
             Part::Pocket,
-            Inlay::Vcarve {
+            Task::Vcarve {
                 engagement_depth,
                 glue_gap,
                 ..
@@ -228,7 +228,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ) => (engagement_depth + glue_gap, project.base.thickness),
         (
             Part::Plug,
-            Inlay::Vcarve {
+            Task::Vcarve {
                 engagement_depth,
                 saw_gap,
                 plug_thickness,
@@ -237,7 +237,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ) => (engagement_depth + saw_gap, *plug_thickness),
         (
             Part::Plug,
-            Inlay::Flat {
+            Task::Flat {
                 insert_style: InsertStyle::Backer,
                 pocket_depth,
                 saw_gap,
@@ -247,31 +247,31 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ) => (pocket_depth + saw_gap, *insert_thickness),
         (
             Part::Plug,
-            Inlay::Flat {
+            Task::Flat {
                 insert_thickness, ..
             },
         ) => (insert_thickness + through_cut, *insert_thickness),
     };
     // A loose insert is cut right through its board on purpose.
     let loose = matches!(
-        (part, &job.inlay),
+        (part, &step.task),
         (
             Part::Plug,
-            Inlay::Flat {
+            Task::Flat {
                 insert_style: InsertStyle::Loose,
                 ..
             }
         )
     );
-    let name = part_name(part, &job.inlay);
+    let name = part_name(part, &step.task);
     // A contour without a depth goes right through the stock on purpose.
-    let through_stock = matches!(&job.inlay, Inlay::Contour { depth: None, .. });
+    let through_stock = matches!(&step.task, Task::Contour { depth: None, .. });
 
     let mut errors: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
 
-    let regions = union(&design.placed_regions(&job.region_ids));
-    if regions.is_empty() && !matches!(&job.inlay, Inlay::Facing { .. }) {
+    let regions = union(&design.placed_regions(&step.region_ids));
+    if regions.is_empty() && !matches!(&step.task, Task::Facing { .. }) {
         errors.push(if plain {
             "The operation has no shapes. Click shapes in the drawing to add them.".into()
         } else {
@@ -284,7 +284,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
                 "The cut is {} mm deep but the stock is only {} mm thick.{}",
                 num(depth),
                 num(thickness),
-                if matches!(&job.inlay, Inlay::Contour { .. }) {
+                if matches!(&step.task, Task::Contour { .. }) {
                     " To cut right through, choose \"through the stock\"."
                 } else {
                     ""
@@ -305,45 +305,45 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
 
     let mut ctx = Context {
         project,
-        job,
+        step,
         machine,
         depth,
-        pattern: match &job.inlay {
-            Inlay::Pocket { pattern, .. } | Inlay::Facing { pattern, .. } => *pattern,
+        pattern: match &step.task {
+            Task::Pocket { pattern, .. } | Task::Facing { pattern, .. } => *pattern,
             _ => Pattern::Offset,
         },
-        direction: match &job.inlay {
-            Inlay::Pocket { direction, .. } | Inlay::Facing { direction, .. } => *direction,
+        direction: match &step.task {
+            Task::Pocket { direction, .. } | Task::Facing { direction, .. } => *direction,
             _ => PassDirection::Longer,
         },
         errors,
         warnings,
     };
-    if !job.material.is_built_in() {
+    if !step.material.is_built_in() {
         ctx.warnings.push(format!(
             "This is cut in {}. The app's toolpaths have only been proven in wood: check the simulation, and cut a test piece first.",
-            material_name(&job.material)
+            material_name(&step.material)
         ));
     }
-    let cut = match (part, &job.inlay) {
+    let cut = match (part, &step.task) {
         // Turned away above.
-        (_, Inlay::Glue { .. }) => None,
+        (_, Task::Glue { .. }) => None,
         (
             _,
-            Inlay::Pocket {
+            Task::Pocket {
                 clearing_tool_ids, ..
             },
         ) => plain_pocket(&mut ctx, &regions, clearing_tool_ids),
         (
             _,
-            Inlay::Facing {
+            Task::Facing {
                 above_auto,
                 margin,
                 tool_id,
                 ..
             },
         ) => {
-            let above = facing_start(project, job_id).map_or(0.0, |(_, above)| above);
+            let above = facing_start(project, step_id).map_or(0.0, |(_, above)| above);
             if *above_auto && above + depth <= 0.0 {
                 ctx.errors.push(
                     "There is nothing to face: when the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or give the wood above the surface by hand."
@@ -363,7 +363,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         }
         (
             _,
-            Inlay::Contour {
+            Task::Contour {
                 side,
                 tabs,
                 tool_id,
@@ -379,7 +379,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ),
         (
             _,
-            Inlay::Chamfer {
+            Task::Chamfer {
                 side,
                 width,
                 tip_clearance,
@@ -395,7 +395,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ),
         (
             Part::Pocket,
-            Inlay::Flat {
+            Task::Flat {
                 clearing_tool_ids,
                 allowance,
                 pocket_depth,
@@ -411,7 +411,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ),
         (
             Part::Plug,
-            Inlay::Flat {
+            Task::Flat {
                 clearing_tool_ids,
                 allowance,
                 tabs,
@@ -450,7 +450,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         }
         (
             Part::Pocket,
-            Inlay::Vcarve {
+            Task::Vcarve {
                 clearing_tool_ids,
                 vbit_tool_id,
                 ..
@@ -463,7 +463,7 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
         ),
         (
             Part::Plug,
-            Inlay::Vcarve {
+            Task::Vcarve {
                 engagement_depth,
                 saw_gap,
                 glue_gap,
@@ -503,13 +503,13 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
     // Where the pocket ends up shallower than the plug needs to go in.
     let mut narrow: Vec<[Point; 2]> = Vec::new();
     if let (
-        Inlay::Vcarve {
+        Task::Vcarve {
             engagement_depth,
             vbit_tool_id,
             ..
         },
         Some(_),
-    ) = (&job.inlay, &cut)
+    ) = (&step.task, &cut)
     {
         if let Some(vbit) = vbit_tool_id
             .as_deref()
@@ -562,14 +562,14 @@ pub fn build(project: &Project, job_id: &str, part: Part) -> Result<Built, Vec<S
 
     // An operation is named by the user; an inlay's two files also say which part they are.
     let title = if plain {
-        format!("{} - {}", project.name, job.name)
+        format!("{} - {}", project.name, step.name)
     } else {
-        format!("{} - {} - {}", project.name, job.name, name)
+        format!("{} - {} - {}", project.name, step.name, name)
     };
     let program = Program {
         name: title.clone(),
         tools: cut.tools,
-        safe_z: Setup::of(project, job).safe_height,
+        safe_z: Setup::of(project, step).safe_height,
         moves: cut.moves,
     };
     let (gcode, interpreted, stats) = finish(&program, machine, name)?;
@@ -680,11 +680,11 @@ fn finish(
     Ok((gcode, interpreted, stats))
 }
 
-/// What is known while a job is turned into moves, and what has been found
+/// What is known while a step is turned into moves, and what has been found
 /// wrong with it so far.
 struct Context<'a> {
     project: &'a Project,
-    job: &'a Job,
+    step: &'a Step,
     machine: &'a Machine,
     /// Depth of the pocket floor, mm.
     depth: f64,
@@ -753,7 +753,7 @@ fn extent(regions: &[Region]) -> Option<[f64; 4]> {
 impl<'a> Context<'a> {
     /// The inlay's clearances and tabs.
     fn setup(&self) -> Setup {
-        Setup::of(self.project, self.job)
+        Setup::of(self.project, self.step)
     }
 
     /// An empty path that travels and plunges at the inlay's heights.
@@ -762,7 +762,7 @@ impl<'a> Context<'a> {
         PathBuilder::new(setup.safe_height).with_clearance(setup.plunge_clearance)
     }
 
-    /// Looks up a tool for the job and checks it can do the work: right kind,
+    /// Looks up a tool for the step and checks it can do the work: right kind,
     /// cutting settings for the wood, speed within the machine's range and
     /// cutting edges long enough for the depth.
     fn tool(
@@ -772,7 +772,7 @@ impl<'a> Context<'a> {
         what: &str,
     ) -> Option<(&'a Tool, &'a CuttingSettings)> {
         let tool = checked_tool(self.project, id, kind, what, &mut self.errors)?;
-        let profile = self.job.row_profiles.get(&tool.id).map(String::as_str);
+        let profile = self.step.row_profiles.get(&tool.id).map(String::as_str);
         let label = profile.map(|key| {
             let known = self.project.profiles.iter().find(|p| p.key == key);
             known.map_or(key, |p| p.label.as_str())
@@ -789,17 +789,17 @@ impl<'a> Context<'a> {
                 return None;
             }
         }
-        let Some(cutting) = tool.cutting_row(&self.job.material, profile) else {
+        let Some(cutting) = tool.cutting_row(&self.step.material, profile) else {
             self.errors.push(match label {
                 None => format!(
                     "\"{}\" has no cutting settings for {}. Add them in the tool list.",
                     tool.name,
-                    material_name(&self.job.material)
+                    material_name(&self.step.material)
                 ),
                 Some(label) => format!(
                     "\"{}\" has no {label} row for {}. Choose another row, or add it in the tool list.",
                     tool.name,
-                    material_name(&self.job.material)
+                    material_name(&self.step.material)
                 ),
             });
             return None;
@@ -825,7 +825,7 @@ impl<'a> Context<'a> {
         match tool.flute_length {
             Some(flutes) if self.depth > flutes => self.errors.push(format!(
                 "The {} {} mm deep, but the cutting edges of \"{}\" are only {} mm long.",
-                if self.job.inlay.is_inlay() {
+                if self.step.task.is_inlay() {
                     "pocket is"
                 } else {
                     "cut goes"
@@ -849,7 +849,7 @@ impl<'a> Context<'a> {
 const SMALL_SHARE: f64 = 0.01;
 
 impl<'a> Context<'a> {
-    /// Looks up and checks every clearing end mill of the job, in the order
+    /// Looks up and checks every clearing end mill of the step, in the order
     /// given. `None` when any of them cannot be used.
     fn end_mills(&mut self, ids: &[String]) -> Option<Vec<(&'a Tool, &'a CuttingSettings)>> {
         let found: Vec<_> = ids
@@ -859,7 +859,7 @@ impl<'a> Context<'a> {
         found.into_iter().collect()
     }
 
-    /// Clears `area` to the job's depth with the end mills in the order
+    /// Clears `area` to the step's depth with the end mills in the order
     /// given: each cuts only what those before it left. A tool that fits
     /// nowhere, or finds nothing left, is not loaded at all, with a warning.
     /// Tools are numbered from `number` on, which is advanced. Returns the
@@ -1235,7 +1235,7 @@ struct FlatInsert {
     saw_gap: f64,
 }
 
-/// The insert of a flat inlay: the shapes, less the allowance, cut right out
+/// The insert of a flat task: the shapes, less the allowance, cut right out
 /// of their own board. Not mirrored: it goes into the pocket the way up it
 /// was cut.
 fn flat_insert(
@@ -1553,7 +1553,7 @@ fn cut_piece_out(
     let (width, height) = cut.board?;
     let setup = ctx.setup();
     let depth = thickness + setup.through_cut;
-    let tool: &Tool = if let Some(id) = ctx.job.cut_out_tool_id.as_deref() {
+    let tool: &Tool = if let Some(id) = ctx.step.cut_out_tool_id.as_deref() {
         // The tool chosen for the cut-out, whatever else it does.
         let tool = checked_tool(
             ctx.project,
@@ -1605,11 +1605,11 @@ fn cut_piece_out(
         };
         tool
     };
-    let Some(cutting) = tool.cutting_for(&ctx.job.material) else {
+    let Some(cutting) = tool.cutting_for(&ctx.step.material) else {
         ctx.errors.push(format!(
             "\"{}\" has no cutting settings for {}. Add them in the tool list.",
             tool.name,
-            material_name(&ctx.job.material)
+            material_name(&ctx.step.material)
         ));
         return None;
     };
@@ -1747,9 +1747,9 @@ fn cut_piece_out(
 
 /// Half angle in radians and tip flat radius in mm of a V-bit.
 /// A V-carve inlay's finer points, or the usual ones for anything else.
-fn vcarve_tuning(inlay: &Inlay) -> VcarveTuning {
-    match inlay {
-        Inlay::Vcarve { tuning, .. } => *tuning,
+fn vcarve_tuning(task: &Task) -> VcarveTuning {
+    match task {
+        Task::Vcarve { tuning, .. } => *tuning,
         _ => VcarveTuning::default(),
     }
 }
@@ -1761,7 +1761,7 @@ fn vbit_shape(vbit: &Tool) -> (f64, f64) {
     )
 }
 
-/// The tools of a V-carve job, checked, and how the V-bit is to be run.
+/// The tools of a V-carve step, checked, and how the V-bit is to be run.
 struct VcarveSetup<'a> {
     vbit: &'a Tool,
     vbit_rpm: u32,
@@ -1769,7 +1769,7 @@ struct VcarveSetup<'a> {
     params: VcarveParams,
 }
 
-/// Looks up and checks the tools of a V-carve job. `flat_depth` is how far the
+/// Looks up and checks the tools of a V-carve step. `flat_depth` is how far the
 /// floor is below the level where the outline is met; `ctx.depth` is how far
 /// it is below the surface.
 fn vcarve_setup<'a>(
@@ -1790,7 +1790,7 @@ fn vcarve_setup<'a>(
     // this leave ridges higher than the inlay allows whatever the tool's own
     // stepover says (tool libraries often give a share of the body diameter).
     let (half_angle, tip_radius) = vbit_shape(vbit);
-    let floor_ridge = vcarve_tuning(&ctx.job.inlay).floor_ridge;
+    let floor_ridge = vcarve_tuning(&ctx.step.task).floor_ridge;
     let floor_stepover = 2.0 * tip_radius + 2.0 * floor_ridge * half_angle.tan();
     if vcutting.stepover > floor_stepover + 0.005 {
         ctx.warnings.push(format!(
@@ -1909,7 +1909,7 @@ struct PlugShape {
     cut_out: bool,
 }
 
-/// The plug of a V-carve inlay: the shapes mirrored, left standing in a blank
+/// The plug of a V-carve task: the shapes mirrored, left standing in a blank
 /// that is otherwise cut down to a flat floor. Turned over, the shapes go
 /// `engagement` deep into the pocket and the floor ends up `saw_gap` above
 /// the base board.
@@ -2110,22 +2110,22 @@ fn facing_rect(regions: &[Region], stock: (f64, f64), margin: f64) -> [f64; 4] {
 /// Where a facing cuts and where it starts: its rectangle on the stock, and
 /// how far above the surface its first pass begins. That height is the one
 /// the facing gives, or the one the list gives when it is to be taken from
-/// there. `None` for any other job.
-pub fn facing_start(project: &Project, job_id: &str) -> Option<([f64; 4], f64)> {
+/// there. `None` for any other step.
+pub fn facing_start(project: &Project, step_id: &str) -> Option<([f64; 4], f64)> {
     let design = project.design.as_ref()?;
-    let index = project.jobs.iter().position(|j| j.id == job_id)?;
-    let job = &project.jobs[index];
-    let Inlay::Facing {
+    let index = project.steps.iter().position(|j| j.id == step_id)?;
+    let step = &project.steps[index];
+    let Task::Facing {
         above,
         above_auto,
         margin,
         ..
-    } = &job.inlay
+    } = &step.task
     else {
         return None;
     };
     let rect = facing_rect(
-        &design.placed_regions(&job.region_ids),
+        &design.placed_regions(&step.region_ids),
         design.placed_size(),
         *margin,
     );
@@ -2148,20 +2148,20 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
     let overlap =
         |a: &[f64; 4], b: &[f64; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
     let mut standing: Vec<([f64; 4], f64)> = Vec::new();
-    for job in &project.jobs[..index] {
-        match &job.inlay {
-            Inlay::Glue { inlay_id } => {
-                let Some(inlay) = project.jobs.iter().find(|j| &j.id == inlay_id) else {
+    for step in &project.steps[..index] {
+        match &step.task {
+            Task::Glue { inlay_id } => {
+                let Some(inlay) = project.steps.iter().find(|j| &j.id == inlay_id) else {
                     continue;
                 };
-                let (height, margin) = match &inlay.inlay {
-                    Inlay::Vcarve {
+                let (height, margin) = match &inlay.task {
+                    Task::Vcarve {
                         plug_thickness,
                         engagement_depth,
                         plug_margin,
                         ..
                     } => (plug_thickness - engagement_depth, *plug_margin),
-                    Inlay::Flat {
+                    Task::Flat {
                         insert_thickness,
                         pocket_depth,
                         insert_margin,
@@ -2187,9 +2187,9 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                     }
                 }
             }
-            Inlay::Facing { depth, margin, .. } => {
+            Task::Facing { depth, margin, .. } => {
                 let faced = facing_rect(
-                    &design.placed_regions(&job.region_ids),
+                    &design.placed_regions(&step.region_ids),
                     design.placed_size(),
                     *margin,
                 );
@@ -2210,7 +2210,7 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
 }
 
 /// Facing: an area milled flat with an end mill, from `above` the stock's
-/// surface down to the job's depth below it. Without shapes the area is the
+/// surface down to the step's depth below it. Without shapes the area is the
 /// whole stock; with shapes, the rectangle around them grown by `margin`. The
 /// tool's centre
 /// goes right to the edge of the area, so no wall is left around it above the
@@ -2309,7 +2309,7 @@ fn facing(
 }
 
 /// A contour: an end mill taken along the outlines of the shapes, outside
-/// them, inside them or on them, down to the job's depth or right through
+/// them, inside them or on them, down to the step's depth or right through
 /// the stock.
 fn contour(
     ctx: &mut Context,
@@ -2579,17 +2579,17 @@ fn chamfer(
     })
 }
 
-/// Builds one file that runs the stock's part of several jobs one after the
+/// Builds one file that runs the stock's part of several steps one after the
 /// other, in the order given: an inlay's pocket, or a plain operation. A tool
-/// that the next job also starts with stays in the spindle, and tools keep
+/// that the next step also starts with stays in the spindle, and tools keep
 /// one number each through the whole file.
-pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Vec<String>> {
-    if job_ids.is_empty() {
+pub fn build_combined(project: &Project, step_ids: &[String]) -> Result<Built, Vec<String>> {
+    if step_ids.is_empty() {
         return Err(vec!["Tick what the file should cut.".to_string()]);
     }
     let name_of = |id: &str| {
         project
-            .jobs
+            .steps
             .iter()
             .find(|j| j.id == id)
             .map_or("?", |j| j.name.as_str())
@@ -2597,7 +2597,7 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
 
     let mut parts: Vec<(&str, Built)> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
-    for id in job_ids {
+    for id in step_ids {
         match build(project, id, Part::Pocket) {
             Ok(built) => parts.push((name_of(id), built)),
             Err(reasons) => errors.extend(
@@ -2614,15 +2614,15 @@ pub fn build_combined(project: &Project, job_ids: &[String]) -> Result<Built, Ve
     let mut built = join(project, &borrowed, "stock")?.built;
 
     let mut warnings: Vec<String> = Vec::new();
-    // Wood standing above the surface is only allowed for by the job that faces it off.
-    for (i, id) in job_ids.iter().enumerate().skip(1) {
+    // Wood standing above the surface is only allowed for by the step that faces it off.
+    for (i, id) in step_ids.iter().enumerate().skip(1) {
         if let Some((_, above)) = facing_start(project, id) {
             if above > 0.0 {
                 warnings.push(format!(
                     "\"{}\" faces off {} mm of wood standing above the surface, but {} before it in this file {} as if the surface were clear. Make sure nothing stands in {} way, or put the facing first.",
                     name_of(id),
                     num(above),
-                    if i == 1 { "the job" } else { "the jobs" },
+                    if i == 1 { "the step" } else { "the steps" },
                     if i == 1 { "travels" } else { "travel" },
                     if i == 1 { "its" } else { "their" }
                 ));
@@ -2649,7 +2649,7 @@ pub struct Joined {
 }
 
 /// Joins the files of several parts cut from the stock into one, in the
-/// order given; each comes with the name of its job. A tool that the next
+/// order given; each comes with the name of its step. A tool that the next
 /// part also starts with stays in the spindle, and tools keep one number
 /// each through the whole file. `label` is what the file is called after
 /// the project's name: "stock", or "stock 2".
@@ -2854,20 +2854,20 @@ pub struct Preview {
     pub built: Built,
 }
 
-/// Builds a job's pocket file and simulates that file on the base board.
-pub fn preview_pocket(project: &Project, job_id: &str) -> Result<Preview, Vec<String>> {
-    preview(project, job_id, Part::Pocket)
+/// Builds a step's pocket file and simulates that file on the base board.
+pub fn preview_pocket(project: &Project, step_id: &str) -> Result<Preview, Vec<String>> {
+    preview(project, step_id, Part::Pocket)
 }
 
-/// Builds the file for one part of a job and simulates that file on the
+/// Builds the file for one part of a step and simulates that file on the
 /// part's board.
-pub fn preview(project: &Project, job_id: &str, part: Part) -> Result<Preview, Vec<String>> {
-    Ok(simulated(build(project, job_id, part)?))
+pub fn preview(project: &Project, step_id: &str, part: Part) -> Result<Preview, Vec<String>> {
+    Ok(simulated(build(project, step_id, part)?))
 }
 
-/// Builds one file that runs several jobs on the stock, and simulates it.
-pub fn preview_combined(project: &Project, job_ids: &[String]) -> Result<Preview, Vec<String>> {
-    Ok(simulated(build_combined(project, job_ids)?))
+/// Builds one file that runs several steps on the stock, and simulates it.
+pub fn preview_combined(project: &Project, step_ids: &[String]) -> Result<Preview, Vec<String>> {
+    Ok(simulated(build_combined(project, step_ids)?))
 }
 
 /// Simulates a built file on its board.
@@ -2911,30 +2911,30 @@ pub struct FitCheck {
 
 /// Builds and simulates the pocket and the plug of a V-carve inlay, then
 /// lowers the plug into the pocket and measures the fit.
-pub fn check_fit(project: &Project, job_id: &str) -> Result<FitCheck, Vec<String>> {
+pub fn check_fit(project: &Project, step_id: &str) -> Result<FitCheck, Vec<String>> {
     // Fail early for a flat inlay, before anything is simulated.
-    fit_settings(project, job_id)?;
-    let pocket = preview(project, job_id, Part::Pocket)?;
-    let plug = preview(project, job_id, Part::Plug)?;
-    let fit = fit_of(project, job_id, &pocket, &plug)?;
+    fit_settings(project, step_id)?;
+    let pocket = preview(project, step_id, Part::Pocket)?;
+    let plug = preview(project, step_id, Part::Plug)?;
+    let fit = fit_of(project, step_id, &pocket, &plug)?;
     Ok(FitCheck { fit, pocket, plug })
 }
 
 /// What a V-carve inlay's fit is measured against: all of
 /// [`analysis::FitSettings`] but the problems of its two files.
-fn fit_settings(project: &Project, job_id: &str) -> Result<analysis::FitSettings, Vec<String>> {
-    let job = project
-        .jobs
+fn fit_settings(project: &Project, step_id: &str) -> Result<analysis::FitSettings, Vec<String>> {
+    let step = project
+        .steps
         .iter()
-        .find(|j| j.id == job_id)
+        .find(|j| j.id == step_id)
         .ok_or_else(|| vec!["This inlay no longer exists.".to_string()])?;
-    let Inlay::Vcarve {
+    let Task::Vcarve {
         engagement_depth,
         glue_gap,
         vbit_tool_id,
         tuning,
         ..
-    } = &job.inlay
+    } = &step.task
     else {
         return Err(vec![
             "A flat inlay's fit is worked out from its outlines when a part is generated.".into(),
@@ -2964,13 +2964,13 @@ fn fit_settings(project: &Project, job_id: &str) -> Result<analysis::FitSettings
 /// same V-carve inlay and measures the fit.
 pub fn fit_of(
     project: &Project,
-    job_id: &str,
+    step_id: &str,
     pocket: &Preview,
     plug: &Preview,
 ) -> Result<Fit, Vec<String>> {
     let settings = analysis::FitSettings {
         problems: pocket.problems.len() + plug.problems.len(),
-        ..fit_settings(project, job_id)?
+        ..fit_settings(project, step_id)?
     };
     let frame = plug.built.frame.ok_or_else(|| {
         vec!["Internal error: the plug has no position on the base board.".to_string()]
@@ -3025,7 +3025,7 @@ fn file_stem(name: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::project::{BaseStock, Design, DesignRegion, Job, DEFAULT_TIP_CLEARANCE};
+    use crate::project::{BaseStock, Design, DesignRegion, Step, DEFAULT_TIP_CLEARANCE};
     use crate::tools::fixtures::{end_mill, v_bit};
     use crate::tools::CuttingSettings;
 
@@ -3062,7 +3062,7 @@ pub(crate) mod tests {
                     },
                 ],
             }),
-            jobs: vec![Job {
+            steps: vec![Step {
                 id: "j".into(),
                 name: "Flat inlay 1".into(),
                 material: Material::HARDWOOD,
@@ -3071,7 +3071,7 @@ pub(crate) mod tests {
                 color: None,
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
-                inlay: Inlay::Flat {
+                task: Task::Flat {
                     pocket_depth: 2.0,
                     allowance: 0.1,
                     tabs: false,
@@ -3091,9 +3091,9 @@ pub(crate) mod tests {
         }
     }
 
-    fn with_inlay(inlay: Inlay) -> Project {
+    fn with_inlay(task: Task) -> Project {
         let mut p = project();
-        p.jobs[0].inlay = inlay;
+        p.steps[0].task = task;
         p
     }
 
@@ -3292,7 +3292,7 @@ pub(crate) mod tests {
     #[test]
     fn insert_tabs_and_reasons() {
         let mut p = project();
-        if let Inlay::Flat { tabs, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { tabs, .. } = &mut p.steps[0].task {
             *tabs = true;
         }
         let built = build(&p, "j", Part::Plug).unwrap();
@@ -3309,22 +3309,22 @@ pub(crate) mod tests {
 
         let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
         let mut p = project();
-        if let Inlay::Flat {
+        if let Task::Flat {
             insert_thickness, ..
-        } = &mut p.jobs[0].inlay
+        } = &mut p.steps[0].task
         {
             *insert_thickness = 1.0;
         }
         assert!(reasons(&p).contains("would sit below the surface"));
         let mut p = project();
-        if let Inlay::Flat { insert_margin, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { insert_margin, .. } = &mut p.steps[0].task {
             *insert_margin = 2.0;
         }
         assert!(reasons(&p).contains("insert margin of 2 mm is too small"));
         // Rectangle and L are 5 mm apart: fine for a 3.175 mm tool, not for 6.
         let mut p = project();
         p.tools[0].diameter = 6.0;
-        if let Inlay::Flat { insert_margin, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { insert_margin, .. } = &mut p.steps[0].task {
             *insert_margin = 10.0;
         }
         assert!(
@@ -3335,10 +3335,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn explains_every_reason_a_job_cannot_be_built() {
+    fn explains_every_reason_a_step_cannot_be_built() {
         let reasons = |p: &Project| build_pocket(p, "j").unwrap_err().join(" | ");
 
-        let p = with_inlay(Inlay::Flat {
+        let p = with_inlay(Task::Flat {
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
@@ -3351,7 +3351,7 @@ pub(crate) mod tests {
         });
         assert!(reasons(&p).contains("Choose an end mill"));
 
-        let p = with_inlay(Inlay::Flat {
+        let p = with_inlay(Task::Flat {
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
@@ -3364,7 +3364,7 @@ pub(crate) mod tests {
         });
         assert!(reasons(&p).contains("is not an end mill"));
 
-        let p = with_inlay(Inlay::Flat {
+        let p = with_inlay(Task::Flat {
             pocket_depth: 25.0,
             allowance: 0.1,
             tabs: false,
@@ -3382,7 +3382,7 @@ pub(crate) mod tests {
         );
 
         let mut p = project();
-        p.jobs[0].material = Material::SOFTWOOD;
+        p.steps[0].material = Material::SOFTWOOD;
         assert!(reasons(&p).contains("no cutting settings for softwood"));
 
         let mut p = project();
@@ -3390,7 +3390,7 @@ pub(crate) mod tests {
         assert!(reasons(&p).contains("tops out at 13000 rpm"));
 
         let mut p = project();
-        p.jobs[0].region_ids.clear();
+        p.steps[0].region_ids.clear();
         assert!(reasons(&p).contains("has no shapes"));
 
         let mut p = project();
@@ -3398,7 +3398,7 @@ pub(crate) mod tests {
         p.tools[0].cutting[0].stepover = 10.0;
         assert!(reasons(&p).contains("too wide to fit"));
 
-        assert!(reasons(&with_inlay(Inlay::default_vcarve())).contains("Choose a V-bit"));
+        assert!(reasons(&with_inlay(Task::default_vcarve())).contains("Choose a V-bit"));
         assert!(build_pocket(&project(), "nope").unwrap_err()[0].contains("no longer exists"));
     }
 
@@ -3408,7 +3408,7 @@ pub(crate) mod tests {
         let design = p.design.as_mut().unwrap();
         design.scale = 2.0;
         design.mirror = true;
-        p.jobs[0].region_ids = vec![0];
+        p.steps[0].region_ids = vec![0];
         let built = build_pocket(&p, "j").unwrap();
         // The rectangle spans X 5..35 of a 60 mm page: mirrored 25..55, doubled 50..110.
         let xs: Vec<f64> = built
@@ -3433,7 +3433,7 @@ pub(crate) mod tests {
     /// 2 mm engagement plus 0.3 mm glue gap with the 60 degree bit and the
     /// 3.175 mm end mill.
     pub(crate) fn vcarve_project(clearing: bool) -> Project {
-        let mut p = with_inlay(Inlay::Vcarve {
+        let mut p = with_inlay(Task::Vcarve {
             engagement_depth: 2.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
@@ -3565,7 +3565,7 @@ pub(crate) mod tests {
         let mut p = vcarve_project(true);
         p.design.as_mut().unwrap().regions[0].outer =
             vec![[5.0, 5.0], [35.0, 5.0], [35.0, 7.0], [5.0, 7.0]];
-        p.jobs[0].region_ids = vec![0];
+        p.steps[0].region_ids = vec![0];
         let built = build_pocket(&p, "j").unwrap();
         assert!(
             built
@@ -3653,7 +3653,7 @@ pub(crate) mod tests {
         let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
 
         let mut p = vcarve_project(true);
-        if let Inlay::Vcarve { plug_margin, .. } = &mut p.jobs[0].inlay {
+        if let Task::Vcarve { plug_margin, .. } = &mut p.steps[0].task {
             *plug_margin = 1.0;
         }
         assert!(
@@ -3663,7 +3663,7 @@ pub(crate) mod tests {
         );
 
         let mut p = vcarve_project(true);
-        if let Inlay::Vcarve { plug_thickness, .. } = &mut p.jobs[0].inlay {
+        if let Task::Vcarve { plug_thickness, .. } = &mut p.steps[0].task {
             *plug_thickness = 3.0;
         }
         assert!(reasons(&p).contains("its board is only 3 mm thick"));
@@ -3717,7 +3717,7 @@ pub(crate) mod tests {
     #[test]
     fn the_machine_and_the_setup_shape_the_files() {
         let mut p = project();
-        if let Inlay::Flat { tabs, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { tabs, .. } = &mut p.steps[0].task {
             *tabs = true;
         }
         p.machine.first_tool = 7;
@@ -3805,7 +3805,7 @@ pub(crate) mod tests {
         // The inlay's own values win over the project's, which stay for
         // inlays that have none.
         p.setup.safe_height = 12.0;
-        p.jobs[0].setup = Some(Setup {
+        p.steps[0].setup = Some(Setup {
             safe_height: 8.0,
             cut_out_border: 10.0,
             through_cut: 0.5,
@@ -3819,11 +3819,11 @@ pub(crate) mod tests {
         let pocket = build(&p, "j", Part::Pocket).unwrap();
         assert!(pocket.gcode.contains("Z8.000") && !pocket.gcode.contains("Z12.000"));
 
-        p.jobs[0].setup = None;
+        p.steps[0].setup = None;
         let inherited = build(&p, "j", Part::Plug).unwrap();
         assert!(inherited.gcode.contains("Z12.000"));
 
-        p.jobs[0].setup = Some(Setup {
+        p.steps[0].setup = Some(Setup {
             tab_width: 0.0,
             ..Setup::default()
         });
@@ -3840,7 +3840,7 @@ pub(crate) mod tests {
         // shapes' walls spread at the floor.
         let narrow = |cut_out: bool| {
             let mut p = vcarve_project(true);
-            if let Inlay::Vcarve { plug_margin, .. } = &mut p.jobs[0].inlay {
+            if let Task::Vcarve { plug_margin, .. } = &mut p.steps[0].task {
                 *plug_margin = 2.0;
             }
             set_cut_out(&mut p, cut_out, false);
@@ -3900,13 +3900,13 @@ pub(crate) mod tests {
         wide.name = "6 mm".into();
         wide.diameter = 6.0;
         q.tools.push(wide);
-        if let Inlay::Vcarve {
+        if let Task::Vcarve {
             clearing_tool_ids, ..
-        } = &mut q.jobs[0].inlay
+        } = &mut q.steps[0].task
         {
             *clearing_tool_ids = vec!["t-wide".into(), "t-endmill".into()];
         }
-        q.jobs[0].cut_out_tool_id = Some("t-endmill".into());
+        q.steps[0].cut_out_tool_id = Some("t-endmill".into());
         let wide_cut = preview(&q, "j", Part::Plug).unwrap();
         assert_eq!(wide_cut.problems, vec![]);
         assert_eq!(wide_cut.built.cut_width, Some(3.175));
@@ -3937,8 +3937,8 @@ pub(crate) mod tests {
         assert!(reasons(&p).contains("Choose one for the cut-out"));
 
         p.tools.push(wide(Some(20.0)));
-        p.jobs[0].cut_out_tool_id = Some("t-wide".into());
-        assert_eq!(p.jobs[0].tool_ids(), vec!["t-vbit", "t-wide"]);
+        p.steps[0].cut_out_tool_id = Some("t-wide".into());
+        assert_eq!(p.steps[0].tool_ids(), vec!["t-vbit", "t-wide"]);
         let cut = preview(&p, "j", Part::Plug).unwrap();
         assert_eq!(cut.problems, vec![]);
         assert_eq!(cut.built.stats.tools.len(), 2);
@@ -3959,7 +3959,7 @@ pub(crate) mod tests {
         let mut q = vcarve_project(true);
         set_cut_out(&mut q, true, false);
         q.tools.push(wide(Some(20.0)));
-        q.jobs[0].cut_out_tool_id = Some("t-wide".into());
+        q.steps[0].cut_out_tool_id = Some("t-wide".into());
         let both = build(&q, "j", Part::Plug).unwrap();
         assert_eq!(both.stats.tools.len(), 3);
         assert!(both
@@ -3990,11 +3990,11 @@ pub(crate) mod tests {
 
         // It must be an end mill, in the project, with settings for the wood
         // and a speed the spindle reaches.
-        p.jobs[0].cut_out_tool_id = Some("t-vbit".into());
+        p.steps[0].cut_out_tool_id = Some("t-vbit".into());
         assert!(reasons(&p).contains("is not an end mill to cut the plug out"));
-        p.jobs[0].cut_out_tool_id = Some("gone".into());
+        p.steps[0].cut_out_tool_id = Some("gone".into());
         assert!(reasons(&p).contains("missing from the project"));
-        p.jobs[0].cut_out_tool_id = Some("t-wide".into());
+        p.steps[0].cut_out_tool_id = Some("t-wide".into());
         p.tools[2] = wide(Some(20.0));
         p.tools[2].cutting[0].rpm = 20000;
         assert!(reasons(&p).contains("tops out at 13000 rpm"));
@@ -4007,7 +4007,7 @@ pub(crate) mod tests {
         assert!(check_fit(&project(), "j").unwrap_err()[0].contains("flat inlay"));
         let mut p = project();
         p.design.as_mut().unwrap().scale = 8.0;
-        p.jobs[0].region_ids = vec![0, 1];
+        p.steps[0].region_ids = vec![0, 1];
         let reasons = build_pocket(&p, "j").unwrap_err().join(" | ");
         assert!(
             reasons.contains("more than the Carvera Air can travel"),
@@ -4028,11 +4028,11 @@ pub(crate) mod tests {
 
     fn set_clearing(p: &mut Project, ids: &[&str]) {
         let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
-        match &mut p.jobs[0].inlay {
-            Inlay::Flat {
+        match &mut p.steps[0].task {
+            Task::Flat {
                 clearing_tool_ids, ..
             }
-            | Inlay::Vcarve {
+            | Task::Vcarve {
                 clearing_tool_ids, ..
             } => *clearing_tool_ids = ids,
             _ => panic!("not an inlay"),
@@ -4173,8 +4173,8 @@ pub(crate) mod tests {
     }
 
     fn set_cut_out(p: &mut Project, on: bool, with_tabs: bool) {
-        match &mut p.jobs[0].inlay {
-            Inlay::Flat { cut_out, tabs, .. } | Inlay::Vcarve { cut_out, tabs, .. } => {
+        match &mut p.steps[0].task {
+            Task::Flat { cut_out, tabs, .. } | Task::Vcarve { cut_out, tabs, .. } => {
                 *cut_out = on;
                 *tabs = with_tabs;
             }
@@ -4270,7 +4270,7 @@ pub(crate) mod tests {
 
     pub(crate) fn backer_project() -> Project {
         let mut p = project();
-        if let Inlay::Flat { insert_style, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { insert_style, .. } = &mut p.steps[0].task {
             *insert_style = InsertStyle::Backer;
         }
         p
@@ -4369,7 +4369,7 @@ pub(crate) mod tests {
         // Rectangle and L are 5 mm apart: no room for a 6 mm tool.
         let mut p = backer_project();
         p.tools[0].diameter = 6.0;
-        if let Inlay::Flat { insert_margin, .. } = &mut p.jobs[0].inlay {
+        if let Task::Flat { insert_margin, .. } = &mut p.steps[0].task {
             *insert_margin = 10.0;
         }
         let reasons = build(&p, "j", Part::Plug).unwrap_err().join(" | ");
@@ -4377,9 +4377,9 @@ pub(crate) mod tests {
 
         // A board too thin to leave a backer.
         let mut p = backer_project();
-        if let Inlay::Flat {
+        if let Task::Flat {
             insert_thickness, ..
-        } = &mut p.jobs[0].inlay
+        } = &mut p.steps[0].task
         {
             *insert_thickness = 3.0;
         }
@@ -4397,10 +4397,10 @@ pub(crate) mod tests {
 
     /// The test board with one plain operation on the rectangle, and the
     /// V-bit given cutting settings.
-    fn op_project(inlay: Inlay) -> Project {
-        let mut p = with_inlay(inlay);
-        p.jobs[0].name = "Op".into();
-        p.jobs[0].region_ids = vec![0];
+    fn op_project(task: Task) -> Project {
+        let mut p = with_inlay(task);
+        p.steps[0].name = "Op".into();
+        p.steps[0].region_ids = vec![0];
         p.tools[1].cutting = vec![CuttingSettings::new(
             Material::HARDWOOD,
             12000,
@@ -4430,7 +4430,7 @@ pub(crate) mod tests {
     /// A pocket whose end mill also has a row for the profile `key`, with a
     /// feed of 250, and is set to run it.
     fn pocket_on_profile(key: &str, adaptive: Option<bool>) -> Project {
-        let mut p = op_project(Inlay::Pocket {
+        let mut p = op_project(Task::Pocket {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -4450,7 +4450,7 @@ pub(crate) mod tests {
             lubricated: false,
             slot: false,
         }];
-        p.jobs[0]
+        p.steps[0]
             .row_profiles
             .insert("t-endmill".into(), key.into());
         p
@@ -4468,14 +4468,14 @@ pub(crate) mod tests {
 
         // Without a choice it runs the plain row, as before.
         let mut plain = chosen.clone();
-        plain.jobs[0].row_profiles.clear();
+        plain.steps[0].row_profiles.clear();
         let built = build(&plain, "j", Part::Pocket).unwrap();
         assert!(built.gcode.contains("F600") && !built.gcode.contains("F250"));
         assert!(!built.warnings.iter().any(|w| w.contains("runs its")));
 
-        // A choice for a tool the job does not use changes nothing.
+        // A choice for a tool the step does not use changes nothing.
         let key = "t-endmill".to_string();
-        let choice = plain.jobs[0].row_profiles.insert("t-other".into(), key);
+        let choice = plain.steps[0].row_profiles.insert("t-other".into(), key);
         assert_eq!(choice, None);
         assert!(build(&plain, "j", Part::Pocket)
             .unwrap()
@@ -4486,7 +4486,7 @@ pub(crate) mod tests {
         let read =
             crate::project::project_from_file_json(&crate::project::project_to_file_json(&chosen))
                 .unwrap();
-        assert_eq!(read.jobs[0].row_profiles, chosen.jobs[0].row_profiles);
+        assert_eq!(read.steps[0].row_profiles, chosen.steps[0].row_profiles);
         assert_eq!(read.profiles, chosen.profiles);
     }
 
@@ -4517,15 +4517,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_job_in_another_material_uses_its_rows_and_says_it_is_unproven() {
-        let mut p = op_project(Inlay::Pocket {
+    fn a_step_in_another_material_uses_its_rows_and_says_it_is_unproven() {
+        let mut p = op_project(Task::Pocket {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
         let aluminum = Material::new("aluminum");
-        p.jobs[0].material = aluminum.clone();
+        p.steps[0].material = aluminum.clone();
         let errors = build(&p, "j", Part::Pocket).unwrap_err();
         assert!(errors[0].contains("no cutting settings for aluminum"));
 
@@ -4543,7 +4543,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_plain_pocket_is_cleared_to_its_depth_and_nothing_else_is_touched() {
-        let p = op_project(Inlay::Pocket {
+        let p = op_project(Task::Pocket {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -4578,7 +4578,7 @@ pub(crate) mod tests {
 
     #[test]
     fn facing_the_whole_stock_starts_above_the_surface_and_leaves_it_flat() {
-        let mut p = op_project(Inlay::Facing {
+        let mut p = op_project(Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 2.0,
@@ -4587,7 +4587,7 @@ pub(crate) mod tests {
             margin: 0.0,
             tool_id: Some("t-endmill".into()),
         });
-        p.jobs[0].region_ids = vec![];
+        p.steps[0].region_ids = vec![];
         let preview = preview(&p, "j", Part::Pocket).unwrap();
         assert_eq!(preview.problems, []);
         // Every cell of the stock ends up at the depth.
@@ -4613,7 +4613,7 @@ pub(crate) mod tests {
 
     #[test]
     fn facing_over_shapes_covers_them_and_their_margin_only() {
-        let p = op_project(Inlay::Facing {
+        let p = op_project(Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
@@ -4640,7 +4640,7 @@ pub(crate) mod tests {
         }
         // A depth under 0 ends the cut that far above the surface.
         let mut proud = p.clone();
-        proud.jobs[0].inlay = Inlay::Facing {
+        proud.steps[0].task = Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
@@ -4662,7 +4662,7 @@ pub(crate) mod tests {
             .any(|w| w.contains("ends 0.4 mm above")));
         // Nothing to do at all is refused.
         let mut none = p.clone();
-        none.jobs[0].inlay = Inlay::Facing {
+        none.steps[0].task = Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 0.0,
@@ -4682,7 +4682,7 @@ pub(crate) mod tests {
             (Side::Inside, true, 1.5875),
             (Side::On, true, 0.0),
         ] {
-            let p = op_project(Inlay::Contour {
+            let p = op_project(Task::Contour {
                 side,
                 depth: Some(3.0),
                 tabs: false,
@@ -4712,7 +4712,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_contour_without_a_depth_goes_through_the_stock_and_can_leave_tabs() {
-        let mut p = op_project(Inlay::Contour {
+        let mut p = op_project(Task::Contour {
             side: Side::Outside,
             depth: None,
             tabs: true,
@@ -4732,7 +4732,7 @@ pub(crate) mod tests {
         assert!(cuts.iter().any(|q| (q[2] + 5.0).abs() < 1e-9));
 
         // A depth of the whole stock or more is not a through cut by accident.
-        p.jobs[0].inlay = Inlay::Contour {
+        p.steps[0].task = Task::Contour {
             side: Side::Outside,
             depth: Some(6.0),
             tabs: false,
@@ -4747,7 +4747,7 @@ pub(crate) mod tests {
         let width = 1.5;
         let tan = 30f64.to_radians().tan();
         for side in [Side::Outside, Side::Inside] {
-            let p = op_project(Inlay::Chamfer {
+            let p = op_project(Task::Chamfer {
                 side,
                 width,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -4782,7 +4782,7 @@ pub(crate) mod tests {
             assert!(checked > 1000);
         }
         // A bevel wider than the bit can cut is refused.
-        let p = op_project(Inlay::Chamfer {
+        let p = op_project(Task::Chamfer {
             side: Side::Outside,
             width: 6.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -4794,40 +4794,40 @@ pub(crate) mod tests {
 
     /// A pocket in the rectangle, a contour round it and a chamfer on it.
     fn three_ops() -> Project {
-        let mut p = op_project(Inlay::Pocket {
+        let mut p = op_project(Task::Pocket {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.0,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
         p.base.thickness = 6.0;
-        p.jobs[0].name = "Recess".into();
-        let mut outline = p.jobs[0].clone();
+        p.steps[0].name = "Recess".into();
+        let mut outline = p.steps[0].clone();
         outline.id = "c".into();
         outline.name = "Outline".into();
         outline.region_ids = vec![0, 1];
-        outline.inlay = Inlay::Contour {
+        outline.task = Task::Contour {
             side: Side::Outside,
             depth: None,
             tabs: true,
             tool_id: Some("t-endmill".into()),
         };
-        let mut bevel = p.jobs[0].clone();
+        let mut bevel = p.steps[0].clone();
         bevel.id = "v".into();
         bevel.name = "Bevel".into();
-        bevel.inlay = Inlay::Chamfer {
+        bevel.task = Task::Chamfer {
             side: Side::Inside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: Some("t-vbit".into()),
         };
-        p.jobs.push(outline);
-        p.jobs.push(bevel);
+        p.steps.push(outline);
+        p.steps.push(bevel);
         p
     }
 
     #[test]
-    fn several_jobs_go_into_one_file_and_a_shared_tool_stays_in() {
+    fn several_steps_go_into_one_file_and_a_shared_tool_stays_in() {
         let p = three_ops();
         let ids = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
@@ -4858,9 +4858,9 @@ pub(crate) mod tests {
         assert_eq!(three.built.interpreted.tool_changes, [1, 2, 1]);
         assert_eq!(three.built.stats.per_tool.len(), 2);
 
-        // One job that cannot be built stops the file, and says which.
+        // One step that cannot be built stops the file, and says which.
         let mut bad = p.clone();
-        bad.jobs[2].inlay = Inlay::Chamfer {
+        bad.steps[2].task = Task::Chamfer {
             side: Side::Inside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -4874,9 +4874,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_file_warns_when_wood_above_the_surface_is_faced_after_other_jobs() {
+    fn a_file_warns_when_wood_above_the_surface_is_faced_after_other_steps() {
         let mut p = three_ops();
-        p.jobs[2].inlay = Inlay::Facing {
+        p.steps[2].task = Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 4.0,
@@ -4901,7 +4901,7 @@ pub(crate) mod tests {
     fn a_corner_rounding_bit_rounds_the_edge_to_its_radius() {
         use crate::tools::fixtures::fillet_bit;
         for side in [Side::Outside, Side::Inside] {
-            let mut p = op_project(Inlay::Chamfer {
+            let mut p = op_project(Task::Chamfer {
                 side,
                 // Ignored: the bit cuts its own radius.
                 width: 0.5,
@@ -4945,7 +4945,7 @@ pub(crate) mod tests {
             assert!(checked > 1000);
         }
         // An end mill shapes no edges.
-        let p = op_project(Inlay::Chamfer {
+        let p = op_project(Task::Chamfer {
             side: Side::Outside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -4960,15 +4960,15 @@ pub(crate) mod tests {
 
     #[test]
     fn a_pocket_cut_side_to_side_matches_one_cut_in_rings() {
-        let mut p = op_project(Inlay::Pocket {
+        let mut p = op_project(Task::Pocket {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
-        p.jobs[0].region_ids = vec![0, 1];
+        p.steps[0].region_ids = vec![0, 1];
         let rings = preview(&p, "j", Part::Pocket).unwrap();
-        if let Inlay::Pocket { pattern, .. } = &mut p.jobs[0].inlay {
+        if let Task::Pocket { pattern, .. } = &mut p.steps[0].task {
             *pattern = Pattern::Raster;
         }
         let across = preview(&p, "j", Part::Pocket).unwrap();
@@ -4999,7 +4999,7 @@ pub(crate) mod tests {
     fn pocket_passes_run_the_way_that_is_asked_for() {
         // The test rectangle is wider than it is deep, so its longer side is X.
         let pocket = |direction| {
-            let p = op_project(Inlay::Pocket {
+            let p = op_project(Task::Pocket {
                 pattern: Pattern::Raster,
                 direction,
                 depth: 2.5,
@@ -5039,7 +5039,7 @@ pub(crate) mod tests {
         );
 
         // A file without a direction means the longer side, and one with it keeps it.
-        let mut p = op_project(Inlay::Pocket {
+        let mut p = op_project(Task::Pocket {
             pattern: Pattern::Raster,
             direction: PassDirection::Y,
             depth: 2.5,
@@ -5048,7 +5048,7 @@ pub(crate) mod tests {
         let text = crate::project::project_to_file_json(&p);
         assert!(text.contains("\"direction\": \"y\""));
         assert_eq!(crate::project::project_from_file_json(&text).unwrap(), p);
-        if let Inlay::Pocket { direction, .. } = &mut p.jobs[0].inlay {
+        if let Task::Pocket { direction, .. } = &mut p.steps[0].task {
             *direction = PassDirection::Longer;
         }
         assert!(!crate::project::project_to_file_json(&p).contains("direction"));
@@ -5060,7 +5060,7 @@ pub(crate) mod tests {
         // from the edge, with the tip (width + clearance) / tan 30 deep.
         let tan = 30f64.to_radians().tan();
         let chamfer = |tip_clearance: f64| {
-            let p = op_project(Inlay::Chamfer {
+            let p = op_project(Task::Chamfer {
                 side: Side::Outside,
                 width: 1.5,
                 tip_clearance,
@@ -5108,7 +5108,7 @@ pub(crate) mod tests {
     fn facing_passes_run_the_way_that_is_asked_for() {
         // The test board is wider than it is deep, so the longer side is X.
         let facing = |direction| {
-            let mut p = op_project(Inlay::Facing {
+            let mut p = op_project(Task::Facing {
                 pattern: Pattern::Raster,
                 direction,
                 above: 0.0,
@@ -5117,7 +5117,7 @@ pub(crate) mod tests {
                 margin: 0.0,
                 tool_id: Some("t-endmill".into()),
             });
-            p.jobs[0].region_ids = vec![];
+            p.steps[0].region_ids = vec![];
             let preview = preview(&p, "j", Part::Pocket).unwrap();
             assert_eq!(preview.problems, []);
             for z in &preview.map.z {
@@ -5146,7 +5146,7 @@ pub(crate) mod tests {
         assert!(y > 5.0 * x, "along Y: {x} along X, {y} along Y");
 
         // A file without a direction means the longer side, and one with it keeps it.
-        let mut p = op_project(Inlay::Facing {
+        let mut p = op_project(Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Y,
             above: 0.0,
@@ -5158,7 +5158,7 @@ pub(crate) mod tests {
         let text = crate::project::project_to_file_json(&p);
         assert!(text.contains("\"direction\": \"y\""));
         assert_eq!(crate::project::project_from_file_json(&text).unwrap(), p);
-        if let Inlay::Facing { direction, .. } = &mut p.jobs[0].inlay {
+        if let Task::Facing { direction, .. } = &mut p.steps[0].task {
             *direction = PassDirection::Longer;
         }
         assert!(!crate::project::project_to_file_json(&p).contains("direction"));
@@ -5167,7 +5167,7 @@ pub(crate) mod tests {
     #[test]
     fn facing_goes_side_to_side_unless_rings_are_asked_for() {
         let facing = |pattern| {
-            let mut p = op_project(Inlay::Facing {
+            let mut p = op_project(Task::Facing {
                 pattern,
                 direction: PassDirection::Longer,
                 above: 0.0,
@@ -5176,7 +5176,7 @@ pub(crate) mod tests {
                 margin: 0.0,
                 tool_id: Some("t-endmill".into()),
             });
-            p.jobs[0].region_ids = vec![];
+            p.steps[0].region_ids = vec![];
             preview(&p, "j", Part::Pocket).unwrap()
         };
         let across = facing(Pattern::Raster);
@@ -5223,7 +5223,7 @@ pub(crate) mod tests {
             })
             .collect();
         p.design.as_mut().unwrap().regions[0].outer = circle;
-        p.jobs[0].region_ids = vec![0];
+        p.steps[0].region_ids = vec![0];
         let preview = preview(&p, "j", Part::Pocket).unwrap();
         assert_eq!(preview.problems, []);
         let built = &preview.built;
@@ -5326,7 +5326,7 @@ pub(crate) mod tests {
         // plug's corner edges ride on the pocket's rounded corners.
         let mut p = vcarve_project(true);
         let before = check_fit(&p, "j").unwrap().fit.report;
-        if let Inlay::Vcarve { relief, .. } = &mut p.jobs[0].inlay {
+        if let Task::Vcarve { relief, .. } = &mut p.steps[0].task {
             *relief = true;
         }
         let check = check_fit(&p, "j").unwrap();
@@ -5359,7 +5359,7 @@ pub(crate) mod tests {
 
         // A lower ridge puts the passes on the floor closer, and says so.
         let mut fine = usual.clone();
-        if let Inlay::Vcarve { tuning, .. } = &mut fine.jobs[0].inlay {
+        if let Task::Vcarve { tuning, .. } = &mut fine.steps[0].task {
             tuning.floor_ridge = 0.02;
         }
         let after = preview(&fine, "j", Part::Pocket).unwrap();
@@ -5377,7 +5377,7 @@ pub(crate) mod tests {
 
         // The face is judged where the inlay says.
         let mut deep = usual.clone();
-        if let Inlay::Vcarve { tuning, .. } = &mut deep.jobs[0].inlay {
+        if let Task::Vcarve { tuning, .. } = &mut deep.steps[0].task {
             tuning.trim_depth = 0.4;
         }
         assert_eq!(check_fit(&usual, "j").unwrap().fit.report.trim_depth, 0.1);

@@ -67,7 +67,7 @@ export function useFileActions() {
       info(
         added
           ? `Added ${count} from ${read.join(", ")} to the stock. They are selected: drag them to where they belong, then press Done.`
-          : `Imported ${count} from ${read.join(", ")}.${replace && project.jobs.length > 0 ? " What was made from the previous drawing was removed." : ""}${
+          : `Imported ${count} from ${read.join(", ")}.${replace && project.steps.length > 0 ? " What was made from the previous drawing was removed." : ""}${
               read.length > 1 ? " Arrange the shapes on the stock, then press Done." : ""
             }`,
       );

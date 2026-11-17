@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { core } from "../core/client";
 import type { Attention, CuttingSettings, Material, Tool, ToolKind, ToolLists } from "../core/types";
 import { rowStatus, type CutValues, type Pick } from "../state/feedsView";
-import { COATINGS, CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, displayName, fmt, goesTo, jobToolIds, makeraWarnings, materialLabel, rowLabel, today } from "../state/model";
+import { COATINGS, CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, displayName, fmt, goesTo, stepToolIds, makeraWarnings, materialLabel, rowLabel, today } from "../state/model";
 import { message, useApp } from "../state/store";
 import { LogList, LogResult, ResultMark, RowFacts, Ruler, StatusTag, SuggestionSlot, entryFor, percentOf, round6, rowKey, startPick, useEntry, valuesOf } from "./RowInsight";
 import { Num, Text } from "./Cells";
@@ -81,7 +81,7 @@ export function ToolCard(props: {
     setDraft((t) => (t ? { ...t, ...change } : t));
   };
   const materials = allMaterials(lists);
-  const usedBy = project.jobs.filter((job) => jobToolIds(job).includes(tool.id));
+  const usedBy = project.steps.filter((step) => stepToolIds(step).includes(tool.id));
   // The groups there are to file a tool under: the pinned ones, and every one a tool names.
   const groups = [...new Set([...(lists.groups ?? []).map((g) => g.path), ...props.taken.map((t) => t.group).filter((g): g is string => !!g)])];
   const cuts = CUTTING_KINDS.includes(tool.kind);
@@ -428,7 +428,7 @@ export function ToolCard(props: {
       {!editing && usedBy.length > 0 && (
         <Block title="In the open project">
           <p className="block-line">
-            Used by {usedBy.map((job) => job.name).join(", ")} in {project.name || "the open project"}.
+            Used by {usedBy.map((step) => step.name).join(", ")} in {project.name || "the open project"}.
           </p>
         </Block>
       )}

@@ -3,7 +3,7 @@ import type { Design, DesignRegion, Project, Ring } from "../core/types";
 import {
   boxOf,
   duplicateShapes,
-  emptiedJobs,
+  emptiedSteps,
   keepOnly,
   mirrorShapes,
   moveShapes,
@@ -56,9 +56,9 @@ function project(): Project {
     base: { thickness: 18 },
     machine: { name: "Carvera Air", minRpm: 5000, maxRpm: 13000, rapidRate: 2000, travel: [300, 200], firstTool: 1 },
     setup: { safeHeight: 5, plungeClearance: 1, throughCut: 0.2, tabWidth: 4, tabSpacing: 40, tabThickness: 1, cutOutBorder: 5, rampAngle: 5, finishAllowance: 0.1 },
-    jobs: [
-      { id: "a", name: "Ring", material: "hardwood", regionIds: [1], inlay: { type: "flat" } as never },
-      { id: "b", name: "Plates", material: "hardwood", regionIds: [0, 3], inlay: { type: "flat" } as never },
+    steps: [
+      { id: "a", name: "Ring", material: "hardwood", regionIds: [1], task: { type: "flat" } as never },
+      { id: "b", name: "Plates", material: "hardwood", regionIds: [0, 3], task: { type: "flat" } as never },
     ],
   };
 }
@@ -105,11 +105,11 @@ describe("deleting", () => {
   });
 
   it("removes an inlay left without shapes and trims the others", () => {
-    expect(emptiedJobs(project(), [1])).toEqual(["Ring"]);
+    expect(emptiedSteps(project(), [1])).toEqual(["Ring"]);
     const p = removeShapes(project(), [1]);
-    expect(p.jobs.map((j) => j.id)).toEqual(["b"]);
+    expect(p.steps.map((j) => j.id)).toEqual(["b"]);
     const q = removeShapes(project(), [3]);
-    expect(q.jobs.find((j) => j.id === "b")!.regionIds).toEqual([0]);
+    expect(q.steps.find((j) => j.id === "b")!.regionIds).toEqual([0]);
   });
 
   it("of everything else keeps one part on a board of its own", () => {
@@ -117,7 +117,7 @@ describe("deleting", () => {
     expect(p.design!.regions.map((r) => r.id)).toEqual([3]);
     expect([p.design!.width, p.design!.height]).toEqual([50, 50]);
     expect(boxOf(p.design!.regions)).toEqual([5, 5, 45, 45]);
-    expect(p.jobs.map((j) => [j.id, j.regionIds])).toEqual([["b", [3]]]);
+    expect(p.steps.map((j) => [j.id, j.regionIds])).toEqual([["b", [3]]]);
   });
 });
 

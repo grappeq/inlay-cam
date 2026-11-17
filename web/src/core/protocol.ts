@@ -41,16 +41,16 @@ export interface CoreApi {
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
   /**
-   * Builds the G-code for one part of a job and simulates it. Fails with
+   * Builds the G-code for one part of a step and simulates it. Fails with
    * every reason the part cannot be built, one per line of the error message.
    */
-  previewPart(project: Project, jobId: string, part: Part): PocketPreview;
-  /** For a facing: how far above the surface its first pass begins, as given or as the list gives it. Null for any other job. */
-  facingStart(project: Project, jobId: string): number | null;
+  previewPart(project: Project, stepId: string, part: Part): PocketPreview;
+  /** For a facing: how far above the surface its first pass begins, as given or as the list gives it. Null for any other step. */
+  facingStart(project: Project, stepId: string): number | null;
   /** Takes the stock through every inlay and operation of the project, in the order of the list, and makes the files for the stock. Fails only for a project without a drawing. */
   stockTimeline(project: Project): StockTimeline;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
-  checkFit(project: Project, jobId: string): FitCheck;
+  checkFit(project: Project, stepId: string): FitCheck;
 }
 
 export type CoreMethod = keyof CoreApi;

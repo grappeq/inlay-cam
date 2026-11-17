@@ -1,8 +1,8 @@
-// Small line drawings: one per kind of job, and those of the editing
+// Small line drawings: one per kind of step, and those of the editing
 // toolbar and its drawing tools. Drawn on a 20 x 20 grid in the colour of the text around them.
 
 import type { ReactNode } from "react";
-import type { JobType } from "../core/types";
+import type { StepType } from "../core/types";
 
 function Icon({ children, label }: { children: ReactNode; label?: string }) {
   return (
@@ -28,7 +28,7 @@ function Icon({ children, label }: { children: ReactNode; label?: string }) {
 /** The wood that is left, in a cross-section. */
 const WOOD = { fill: "currentColor", fillOpacity: 0.16 };
 
-const JOB_ICONS: Record<JobType, ReactNode> = {
+const STEP_ICONS: Record<StepType, ReactNode> = {
   // Cross-sections through the stock: what the cut leaves.
   vcarve: (
     <>
@@ -86,8 +86,8 @@ const JOB_ICONS: Record<JobType, ReactNode> = {
 };
 
 /** The symbol of a kind of inlay or operation. */
-export function JobIcon({ type }: { type: JobType }) {
-  return <Icon>{JOB_ICONS[type]}</Icon>;
+export function StepIcon({ type }: { type: StepType }) {
+  return <Icon>{STEP_ICONS[type]}</Icon>;
 }
 
 /** A corner rounded over instead of bevelled: a chamfer cut with a corner-rounding bit. */

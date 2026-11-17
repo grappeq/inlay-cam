@@ -5,7 +5,7 @@ import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
 import { partName } from "./components/OutputPanel";
-import { isInlay, jobColor, stockColor } from "./state/model";
+import { isInlay, stepColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
 import { TimelineStart, TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
@@ -57,35 +57,35 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, timeline, stage, activeJobId, arranging } = useApp();
+  const { project, output, timeline, stage, activeStepId, arranging } = useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
-  const job = project.jobs.find((j) => j.id === activeJobId);
-  const mine = job && output !== null && output.jobId === job.id ? output : null;
+  const step = project.steps.find((j) => j.id === activeStepId);
+  const mine = step && output !== null && output.stepId === step.id ? output : null;
   const pocket = mine?.parts.pocket ?? null;
   const plug = mine?.parts.plug ?? null;
   const fit = mine?.fit ?? null;
   // Fall back to the drawing when what was asked for is not there (any more).
   const steps = timeline?.result ?? null;
   const shown: Stage =
-    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && project.jobs.length > 0)
+    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && project.steps.length > 0)
       ? stage
       : "drawing";
   const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
   const wood = stockColor(project);
-  const plugWood = job && isInlay(job.inlay) ? jobColor(job, project.jobs) : wood;
+  const plugWood = step && isInlay(step.task) ? stepColor(step, project.steps) : wood;
   const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
   const marks = pocket ?? plug;
   // What there is to look at, besides the drawing.
   const tabs: [Stage, string][] = [["drawing", "Drawing"]];
-  if (job && pocket) tabs.push(["pocket", `${capital(partName("pocket", job))} in 3D`]);
-  if (job && plug) tabs.push(["plug", `${capital(partName("plug", job))} in 3D`]);
+  if (step && pocket) tabs.push(["pocket", `${capital(partName("pocket", step))} in 3D`]);
+  if (step && plug) tabs.push(["plug", `${capital(partName("plug", step))} in 3D`]);
   if (fit) tabs.push(["fit", "Fit"]);
   // The stock step by step is there to look at as soon as there is something to do to it; it is worked out when first asked for.
-  if (project.jobs.length > 0) tabs.push(["timeline", "Stock, step by step"]);
+  if (project.steps.length > 0) tabs.push(["timeline", "Stock, step by step"]);
   // From an inlay or operation, the stock is shown as that one leaves it.
-  const mineAt = job ? project.jobs.indexOf(job) + 1 : undefined;
+  const mineAt = step ? project.steps.indexOf(step) + 1 : undefined;
   const show = (to: Stage) => {
     if (to === "timeline" && mineAt !== undefined && steps) dispatch({ type: "setTimelineAt", at: mineAt });
     dispatch({ type: "setStage", stage: to });

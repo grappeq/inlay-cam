@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
 import { addShape, moveOnBoard, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
 import { drawnRing } from "../state/shapes";
-import { fmt, isInlay, jobColor, regionOwners, stockColor } from "../state/model";
+import { fmt, isInlay, stepColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 
 /** An ink that shows on a wood of this colour: dark on light woods, light on dark ones. */
@@ -101,7 +101,7 @@ function handleName(hx: number, hy: number): string {
 const mm = (v: number) => fmt(Math.round(v * 100) / 100);
 
 export function DesignCanvas({ design, narrow, cuttable }: Props) {
-  const { project, selection, activeJobId, arranging, drawTool, drawOptions } = useApp();
+  const { project, selection, activeStepId, arranging, drawTool, drawOptions } = useApp();
   const dispatch = useDispatch();
   const svg = useRef<SVGSVGElement>(null);
   const press = useRef<Press | null>(null);
@@ -118,10 +118,10 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         .sort((a, b) => b.area - a.area),
     [design],
   );
-  const owners = useMemo(() => regionOwners(project.jobs), [project.jobs]);
-  const active = project.jobs.find((j) => j.id === activeJobId);
+  const owners = useMemo(() => regionOwners(project.steps), [project.steps]);
+  const active = project.steps.find((j) => j.id === activeStepId);
   // A plain operation uses shapes without owning them; they are marked while it is open.
-  const used = useMemo(() => new Set(active && !isInlay(active.inlay) ? active.regionIds : []), [active]);
+  const used = useMemo(() => new Set(active && !isInlay(active.task) ? active.regionIds : []), [active]);
   const wood = stockColor(project);
 
   const width = design.width * design.scale;
@@ -407,8 +407,8 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         {paths.map(({ id, d }) => {
           const owner = owners.get(id);
           const selected = selection.includes(id);
-          const inActive = (owner !== undefined && owner.id === activeJobId) || used.has(id);
-          const dimmed = !arranging && activeJobId !== null && owner !== undefined && !inActive;
+          const inActive = (owner !== undefined && owner.id === activeStepId) || used.has(id);
+          const dimmed = !arranging && activeStepId !== null && owner !== undefined && !inActive;
           const label = `Shape ${id + 1}${owner ? `, in ${owner.name}` : ""}${used.has(id) && active ? `, used by ${active.name}` : ""}${selected ? ", selected" : ""}`;
           const click = (add: boolean) => dispatch({ type: "clickRegion", id, add });
           return (
@@ -419,7 +419,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
               fillRule="evenodd"
               className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}`}
               // The selection colour wins over the inlay's.
-              style={owner && !selected ? { fill: jobColor(owner, project.jobs) } : undefined}
+              style={owner && !selected ? { fill: stepColor(owner, project.steps) } : undefined}
               transform={selected ? shift : undefined}
               tabIndex={0}
               role="button"

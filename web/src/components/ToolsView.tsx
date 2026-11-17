@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { core } from "../core/client";
 import type { Attention, MakeraImportPlan, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
-import { allMaterials, blankTool, currentResult, jobToolIds, materialLabel, projectOnlyTools } from "../state/model";
+import { allMaterials, blankTool, currentResult, stepToolIds, materialLabel, projectOnlyTools } from "../state/model";
 import { hasUnsaved, mayLeave, setUnsaved } from "../state/unsaved";
 import { message, useApp, useDispatch } from "../state/store";
 import {
@@ -196,7 +196,7 @@ function LibraryMenu() {
           { label: "Import a tool file…", hint: "A file this app exported.", run: async () => actions.importToolLibrary(await pickTextFile(".json,application/json")) },
           { label: "Import a tools.yaml…", hint: "From the tooling library.", run: async () => actions.importToolsYaml(await pickTextFile(".yaml,.yml")) },
           { label: "Take values from a Makera export…", hint: "Sizes and cutting values changed in Makera CAM or Studio.", disabled: none, run: takeValues },
-          { label: "Export a tool file", hint: "Everything here, to keep or move.", disabled: none, run: save("tools.inlay-tools.json", "libraryToFile") },
+          { label: "Export a tool file", hint: "Everything here, to keep or move.", disabled: none, run: save("tools.task-tools.json", "libraryToFile") },
           { label: "Export a tools.yaml", hint: "For the tooling library.", disabled: none, run: save("tools.yaml", "libraryToToolsYaml", "text/yaml") },
           { label: "Export for Makera CAM", hint: "A .tlslibrary to import there.", disabled: none, run: makera("cam") },
           { label: "Export for Makera Studio", hint: "A .tlslibrary to import there.", disabled: none, run: makera("studio") },
@@ -269,7 +269,7 @@ export function ToolsArea() {
   const index = useMemo(() => new Map(tools.map((t, i) => [t.id, i])), [tools]);
   const tool = tools.find((t) => t.id === selected);
   const extra = projectOnlyTools(project, tools);
-  const usedIds = new Set(project.jobs.flatMap(jobToolIds));
+  const usedIds = new Set(project.steps.flatMap(stepToolIds));
 
   const tokens = parseQuery(query);
   const searched = tools.filter((t) => matchesQuery(wordsOf.get(t.id) ?? new Set(), tokens));

@@ -323,11 +323,11 @@ export function centreShapes(design: Design, ids: number[], axis: "x" | "y"): De
 }
 
 /** The project's inlays without the shapes that are gone; an inlay that loses all its shapes goes too. */
-function withoutShapes(project: Project, gone: Set<number>): Project["jobs"] {
-  return project.jobs.flatMap((job) => {
-    if (!job.regionIds.some((id) => gone.has(id))) return [job];
-    const regionIds = job.regionIds.filter((id) => !gone.has(id));
-    return regionIds.length > 0 ? [{ ...job, regionIds }] : [];
+function withoutShapes(project: Project, gone: Set<number>): Project["steps"] {
+  return project.steps.flatMap((step) => {
+    if (!step.regionIds.some((id) => gone.has(id))) return [step];
+    const regionIds = step.regionIds.filter((id) => !gone.has(id));
+    return regionIds.length > 0 ? [{ ...step, regionIds }] : [];
   });
 }
 
@@ -345,15 +345,15 @@ export function removeShapes(project: Project, ids: number[]): Project {
   return {
     ...project,
     design: settle({ ...closed, regions: closed.regions.filter((r) => !gone.has(r.id)) }, left),
-    jobs: withoutShapes(project, gone),
+    steps: withoutShapes(project, gone),
   };
 }
 
 /** The inlays that would lose all their shapes if these were removed. */
-export function emptiedJobs(project: Project, ids: number[]): string[] {
+export function emptiedSteps(project: Project, ids: number[]): string[] {
   if (!project.design) return [];
   const gone = pick(project.design, ids);
-  return project.jobs.filter((j) => j.regionIds.length > 0 && j.regionIds.every((id) => gone.has(id))).map((j) => j.name);
+  return project.steps.filter((j) => j.regionIds.length > 0 && j.regionIds.every((id) => gone.has(id))).map((j) => j.name);
 }
 
 /** Removes every shape but these, then fits the board to them. */
@@ -368,7 +368,7 @@ export function keepOnly(project: Project, ids: number[], margin: number): Proje
   return {
     ...project,
     design: trimBoard(design, margin),
-    jobs: withoutShapes(project, gone),
+    steps: withoutShapes(project, gone),
   };
 }
 

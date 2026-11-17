@@ -1,5 +1,5 @@
-//! The project: an imported design, the inlay jobs made from it, and the
-//! tools those jobs use. Also the project file.
+//! The project: an imported design, the inlay steps made from it, and the
+//! tools those steps use. Also the project file.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,11 +11,33 @@ use crate::tools::{validate_tools, Material, Profile, Tool};
 
 /// Current version of the project file. Raise it, and add a migration,
 /// whenever an old file could no longer be read as written.
-pub const PROJECT_FORMAT_VERSION: u32 = 1;
+pub const PROJECT_FORMAT_VERSION: u32 = 2;
 pub const PROJECT_KIND: &str = "project";
 
 /// Migrations for project files: entry `i` upgrades version `i + 1`.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[steps_from_jobs];
+
+/// Version 1 to 2. What the list holds was called a job and kept what it
+/// does under `inlay`, from when the app made inlays only. It holds
+/// operations and steps done by hand as well: the list is `steps`, and what
+/// a step does is its `task`. Nothing else changes.
+fn steps_from_jobs(mut file: serde_json::Value) -> Result<serde_json::Value, String> {
+    let project = file
+        .get_mut("project")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("the file has no project")?;
+    if let Some(mut jobs) = project.remove("jobs") {
+        for job in jobs.as_array_mut().ok_or("the jobs are not a list")? {
+            let job = job.as_object_mut().ok_or("a job is not an object")?;
+            if let Some(inlay) = job.remove("inlay") {
+                job.insert("task".into(), inlay);
+            }
+        }
+        project.insert("steps".into(), jobs);
+    }
+    file["formatVersion"] = 2.into();
+    Ok(file)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,12 +47,12 @@ pub struct Project {
     #[serde(default)]
     pub design: Option<Design>,
     #[serde(default)]
-    pub jobs: Vec<Job>,
-    /// Copies of the tools the jobs refer to, so the project opens correctly
+    pub steps: Vec<Step>,
+    /// Copies of the tools the steps refer to, so the project opens correctly
     /// on a machine with a different tool list.
     #[serde(default)]
     pub tools: Vec<Tool>,
-    /// Copies of the toolpath profiles the jobs' row choices name, so the
+    /// Copies of the toolpath profiles the steps' row choices name, so the
     /// project knows what each is for wherever it is opened.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<Profile>,
@@ -202,9 +224,9 @@ impl Setup {
         finish_allowance: 1.0,
     };
 
-    /// The clearances and tabs a job's files are cut with.
-    pub fn of(project: &Project, job: &Job) -> Setup {
-        job.setup.unwrap_or(project.setup)
+    /// The clearances and tabs a step's files are cut with.
+    pub fn of(project: &Project, step: &Step) -> Setup {
+        step.setup.unwrap_or(project.setup)
     }
 
     /// Depth gained per mm of travel while an end mill ramps into wood, or 0
@@ -372,7 +394,7 @@ impl DesignRegion {
 /// insert), or a plain operation on the stock.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Job {
+pub struct Step {
     pub id: String,
     pub name: String,
     /// The colour of the inlay's wood in the app's pictures, as `#rrggbb`.
@@ -391,17 +413,17 @@ pub struct Job {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cut_out_tool_id: Option<String>,
     /// By tool id: the toolpath profile whose cutting row the tool runs in
-    /// this job. A tool without an entry runs its plain row. Cutting a plug
+    /// this step. A tool without an entry runs its plain row. Cutting a plug
     /// out of its board is a full-width slot and always runs the plain row.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub row_profiles: BTreeMap<String, String>,
-    pub inlay: Inlay,
+    pub task: Task,
 }
 
-impl Job {
+impl Step {
     /// Ids of every tool this inlay refers to.
     pub fn tool_ids(&self) -> Vec<&str> {
-        let mut ids = self.inlay.tool_ids();
+        let mut ids = self.task.tool_ids();
         if let Some(id) = &self.cut_out_tool_id {
             if !ids.contains(&id.as_str()) {
                 ids.push(id);
@@ -413,7 +435,7 @@ impl Job {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Inlay {
+pub enum Task {
     #[serde(rename_all = "camelCase")]
     Vcarve {
         /// How deep the plug sits in the pocket, mm.
@@ -574,7 +596,7 @@ pub enum Inlay {
     /// on it, for the steps after it in the list.
     #[serde(rename_all = "camelCase")]
     Glue {
-        /// The id of the job whose plug or inserts are glued in.
+        /// The id of the step whose plug or inserts are glued in.
         inlay_id: String,
     },
 }
@@ -776,9 +798,9 @@ fn default_plug_thickness() -> f64 {
     10.0
 }
 
-impl Inlay {
+impl Task {
     pub fn default_vcarve() -> Self {
-        Inlay::Vcarve {
+        Task::Vcarve {
             engagement_depth: 3.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
@@ -794,7 +816,7 @@ impl Inlay {
     }
 
     pub fn default_flat() -> Self {
-        Inlay::Flat {
+        Task::Flat {
             pocket_depth: 3.0,
             allowance: 0.1,
             tabs: false,
@@ -810,7 +832,7 @@ impl Inlay {
     /// Ids of every tool this inlay refers to.
     pub fn tool_ids(&self) -> Vec<&str> {
         match self {
-            Inlay::Vcarve {
+            Task::Vcarve {
                 clearing_tool_ids,
                 vbit_tool_id,
                 ..
@@ -819,28 +841,28 @@ impl Inlay {
                 .chain(vbit_tool_id.iter())
                 .map(String::as_str)
                 .collect(),
-            Inlay::Flat {
+            Task::Flat {
                 clearing_tool_ids, ..
             }
-            | Inlay::Pocket {
+            | Task::Pocket {
                 clearing_tool_ids, ..
             } => clearing_tool_ids.iter().map(String::as_str).collect(),
-            Inlay::Facing { tool_id, .. }
-            | Inlay::Contour { tool_id, .. }
-            | Inlay::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
-            Inlay::Glue { .. } => Vec::new(),
+            Task::Facing { tool_id, .. }
+            | Task::Contour { tool_id, .. }
+            | Task::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
+            Task::Glue { .. } => Vec::new(),
         }
     }
 
     /// True for a step done by hand, which has no file.
     pub fn is_by_hand(&self) -> bool {
-        matches!(self, Inlay::Glue { .. })
+        matches!(self, Task::Glue { .. })
     }
 
     /// True for an inlay, which has a second part; false for a plain
     /// operation on the stock.
     pub fn is_inlay(&self) -> bool {
-        matches!(self, Inlay::Vcarve { .. } | Inlay::Flat { .. })
+        matches!(self, Task::Vcarve { .. } | Task::Flat { .. })
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -853,8 +875,8 @@ impl Inlay {
         }
         match *self {
             // What it refers to is checked with the rest of the project.
-            Inlay::Glue { .. } => Ok(()),
-            Inlay::Vcarve {
+            Task::Glue { .. } => Ok(()),
+            Task::Vcarve {
                 engagement_depth,
                 glue_gap,
                 saw_gap,
@@ -885,7 +907,7 @@ impl Inlay {
                     "saw gap must be greater than 0",
                 )
             }
-            Inlay::Flat {
+            Task::Flat {
                 pocket_depth,
                 allowance,
                 insert_thickness,
@@ -914,11 +936,11 @@ impl Inlay {
                     "allowance must be 0 or more",
                 )
             }
-            Inlay::Pocket { depth, .. } => check(
+            Task::Pocket { depth, .. } => check(
                 depth.is_finite() && depth > 0.0,
                 "depth must be greater than 0",
             ),
-            Inlay::Facing {
+            Task::Facing {
                 above,
                 above_auto,
                 depth,
@@ -940,11 +962,11 @@ impl Inlay {
                     "the margin must be 0 or more",
                 )
             }
-            Inlay::Contour { depth, .. } => check(
+            Task::Contour { depth, .. } => check(
                 depth.is_none_or(|d| d.is_finite() && d > 0.0),
                 "depth must be greater than 0",
             ),
-            Inlay::Chamfer {
+            Task::Chamfer {
                 width,
                 side,
                 tip_clearance,
@@ -1012,27 +1034,27 @@ impl Project {
             }
         }
 
-        for (i, job) in self.jobs.iter().enumerate() {
-            let fail = |e: String| format!("inlay \"{}\": {e}", job.name);
-            if job.id.is_empty() || self.jobs[..i].iter().any(|other| other.id == job.id) {
+        for (i, step) in self.steps.iter().enumerate() {
+            let fail = |e: String| format!("inlay \"{}\": {e}", step.name);
+            if step.id.is_empty() || self.steps[..i].iter().any(|other| other.id == step.id) {
                 return Err(fail("its id is missing or used twice".into()));
             }
-            job.inlay.validate().map_err(fail)?;
-            if job.color.as_deref().is_some_and(|c| !is_color(c)) {
+            step.task.validate().map_err(fail)?;
+            if step.color.as_deref().is_some_and(|c| !is_color(c)) {
                 return Err(fail("its colour must be written as #rrggbb".into()));
             }
-            if let Some(setup) = &job.setup {
+            if let Some(setup) = &step.setup {
                 setup.validate().map_err(fail)?;
             }
-            if let Inlay::Glue { inlay_id } = &job.inlay {
-                let glued = self.jobs.iter().find(|other| &other.id == inlay_id);
-                if !glued.is_some_and(|other| other.inlay.is_inlay()) {
+            if let Task::Glue { inlay_id } = &step.task {
+                let glued = self.steps.iter().find(|other| &other.id == inlay_id);
+                if !glued.is_some_and(|other| other.task.is_inlay()) {
                     return Err(fail(
                         "it glues in an inlay that is not in the project".into(),
                     ));
                 }
             }
-            if let Some(missing) = job.region_ids.iter().find(|id| !region_ids.contains(id)) {
+            if let Some(missing) = step.region_ids.iter().find(|id| !region_ids.contains(id)) {
                 return Err(fail(format!(
                     "it refers to region {missing}, which is not in the design"
                 )));
@@ -1096,8 +1118,8 @@ mod tests {
                     },
                 ],
             }),
-            jobs: vec![
-                Job {
+            steps: vec![
+                Step {
                     id: "j1".into(),
                     name: "Walnut square".into(),
                     material: Material::HARDWOOD,
@@ -1106,7 +1128,7 @@ mod tests {
                     setup: None,
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
-                    inlay: Inlay::Vcarve {
+                    task: Task::Vcarve {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
                         saw_gap: 1.5,
@@ -1120,7 +1142,7 @@ mod tests {
                         tuning: VcarveTuning::default(),
                     },
                 },
-                Job {
+                Step {
                     id: "j2".into(),
                     name: "Maple triangle".into(),
                     material: Material::SOFTWOOD,
@@ -1129,7 +1151,7 @@ mod tests {
                     setup: None,
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
-                    inlay: Inlay::Flat {
+                    task: Task::Flat {
                         pocket_depth: 2.5,
                         allowance: 0.1,
                         tabs: true,
@@ -1188,19 +1210,19 @@ mod tests {
         let plain = project_to_file_json(&p);
         assert!(!plain.contains("cutOutToolId") && !plain.contains("\"setup\":null"));
 
-        p.jobs[0].setup = Some(Setup {
+        p.steps[0].setup = Some(Setup {
             safe_height: 9.0,
             ..Setup::default()
         });
-        p.jobs[0].cut_out_tool_id = Some("t-endmill".into());
+        p.steps[0].cut_out_tool_id = Some("t-endmill".into());
         let read = project_from_file_json(&project_to_file_json(&p)).unwrap();
         assert_eq!(read, p);
-        assert_eq!(Setup::of(&read, &read.jobs[0]).safe_height, 9.0);
-        assert_eq!(Setup::of(&read, &read.jobs[1]), read.setup);
+        assert_eq!(Setup::of(&read, &read.steps[0]).safe_height, 9.0);
+        assert_eq!(Setup::of(&read, &read.steps[1]), read.setup);
         // A tool named twice is listed once.
-        assert_eq!(read.jobs[0].tool_ids(), vec!["t-endmill", "t-vbit"]);
+        assert_eq!(read.steps[0].tool_ids(), vec!["t-endmill", "t-vbit"]);
 
-        p.jobs[0].setup.as_mut().unwrap().plunge_clearance = 20.0;
+        p.steps[0].setup.as_mut().unwrap().plunge_clearance = 20.0;
         assert!(p.validate().unwrap_err().contains("plunge height"));
     }
 
@@ -1208,9 +1230,9 @@ mod tests {
     fn plain_operations_and_colours_round_trip() {
         let mut p = sample();
         p.base.color = Some("#d9b98a".into());
-        p.jobs[0].color = Some("#5b3a1e".into());
-        let mut op = |id: &str, inlay: Inlay| {
-            p.jobs.push(Job {
+        p.steps[0].color = Some("#5b3a1e".into());
+        let mut op = |id: &str, task: Task| {
+            p.steps.push(Step {
                 id: id.into(),
                 name: id.into(),
                 material: Material::HARDWOOD,
@@ -1219,12 +1241,12 @@ mod tests {
                 setup: None,
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
-                inlay,
+                task,
             })
         };
         op(
             "pocket",
-            Inlay::Pocket {
+            Task::Pocket {
                 pattern: Pattern::Offset,
                 direction: PassDirection::Longer,
                 depth: 2.0,
@@ -1233,7 +1255,7 @@ mod tests {
         );
         op(
             "facing",
-            Inlay::Facing {
+            Task::Facing {
                 pattern: Pattern::Raster,
                 direction: PassDirection::Longer,
                 above: 6.0,
@@ -1245,7 +1267,7 @@ mod tests {
         );
         op(
             "contour",
-            Inlay::Contour {
+            Task::Contour {
                 side: Side::Inside,
                 depth: None,
                 tabs: true,
@@ -1254,7 +1276,7 @@ mod tests {
         );
         op(
             "chamfer",
-            Inlay::Chamfer {
+            Task::Chamfer {
                 side: Side::Outside,
                 width: 1.0,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -1265,15 +1287,15 @@ mod tests {
         assert!(text.contains("\"type\": \"contour\"") || text.contains("\"type\":\"contour\""));
         let read = project_from_file_json(&text).unwrap();
         assert_eq!(read, p);
-        assert_eq!(read.jobs[4].tool_ids(), vec!["t-endmill"]);
-        assert_eq!(read.jobs[5].tool_ids(), vec!["t-vbit"]);
-        assert!(!read.jobs[2].inlay.is_inlay() && read.jobs[0].inlay.is_inlay());
+        assert_eq!(read.steps[4].tool_ids(), vec!["t-endmill"]);
+        assert_eq!(read.steps[5].tool_ids(), vec!["t-vbit"]);
+        assert!(!read.steps[2].task.is_inlay() && read.steps[0].task.is_inlay());
 
         // A facing without a pattern goes side to side, a pocket in rings, and
         // a chamfer's tool may still be called its V-bit.
         let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        for job in value["project"]["jobs"].as_array_mut().unwrap() {
-            let inlay = job["inlay"].as_object_mut().unwrap();
+        for step in value["project"]["steps"].as_array_mut().unwrap() {
+            let inlay = step["task"].as_object_mut().unwrap();
             inlay.remove("pattern");
             if inlay["type"] == "chamfer" {
                 let id = inlay.remove("toolId").unwrap();
@@ -1282,24 +1304,24 @@ mod tests {
         }
         let old = project_from_file_json(&value.to_string()).unwrap();
         assert!(matches!(
-            old.jobs[2].inlay,
-            Inlay::Pocket {
+            old.steps[2].task,
+            Task::Pocket {
                 pattern: Pattern::Offset,
                 ..
             }
         ));
         assert!(matches!(
-            old.jobs[3].inlay,
-            Inlay::Facing {
+            old.steps[3].task,
+            Task::Facing {
                 pattern: Pattern::Raster,
                 ..
             }
         ));
-        assert_eq!(old.jobs[5].tool_ids(), vec!["t-vbit"]);
+        assert_eq!(old.steps[5].tool_ids(), vec!["t-vbit"]);
 
         // A facing may end above the surface, but not above where it starts.
         let mut proud = p.clone();
-        let facing = |above: f64, depth: f64| Inlay::Facing {
+        let facing = |above: f64, depth: f64| Task::Facing {
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above,
@@ -1308,26 +1330,26 @@ mod tests {
             margin: 9.0,
             tool_id: None,
         };
-        proud.jobs[3].inlay = facing(6.0, -0.2);
+        proud.steps[3].task = facing(6.0, -0.2);
         assert_eq!(
             project_from_file_json(&project_to_file_json(&proud)).unwrap(),
             proud
         );
-        proud.jobs[3].inlay = facing(6.0, -6.5);
+        proud.steps[3].task = facing(6.0, -6.5);
         assert!(proud.validate().unwrap_err().contains("cannot end higher"));
-        proud.jobs[3].inlay = facing(0.0, -0.1);
+        proud.steps[3].task = facing(0.0, -0.1);
         assert!(proud.validate().unwrap_err().contains("cannot end higher"));
 
         // A chamfer has no "on the line", and a colour is #rrggbb.
         let mut bad = p.clone();
-        bad.jobs[5].inlay = Inlay::Chamfer {
+        bad.steps[5].task = Task::Chamfer {
             side: Side::On,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
             tool_id: None,
         };
         assert!(bad.validate().unwrap_err().contains("outside or inside"));
-        bad.jobs[5].inlay = Inlay::Chamfer {
+        bad.steps[5].task = Task::Chamfer {
             side: Side::Outside,
             width: 1.0,
             tip_clearance: -0.1,
@@ -1335,14 +1357,14 @@ mod tests {
         };
         assert!(bad.validate().unwrap_err().contains("tip clearance"));
         let mut bad = p.clone();
-        bad.jobs[0].color = Some("walnut".into());
+        bad.steps[0].color = Some("walnut".into());
         assert!(bad.validate().unwrap_err().contains("#rrggbb"));
     }
 
     #[test]
     fn a_glue_up_round_trips_and_must_name_an_inlay() {
         let mut p = sample();
-        let glue = |of: &str| Job {
+        let glue = |of: &str| Step {
             id: "glue".into(),
             name: "Glue in Walnut square".into(),
             material: Material::HARDWOOD,
@@ -1351,22 +1373,22 @@ mod tests {
             setup: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
-            inlay: Inlay::Glue {
+            task: Task::Glue {
                 inlay_id: of.into(),
             },
         };
-        p.jobs.insert(1, glue("j1"));
+        p.steps.insert(1, glue("j1"));
         let text = project_to_file_json(&p);
         assert!(text.contains("\"inlayId\": \"j1\""));
         let read = project_from_file_json(&text).unwrap();
         assert_eq!(read, p);
-        assert!(read.jobs[1].inlay.is_by_hand() && !read.jobs[1].inlay.is_inlay());
-        assert!(read.jobs[1].tool_ids().is_empty());
+        assert!(read.steps[1].task.is_by_hand() && !read.steps[1].task.is_inlay());
+        assert!(read.steps[1].tool_ids().is_empty());
 
-        p.jobs[1] = glue("gone");
+        p.steps[1] = glue("gone");
         assert!(p.validate().unwrap_err().contains("not in the project"));
         // A glue-up glues in an inlay, not another glue-up.
-        p.jobs[1] = glue("glue");
+        p.steps[1] = glue("glue");
         assert!(p.validate().unwrap_err().contains("not in the project"));
     }
 
@@ -1376,7 +1398,7 @@ mod tests {
             id: "p".into(),
             name: "New".into(),
             design: None,
-            jobs: vec![],
+            steps: vec![],
             tools: vec![],
             profiles: Vec::new(),
             base: BaseStock::default(),
@@ -1390,9 +1412,9 @@ mod tests {
     }
 
     #[test]
-    fn a_job_pointing_at_a_missing_region_is_rejected() {
+    fn a_step_pointing_at_a_missing_region_is_rejected() {
         let mut project = sample();
-        project.jobs[0].region_ids.push(99);
+        project.steps[0].region_ids.push(99);
         assert!(project.validate().is_err());
         assert!(matches!(
             project_from_file_json(&project_to_file_json(&project)),
@@ -1403,7 +1425,7 @@ mod tests {
     #[test]
     fn negative_depths_are_rejected() {
         let mut project = sample();
-        project.jobs[1].inlay = Inlay::Flat {
+        project.steps[1].task = Task::Flat {
             pocket_depth: -1.0,
             allowance: 0.1,
             tabs: false,
@@ -1421,10 +1443,10 @@ mod tests {
     fn inlay_lists_its_tools() {
         let project = sample();
         assert_eq!(
-            project.jobs[0].inlay.tool_ids(),
+            project.steps[0].task.tool_ids(),
             vec!["t-endmill", "t-vbit"]
         );
-        assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
+        assert_eq!(project.steps[1].task.tool_ids(), vec!["t-endmill"]);
     }
 
     /// Files from every released format version must keep loading, and
@@ -1436,6 +1458,35 @@ mod tests {
         assert_eq!(project, sample());
     }
 
+    /// Version 2 names the list `steps` and what a step does its `task`.
+    #[test]
+    fn version_2_fixture_loads_and_is_what_version_1_becomes() {
+        let text = include_str!("../tests/fixtures/project-v2.json");
+        assert!(text.contains("\"steps\"") && text.contains("\"task\""));
+        assert!(!text.contains("\"jobs\"") && !text.contains("\"inlay\""));
+        let project = project_from_file_json(text).unwrap();
+        assert_eq!(project, sample());
+        // A version 1 file comes out the same, and is written back as version 2.
+        let old =
+            project_from_file_json(include_str!("../tests/fixtures/project-v1.json")).unwrap();
+        assert_eq!(project_to_file_json(&old), project_to_file_json(&project));
+        assert!(project_to_file_json(&old).contains("\"formatVersion\": 2"));
+    }
+
+    /// A file from a newer version of the app is refused, not guessed at.
+    #[test]
+    fn a_newer_project_file_is_refused() {
+        let text = include_str!("../tests/fixtures/project-v2.json")
+            .replace("\"formatVersion\": 2", "\"formatVersion\": 3");
+        assert!(matches!(
+            project_from_file_json(&text),
+            Err(FileError::NewerVersion {
+                found: 3,
+                supported: 2
+            })
+        ));
+    }
+
     /// A file written while version 1 was still growing: a flat inlay with a
     /// single `toolId`, and none of the fields added later.
     #[test]
@@ -1444,12 +1495,12 @@ mod tests {
             project_from_file_json(include_str!("../tests/fixtures/project-v1-early.json"))
                 .unwrap();
         assert_eq!(project.name, "Coaster");
-        assert_eq!(project.jobs.len(), 2);
+        assert_eq!(project.steps.len(), 2);
         assert_eq!(project.design.as_ref().unwrap().regions.len(), 2);
-        assert_eq!(project.jobs[1].inlay.tool_ids(), vec!["t-endmill"]);
+        assert_eq!(project.steps[1].task.tool_ids(), vec!["t-endmill"]);
         assert!(matches!(
-            project.jobs[1].inlay,
-            Inlay::Flat {
+            project.steps[1].task,
+            Task::Flat {
                 tabs: true,
                 insert_style: InsertStyle::Loose,
                 cut_out: false,
@@ -1457,8 +1508,8 @@ mod tests {
             }
         ));
         assert!(matches!(
-            project.jobs[0].inlay,
-            Inlay::Vcarve {
+            project.steps[0].task,
+            Task::Vcarve {
                 cut_out: false,
                 tabs: false,
                 ..
@@ -1472,7 +1523,7 @@ mod tests {
             .replace("\"toolId\": \"t-endmill\"", "\"toolId\": null");
         assert!(text.contains("\"toolId\": null"));
         let project = project_from_file_json(&text).unwrap();
-        assert!(project.jobs[1].inlay.tool_ids().is_empty());
+        assert!(project.steps[1].task.tool_ids().is_empty());
     }
 
     /// A project file is passed on; prices, invoices and logs are not.
@@ -1559,7 +1610,7 @@ mod tests {
             assert!(!text.contains(name), "{name}");
         }
         assert_eq!(project_from_file_json(&text).unwrap(), p);
-        if let Inlay::Vcarve { tuning, .. } = &mut p.jobs[0].inlay {
+        if let Task::Vcarve { tuning, .. } = &mut p.steps[0].task {
             tuning.floor_ridge = 0.05;
             tuning.trim_depth = 0.3;
         }
@@ -1568,7 +1619,7 @@ mod tests {
         assert!(text.contains("\"floorRidge\": 0.05") && text.contains("\"trimDepth\": 0.3"));
         assert!(!text.contains("reliefKeep") && text.contains("\"toolChangeSeconds\": 45.0"));
         assert_eq!(project_from_file_json(&text).unwrap(), p);
-        if let Inlay::Vcarve { tuning, .. } = &mut p.jobs[0].inlay {
+        if let Task::Vcarve { tuning, .. } = &mut p.steps[0].task {
             tuning.relief_keep = 9.0;
         }
         assert!(p.validate().unwrap_err().contains("relief"));

@@ -12,7 +12,7 @@
 //! - Lines at most 128 characters; longer ones are silently dropped.
 //! - Comments on their own line: text after a comment is dropped.
 //! - `F` on the first cutting move after a rapid: a rapid's feed does not carry over.
-//! - No homing, probing or offset commands: the controller does those before the job.
+//! - No homing, probing or offset commands: the controller does those before the step.
 //!
 //! The header has one comment line per tool, laid out as the Fusion 360 post for
 //! the Carvera writes it. The community controller reads those lines to draw each

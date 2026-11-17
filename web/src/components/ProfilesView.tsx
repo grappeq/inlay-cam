@@ -23,7 +23,7 @@ export function ProfilesPage() {
   const change = (key: string, update: Partial<Profile>) => setProfiles(profiles.map((p) => (p.key === key ? { ...p, ...update } : p)));
 
   const rows = (key: string) => tools.reduce((n, t) => n + t.cutting.filter((c) => c.profile === key).length, 0);
-  const jobs = (key: string) => project.jobs.filter((j) => Object.values(j.rowProfiles ?? {}).includes(key)).length;
+  const steps = (key: string) => project.steps.filter((j) => Object.values(j.rowProfiles ?? {}).includes(key)).length;
   const taken = (label: string, but?: string) => profiles.some((p) => p.key !== but && p.label.trim().toLowerCase() === label.trim().toLowerCase());
 
   const add = () => {
@@ -44,7 +44,7 @@ export function ProfilesPage() {
 
   const remove = (profile: Profile) => {
     const n = rows(profile.key);
-    const used = jobs(profile.key);
+    const used = steps(profile.key);
     const warning =
       (n > 0 ? ` Its ${n} cutting row${n === 1 ? "" : "s"} will be deleted from your tools.` : "") +
       (used > 0 ? ` ${used} part${used === 1 ? "" : "s"} of the open project use${used === 1 ? "s" : ""} it and will need another row chosen.` : "");
@@ -87,7 +87,7 @@ export function ProfilesPage() {
               <tbody>
                 {profiles.map((profile) => {
                   const adaptive = isAdaptive(profile.key, profile);
-                  const parts = jobs(profile.key);
+                  const parts = steps(profile.key);
                   return (
                     <tr key={profile.key}>
                       <td>

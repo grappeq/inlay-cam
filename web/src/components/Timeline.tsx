@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
-import type { Built, Job, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
-import { fmt, jobColor, stockColor } from "../state/model";
+import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
+import { fmt, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
-import { JobIcon } from "./icons";
+import { StepIcon } from "./icons";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
 
 /** Whether a step has something to say: it could not be done, went wrong, or wants a look. */
@@ -100,17 +100,17 @@ function noFile(project: Project, thickness: number): Built {
 
 /** The stock in 3D at one point of the list, with the list to step through above it. */
 export function TimelineView({ timeline, result }: { timeline: Timeline; result: StockTimeline }) {
-  const { project, timelineAt, panelPage, activeJobId } = useApp();
+  const { project, timelineAt, panelPage, activeStepId } = useApp();
   const dispatch = useDispatch();
   const { busy, workOut } = useWorkOut();
   // The steps are shown by the file that cuts them only while the panel is on the files.
-  const byFile = panelPage === "files" && activeJobId === null;
+  const byFile = panelPage === "files" && activeStepId === null;
   // Names and colours are those of the project as it was when this was worked out.
   const made = timeline.project;
   const count = result.steps.length;
   const at = Math.min(timelineAt, count);
   const step = at > 0 ? result.steps[at - 1] : null;
-  const job = (id: string): Job | undefined => made.jobs.find((j) => j.id === id);
+  const stepOf = (id: string): Step | undefined => made.steps.find((j) => j.id === id);
   const camera = useRef<KeptCamera>({});
 
   // The wood of each glued-in inlay, by its number in the snapshots.
@@ -118,8 +118,8 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
     () => [
       stockColor(made),
       ...result.glued.map((id) => {
-        const inlay = made.jobs.find((j) => j.id === id);
-        return inlay ? jobColor(inlay, made.jobs) : stockColor(made);
+        const inlay = made.steps.find((j) => j.id === id);
+        return inlay ? stepColor(inlay, made.steps) : stockColor(made);
       }),
     ],
     [result, made],
@@ -151,12 +151,12 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   });
   const chip = (index: number) => {
     const s = result.steps[index];
-    const j = job(s.jobId);
-    const glued = j?.inlay.type === "glue" ? job(j.inlay.inlayId) : undefined;
+    const j = stepOf(s.stepId);
+    const glued = j?.task.type === "glue" ? stepOf(j.task.inlayId) : undefined;
     return (
-      <button key={s.jobId} className={s.byHand ? "step by-hand" : "step"} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
-        <span className="job-icon" style={glued ? { color: jobColor(glued, made.jobs) } : undefined}>
-          {j && <JobIcon type={j.inlay.type} />}
+      <button key={s.stepId} className={s.byHand ? "step by-hand" : "step"} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
+        <span className="job-icon" style={glued ? { color: stepColor(glued, made.steps) } : undefined}>
+          {j && <StepIcon type={j.task.type} />}
         </span>
         {j?.name ?? "?"}
         {troubled(s) && (
@@ -168,7 +168,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
     );
   };
 
-  const label = (index: number) => (index === 0 ? "the fresh stock" : `after "${job(result.steps[index - 1].jobId)?.name ?? "?"}"`);
+  const label = (index: number) => (index === 0 ? "the fresh stock" : `after "${stepOf(result.steps[index - 1].stepId)?.name ?? "?"}"`);
 
   return (
     <div className="timeline-view">
@@ -239,7 +239,7 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
       </p>
     );
   }
-  const name = made.jobs.find((j) => j.id === step.jobId)?.name ?? "?";
+  const name = made.steps.find((j) => j.id === step.stepId)?.name ?? "?";
   if (step.errors.length > 0) {
     return (
       <div className="callout error" role="status">
@@ -265,7 +265,7 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
               Math.abs(seat.proud) >= 0.02 ? `, ${fmt(Math.round(Math.abs(seat.proud) * 100) / 100)} mm ${seat.proud > 0 ? "higher" : "lower"} than designed` : ""
             }.`
           : file?.built
-            ? `Cut by ${file.built.fileName}${file.jobIds.length > 1 ? `, as part ${file.jobIds.indexOf(step.jobId) + 1} of ${file.jobIds.length}` : ""}, into the stock as the step before left it.`
+            ? `Cut by ${file.built.fileName}${file.stepIds.length > 1 ? `, as part ${file.stepIds.indexOf(step.stepId) + 1} of ${file.stepIds.length}` : ""}, into the stock as the step before left it.`
             : ""}
       </p>
       {(step.problems.length > 0 || step.warnings.length > 0) && (

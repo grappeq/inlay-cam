@@ -27,15 +27,15 @@ const api: CoreApi = {
   checkRow: (tool, material, values, machine) => JSON.parse(wasm.checkRow(JSON.stringify(tool), material, JSON.stringify(values), JSON.stringify(machine))),
   needsAttention: (tools) => JSON.parse(wasm.needsAttention(JSON.stringify(tools))),
   validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
-  previewPart: (project, jobId, part) => {
-    const preview = wasm.previewPart(JSON.stringify(project), jobId, part);
+  previewPart: (project, stepId, part) => {
+    const preview = wasm.previewPart(JSON.stringify(project), stepId, part);
     try {
       return { ...JSON.parse(preview.info), heights: preview.heights, path: preview.path };
     } finally {
       preview.free();
     }
   },
-  facingStart: (project, jobId) => wasm.facingStart(JSON.stringify(project), jobId) ?? null,
+  facingStart: (project, stepId) => wasm.facingStart(JSON.stringify(project), stepId) ?? null,
   stockTimeline: (project) => {
     const timeline = wasm.stockTimeline(JSON.stringify(project));
     try {
@@ -49,8 +49,8 @@ const api: CoreApi = {
       timeline.free();
     }
   },
-  checkFit: (project, jobId) => {
-    const check = wasm.checkFit(JSON.stringify(project), jobId);
+  checkFit: (project, stepId) => {
+    const check = wasm.checkFit(JSON.stringify(project), stepId);
     try {
       return { ...JSON.parse(check.info), gap: check.gap, plugUnder: check.plugUnder, face: check.face, base: check.base };
     } finally {

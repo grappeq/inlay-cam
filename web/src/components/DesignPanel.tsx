@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { core } from "../core/client";
-import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Inlay, Job, JobType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
+import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Task, Step, StepType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
 import {
   DEFAULT_STOCK_COLOR,
-  JOB_LABELS,
+  STEP_LABELS,
   allMaterials,
   findProfile,
   isAdaptive,
@@ -22,9 +22,9 @@ import {
   glueStep,
   insertAfter,
   isInlay,
-  jobColor,
-  jobSetup,
-  newJob,
+  stepColor,
+  stepSetup,
+  newStep,
   regionOwners,
   resolveTool,
   sameSetup,
@@ -34,12 +34,12 @@ import {
   trimFacing,
   trimOf,
   usualCutOutTool,
-  withoutJob,
+  withoutStep,
 } from "../state/model";
 import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
 import { pickTextFile, pickTextFiles } from "../util/files";
-import { FilletIcon, JobIcon } from "./icons";
+import { FilletIcon, StepIcon } from "./icons";
 import { InlayDiagram } from "./InlayDiagram";
 import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
@@ -49,8 +49,8 @@ import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { FilesList } from "./Files";
 
-/** A job that is an inlay proper, with a pocket and a plug or insert. */
-type InlayJob = Job & { inlay: TrueInlay };
+/** A step that is an inlay proper, with a pocket and a plug or insert. */
+type InlayStep = Step & { task: TrueInlay };
 
 const DRAWINGS = ".svg,.dxf,image/svg+xml";
 
@@ -62,18 +62,18 @@ export function useImportSvg() {
 
 /** The panel beside the drawing: the stock with its inlays and operations, or the one being worked on. */
 export function DesignPanel({ design }: { design: Design }) {
-  const { project, importReport, activeJobId, arranging, panelPage } = useApp();
+  const { project, importReport, activeStepId, arranging, panelPage } = useApp();
   const dispatch = useDispatch();
-  const active = project.jobs.find((j) => j.id === activeJobId);
-  const files = panelPage === "files" && project.jobs.length > 0;
+  const active = project.steps.find((j) => j.id === activeStepId);
+  const files = panelPage === "files" && project.steps.length > 0;
   const setPage = (page: "list" | "files") => dispatch({ type: "setPanelPage", page });
 
   if (arranging) return <ArrangePanel design={design} />;
-  if (active?.inlay.type === "glue") return <GlueEditor key={active.id} job={active} />;
-  if (active) return isInlay(active.inlay) ? <JobEditor key={active.id} job={active as InlayJob} /> : <OpEditor key={active.id} job={active} />;
+  if (active?.task.type === "glue") return <GlueEditor key={active.id} step={active} />;
+  if (active) return isInlay(active.task) ? <StepEditor key={active.id} step={active as InlayStep} /> : <OpEditor key={active.id} step={active} />;
   return (
     <aside className="panel" aria-label="Stock, inlays and operations">
-      {project.jobs.length > 0 && (
+      {project.steps.length > 0 && (
         <nav className="tabs panel-tabs" aria-label="What the panel shows">
           <button aria-pressed={!files} onClick={() => setPage("list")}>
             Inlays and operations
@@ -88,7 +88,7 @@ export function DesignPanel({ design }: { design: Design }) {
           <FilesList />
         ) : (
           <>
-            <JobsSection design={design} />
+            <StepsSection design={design} />
             <StockSection design={design} report={importReport} />
           </>
         )}
@@ -211,7 +211,7 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
           </button>
           <button
             onClick={async () => {
-              const made = project.jobs.length;
+              const made = project.steps.length;
               if (made === 0 || confirm("Replace the drawing? The inlays and operations made from this one will be removed.")) replaceDrawing(await pickTextFile(DRAWINGS));
             }}
           >
@@ -229,7 +229,7 @@ function round2(v: number): number {
 }
 
 /** What a plain operation does, in a line. */
-const OPERATION_HINTS: Record<JobType, string> = {
+const OPERATION_HINTS: Record<StepType, string> = {
   vcarve: "Sloped walls cut with a V-bit. Keeps sharp corners and fine detail. The plug is glued in and sawn off.",
   flat: "Upright walls cut with an end mill. Corners are rounded to the tool. The insert drops in.",
   pocket: "Clears the shapes to a flat floor with an end mill.",
@@ -239,9 +239,9 @@ const OPERATION_HINTS: Record<JobType, string> = {
   glue: "Done by hand, with no file: an inlay's plug or inserts are glued into the pocket. The steps below it in the list find the stock with that wood on it.",
 };
 
-function describeJob(job: Job): string {
-  const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
-  const inlay = job.inlay;
+function describeStep(step: Step): string {
+  const shapes = `${step.regionIds.length} shape${step.regionIds.length === 1 ? "" : "s"}`;
+  const inlay = step.task;
   switch (inlay.type) {
     case "vcarve":
       return `V-carve inlay, ${shapes}`;
@@ -250,7 +250,7 @@ function describeJob(job: Job): string {
     case "pocket":
       return `Pocket ${fmt(inlay.depth)} mm deep, ${shapes}`;
     case "facing":
-      return job.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
+      return step.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
     case "contour":
       return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}, ${shapes}`;
     case "chamfer":
@@ -261,70 +261,70 @@ function describeJob(job: Job): string {
 }
 
 /** The colour of the wood a line of the list is about: an inlay's own, or that of the inlay a glue-up glues in. */
-function woodOf(job: Job, jobs: Job[]): string | undefined {
-  const inlay = job.inlay.type === "glue" ? jobs.find((j) => j.inlay.type !== "glue" && job.inlay.type === "glue" && j.id === job.inlay.inlayId) : job;
-  return inlay && isInlay(inlay.inlay) ? jobColor(inlay, jobs) : undefined;
+function woodOf(step: Step, steps: Step[]): string | undefined {
+  const inlay = step.task.type === "glue" ? steps.find((j) => j.task.type !== "glue" && step.task.type === "glue" && j.id === step.task.inlayId) : step;
+  return inlay && isInlay(inlay.task) ? stepColor(inlay, steps) : undefined;
 }
 
-function JobsSection({ design }: { design: Design }) {
+function StepsSection({ design }: { design: Design }) {
   const { project, selection, tools, defaults } = useApp();
   const dispatch = useDispatch();
-  const owners = regionOwners(project.jobs);
+  const owners = regionOwners(project.steps);
   const free = design.regions.filter((r) => !owners.has(r.id)).map((r) => r.id);
   const owned = selection.filter((id) => owners.has(id)).length;
 
-  const create = (type: JobType) => {
-    const job = newJob(type, selection, project.jobs, defaults);
+  const create = (type: StepType) => {
+    const step = newStep(type, selection, project.steps, defaults);
     // Where the tool list leaves no choice, make it.
     const only = (kind: ToolKind) => {
       const ofKind = tools.filter((t) => t.kind === kind);
       return ofKind.length === 1 ? ofKind[0].id : null;
     };
     const endMill = only("flat_end");
-    const inlay = job.inlay;
+    const inlay = step.task;
     if (inlay.type === "vcarve" || inlay.type === "flat" || inlay.type === "pocket") inlay.clearingToolIds = endMill ? [endMill] : [];
     if (inlay.type === "facing" || inlay.type === "contour") inlay.toolId = endMill;
     if (inlay.type === "vcarve") inlay.vbitToolId = only("v_bit");
     if (inlay.type === "chamfer") inlay.toolId = only("v_bit") ?? only("corner_round");
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: [...p.jobs, job] }) });
-    dispatch({ type: "setActiveJob", id: job.id });
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: [...p.steps, step] }) });
+    dispatch({ type: "setActiveStep", id: step.id });
   };
   const move = (from: number, to: number) =>
     dispatch({
       type: "updateProject",
       update: (p) => {
-        const jobs = [...p.jobs];
-        jobs.splice(to, 0, ...jobs.splice(from, 1));
-        return { ...p, jobs };
+        const steps = [...p.steps];
+        steps.splice(to, 0, ...steps.splice(from, 1));
+        return { ...p, steps };
       },
     });
   // Which file for the stock each line goes into, shown once a step done by hand splits the list into several.
-  const files = fileNumbers(project.jobs);
+  const files = fileNumbers(project.steps);
   const filed = files.some((n) => n !== null && n > 1);
   // The inlays a glue-up can be added for: those of the selected shapes, else every one that has none yet.
-  const unglued = project.jobs.filter((j) => isInlay(j.inlay) && !glueOf(j, project.jobs));
+  const unglued = project.steps.filter((j) => isInlay(j.task) && !glueOf(j, project.steps));
   const pickedInlays = unglued.filter((j) => j.regionIds.some((id) => selection.includes(id)));
   const toGlue = pickedInlays.length > 0 ? pickedInlays : unglued;
   const addGlueUps = () =>
     dispatch({
       type: "updateProject",
       update: (p) => {
-        let jobs = p.jobs;
+        let steps = p.steps;
         for (const inlay of toGlue) {
-          const step = glueStep(inlay, jobs);
+          const step = glueStep(inlay, steps);
           // Right after the inlay, whose place in the list is where its pocket is cut.
-          if (step) jobs = insertAfter(jobs, inlay.id, step);
+          if (step) steps = insertAfter(steps, inlay.id, step);
         }
-        return { ...p, jobs };
+        return { ...p, steps };
       },
     });
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
   const none = selection.length === 0;
-  const several = project.jobs.length > 1;
-  const sortable = useSortable(project.jobs.length, move);
+  const several = project.steps.length > 1;
+  const sortable = useSortable(project.steps.length, move);
   // What the kind under the pointer does, in place of a line under every button.
-  const [about, setAbout] = useState<JobType | null>(null);
-  const choice = (type: JobType, label: string, disabled: boolean) => (
+  const [about, setAbout] = useState<StepType | null>(null);
+  const choice = (type: StepType, label: string, disabled: boolean) => (
     <button
       key={type}
       className="choice"
@@ -336,7 +336,7 @@ function JobsSection({ design }: { design: Design }) {
       onFocus={() => setAbout(type)}
       onBlur={() => setAbout(null)}
     >
-      <JobIcon type={type} />
+      <StepIcon type={type} />
       <strong>{label}</strong>
     </button>
   );
@@ -344,26 +344,26 @@ function JobsSection({ design }: { design: Design }) {
   return (
     <section>
       <h2>Inlays and operations</h2>
-      {project.jobs.length > 0 && (
+      {project.steps.length > 0 && (
         <ul className="jobs">
-          {project.jobs.map((job, index) => (
+          {project.steps.map((step, index) => (
             <li
-              key={job.id}
-              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${job.inlay.type === "glue" ? " by-hand" : ""}`}
+              key={step.id}
+              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${step.task.type === "glue" ? " by-hand" : ""}`}
               {...(several ? sortable.row(index) : {})}
             >
-              {several && <Grip {...sortable.grip(index, job.name)} />}
+              {several && <Grip {...sortable.grip(index, step.name)} />}
               {filed && (
                 <span className="file-number" title={files[index] === null ? "Done by hand: in no file" : `Cut by file ${files[index]} for the stock`}>
                   {files[index] === null ? "" : `file ${files[index]}`}
                 </span>
               )}
-              <button className="job" onClick={() => dispatch({ type: "setActiveJob", id: job.id })}>
-                <span className="job-icon" style={woodOf(job, project.jobs) ? { color: woodOf(job, project.jobs) } : undefined}>
-                  <JobSymbol job={job} />
+              <button className="job" onClick={() => dispatch({ type: "setActiveStep", id: step.id })}>
+                <span className="job-icon" style={woodOf(step, project.steps) ? { color: woodOf(step, project.steps) } : undefined}>
+                  <StepSymbol step={step} />
                 </span>
-                <span className="job-name">{job.name}</span>
-                <span className="muted">{describeJob(job)}</span>
+                <span className="job-name">{step.name}</span>
+                <span className="muted">{describeStep(step)}</span>
                 <span className="job-open" aria-hidden="true">
                   ›
                 </span>
@@ -374,7 +374,7 @@ function JobsSection({ design }: { design: Design }) {
       )}
 
       <div className="new-job">
-        <h3>{project.jobs.length === 0 ? "Make the first one" : "Add another"}</h3>
+        <h3>{project.steps.length === 0 ? "Make the first one" : "Add another"}</h3>
         <p className="status-line" role="status">
           {design.regions.length === 0
             ? "The stock has no shapes yet. Add a drawing, draw shapes under Edit, or face the whole stock."
@@ -399,10 +399,10 @@ function JobsSection({ design }: { design: Design }) {
         )}
         <h4 className="choice-group">Other operations on the stock</h4>
         <div className="choices">
-          {(["pocket", "contour", "chamfer"] as const).map((type) => choice(type, JOB_LABELS[type], design.regions.length === 0))}
+          {(["pocket", "contour", "chamfer"] as const).map((type) => choice(type, STEP_LABELS[type], design.regions.length === 0))}
           {choice("facing", "Facing", false)}
         </div>
-        {project.jobs.some((j) => isInlay(j.inlay)) && (
+        {project.steps.some((j) => isInlay(j.task)) && (
           <>
             <h4 className="choice-group">Steps done by hand</h4>
             <div className="choices">
@@ -416,7 +416,7 @@ function JobsSection({ design }: { design: Design }) {
                 onFocus={() => setAbout("glue")}
                 onBlur={() => setAbout(null)}
               >
-                <JobIcon type="glue" />
+                <StepIcon type="glue" />
                 <strong>{toGlue.length > 1 ? `Glue-up, for ${toGlue.length} inlays` : "Glue-up"}</strong>
               </button>
             </div>
@@ -447,47 +447,47 @@ function JobsSection({ design }: { design: Design }) {
 }
 
 /** The wood and the clearances of a plain operation, and its result: the parts every operation's panel shares. */
-function OpEditor({ job }: { job: Job }) {
+function OpEditor({ step }: { step: Step }) {
   const { project, defaults, tools } = useApp();
   const dispatch = useDispatch();
-  const output = useOutput(job);
-  const setup = jobSetup(job, project);
-  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, setup: { ...jobSetup(j, project), ...change } }) });
-  const update = (change: Partial<Job>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, ...change }) });
-  const setInlay = (change: Partial<PocketOp> | Partial<FacingOp> | Partial<ContourOp> | Partial<ChamferOp>) => update({ inlay: { ...job.inlay, ...change } as Inlay });
-  const inlay = job.inlay;
+  const output = useOutput(step);
+  const setup = stepSetup(step, project);
+  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, setup: { ...stepSetup(j, project), ...change } }) });
+  const update = (change: Partial<Step>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, ...change }) });
+  const setInlay = (change: Partial<PocketOp> | Partial<FacingOp> | Partial<ContourOp> | Partial<ChamferOp>) => update({ task: { ...step.task, ...change } as Task });
+  const inlay = step.task;
   if (isInlay(inlay)) return null;
-  const label = JOB_LABELS[inlay.type];
-  const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
+  const label = STEP_LABELS[inlay.type];
+  const shapes = `${step.regionIds.length} shape${step.regionIds.length === 1 ? "" : "s"}`;
   const through = inlay.type === "contour" && inlay.depth === null;
 
   const remove = () => {
-    if (!confirm(`Delete "${job.name}"?`)) return;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
-    dispatch({ type: "setActiveJob", id: null });
+    if (!confirm(`Delete "${step.name}"?`)) return;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
+    dispatch({ type: "setActiveStep", id: null });
   };
 
   return (
-    <aside className="panel" aria-label={`${label} ${job.name}`}>
+    <aside className="panel" aria-label={`${label} ${step.name}`}>
       <div className="panel-scroll">
         <section>
           <div className="editor-head">
-            <button className="link" onClick={() => dispatch({ type: "setActiveJob", id: null })}>
+            <button className="link" onClick={() => dispatch({ type: "setActiveStep", id: null })}>
               ‹ All inlays and operations
             </button>
             <span className="tag">
-              <JobSymbol job={job} />
+              <StepSymbol step={step} />
               {label}
             </span>
           </div>
           <label className="field">
             <span className="field-label">Name</span>
-            <input type="text" value={job.name} onChange={(e) => update({ name: e.target.value })} />
+            <input type="text" value={step.name} onChange={(e) => update({ name: e.target.value })} />
           </label>
-          <p className={`status-line${job.regionIds.length === 0 && inlay.type !== "facing" ? " warn" : ""}`}>
-            {inlay.type === "facing" && job.regionIds.length === 0
+          <p className={`status-line${step.regionIds.length === 0 && inlay.type !== "facing" ? " warn" : ""}`}>
+            {inlay.type === "facing" && step.regionIds.length === 0
               ? "No shapes: the whole stock is faced. Click shapes in the drawing to face over them only."
-              : `${job.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.`}
+              : `${step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.`}
           </p>
           <p className="hint">{OPERATION_HINTS[inlay.type]} It may use shapes that belong to an inlay or to other operations.</p>
         </section>
@@ -510,7 +510,7 @@ function OpEditor({ job }: { job: Job }) {
           )}
           {inlay.type === "facing" && (
             <>
-              <FacingFields job={job} inlay={inlay} onChange={setInlay} />
+              <FacingFields step={step} inlay={inlay} onChange={setInlay} />
               <PatternField value={inlay.pattern} onChange={(pattern) => setInlay({ pattern })} direction={inlay.direction} onDirection={(direction) => setInlay({ direction })} />
             </>
           )}
@@ -592,27 +592,27 @@ function OpEditor({ job }: { job: Job }) {
           <h3>Material and tool</h3>
           <label className="field">
             <span className="field-label">Material</span>
-            <MaterialSelect value={job.material} onChange={(material) => update({ material })} />
+            <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
             <span className="hint">Picks which of the tool's cutting settings are used.</span>
           </label>
           {inlay.type === "pocket" && (
             <ClearingTools
               label="End mills"
               ids={inlay.clearingToolIds}
-              material={job.material}
+              material={step.material}
               onChange={(ids) => setInlay({ clearingToolIds: ids })}
               hint="One is enough. With several, they are used in this order and each cuts only what those before it left. Inside corners are rounded to the smallest."
             />
           )}
           {(inlay.type === "facing" || inlay.type === "contour") && (
-            <ToolPicker label="End mill" kind="flat_end" value={inlay.toolId} material={job.material} onChange={(id) => setInlay({ toolId: id })} />
+            <ToolPicker label="End mill" kind="flat_end" value={inlay.toolId} material={step.material} onChange={(id) => setInlay({ toolId: id })} />
           )}
           {inlay.type === "chamfer" && (
             <ToolPicker
               label="V-bit or corner-rounding bit"
               kind={["v_bit", "corner_round"]}
               value={inlay.toolId}
-              material={job.material}
+              material={step.material}
               onChange={(id) => setInlay({ toolId: id })}
               hint="A V-bit bevels the edge. A corner-rounding (fillet) bit rounds it over to the bit's own radius."
             />
@@ -657,7 +657,7 @@ function OpEditor({ job }: { job: Job }) {
         </section>
 
         <section>
-          <Results job={job} state={output} />
+          <Results step={step} state={output} />
           <div className="row end">
             <button className="danger" onClick={remove}>
               Delete operation
@@ -665,17 +665,17 @@ function OpEditor({ job }: { job: Job }) {
           </div>
         </section>
       </div>
-      <GenerateBar job={job} state={output} />
+      <GenerateBar step={step} state={output} />
     </aside>
   );
 }
 
-/** The symbol of a job: that of its kind, or a rounded edge for a chamfer cut with a corner-rounding bit. */
-function JobSymbol({ job }: { job: Job }) {
+/** The symbol of a step: that of its kind, or a rounded edge for a chamfer cut with a corner-rounding bit. */
+function StepSymbol({ step }: { step: Step }) {
   const { project, tools } = useApp();
-  const inlay = job.inlay;
+  const inlay = step.task;
   if (inlay.type === "chamfer" && resolveTool(inlay.toolId, tools, project)?.kind === "corner_round") return <FilletIcon />;
-  return <JobIcon type={inlay.type} />;
+  return <StepIcon type={inlay.type} />;
 }
 
 /**
@@ -731,31 +731,31 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
  * trims the plug flush, as an operation of its own in the list, or leads to
  * the one there is. Nothing for loose inserts, which are not one plug.
  */
-function TrimOffer({ job }: { job: Job }) {
+function TrimOffer({ step }: { step: Step }) {
   const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
-  const part = standingPart(job);
-  if (!part || job.regionIds.length === 0) return null;
+  const part = standingPart(step);
+  if (!part || step.regionIds.length === 0) return null;
   const trims = part.what === "plug" && part.above > 0;
-  const made = trimOf(job, project.jobs);
-  const glue = glueOf(job, project.jobs);
+  const made = trimOf(step, project.steps);
+  const glue = glueOf(step, project.steps);
 
   const addGlue = () => {
-    const step = glueStep(job, project.jobs);
-    if (!step) return;
+    const added = glueStep(step, project.steps);
+    if (!added) return;
     // Right after the inlay, whose place in the list is where its pocket is cut.
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: insertAfter(p.jobs, job.id, step) }) });
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, step.id, added) }) });
   };
 
   const add = () => {
-    const trim = trimFacing(job, project.jobs, defaults);
-    if (!trim || trim.inlay.type !== "facing") return;
+    const trim = trimFacing(step, project.steps, defaults);
+    if (!trim || trim.task.type !== "facing") return;
     // Where the tool list leaves no choice of end mill, make it.
     const endMills = tools.filter((t) => t.kind === "flat_end");
-    if (endMills.length === 1) trim.inlay.toolId = endMills[0].id;
+    if (endMills.length === 1) trim.task.toolId = endMills[0].id;
     // After the glue-up when the list has it: the facing cuts what the glue-up put there.
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: insertAfter(p.jobs, glueOf(job, p.jobs)?.id, trim) }) });
-    dispatch({ type: "setActiveJob", id: trim.id });
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, glueOf(step, p.steps)?.id, trim) }) });
+    dispatch({ type: "setActiveStep", id: trim.id });
   };
 
   return (
@@ -768,7 +768,7 @@ function TrimOffer({ job }: { job: Job }) {
       {glue ? (
         <p className="derived">
           "{glue.name}" is in the list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: glue.id })}>
+          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: glue.id })}>
             Open it
           </button>
         </p>
@@ -777,13 +777,13 @@ function TrimOffer({ job }: { job: Job }) {
           Add the glue-up as a step
         </button>
       )}
-      {trims && <TrimPart job={job} above={part.above} made={made} add={add} />}
+      {trims && <TrimPart step={step} above={part.above} made={made} add={add} />}
     </section>
   );
 }
 
 /** The facing that trims a glued-in plug flush: the offer to add it, or the way to the one there is. */
-function TrimPart({ above, made, add }: { job: Job; above: number; made: Job | undefined; add: () => void }) {
+function TrimPart({ above, made, add }: { step: Step; above: number; made: Step | undefined; add: () => void }) {
   const dispatch = useDispatch();
   return (
     <>
@@ -794,7 +794,7 @@ function TrimPart({ above, made, add }: { job: Job; above: number; made: Job | u
       {made ? (
         <p className="derived">
           "{made.name}" trims this plug.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: made.id })}>
+          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: made.id })}>
             Open it
           </button>
         </p>
@@ -808,22 +808,22 @@ function TrimPart({ above, made, add }: { job: Job; above: number; made: Job | u
 }
 
 /** The panel of a glue-up: a step done by hand, which has a name and a place in the list, and nothing to set. */
-function GlueEditor({ job }: { job: Job }) {
+function GlueEditor({ step }: { step: Step }) {
   const { project } = useApp();
   const dispatch = useDispatch();
-  const inlay = job.inlay.type === "glue" ? project.jobs.find((j) => job.inlay.type === "glue" && j.id === job.inlay.inlayId) : undefined;
+  const inlay = step.task.type === "glue" ? project.steps.find((j) => step.task.type === "glue" && j.id === step.task.inlayId) : undefined;
   const part = inlay ? standingPart(inlay) : null;
   const what = part?.what === "inserts" ? "inserts" : "plug";
-  const back = () => dispatch({ type: "setActiveJob", id: null });
-  const before = inlay !== undefined && project.jobs.indexOf(job) < project.jobs.indexOf(inlay);
+  const back = () => dispatch({ type: "setActiveStep", id: null });
+  const before = inlay !== undefined && project.steps.indexOf(step) < project.steps.indexOf(inlay);
 
   const remove = () => {
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
     back();
   };
 
   return (
-    <aside className="panel" aria-label={`Glue-up ${job.name}`}>
+    <aside className="panel" aria-label={`Glue-up ${step.name}`}>
       <div className="panel-scroll">
         <section>
           <div className="editor-head">
@@ -831,18 +831,18 @@ function GlueEditor({ job }: { job: Job }) {
               ‹ All inlays and operations
             </button>
             <span className="tag">
-              <JobIcon type="glue" />
+              <StepIcon type="glue" />
               Glue-up, by hand
             </span>
           </div>
           <label className="field">
             <span className="field-label">Name</span>
-            <input type="text" value={job.name} onChange={(e) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, name: e.target.value }) })} />
+            <input type="text" value={step.name} onChange={(e) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, name: e.target.value }) })} />
           </label>
           {inlay && (
             <p className="derived">
-              <span className="swatch" style={{ background: jobColor(inlay, project.jobs) }} /> Glues in the {what} of "{inlay.name}".{" "}
-              <button type="button" className="link" onClick={() => dispatch({ type: "setActiveJob", id: inlay.id })}>
+              <span className="swatch" style={{ background: stepColor(inlay, project.steps) }} /> Glues in the {what} of "{inlay.name}".{" "}
+              <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: inlay.id })}>
                 Open the inlay
               </button>
             </p>
@@ -877,32 +877,32 @@ function GlueEditor({ job }: { job: Job }) {
 }
 
 /** For a facing that takes its height from the list: that height, as the core works it out. Null until it is known. */
-function useListedHeight(job: Job, on: boolean): number | null {
+function useListedHeight(step: Step, on: boolean): number | null {
   const { project } = useApp();
   const [height, setHeight] = useState<number | null>(null);
   useEffect(() => {
     if (!on) return;
     let current = true;
     core
-      .call("facingStart", project, job.id)
+      .call("facingStart", project, step.id)
       .then((above) => current && setHeight(above))
       .catch(() => current && setHeight(null));
     return () => {
       current = false;
     };
-  }, [project, job.id, on]);
+  }, [project, step.id, on]);
   return on ? height : null;
 }
 
-function FacingFields({ job, inlay, onChange }: { job: Job; inlay: FacingOp; onChange: (change: Partial<FacingOp>) => void }) {
+function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; onChange: (change: Partial<FacingOp>) => void }) {
   const { project, tools } = useApp();
-  const owners = regionOwners(project.jobs);
+  const owners = regionOwners(project.steps);
   // The inlays whose shapes this facing covers: it can be set to trim their plugs flush.
-  const inlays = [...new Set(job.regionIds.map((id) => owners.get(id)).filter((j): j is Job => j !== undefined))];
-  const whole = job.regionIds.length === 0;
+  const inlays = [...new Set(step.regionIds.map((id) => owners.get(id)).filter((j): j is Step => j !== undefined))];
+  const whole = step.regionIds.length === 0;
   const tool = resolveTool(inlay.toolId, tools, project);
   const listed = inlay.aboveAuto === true;
-  const height = useListedHeight(job, listed);
+  const height = useListedHeight(step, listed);
   // Where the cut starts: as the list gives it, or as typed.
   const above = listed ? (height ?? 0) : inlay.above;
   const total = above + inlay.depth;
@@ -1054,31 +1054,31 @@ function FinerPoints({ inlay, onChange }: { inlay: VcarveInlay; onChange: (chang
   );
 }
 
-function JobEditor({ job }: { job: InlayJob }) {
+function StepEditor({ step }: { step: InlayStep }) {
   const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
-  const output = useOutput(job);
-  const setup = jobSetup(job, project);
-  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, setup: { ...jobSetup(j, project), ...change } }) });
+  const output = useOutput(step);
+  const setup = stepSetup(step, project);
+  const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, setup: { ...stepSetup(j, project), ...change } }) });
   const ownSetup = !sameSetup(setup, defaults);
-  const update = (change: Partial<Job>) => dispatch({ type: "updateJob", id: job.id, update: (j) => ({ ...j, ...change }) });
-  const setInlay = (change: Partial<Inlay>) => update({ inlay: { ...job.inlay, ...change } as Inlay });
-  const back = () => dispatch({ type: "setActiveJob", id: null });
+  const update = (change: Partial<Step>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, ...change }) });
+  const setInlay = (change: Partial<Task>) => update({ task: { ...step.task, ...change } as Task });
+  const back = () => dispatch({ type: "setActiveStep", id: null });
 
   const remove = () => {
-    const glue = glueOf(job, project.jobs);
-    if (!confirm(`Delete "${job.name}"? Its shapes become free again.${glue ? ` "${glue.name}" goes with it.` : ""}`)) return;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, jobs: withoutJob(p.jobs, job.id) }) });
-    dispatch({ type: "setActiveJob", id: null });
+    const glue = glueOf(step, project.steps);
+    if (!confirm(`Delete "${step.name}"? Its shapes become free again.${glue ? ` "${glue.name}" goes with it.` : ""}`)) return;
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
+    dispatch({ type: "setActiveStep", id: null });
   };
 
-  const inlay = job.inlay;
+  const inlay = step.task;
   const vbit = inlay.type === "vcarve" ? resolveTool(inlay.vbitToolId, tools, project) : undefined;
   const halfAngle = (((vbit?.tipAngle ?? 60) / 2) * Math.PI) / 180;
-  const shapes = `${job.regionIds.length} shape${job.regionIds.length === 1 ? "" : "s"}`;
+  const shapes = `${step.regionIds.length} shape${step.regionIds.length === 1 ? "" : "s"}`;
 
   return (
-    <aside className="panel" aria-label={`Inlay ${job.name}`}>
+    <aside className="panel" aria-label={`Inlay ${step.name}`}>
       <div className="panel-scroll">
         <section>
           <div className="editor-head">
@@ -1086,16 +1086,16 @@ function JobEditor({ job }: { job: InlayJob }) {
               ‹ All inlays and operations
             </button>
             <span className="tag">
-              <span className="swatch" style={{ background: jobColor(job, project.jobs) }} />
+              <span className="swatch" style={{ background: stepColor(step, project.steps) }} />
               {inlay.type === "vcarve" ? "V-carve inlay" : "Flat inlay"}
             </span>
           </div>
           <label className="field">
             <span className="field-label">Name</span>
-            <input type="text" value={job.name} onChange={(e) => update({ name: e.target.value })} />
+            <input type="text" value={step.name} onChange={(e) => update({ name: e.target.value })} />
           </label>
-          <p className={`status-line${job.regionIds.length === 0 ? " warn" : ""}`}>
-            {job.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.
+          <p className={`status-line${step.regionIds.length === 0 ? " warn" : ""}`}>
+            {step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.
           </p>
         </section>
 
@@ -1146,22 +1146,22 @@ function JobEditor({ job }: { job: InlayJob }) {
           <h3>Material and tools</h3>
           <label className="field">
             <span className="field-label">Material</span>
-            <MaterialSelect value={job.material} onChange={(material) => update({ material })} />
+            <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
             <span className="hint">Picks which of each tool's cutting settings are used.</span>
           </label>
           <ColorField
             label="Colour of the inlay's wood"
-            value={jobColor(job, project.jobs)}
+            value={stepColor(step, project.steps)}
             onChange={(color) => update({ color })}
             hint="For the drawing, the 3D view of the plug and the fit view. It changes nothing in the files."
           />
           {inlay.type === "vcarve" ? (
             <>
-              <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} material={job.material} onChange={(id) => setInlay({ vbitToolId: id })} />
+              <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} material={step.material} onChange={(id) => setInlay({ vbitToolId: id })} />
               <ClearingTools
                 label="End mills for the flat floor"
                 ids={inlay.clearingToolIds}
-                material={job.material}
+                material={step.material}
                 onChange={(ids) => setInlay({ clearingToolIds: ids })}
                 hint="Optional, but much quicker than the V-bit alone. Used in this order; each cuts only what those before it left."
               />
@@ -1171,7 +1171,7 @@ function JobEditor({ job }: { job: InlayJob }) {
               <ClearingTools
                 label="End mills"
                 ids={inlay.clearingToolIds}
-                material={job.material}
+                material={step.material}
                 onChange={(ids) => setInlay({ clearingToolIds: ids })}
                 hint="One is enough. With several, they are used in this order and each cuts only what those before it left."
               />
@@ -1237,7 +1237,7 @@ function JobEditor({ job }: { job: InlayJob }) {
                       Cut the plug out of a larger board
                     </label>
                   )}
-                  {plug && inlay.cutOut && <CutOutTool job={job} onChange={(id) => update({ cutOutToolId: id })} />}
+                  {plug && inlay.cutOut && <CutOutTool step={step} onChange={(id) => update({ cutOutToolId: id })} />}
                   <label className="check">
                     <input
                       type="checkbox"
@@ -1288,10 +1288,10 @@ function JobEditor({ job }: { job: InlayJob }) {
           </details>
         </section>
 
-        <TrimOffer job={job} />
+        <TrimOffer step={step} />
 
         <section>
-          <Results job={job} state={output} />
+          <Results step={step} state={output} />
           <div className="row end">
             <button className="danger" onClick={remove}>
               Delete inlay
@@ -1299,7 +1299,7 @@ function JobEditor({ job }: { job: InlayJob }) {
           </div>
         </section>
       </div>
-      <GenerateBar job={job} state={output} />
+      <GenerateBar step={step} state={output} />
     </aside>
   );
 }
@@ -1309,15 +1309,15 @@ function JobEditor({ job }: { job: InlayJob }) {
  * end mills would give, unless another is chosen. Says whether its cutting
  * edges reach through the board.
  */
-function CutOutTool({ job, onChange }: { job: InlayJob; onChange: (id: string | undefined) => void }) {
+function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string | undefined) => void }) {
   const { tools, project } = useApp();
   const dispatch = useDispatch();
   const choices = toolChoices("flat_end", tools, project);
-  const usual = usualCutOutTool(job, tools, project);
-  const depth = cutOutDepth(job, project);
-  const picked = job.cutOutToolId;
+  const usual = usualCutOutTool(step, tools, project);
+  const depth = cutOutDepth(step, project);
+  const picked = step.cutOutToolId;
   const chosen = picked !== undefined ? resolveTool(picked, tools, project) : usual;
-  const hasEndMills = job.inlay.clearingToolIds.length > 0;
+  const hasEndMills = step.task.clearingToolIds.length > 0;
 
   return (
     <label className="field cut-out-tool">
@@ -1364,8 +1364,8 @@ function CutOutTool({ job, onChange }: { job: InlayJob; onChange: (id: string | 
             {describeTool(chosen)}. Its cutting edges are {fmt(chosen.fluteLength)} mm long; the cut is {fmt(depth)} mm deep.
           </span>
         ))}
-      {chosen && !chosen.cutting.some((c) => c.material === job.material) && (
-        <span className="hint warn">This tool has no cutting settings for {job.material}. Add them in the tool list.</span>
+      {chosen && !chosen.cutting.some((c) => c.material === step.material) && (
+        <span className="hint warn">This tool has no cutting settings for {step.material}. Add them in the tool list.</span>
       )}
     </label>
   );
@@ -1496,12 +1496,12 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
  * for the material.
  */
 function RowPicker(props: { tool: Tool; material: Material }) {
-  const { lists, project, activeJobId } = useApp();
+  const { lists, project, activeStepId } = useApp();
   const dispatch = useDispatch();
-  const job = project.jobs.find((j) => j.id === activeJobId);
-  if (!job) return null;
+  const step = project.steps.find((j) => j.id === activeStepId);
+  if (!step) return null;
   const { tool } = props;
-  const value = job.rowProfiles?.[tool.id] ?? "";
+  const value = step.rowProfiles?.[tool.id] ?? "";
   const rows = tool.cutting.filter((c) => c.material === props.material && c.profile !== undefined);
   if (rows.length === 0 && value === "") return null;
   const label = (key: string) => findProfile(key, lists, project)?.label ?? key;
@@ -1509,8 +1509,8 @@ function RowPicker(props: { tool: Tool; material: Material }) {
   const row = tool.cutting.find((c) => c.material === props.material && (c.profile ?? "") === value);
   const set = (key: string) =>
     dispatch({
-      type: "updateJob",
-      id: job.id,
+      type: "updateStep",
+      id: step.id,
       update: (j) => {
         const next = { ...(j.rowProfiles ?? {}) };
         if (key === "") delete next[tool.id];
@@ -1538,7 +1538,7 @@ function RowPicker(props: { tool: Tool; material: Material }) {
           {value !== "" && findProfile(value, lists, project)?.note ? ` ${findProfile(value, lists, project)?.note}` : ""}
         </span>
       )}
-      {value !== "" && (job.inlay.type === "vcarve" || job.inlay.type === "flat") && <span className="hint">Cutting the plug or insert out of its board always uses the plain row.</span>}
+      {value !== "" && (step.task.type === "vcarve" || step.task.type === "flat") && <span className="hint">Cutting the plug or insert out of its board always uses the plain row.</span>}
     </label>
   );
 }

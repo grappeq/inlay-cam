@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
-import type { FitCheck, Job, Part, PocketPreview } from "../core/types";
-import { JOB_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
+import type { FitCheck, Step, Part, PocketPreview } from "../core/types";
+import { STEP_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
 
 /**
- * What a part of a job is called. An inlay has a pocket and a second part: a
+ * What a part of a step is called. An inlay has a pocket and a second part: a
  * plug for a V-carve inlay, an insert for a flat one. A plain operation has
  * one part, named after what it does.
  */
-export function partName(part: Part, job: Job): string {
-  const inlay = job.inlay;
-  if (!isInlay(inlay)) return JOB_LABELS[inlay.type].toLowerCase();
+export function partName(part: Part, step: Step): string {
+  const inlay = step.task;
+  if (!isInlay(inlay)) return STEP_LABELS[inlay.type].toLowerCase();
   return part === "pocket" ? "pocket" : inlay.type === "vcarve" || inlay.insertStyle === "backer" ? "plug" : "insert";
 }
 
-/** The parts a job has a file for. */
-export function partsOf(job: Job): Part[] {
-  return isInlay(job.inlay) ? ["pocket", "plug"] : ["pocket"];
+/** The parts a step has a file for. */
+export function partsOf(step: Step): Part[] {
+  return isInlay(step.task) ? ["pocket", "plug"] : ["pocket"];
 }
 
 function capital(text: string): string {
@@ -29,29 +29,29 @@ function capital(text: string): string {
  * Generating an inlay's files: both parts are built and simulated, and for a
  * V-carve inlay the plug is then fitted into the pocket.
  */
-export function useOutput(job: Job) {
+export function useOutput(step: Step) {
   const { project, output, tools, lists } = useApp();
   const dispatch = useDispatch();
   // What is being worked on right now, in words, or null when idle.
   const [busy, setBusy] = useState<string | null>(null);
 
-  const mine = output?.jobId === job.id ? output : null;
+  const mine = output?.stepId === step.id ? output : null;
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
   // What has to be chosen before anything can be made.
-  const missing = missingFor(job) ?? missingSettings(job, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists);
+  const missing = missingFor(step) ?? missingSettings(step, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists);
 
   const generate = async () => {
-    const out: Output = { jobId: job.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
+    const out: Output = { stepId: step.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
     const publish = () => dispatch({ type: "setOutput", output: { ...out, parts: { ...out.parts }, errors: [...out.errors] } });
-    const vcarve = job.inlay.type === "vcarve";
-    const parts = partsOf(job);
+    const vcarve = step.task.type === "vcarve";
+    const parts = partsOf(step);
     const steps = parts.length + (vcarve ? 1 : 0);
     try {
       for (const [i, part] of parts.entries()) {
-        setBusy(steps === 1 ? `Working out the ${partName(part, job)}…` : `Working out the ${partName(part, job)} (step ${i + 1} of ${steps})…`);
+        setBusy(steps === 1 ? `Working out the ${partName(part, step)}…` : `Working out the ${partName(part, step)} (step ${i + 1} of ${steps})…`);
         try {
-          out.parts[part] = await core.call("previewPart", project, job.id, part);
+          out.parts[part] = await core.call("previewPart", project, step.id, part);
         } catch (e) {
           for (const line of message(e).split("\n")) if (!out.errors.includes(line)) out.errors.push(line);
         }
@@ -60,7 +60,7 @@ export function useOutput(job: Job) {
       if (vcarve && out.parts.pocket && out.parts.plug) {
         setBusy(`Fitting the plug into the pocket (step 3 of 3)…`);
         try {
-          out.fit = await core.call("checkFit", project, job.id);
+          out.fit = await core.call("checkFit", project, step.id);
         } catch (e) {
           out.fitErrors = message(e).split("\n");
         }
@@ -79,10 +79,10 @@ export function useOutput(job: Job) {
 type OutputState = ReturnType<typeof useOutput>;
 
 /** The bar at the foot of the panel: the one button that makes the files, and where things stand. */
-export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
+export function GenerateBar({ step, state }: { step: Step; state: OutputState }) {
   const { mine, stale, busy, missing, generate } = state;
-  const second = partName("plug", job);
-  const single = !isInlay(job.inlay);
+  const second = partName("plug", step);
+  const single = !isInlay(step.task);
   const status = busy
     ? busy
     : missing
@@ -90,7 +90,7 @@ export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
       : !mine
       ? single
         ? "Makes the file for this operation and simulates it."
-        : `Makes the pocket file and the ${second} file${job.inlay.type === "vcarve" ? ", and checks how they fit" : ""}.`
+        : `Makes the pocket file and the ${second} file${step.task.type === "vcarve" ? ", and checks how they fit" : ""}.`
       : stale
         ? "Settings have changed since the files were made."
         : mine.errors.length > 0
@@ -109,7 +109,7 @@ export function GenerateBar({ job, state }: { job: Job; state: OutputState }) {
 }
 
 /** What was generated: each file with its checks, and how the two parts fit. */
-export function Results({ job, state }: { job: Job; state: OutputState }) {
+export function Results({ step, state }: { step: Step; state: OutputState }) {
   const { stage } = useApp();
   const dispatch = useDispatch();
   const { mine, stale, busy } = state;
@@ -126,14 +126,14 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
 
   return (
     <div className="results" ref={top}>
-      <h3>{isInlay(job.inlay) ? "Files" : "File"}</h3>
+      <h3>{isInlay(step.task) ? "Files" : "File"}</h3>
       {stale && (
         <p className="callout warn">Settings have changed since these were made. Generate again before downloading.</p>
       )}
       {mine.errors.length > 0 && (
         <div className="callout error" role="alert">
           <p>
-            {!isInlay(job.inlay) ? "The file could not be made:" : Object.keys(mine.parts).length === 0 ? "The files could not be made:" : "One file could not be made:"}
+            {!isInlay(step.task) ? "The file could not be made:" : Object.keys(mine.parts).length === 0 ? "The files could not be made:" : "One file could not be made:"}
           </p>
           <ul>
             {mine.errors.map((error) => (
@@ -142,14 +142,14 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
           </ul>
         </div>
       )}
-      {partsOf(job).map((part) => {
+      {partsOf(step).map((part) => {
         const preview = mine.parts[part];
         return preview ? (
-          <PartCard key={part} name={partName(part, job)} board={boardName(part, job)} preview={preview} stale={stale} shown={stage === part} onShow={() => show(part)} />
+          <PartCard key={part} name={partName(part, step)} board={boardName(part, step)} preview={preview} stale={stale} shown={stage === part} onShow={() => show(part)} />
         ) : null;
       })}
 
-      {job.inlay.type === "vcarve" && (mine.fit || mine.fitErrors.length > 0) && (
+      {step.task.type === "vcarve" && (mine.fit || mine.fitErrors.length > 0) && (
         <section className="card">
           <header className="card-head">
             <h4>Fit</h4>
@@ -174,7 +174,7 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
           <header className="card-head">
             <h4>Fit</h4>
           </header>
-          <FlatFitNumbers fit={flatFit} backer={job.inlay.type === "flat" && job.inlay.insertStyle === "backer"} />
+          <FlatFitNumbers fit={flatFit} backer={step.task.type === "flat" && step.task.insertStyle === "backer"} />
         </section>
       )}
     </div>
@@ -182,8 +182,8 @@ export function Results({ job, state }: { job: Job; state: OutputState }) {
 }
 
 /** What the board a part is cut from is called. */
-function boardName(part: Part, job: Job): string {
-  const inlay = job.inlay;
+function boardName(part: Part, step: Step): string {
+  const inlay = step.task;
   if (part === "pocket" || !isInlay(inlay)) return "Stock";
   return inlay.cutOut && (inlay.type === "vcarve" || inlay.insertStyle === "backer")
     ? "Board, at least"

@@ -310,7 +310,7 @@ pub struct PocketPreview {
 }
 
 /// The last simulated pocket and plug, kept so that checking their fit does
-/// not simulate them a second time. Keyed by the project text and job.
+/// not simulate them a second time. Keyed by the project text and step.
 struct Kept {
     key: u64,
     part: build::Part,
@@ -321,22 +321,22 @@ thread_local! {
     static KEPT: RefCell<Vec<Kept>> = const { RefCell::new(Vec::new()) };
 }
 
-fn key_of(project_json: &str, job_id: &str) -> u64 {
+fn key_of(project_json: &str, step_id: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     project_json.hash(&mut hasher);
-    job_id.hash(&mut hasher);
+    step_id.hash(&mut hasher);
     hasher.finish()
 }
 
-/// The simulated part for exactly this project and job: the kept one, or a
+/// The simulated part for exactly this project and step: the kept one, or a
 /// fresh one, which is then kept. At most one of each part is kept.
 fn preview_of(
     project: &Project,
     project_json: &str,
-    job_id: &str,
+    step_id: &str,
     part: build::Part,
 ) -> Result<Rc<build::Preview>, Vec<String>> {
-    let key = key_of(project_json, job_id);
+    let key = key_of(project_json, step_id);
     let kept = KEPT.with(|k| {
         k.borrow()
             .iter()
@@ -346,7 +346,7 @@ fn preview_of(
     if let Some(preview) = kept {
         return Ok(preview);
     }
-    let preview = Rc::new(build::preview(project, job_id, part)?);
+    let preview = Rc::new(build::preview(project, step_id, part)?);
     KEPT.with(|k| {
         let mut k = k.borrow_mut();
         k.retain(|e| e.part != part);
@@ -434,7 +434,7 @@ impl StockTimeline {
             .iter()
             .map(|file| {
                 serde_json::json!({
-                    "jobIds": file.job_ids,
+                    "stepIds": file.step_ids,
                     "built": file.built,
                     "complete": file.complete,
                     "errors": file.errors,
@@ -447,7 +447,7 @@ impl StockTimeline {
             .iter()
             .map(|part| {
                 serde_json::json!({
-                    "jobId": part.job_id,
+                    "stepId": part.step_id,
                     "built": part.built,
                     "errors": part.errors,
                     "problems": problems_json(&part.problems),
@@ -459,7 +459,7 @@ impl StockTimeline {
             .iter()
             .map(|step| {
                 serde_json::json!({
-                    "jobId": step.job_id,
+                    "stepId": step.step_id,
                     "byHand": step.by_hand,
                     "file": step.file,
                     "problems": problems_json(&step.problems),
@@ -525,12 +525,12 @@ pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
         .map_err(reasons)
 }
 
-/// Builds the G-code for one part of a job ("pocket" or "plug") and
+/// Builds the G-code for one part of a step ("pocket" or "plug") and
 /// simulates it. Fails with every reason, one per line.
 #[wasm_bindgen(js_name = previewPart)]
 pub fn preview_part(
     project_json: &str,
-    job_id: &str,
+    step_id: &str,
     part: &str,
 ) -> Result<PocketPreview, JsError> {
     let project: Project = from_json(project_json, "project")?;
@@ -540,17 +540,17 @@ pub fn preview_part(
         "plug" => build::Part::Plug,
         other => return Err(JsError::new(&format!("Unknown part \"{other}\"."))),
     };
-    preview_of(&project, project_json, job_id, part)
+    preview_of(&project, project_json, step_id, part)
         .map(|preview| PocketPreview { preview })
         .map_err(reasons)
 }
 
 /// For a facing: how far above the surface its first pass begins, as given
-/// or as the list gives it. `None` for any other job.
+/// or as the list gives it. `None` for any other step.
 #[wasm_bindgen(js_name = facingStart)]
-pub fn facing_start(project_json: &str, job_id: &str) -> Result<Option<f64>, JsError> {
+pub fn facing_start(project_json: &str, step_id: &str) -> Result<Option<f64>, JsError> {
     let project: Project = from_json(project_json, "project")?;
-    Ok(build::facing_start(&project, job_id).map(|(_, above)| above))
+    Ok(build::facing_start(&project, step_id).map(|(_, above)| above))
 }
 
 /// Both parts of a V-carve inlay simulated and fitted together.
@@ -608,12 +608,12 @@ impl FitCheck {
 /// Builds and simulates both parts of a V-carve inlay and measures how the
 /// plug fits the pocket. Fails with every reason, one per line.
 #[wasm_bindgen(js_name = checkFit)]
-pub fn check_fit(project_json: &str, job_id: &str) -> Result<FitCheck, JsError> {
+pub fn check_fit(project_json: &str, step_id: &str) -> Result<FitCheck, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
     let pocket =
-        preview_of(&project, project_json, job_id, build::Part::Pocket).map_err(reasons)?;
-    let plug = preview_of(&project, project_json, job_id, build::Part::Plug).map_err(reasons)?;
-    let fit = build::fit_of(&project, job_id, &pocket, &plug).map_err(reasons)?;
+        preview_of(&project, project_json, step_id, build::Part::Pocket).map_err(reasons)?;
+    let plug = preview_of(&project, project_json, step_id, build::Part::Plug).map_err(reasons)?;
+    let fit = build::fit_of(&project, step_id, &pocket, &plug).map_err(reasons)?;
     Ok(FitCheck { fit, pocket, plug })
 }

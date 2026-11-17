@@ -106,7 +106,7 @@ as ever; a tool that uses none of them is written exactly as it was then.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | yes | Unique within the list. Jobs refer to tools by it. Not shown to the user. |
+| `id` | yes | Unique within the list. Steps refer to tools by it. Not shown to the user. |
 | `name` | yes | Not empty. |
 | `kind` | yes | `flat_end`, `v_bit` or `corner_round` (a corner-rounding, or fillet, bit): the kinds the app's operations cut with. Later: `ball_end`, `drill` and `thread_mill`, which are kept in the list and written for other programs, and which no operation accepts. |
 | `diameter` | yes | Cutting diameter. For a V-bit, the diameter at the top of the cone; for a corner-rounding bit, that of its body. Greater than 0. |
@@ -166,7 +166,7 @@ untested again.
 
 | Field | Meaning |
 |---|---|
-| `key` | How tools and jobs refer to it. Unique. Never changes. |
+| `key` | How tools and steps refer to it. Unique. Never changes. |
 | `label` | What it is called. Missing: its name in Makera CAM or Makera Studio is shown, else the key. |
 | `feedsAs` | The key of the material whose suggested feeds and speeds this one takes, for a material the feeds model does not know by its own key. It changes nothing else. May be missing: no suggestions then. |
 | `cam` | Its record in Makera CAM: `id`, `name`. |
@@ -203,29 +203,34 @@ Exported from the header as `<project name>.inlay.json`.
 {
   "app": "wooden-inlays",
   "kind": "project",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "project": {
     "id": "5f0e…",
     "name": "Coaster",
     "design": { "…": "see below" },
-    "jobs": [],
+    "steps": [],
     "tools": [],
     "base": { "thickness": 18.0 }
   }
 }
 ```
 
+**Version 2** is the current one. In version 1 the list was `jobs`, and what a step does
+was kept under `inlay`, from when the app made inlays only; everything else was the same.
+A version 1 file is read by renaming the two, and is written back as version 2. A version
+of the app from before version 2 refuses a version 2 file as written by a newer one.
+
 | Field | Meaning |
 |---|---|
 | `id` | Identifies the project in browser storage. |
 | `name` | Shown in the header; used for the export file name. |
 | `design` | The imported drawing, or `null`. |
-| `jobs` | The inlays, the plain operations on the stock and the steps done by hand, in the order they are listed and done. The jobs from one step done by hand to the next are cut by one file for the stock. |
-| `tools` | Copies of every tool the jobs refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `description`, `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
-| `profiles` | Copies of the profiles the jobs' `rowProfiles` name, in the profile format above. May be missing. |
+| `steps` | The inlays, the plain operations on the stock and the steps done by hand, in the order they are listed and done. The steps from one step done by hand to the next are cut by one file for the stock. |
+| `tools` | Copies of every tool the steps refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `description`, `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
+| `profiles` | Copies of the profiles the steps' `rowProfiles` name, in the profile format above. May be missing. |
 | `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
 | `machine` | The machine the files are checked against, below. Default: the Carvera Air. The app overwrites it with the machine set in the browser whenever the project is open. |
-| `setup` | Clearances and tabs, below, for jobs that have none of their own: those written before each job had them. Default: the values in the table. |
+| `setup` | Clearances and tabs, below, for steps that have none of their own: those written before each step had them. Default: the values in the table. |
 
 ### Machine
 
@@ -280,12 +285,12 @@ Coordinates are unscaled millimetres with Y pointing up and the origin at the pa
 bottom-left corner. Curves have already been replaced by straight segments no further than
 0.01 mm from the original curve.
 
-### Job
+### Step
 
 One inlay (a pocket and its matching plug or insert), one plain operation on the stock
-(a pocket, a facing, a contour or a chamfer), or one step done by hand (a glue-up). The
-field that says which is called `inlay` in every case, from when the app made inlays only.
-The order of the jobs is the order the stock goes through them.
+(a pocket, a facing, a contour or a chamfer), or one thing done by hand (a glue-up). What
+it is and its numbers are its `task`. The order of the steps is the order the stock goes
+through them.
 
 | Field | Meaning |
 |---|---|
@@ -293,13 +298,13 @@ The order of the jobs is the order the stock goes through them.
 | `name` | Shown in the list. |
 | `color` | Optional. The colour of an inlay's wood in the app's pictures, as `#rrggbb`. It changes nothing in the G-code. |
 | `material` | The key of a material: which cutting rows of each tool are used. `hardwood`, `softwood`, or any other key the tools have rows for. Outside those two the build warns that the app's toolpaths have only been proven in wood. |
-| `regionIds` | The design regions this job covers. Each must exist in the design. The app keeps a region in one inlay at most; plain operations may use any regions, also those of an inlay or of each other. A facing may have none. |
+| `regionIds` | The design regions this step covers. Each must exist in the design. The app keeps a region in one inlay at most; plain operations may use any regions, also those of an inlay or of each other. A facing may have none. |
 | `setup` | Clearances and tabs for this inlay's files, as above. Optional: without it the project's `setup` is used. The app gives every new inlay its own. |
 | `cutOutToolId` | The flat end mill that cuts a plug out of its board, when `cutOut` is set. Optional: without it, the largest of the inlay's `clearingToolIds` whose flutes reach through the board is used. A file is refused when the chosen tool's flutes are shorter than the board plus `throughCut`. |
-| `rowProfiles` | By tool id, the key of the profile whose cutting row the tool runs in this job: `{ "0a6c…": "face_finish" }`. A tool without an entry runs its plain row. May be missing. A build is refused when the tool has no such row for the job's material, or when the profile is for adaptive clearing (as its copy under the project's `profiles` says, or, without a copy, a key of `adaptive`). Cutting a plug or insert out of its board is a full-width slot and always runs the plain row. |
-| `inlay` | Type and parameters, below. |
+| `rowProfiles` | By tool id, the key of the profile whose cutting row the tool runs in this step: `{ "0a6c…": "face_finish" }`. A tool without an entry runs its plain row. May be missing. A build is refused when the tool has no such row for the step's material, or when the profile is for adaptive clearing (as its copy under the project's `profiles` says, or, without a copy, a key of `adaptive`). Cutting a plug or insert out of its board is a full-width slot and always runs the plain row. |
+| `task` | Type and parameters, below. |
 
-`inlay` for a V-carve inlay:
+`task` for a V-carve inlay:
 
 | Field | Meaning |
 |---|---|
@@ -321,7 +326,7 @@ The order of the jobs is the order the stock goes through them.
 `floorRidge`, `reliefKeep` and `trimDepth` may be missing, and are not written while they
 have their defaults.
 
-`inlay` for a flat pocket inlay:
+`task` for a flat pocket inlay:
 
 | Field | Meaning |
 |---|---|
@@ -336,7 +341,7 @@ have their defaults.
 | `insertThickness` | Thickness of the board the insert or plug is cut from. Greater than 0. Default 4. Loose inserts: at least `pocketDepth`. Backer plugs: more than `pocketDepth` + `sawGap`. |
 | `insertMargin` | Width of board left around the shapes on the insert board. Greater than 0. Default 8. |
 
-`inlay` for a plain pocket: the regions cleared to a flat floor.
+`task` for a plain pocket: the regions cleared to a flat floor.
 
 | Field | Meaning |
 |---|---|
@@ -346,13 +351,13 @@ have their defaults.
 | `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of each area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
 | `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |
 
-`inlay` for a facing: an area milled flat.
+`task` for a facing: an area milled flat.
 
 | Field | Meaning |
 |---|---|
 | `type` | `facing` |
 | `above` | Wood standing above the stock's surface (Z0) that is milled away first, such as the backer of a glued-in plug. 0 or more. Default 0. |
-| `aboveAuto` | `true`: `above` is not used, and the height is taken from the jobs before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` jobs) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. Default `false`; may be missing, and is not written when `false`. |
+| `aboveAuto` | `true`: `above` is not used, and the height is taken from the steps before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` steps) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. Default `false`; may be missing, and is not written when `false`. |
 | `depth` | How far below the stock's surface the area ends up. Less than 0 ends it that far above the surface, in the wood standing there. Never less than `-above`. Default 0. `above` + `depth` must be greater than 0 for there to be anything to cut. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
@@ -364,17 +369,17 @@ around them, grown by `margin`. The tool's centre goes to the edge of the area, 
 half its diameter beyond it. The tool travels `safeHeight` above the standing wood, that is
 `safeHeight` + `above` over the surface.
 
-`inlay` for a contour: a cut along the outlines of the regions.
+`task` for a contour: a cut along the outlines of the regions.
 
 | Field | Meaning |
 |---|---|
 | `type` | `contour` |
 | `side` | `outside` (default): the tool runs its radius outside the regions, and inside their holes. `inside`: its radius inside the regions. `on`: its centre on the outlines. |
 | `depth` | How deep the cut goes, greater than 0 and less than the stock's thickness; or `null` (default) for right through the stock, `throughCut` past its bottom. |
-| `tabs` | Leave tabs across the cut, on the outer outline of each region. Default false. Their size is in the job's `setup`; in a cut that is not through they are no thicker than half its depth. |
+| `tabs` | Leave tabs across the cut, on the outer outline of each region. Default false. Their size is in the step's `setup`; in a cut that is not through they are no thicker than half its depth. |
 | `toolId` | The flat end mill, or `null` when not chosen yet. |
 
-`inlay` for a chamfer: the top edge along the outlines of the regions, bevelled with a
+`task` for a chamfer: the top edge along the outlines of the regions, bevelled with a
 V-bit or rounded over with a corner-rounding bit.
 
 | Field | Meaning |
@@ -399,16 +404,16 @@ In the G-code's header a corner-rounding bit is written as Fusion writes one: ty
 `radius mill`, with `CR=` its corner radius and `TD=` its tip diameter. Whether the
 Carvera controller draws that type has not been checked.
 
-`inlay` for a glue-up: the plug or the inserts of an inlay glued into its pocket, by hand.
+`task` for a glue-up: the plug or the inserts of an inlay glued into its pocket, by hand.
 
 | Field | Meaning |
 |---|---|
 | `type` | `glue` |
-| `inlayId` | The `id` of the job whose plug or inserts are glued in. It must be a V-carve or flat inlay of the project. |
+| `inlayId` | The `id` of the step whose plug or inserts are glued in. It must be a V-carve or flat inlay of the project. |
 
 A glue-up has no file, no tools and no regions; its `material` and `setup` mean nothing.
-What it says is its place among the jobs: when the stock is taken through them in order,
-the jobs after it find that wood on the stock. A version of the app from before glue-ups
+What it says is its place among the steps: when the stock is taken through them in order,
+the steps after it find that wood on the stock. A version of the app from before glue-ups
 refuses a file that has one.
 
 ## SVG import

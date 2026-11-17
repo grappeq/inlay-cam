@@ -1013,3 +1013,22 @@ and checks, its warnings folded away, and its download; the tools by name and th
 size are left to the inlay's or operation's own panel. The files are made the first time
 the tab is shown. The stock's view keeps the frames around the lines of a file and nothing
 to press but the steps.
+
+Jobs are steps, and a project file is version 2 (2026-11-17). The third stage of the
+stock step by step. What the list holds was a `Job` with what it does under `inlay`,
+names from when the app made inlays only; by now it also held plain operations and
+glue-ups, and `Inlay::Facing` read badly. In the core and on the screens it is a `Step`
+with a `task` (`Task::Vcarve` … `Task::Glue`), and a project has `steps`. "Inlay" is left
+for what is one: `isInlay`, `TrueInlay`, the inlay a glue-up names by `inlayId`. The
+timeline's record of how a step went is a `StepRun`.
+
+The project file follows, which is not an addition: `formatVersion` 2, with the first
+migration the format has had (`project::steps_from_jobs`: `jobs` to `steps`, each `inlay`
+to `task`). Projects in browser storage are file text and go through it when opened; they
+are written back as version 2. `project-v2.json` is the fixture for it, and the two
+version 1 fixtures still have to load: one test holds that the version 1 fixture comes
+out as the version 2 one. An older build of the app refuses a version 2 file.
+
+Done as one mechanical renaming with the compilers and the tests as the check, and by hand
+where a name stood for two things: a step of the list and its run in the timeline. The
+names of CSS classes were left (`job-row`), since the stylesheet has a `.step` of its own.

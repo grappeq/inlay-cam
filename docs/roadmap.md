@@ -72,7 +72,7 @@ libraries for other programs.
   do: a new operation starts on its profile's row where the tool has one.
 - **A profile chosen for each of an operation's bits.** Today a bit's row can be picked
   only where the bit already has rows on profiles for the material (`RowPicker`, kept in
-  a job's `rowProfiles`). This is to be a plain choice for every bit of every operation.
+  a step's `rowProfiles`). This is to be a plain choice for every bit of every operation.
 - **Cutting settings shown in the operation**: the numbers it will run with, able to be
   overridden there for that operation alone.
 - **Joining larger gaps on import.** Line ends are joined into closed outlines when they
@@ -100,8 +100,6 @@ looked at in 3D after each line. What that makes possible, and is not built:
   surface" stands in for today.
 - **The backer drawn as it is.** The 3D view draws a plug solid down to the stock; the
   saw gap under its backer is not shown.
-- **Names in the core.** `Job` and its `inlay` now also hold operations and steps done by
-  hand. Renaming them needs a new version of the project file.
 
 ## The screens
 

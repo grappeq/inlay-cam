@@ -21,7 +21,7 @@ export function Header() {
   const exportProject = async () => {
     try {
       const text = await core.call("projectToFile", project);
-      downloadText(`${fileStem(project.name)}.inlay.json`, text);
+      downloadText(`${fileStem(project.name)}.task.json`, text);
     } catch (e) {
       fail(e);
     }

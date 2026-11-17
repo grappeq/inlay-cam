@@ -24,8 +24,8 @@ export function MaterialsPage() {
     if (n > 0) out.push(`${n} cutting row${n === 1 ? "" : "s"}`);
     const listed = tools.filter((t) => t.recommendedFor?.includes(key) || t.inventory?.log?.some((entry) => entry.material === key)).length;
     if (listed > 0) out.push(`${listed} tool${listed === 1 ? "" : "s"} that list${listed === 1 ? "s" : ""} it`);
-    const jobs = project.jobs.filter((j) => j.material === key).length;
-    if (jobs > 0) out.push(`${jobs} part${jobs === 1 ? "" : "s"} of the open project`);
+    const steps = project.steps.filter((j) => j.material === key).length;
+    if (steps > 0) out.push(`${steps} part${steps === 1 ? "" : "s"} of the open project`);
     return out;
   };
 

@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Design, FitCheck, ImportReport, Job, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
+import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/db";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
@@ -34,7 +34,7 @@ export interface AppState {
   /** Regions picked for a new inlay. */
   selection: number[];
   /** The inlay being edited; region clicks then add to or remove from it. */
-  activeJobId: string | null;
+  activeStepId: string | null;
   importReport: ImportReport | null;
   notice: Notice | null;
   saveError: string | null;
@@ -62,7 +62,7 @@ export interface AppState {
 
 /** Everything generated for one inlay in one go: both files and their fit. */
 export interface Output {
-  jobId: string;
+  stepId: string;
   /** The project exactly as it was when this was generated, to tell when it is out of date. */
   project: Project;
   /** The parts that could be built. */
@@ -86,7 +86,7 @@ export type Action =
   | { type: "loaded"; tools: Tool[]; lists: ToolLists; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
   | { type: "updateProject"; update: (project: Project) => Project }
-  | { type: "updateJob"; id: string; update: (job: Job) => Job }
+  | { type: "updateStep"; id: string; update: (step: Step) => Step }
   | { type: "setTools"; tools: Tool[]; lists?: ToolLists }
   | { type: "setMachine"; machine: Machine }
   | { type: "setDefaults"; defaults: Setup }
@@ -94,7 +94,7 @@ export type Action =
   | { type: "setView"; view: View; page?: SettingsPage }
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
-  | { type: "setActiveJob"; id: string | null }
+  | { type: "setActiveStep"; id: string | null }
   | { type: "setImportReport"; report: ImportReport | null }
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
@@ -123,7 +123,7 @@ const initial: AppState = {
   view: "design",
   settingsPage: "tools",
   selection: [],
-  activeJobId: null,
+  activeStepId: null,
   importReport: null,
   notice: null,
   saveError: null,
@@ -140,11 +140,11 @@ const initial: AppState = {
   lastEdit: null,
 };
 
-/** Keeps the project's copies of the tools and the machine in step with its jobs, the tool list and the machine. */
+/** Keeps the project's copies of the tools and the machine in step with its steps, the tool list and the machine. */
 function withSnapshots(state: AppState): AppState {
   // A glue-up goes with its inlay, however the inlay went: deleted, or taken along by a shape or an undo.
-  const jobs = withoutOrphans(state.project.jobs);
-  if (jobs !== state.project.jobs) state = { ...state, project: { ...state.project, jobs } };
+  const steps = withoutOrphans(state.project.steps);
+  if (steps !== state.project.steps) state = { ...state, project: { ...state.project, steps } };
   const tools = toolSnapshots(state.project, state.tools);
   const profiles = profileSnapshots(state.project, state.lists);
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -170,7 +170,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         project: normalised(action.project),
         selection: [],
-        activeJobId: null,
+        activeStepId: null,
         importReport: action.importReport ?? null,
         panelPage: "list",
         output: null,
@@ -186,10 +186,10 @@ function reducer(state: AppState, action: Action): AppState {
       });
     case "updateProject":
       return withSnapshots({ ...state, project: action.update(state.project) });
-    case "updateJob":
+    case "updateStep":
       return withSnapshots({
         ...state,
-        project: { ...state.project, jobs: state.project.jobs.map((j) => (j.id === action.id ? action.update(j) : j)) },
+        project: { ...state.project, steps: state.project.steps.map((j) => (j.id === action.id ? action.update(j) : j)) },
       });
     case "setTools":
       return withSnapshots({ ...state, tools: action.tools, lists: action.lists ?? state.lists });
@@ -205,8 +205,8 @@ function reducer(state: AppState, action: Action): AppState {
       return clickRegion(state, action.id, action.add ?? false);
     case "setSelection":
       return { ...state, selection: action.ids };
-    case "setActiveJob":
-      return { ...state, activeJobId: action.id, selection: [], stage: "drawing" };
+    case "setActiveStep":
+      return { ...state, activeStepId: action.id, selection: [], stage: "drawing" };
     case "setImportReport":
       return { ...state, importReport: action.report };
     case "notice":
@@ -228,9 +228,9 @@ function reducer(state: AppState, action: Action): AppState {
       if (!current || action.replace) {
         return withSnapshots({
           ...state,
-          project: { ...state.project, design: normaliseDesign(action.design), jobs: action.replace ? [] : state.project.jobs },
+          project: { ...state.project, design: normaliseDesign(action.design), steps: action.replace ? [] : state.project.steps },
           selection: [],
-          activeJobId: null,
+          activeStepId: null,
           output: null,
           timeline: null,
           timelineAt: 0,
@@ -252,7 +252,7 @@ function reducer(state: AppState, action: Action): AppState {
         redo: [],
         lastEdit: null,
         selection: ids,
-        activeJobId: null,
+        activeStepId: null,
         stage: "drawing",
         view: "design",
         arranging: true,
@@ -260,7 +260,7 @@ function reducer(state: AppState, action: Action): AppState {
       });
     }
     case "setArranging":
-      return { ...state, arranging: action.on, drawTool: null, selection: [], activeJobId: null, stage: "drawing", lastEdit: null };
+      return { ...state, arranging: action.on, drawTool: null, selection: [], activeStepId: null, stage: "drawing", lastEdit: null };
     case "setDrawTool":
       // A drawing tool starts with nothing selected: the selection's frame would be in its way.
       return { ...state, drawTool: action.tool, selection: action.tool ? [] : state.selection, lastEdit: null };
@@ -297,18 +297,18 @@ function reducer(state: AppState, action: Action): AppState {
         project: {
           ...state.project,
           design: other.design,
-          jobs: [
-            ...other.jobs.map((old) => {
-              const now = state.project.jobs.find((j) => j.id === old.id);
+          steps: [
+            ...other.steps.map((old) => {
+              const now = state.project.steps.find((j) => j.id === old.id);
               return now ? { ...now, regionIds: old.regionIds } : old;
             }),
-            ...state.project.jobs.filter((j) => !other.jobs.some((old) => old.id === j.id) && j.regionIds.every((id) => other.design?.regions.some((r) => r.id === id))),
+            ...state.project.steps.filter((j) => !other.steps.some((old) => old.id === j.id) && j.regionIds.every((id) => other.design?.regions.some((r) => r.id === id))),
           ],
         },
         undo: action.type === "undoDrawing" ? rest : kept,
         redo: action.type === "undoDrawing" ? kept : rest,
         lastEdit: null,
-        activeJobId: state.activeJobId,
+        activeStepId: state.activeStepId,
         selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id)),
       });
     }
@@ -328,21 +328,21 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
     if (!add) return { ...state, selection: [id] };
     return { ...state, selection: state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id] };
   }
-  const owner = regionOwners(state.project.jobs).get(id);
-  const active = state.project.jobs.find((j) => j.id === state.activeJobId);
+  const owner = regionOwners(state.project.steps).get(id);
+  const active = state.project.steps.find((j) => j.id === state.activeStepId);
 
   // A step done by hand has no shapes of its own.
-  if (active?.inlay.type === "glue") return state;
+  if (active?.task.type === "glue") return state;
   if (active) {
     // A shape is one wood, so one inlay; a plain operation takes any shape.
-    if (isInlay(active.inlay) && owner && owner.id !== active.id) {
+    if (isInlay(active.task) && owner && owner.id !== active.id) {
       return { ...state, notice: { kind: "info", text: `That shape already belongs to "${owner.name}".` } };
     }
     const regionIds = active.regionIds.includes(id) ? active.regionIds.filter((r) => r !== id) : [...active.regionIds, id];
-    return reducer(state, { type: "updateJob", id: active.id, update: (job) => ({ ...job, regionIds }) });
+    return reducer(state, { type: "updateStep", id: active.id, update: (step) => ({ ...step, regionIds }) });
   }
   // A shape that already has an inlay opens that inlay; with Shift it is selected, for an operation.
-  if (owner && !add) return { ...state, activeJobId: owner.id, selection: [], stage: "drawing" };
+  if (owner && !add) return { ...state, activeStepId: owner.id, selection: [], stage: "drawing" };
   const selection = state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id];
   return { ...state, selection };
 }
@@ -413,7 +413,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const stored = await db.getProject(project.id);
           // A blank project that was never stored is not worth keeping, and
           // opening a project must not change its "last modified" time.
-          const blank = !stored && project.design === null && project.jobs.length === 0;
+          const blank = !stored && project.design === null && project.steps.length === 0;
           if (!blank && stored?.text !== text) {
             await db.putProject({ id: project.id, name: project.name, modified: Date.now(), text });
             dispatch({ type: "setProjects", projects: await db.listProjects() });

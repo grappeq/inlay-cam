@@ -1,4 +1,4 @@
-//! Fit analysis for a V-carve inlay: puts the simulated plug, turned over,
+//! Fit analysis for a V-carve task: puts the simulated plug, turned over,
 //! onto the simulated pocket and measures how the two meet.
 //!
 //! Both parts come from simulating their G-code files, so the answer covers

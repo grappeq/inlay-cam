@@ -311,7 +311,7 @@ export interface PocketOp {
   clearingToolIds: string[];
 }
 
-/** An area milled flat: the whole stock when the job has no shapes, else the rectangle around the shapes grown by the margin. */
+/** An area milled flat: the whole stock when the step has no shapes, else the rectangle around the shapes grown by the margin. */
 export interface FacingOp {
   type: "facing";
   /** Wood standing above the stock's surface that is milled away first, such as a plug's backer. */
@@ -354,7 +354,7 @@ export interface ChamferOp {
 /** A step done by hand, with no file: the plug or the inserts of an inlay glued into its pocket. */
 export interface GlueStep {
   type: "glue";
-  /** The id of the job whose plug or inserts are glued in. */
+  /** The id of the step whose plug or inserts are glued in. */
   inlayId: string;
 }
 
@@ -362,11 +362,11 @@ export interface GlueStep {
 export type TrueInlay = VcarveInlay | FlatInlay;
 /** A plain operation on the stock: one file, no second part. */
 export type Operation = PocketOp | FacingOp | ContourOp | ChamferOp;
-/** What a job does to the stock. The name is from when the app made inlays only. */
-export type Inlay = TrueInlay | Operation | GlueStep;
-export type JobType = Inlay["type"];
+/** What a step does to the stock. The name is from when the app made inlays only. */
+export type Task = TrueInlay | Operation | GlueStep;
+export type StepType = Task["type"];
 
-export interface Job {
+export interface Step {
   id: string;
   name: string;
   material: Material;
@@ -377,9 +377,9 @@ export interface Job {
   setup?: Setup;
   /** The end mill that cuts a plug out of its board. Without one, the largest of the inlay's end mills that reaches through. */
   cutOutToolId?: string;
-  /** By tool id: the toolpath profile whose cutting row the tool runs in this job. A tool without an entry runs its plain row. */
+  /** By tool id: the toolpath profile whose cutting row the tool runs in this step. A tool without an entry runs its plain row. */
   rowProfiles?: Record<string, string>;
-  inlay: Inlay;
+  task: Task;
 }
 
 /** The machine the files are for: the limits they are checked against. */
@@ -423,10 +423,10 @@ export interface Project {
   id: string;
   name: string;
   design: Design | null;
-  jobs: Job[];
-  /** Copies of the tools the jobs use. */
+  steps: Step[];
+  /** Copies of the tools the steps use. */
   tools: Tool[];
-  /** Copies of the toolpath profiles the jobs' row choices name. */
+  /** Copies of the toolpath profiles the steps' row choices name. */
   profiles?: Profile[];
   /** The stock: the board the pockets and other operations are cut into. Its outline is the design's page. */
   base: { thickness: number; color?: string };
@@ -582,7 +582,7 @@ export interface PocketPreview {
 
 /** One entry of the list, as it went when the stock was taken through the list. */
 export interface TimelineStep {
-  jobId: string;
+  stepId: string;
   /** Done by hand: there is no file. */
   byHand: boolean;
   /** The file the step is cut by: an index into the timeline's `files`. */
@@ -601,7 +601,7 @@ export interface TimelineStep {
 /** One file for the stock: the entries of the list from one step done by hand to the next. */
 export interface StockFile {
   /** The ids of its entries, in the order they are cut. */
-  jobIds: string[];
+  stepIds: string[];
   /** The file. Null when nothing of it could be made. */
   built: Built | null;
   /** Every one of its entries is in the file. One that lacks an entry is not a file to cut with. */
@@ -626,7 +626,7 @@ export interface StockTimeline {
   /** The files for the stock, in the order they are run. */
   files: StockFile[];
   /** The plug or insert file of every inlay, in the order of the list: each is cut from a board of its own. */
-  parts: { jobId: string; built: Built | null; errors: string[]; problems: { line: number; message: string }[] }[];
+  parts: { stepId: string; built: Built | null; errors: string[]; problems: { line: number; message: string }[] }[];
   steps: TimelineStep[];
   /** The fresh stock, then the stock after each step: height per cell, and whose wood it is in (0 the stock, else a number into `glued`, from 1). */
   snapshots: { heights: Float32Array; owners: Uint8Array }[];

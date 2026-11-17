@@ -159,7 +159,7 @@ describe("a drawn shape joins the drawing", () => {
     expect(area(shape(d, 0).holes[0])).toBeCloseTo(-area(shape(d, id).outer), 9);
     expect(partOf(d, id).sort()).toEqual([0, id]);
     // Deleting it closes the hole again.
-    const project = { design: d, jobs: [] } as unknown as Parameters<typeof removeShapes>[0];
+    const project = { design: d, steps: [] } as unknown as Parameters<typeof removeShapes>[0];
     expect(shape(removeShapes(project, [id]).design!, 0).holes).toEqual([]);
   });
 

@@ -3,7 +3,7 @@ import type { Design, Project } from "../core/types";
 import {
   centreOnBoard,
   duplicateShapes,
-  emptiedJobs,
+  emptiedSteps,
   keepOnly,
   mirrorOnBoard,
   moveOnBoard,
@@ -118,9 +118,9 @@ export function ArrangeBar({ design }: { design: Design }) {
   const remove = () => {
     if (none) return;
     if (everything) return say("This would leave the stock without shapes. To start over, replace the drawing.");
-    const inUse = new Set(project.jobs.flatMap((j) => j.regionIds));
+    const inUse = new Set(project.steps.flatMap((j) => j.regionIds));
     const used = selection.filter((id) => inUse.has(id)).length;
-    const emptied = emptiedJobs(project, selection);
+    const emptied = emptiedSteps(project, selection);
     const consequence =
       emptied.length > 0
         ? `${emptied.map((n) => `"${n}"`).join(" and ")} will have no shapes left and will be removed too.`
@@ -137,7 +137,7 @@ export function ArrangeBar({ design }: { design: Design }) {
     if (none || everything) return;
     const kept = selection;
     const others = design.regions.length - kept.length;
-    const emptied = emptiedJobs(
+    const emptied = emptiedSteps(
       project,
       design.regions.map((r) => r.id).filter((id) => !kept.includes(id)),
     );
