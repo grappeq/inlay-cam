@@ -648,12 +648,13 @@ fn tan_half(geometry: &Geometry) -> f64 {
 }
 
 /// The cut a tool's row is sized for, in section, mm²: full width, `ap`
-/// deep. For a V-bit a full V groove; for a corner-rounding bit the corner
-/// it rounds off. By the kind of tool, not by its shape, which can take a
-/// V-bit with a wide flat for a corner rounder.
+/// deep. For a V-bit a full V groove. A corner-rounding bit is read as the
+/// model reads it, as a 90° cone of its height (`cutter_of`): the groove of
+/// that, flat tip and all. By the kind of tool, not by its shape, which can
+/// take a V-bit with a wide flat for a corner rounder.
 pub fn groove_area(tool: &Tool, ap: f64) -> f64 {
     match tool.kind {
-        ToolKind::CornerRound => (1.0 - std::f64::consts::PI / 4.0) * ap * ap,
+        ToolKind::CornerRound => ap * (tool.tip_diameter.unwrap_or(0.0) + ap),
         ToolKind::VBit => {
             let (_, geometry) = cutter_of(tool);
             ap * (tool.tip_diameter.unwrap_or(0.0) + ap * tan_half(&geometry))
@@ -1794,10 +1795,13 @@ mod tests {
         v.tip_angle = Some(90.0);
         v.tip_diameter = Some(1.0);
         assert!((groove_area(&v, 1.0) - 2.0).abs() < 1e-9);
-        // A corner-rounding bit without a tip diameter rounds a corner off.
-        let mut r = Tool::new("R3", ToolKind::CornerRound, 6.0);
+        // A corner-rounding bit is a 90° cone of its height, whatever its tip.
+        let mut r = Tool::new("R3", ToolKind::CornerRound, 9.0);
         r.corner_radius = Some(3.0);
-        assert!((groove_area(&r, 1.0) - (1.0 - std::f64::consts::PI / 4.0)).abs() < 1e-9);
+        r.tip_diameter = Some(3.0);
+        assert!((groove_area(&r, 1.0) - 4.0).abs() < 1e-9);
+        r.tip_diameter = Some(0.5);
+        assert!((groove_area(&r, 1.0) - 1.5).abs() < 1e-9);
     }
     use serde_json::Value;
 

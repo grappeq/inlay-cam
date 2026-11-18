@@ -81,8 +81,8 @@ libraries for other programs.
 - **Chamfers in passes, to try.** A chamfer's passes are planned against the row's
   groove, and wide bevels are cut in layers; this was checked in the core's section and
   simulation and in rendered drawings, not yet in the running app or on the machine.
-  To watch for: a layered bevel's time, and whether a corner-rounding bit's many thin
-  last passes burn.
+  To watch for: a layered bevel's time, and how a corner-rounding bit's shallower last
+  passes cut.
 - **Joining larger gaps on import.** Line ends are joined into closed outlines when they
   meet within 0.01 mm. When outlines were left out, offer to join larger gaps, in place
   of a setting for the distance.

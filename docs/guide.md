@@ -522,7 +522,8 @@ click adds a shape to it or takes it away.
   than the cutting row's stepdown, or takes more wood than a full groove that deep, which
   is the cut the row is set for. The edge widens as it deepens, so the passes get
   shallower going down: full stepdowns while the edge is narrow, then less and less. A
-  deeper stepdown in the row gives fewer passes. This holds for both kinds of bit.
+  deeper stepdown in the row gives fewer passes. A corner-rounding bit is held to the
+  groove of a 90° V-bit as deep, flat tip and all, as the feeds model reads it.
 
   A bevel wider than the V-bit's flank, or than its cutting edges reach, is cut in layers
   from the top: in each layer the bit runs first with its flank on the bevel, then in

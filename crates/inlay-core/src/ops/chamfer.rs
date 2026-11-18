@@ -557,7 +557,7 @@ mod tests {
                 tip_radius,
                 ..
             } => stepdown * (2.0 * tip_radius + stepdown * half_angle.tan()),
-            EdgeBit::Round { .. } => (1.0 - std::f64::consts::PI / 4.0) * stepdown * stepdown,
+            EdgeBit::Round { tip_radius, .. } => stepdown * (2.0 * tip_radius + stepdown),
         }
     }
 
@@ -707,13 +707,20 @@ mod tests {
         let s = spec(&bit, 0.0, 1.0);
         let plan = plan(&bit, &s).unwrap();
         assert_eq!(plan.layers, 1);
-        assert!(plan.passes.len() > 3, "{}", plan.passes.len());
+        // Three stepdowns: the groove of a 90° cone 1 mm deep is more than any of them takes.
+        assert_eq!(plan.passes.len(), 3);
         assert!(plan.passes.iter().all(|p| (p.aside - 1.5).abs() < 1e-9));
         assert!((plan.depth() - 3.0).abs() < 1e-9);
         // A quarter circle about (3, 3), from the wall at 3 deep to the surface 3 in.
         check(&bit, &s, &plan, |x| {
             3.0 - (9.0 - (3.0 - x) * (3.0 - x)).max(0.0).sqrt()
         });
+        // On a shallow stepdown the stepdown binds: 15 steps of 0.2 mm.
+        let fine = super::plan(&bit, &spec(&bit, 0.0, 0.2)).unwrap();
+        check(&bit, &spec(&bit, 0.0, 0.2), &fine, |x| {
+            3.0 - (9.0 - (3.0 - x) * (3.0 - x)).max(0.0).sqrt()
+        });
+        assert_eq!(fine.passes.len(), 15);
         // A small one in a deep stepdown is one pass.
         let small = EdgeBit::Round {
             tip_radius: 1.5,

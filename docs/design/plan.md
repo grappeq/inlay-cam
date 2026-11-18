@@ -1219,4 +1219,9 @@ The rest of it, the same day.
   - A larger bit is named from its geometry alone (`one_track_width`), without
     planning it; the panel plans again only when the chamfer's task, wood, rows or bit
     change, and shows no plan for numbers it was not made for.
+  - A corner-rounding bit's groove is that of a 90° cone of its height, flat tip and
+    all, as the feeds model reads the bit, not the quarter-round corner: held to that
+    corner, an R3 bit on a 1 mm stepdown took 10 passes and an R6 one on 0.2 mm 894,
+    against 3 and 30 in equal steps. Now 3, and about the stepdown's count where the
+    stepdown is shallow, with the load spread over them.
 
