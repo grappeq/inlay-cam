@@ -78,20 +78,28 @@ export function plungePerRev(plunge: number, rpm: number): number {
 }
 
 export interface Place {
-  /** none: a stop without a value. blank: no row value. on: at a stop. near: between two. */
-  kind: "none" | "blank" | "on" | "near" | "below" | "above";
+  /**
+   * none: a stop without a value. blank: no row value. on: at a stop. near:
+   * between two. flat: every stop is the same cut and the row is not it.
+   */
+  kind: "none" | "blank" | "on" | "near" | "below" | "above" | "flat";
   /** The nearest stop, or -1. */
   index: number;
   /** 0 to 1 along the stops. */
   x: number;
   lo: number;
   hi: number;
+  /** flat: the row's value over the stops' one. */
+  ratio?: number;
 }
 
 /**
  * Where a value sits among the stops' values (two or more, in stop order).
  * `defaultIndex` is the row's default stop, which wins a tie when several
- * stops share the value. The stops need not rise monotonically.
+ * stops share the value. The stops need not rise monotonically. When every
+ * stop has the same value (a corner-rounding bit's, held to its radius and a
+ * feed cap at every stop) there is no scale to be past the end of: a row a
+ * little over it is not "above aggressive", only that much over every stop.
  */
 export function placeAmong(stops: (number | null)[] | null, value: number, defaultIndex = 1): Place {
   const none: Place = { kind: "none", index: -1, x: 0, lo: -1, hi: -1 };
@@ -104,6 +112,10 @@ export function placeAmong(stops: (number | null)[] | null, value: number, defau
   if (hits.length) {
     const i = hits.includes(defaultIndex) ? defaultIndex : hits[0];
     return { kind: "on", index: i, x: i / n, lo: i, hi: i };
+  }
+  if (at.every((v) => Math.abs(v - at[0]) <= SAME * Math.max(Math.abs(v), Math.abs(at[0])))) {
+    const i = Math.min(Math.max(defaultIndex, 0), n);
+    return { kind: "flat", index: i, x: i / n, lo: -1, hi: -1, ratio: value / at[0] };
   }
   if (value > Math.max(...at)) return { kind: "above", index: at.indexOf(Math.max(...at)), x: 1, lo: -1, hi: -1 };
   if (value < Math.min(...at)) return { kind: "below", index: at.indexOf(Math.min(...at)), x: 0, lo: -1, hi: -1 };
@@ -212,10 +224,18 @@ export function rowFlags(entry: FeedEntry | null, cut: Cut): Flag[] {
   );
 }
 
+/** How far a row is off stops that are all the same cut: "8% over every stop". */
+function flatText(ratio: number | undefined): string {
+  const r = ratio ?? NaN;
+  if (!Number.isFinite(r) || r <= 0) return "differs from every stop";
+  const pct = Math.round(Math.abs(r - 1) * 100);
+  return pct < 1 ? "≈ every stop" : `${pct}% ${r > 1 ? "over" : "under"} every stop`;
+}
+
 /** What the ruler's words are for a place. */
 export function placeText(place: Place): string {
   const stop = place.index >= 0 ? LEVEL_LABELS[LEVELS[place.index]] : "";
-  return { none: "—", blank: "—", on: stop, near: `≈ ${stop}`, below: `below ${LEVEL_LABELS.gentle}`, above: `above ${LEVEL_LABELS.aggressive}` }[place.kind];
+  return { none: "—", blank: "—", on: stop, near: `≈ ${stop}`, below: `below ${LEVEL_LABELS.gentle}`, above: `above ${LEVEL_LABELS.aggressive}`, flat: flatText(place.ratio) }[place.kind];
 }
 
 export const CUT_FIELDS = ["rpm", "feed", "plunge", "stepover", "stepdown"] as const;
@@ -290,6 +310,7 @@ export function matchOf(row: CuttingSettings, entry: FeedEntry, pick: Pick | nul
     near: place.lo === place.hi ? `≈ ${name(place.index)}` : `between ${name(place.lo)} and ${name(place.hi)}`,
     below: `below ${LEVEL_LABELS.gentle}`,
     above: `above ${LEVEL_LABELS.aggressive}`,
+    flat: place.kind === "flat" ? flatText(place.ratio) : undefined,
   };
   const words = text[place.kind];
   if (words) return { kind: "between", text: words };

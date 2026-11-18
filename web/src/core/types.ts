@@ -437,8 +437,10 @@ export interface Project {
   name: string;
   design: Design | null;
   steps: Step[];
-  /** Copies of the tools the steps use. */
+  /** Copies of the tools the steps use, and of those that keep a number. */
   tools: Tool[];
+  /** By tool id: the number the tool goes by in every file of the project. */
+  toolNumbers?: Record<string, number>;
   /** Copies of the toolpath profiles the steps' row choices name. */
   profiles?: Profile[];
   /** The stock: the board the pockets and other operations are cut into. Its outline is the design's page. */

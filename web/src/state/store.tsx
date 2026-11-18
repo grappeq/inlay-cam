@@ -9,7 +9,7 @@ import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolSnapshots, withoutOrphans } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolNumbers, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
@@ -17,7 +17,7 @@ export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "def
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, or the files it comes to. */
-export type PanelPage = "list" | "files";
+export type PanelPage = "list" | "tools" | "files";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {
@@ -152,11 +152,14 @@ function withSnapshots(state: AppState): AppState {
   // A glue-up goes with its inlay, however the inlay went: deleted, or taken along by a shape or an undo.
   const steps = withoutOrphans(state.project.steps);
   if (steps !== state.project.steps) state = { ...state, project: { ...state.project, steps } };
-  const tools = toolSnapshots(state.project, state.tools);
+  // Every tool a step uses has a number, and keeps it.
+  const numbers = toolNumbers(state.project, state.tools, state.machine.firstTool);
+  const tools = toolSnapshots({ ...state.project, toolNumbers: numbers }, state.tools);
   const profiles = profileSnapshots(state.project, state.lists);
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  if (same(tools, state.project.tools) && same(profiles, state.project.profiles ?? []) && same(state.machine, state.project.machine)) return state;
-  return { ...state, project: { ...state.project, tools, profiles: profiles.length > 0 ? profiles : undefined, machine: state.machine } };
+  if (numbers === state.project.toolNumbers && same(tools, state.project.tools) && same(profiles, state.project.profiles ?? []) && same(state.machine, state.project.machine))
+    return state;
+  return { ...state, project: { ...state.project, tools, toolNumbers: numbers, profiles: profiles.length > 0 ? profiles : undefined, machine: state.machine } };
 }
 
 function reducer(state: AppState, action: Action): AppState {

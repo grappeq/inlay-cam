@@ -52,6 +52,12 @@ pub struct Project {
     /// on a machine with a different tool list.
     #[serde(default)]
     pub tools: Vec<Tool>,
+    /// The number each of the project's tools goes by in every file made
+    /// from it, by the tool's id: the machine is loaded once, and each file
+    /// calls for the same tool by the same number. A tool without a number
+    /// is given one by the file that uses it, among those not taken here.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tool_numbers: BTreeMap<String, u32>,
     /// Copies of the toolpath profiles the steps' row choices name, so the
     /// project knows what each is for wherever it is opened.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1039,7 +1045,21 @@ impl Task {
     }
 }
 
+/// The highest number a tool can go by in a file.
+pub const MAX_TOOL_NUMBER: u32 = 999;
+
 impl Project {
+    /// The number the project has given a tool: its own, or that of the
+    /// same bit carried under another id.
+    pub fn tool_number(&self, tool: &Tool) -> Option<u32> {
+        self.tool_numbers.get(&tool.id).copied().or_else(|| {
+            self.tools
+                .iter()
+                .filter(|t| t.same_bit(tool))
+                .find_map(|t| self.tool_numbers.get(&t.id).copied())
+        })
+    }
+
     /// Checks the project is consistent: valid numbers, unique ids, and no
     /// reference to a region that does not exist.
     pub fn validate(&self) -> Result<(), String> {
@@ -1047,6 +1067,16 @@ impl Project {
             return Err("the project has no id".into());
         }
         validate_tools(&self.tools)?;
+        let mut numbers: Vec<u32> = self.tool_numbers.values().copied().collect();
+        if numbers.iter().any(|n| !(1..=MAX_TOOL_NUMBER).contains(n)) {
+            return Err(format!(
+                "a tool's number must be from 1 to {MAX_TOOL_NUMBER}"
+            ));
+        }
+        numbers.sort_unstable();
+        if let Some(pair) = numbers.windows(2).find(|w| w[0] == w[1]) {
+            return Err(format!("two tools share the number {}", pair[0]));
+        }
         self.machine.validate()?;
         self.setup.validate()?;
         if !(self.base.thickness.is_finite() && self.base.thickness > 0.0) {
@@ -1223,6 +1253,7 @@ mod tests {
                 },
             ],
             tools: vec![end_mill(), v_bit()],
+            tool_numbers: BTreeMap::new(),
             profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),
@@ -1487,6 +1518,7 @@ mod tests {
             design: None,
             steps: vec![],
             tools: vec![],
+            tool_numbers: BTreeMap::new(),
             profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),

@@ -4,6 +4,7 @@ import type { Built, FitCheck, Step, Part, PocketPreview } from "../core/types";
 import { STEP_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
+import { ToolRack } from "./ProjectTools";
 
 /**
  * What a part of a step is called. An inlay has a pocket and a second part: a
@@ -195,6 +196,7 @@ function boardName(part: Part, step: Step): string {
 /** One file as it came out: its checks, its numbers and its download. */
 function PartCard(props: { name: string; board: string; preview: PocketPreview; stale: boolean; shown: boolean; onShow: () => void }) {
   const { preview, name, board } = props;
+  const { project } = useApp();
   const { built } = preview;
   const tools = built.stats.perTool;
   return (
@@ -235,6 +237,7 @@ function PartCard(props: { name: string; board: string; preview: PocketPreview; 
         </dd>
         <dt>{tools.length === 1 ? "Tool" : "Tools"}</dt>
         <dd>
+          <ToolRack project={project} only={tools.map((t) => t.number)} small />
           <ol className="tool-times">
             {tools.map((t) => (
               <li key={t.number}>

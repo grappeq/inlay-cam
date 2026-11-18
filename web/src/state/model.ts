@@ -451,12 +451,65 @@ export function resolveTool(id: string | null, tools: Tool[], project: Project):
   return tools.find((t) => t.id === id) ?? project.tools.find((t) => t.id === id);
 }
 
+/** The highest number a tool can go by: the core's own limit. */
+export const MAX_TOOL_NUMBER = 999;
+
 /**
- * The copies of tools a project should carry: one per tool its steps use,
- * refreshed from the tool list where the tool still exists there.
+ * The number each of the project's tools goes by in every file: those it
+ * has already, and for each tool a step uses that has none the lowest free
+ * one from `first`, in the order the steps use them. A tool keeps its number
+ * while no step uses it, until it is taken off the list; the number of a
+ * tool that is nowhere to be found any more is dropped. The same object when
+ * nothing changes; undefined when there are none.
+ */
+export function toolNumbers(project: Project, tools: Tool[], first: number): Record<string, number> | undefined {
+  const have = project.toolNumbers ?? {};
+  const out: Record<string, number> = {};
+  for (const [id, number] of Object.entries(have)) if (resolveTool(id, tools, project)) out[id] = number;
+  const taken = new Set(Object.values(out));
+  for (const id of project.steps.flatMap(stepToolIds)) {
+    if (id in out || !resolveTool(id, tools, project)) continue;
+    let number = Math.max(1, first);
+    while (taken.has(number)) number++;
+    out[id] = number;
+    taken.add(number);
+  }
+  const same = Object.keys(out).length === Object.keys(have).length && Object.entries(out).every(([id, n]) => have[id] === n);
+  if (same) return project.toolNumbers;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** The project with a tool moved to a number. The tool that had the number takes the one this tool leaves. */
+export function renumberTool(project: Project, id: string, number: number): Project {
+  const have = project.toolNumbers ?? {};
+  const from = have[id];
+  if (from === undefined || from === number || !Number.isInteger(number) || number < 1 || number > MAX_TOOL_NUMBER) return project;
+  const out = { ...have, [id]: number };
+  const other = Object.keys(have).find((key) => key !== id && have[key] === number);
+  if (other !== undefined) out[other] = from;
+  return { ...project, toolNumbers: out };
+}
+
+/** The project without a tool's number. A tool that a step still uses is given one again. */
+export function forgetTool(project: Project, id: string): Project {
+  if (!project.toolNumbers || !(id in project.toolNumbers)) return project;
+  const { [id]: _gone, ...rest } = project.toolNumbers;
+  return { ...project, toolNumbers: Object.keys(rest).length > 0 ? rest : undefined };
+}
+
+/** A tool's name with the number it goes by in the project's files, where it has one. */
+export function numberedName(tool: Tool, project: Project): string {
+  const number = project.toolNumbers?.[tool.id];
+  return number === undefined ? tool.name : `T${number} · ${tool.name}`;
+}
+
+/**
+ * The copies of tools a project should carry: one per tool its steps use or
+ * that keeps a number, refreshed from the tool list where the tool still
+ * exists there.
  */
 export function toolSnapshots(project: Project, tools: Tool[]): Tool[] {
-  const ids = new Set(project.steps.flatMap(stepToolIds));
+  const ids = new Set([...project.steps.flatMap(stepToolIds), ...Object.keys(project.toolNumbers ?? {})]);
   const out: Tool[] = [];
   for (const id of ids) {
     const tool = resolveTool(id, tools, project);
@@ -485,8 +538,8 @@ function toolDetails(tool: Tool): string {
  */
 export function relinkTools(project: Project, tools: Tool[]): Project {
   const to = new Map<string, string>();
-  // Only the copies a step still points at: the others go by themselves.
-  const used = new Set(project.steps.flatMap((step) => [...stepToolIds(step), ...Object.keys(step.rowProfiles ?? {})]));
+  // Only the copies a step still points at or that keep a number: the others go by themselves.
+  const used = new Set([...project.steps.flatMap((step) => [...stepToolIds(step), ...Object.keys(step.rowProfiles ?? {})]), ...Object.keys(project.toolNumbers ?? {})]);
   for (const copy of projectOnlyTools(project, tools)) {
     if (!used.has(copy.id)) continue;
     const details = toolDetails(copy);
@@ -506,7 +559,17 @@ export function relinkTools(project: Project, tools: Tool[]): Project {
     if (step.rowProfiles) out.rowProfiles = Object.fromEntries(Object.entries(step.rowProfiles).map(([id, profile]) => [one(id), profile]));
     return out;
   });
-  return { ...project, steps };
+  // The number goes with the tool, unless the list's own has one already.
+  let numbers = project.toolNumbers;
+  if (numbers) {
+    numbers = { ...numbers };
+    for (const [from, id] of to) {
+      if (!(from in numbers)) continue;
+      if (!(id in numbers)) numbers[id] = numbers[from];
+      delete numbers[from];
+    }
+  }
+  return { ...project, steps, toolNumbers: numbers };
 }
 
 /** Tools offered for a slot: the tool list plus project-only copies, of one kind or of several, by kind and diameter. */

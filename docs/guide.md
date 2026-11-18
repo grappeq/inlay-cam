@@ -101,7 +101,9 @@ what it removes per turn of the spindle (feed over speed, times stepover, times 
 which is what the cutting force follows; a drill by how far it goes down per turn. The
 taller tick is the stop the row's suggestions start at: slot-safe, the reviewed stop, for
 a plain row. The word beside it says where the mark is: "slot-safe" on a stop, "≈ firm"
-near one, "below gentle", "above aggressive". Under the scale, "chip thick", "chip thin"
+near one, "below gentle", "above aggressive". For a tool whose five stops are all the
+same cut, as a corner-rounding bit's are (its whole radius deep, at the same capped feed),
+it says how far the row is from that cut instead: "8% over every stop". Under the scale, "chip thick", "chip thin"
 or "power high" says that the row's own numbers are outside anything the model allows;
 hold the pointer over one for the numbers. Clicking a line opens it:
 
@@ -372,7 +374,7 @@ bottom edge; the stock grows to the right and upwards when a shape reaches past 
 ## 3. Make an inlay
 
 Click the shapes that will be cut from one wood, then choose the kind of inlay. Each
-inlay is edited in its own panel; "All inlays and operations" takes you back.
+inlay is edited in its own panel; "All operations" takes you back.
 
 Under "Material and tools", **Material** picks which of each tool's cutting settings are
 used. When a chosen tool has rows for a kind of toolpath in that material, a **Cutting
@@ -619,11 +621,12 @@ Each inlay and operation can make a file of its own, simulated on a fresh board.
 whole list instead, from top to bottom, and makes the files to cut it with. It is there as
 soon as the list has a line, and works the stock out the first time it is opened. The
 panel on the right has a tab of its own for the files themselves, **Files**, beside
-"Inlays and operations":
+"Operations":
 
 - The lines from one glue-up to the next are **one file**: each inlay's pocket and each
-  operation, in the order of the list. Tools keep one number each through the file, and a
-  tool that the next line also starts with stays in the spindle. A comment in the file,
+  operation, in the order of the list. Tools go by their numbers in the project (the
+  **Tools** tab, below), and a tool that the next line also starts with stays in the
+  spindle. A comment in the file,
   "Step 2:" and the line's name, stands where each line begins. Without a glue-up the
   whole list is one file.
 - Each file is run on the board as the file before left it, and a glue-up puts the plug or
@@ -639,6 +642,15 @@ A file with a line that cannot be made says why in place of its download. The fi
 made the first time the tab is opened; **Generate again**, at its foot, makes everything
 anew after a change. While an inlay or operation is open, the panel shows that one; its
 back link returns to the tabs.
+
+**Tools**, between the two, is the list of the project's tools, each drawn under the
+number it goes by. A tool gets the lowest free number when an inlay or operation first
+uses it, and keeps it: every file of the project, for the stock or for a plug, calls for
+the tool by that number, so the machine is loaded once. Each file's card shows the tools
+it needs. Choose another number for a tool to move it; if the number is taken, the two
+tools change places. Files made before that are out of date. A tool that nothing uses
+any more keeps its number until it is taken off the list. The numbers are saved with the
+project.
 
 An inlay's plug or insert always has its own file: it is cut from another board. Its 3D
 view and its fit are in the inlay's own panel.

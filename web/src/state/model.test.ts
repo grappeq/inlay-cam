@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Project, Step, Tool } from "../core/types";
-import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -243,5 +243,47 @@ describe("relinkTools", () => {
     expect(relinkTools(p, [mill("new", { fluteLength: 22 })])).toBe(p);
     expect(relinkTools(p, [mill("one"), mill("two")])).toBe(p);
     expect(relinkTools(p, [])).toBe(p);
+  });
+});
+
+describe("toolNumbers", () => {
+  const mill = (id: string, diameter = 6): Tool => ({ id, name: `Mill ${id}`, kind: "flat_end", diameter, shankDiameter: 6, cutting: [] });
+  const pocket = (id: string, toolIds: string[]) => ({ id, name: id, material: "hardwood", regionIds: [0], task: { type: "pocket", depth: 3, pattern: "offset", clearingToolIds: toolIds } });
+  const project = (steps: unknown[], toolNumbers?: Record<string, number>): Project => ({ id: "p", name: "P", design: null, tools: [], steps, toolNumbers }) as unknown as Project;
+  const list = [mill("a"), mill("b"), mill("c")];
+
+  it("numbers the tools in the order the steps use them, from the machine's first", () => {
+    expect(toolNumbers(project([pocket("x", ["b"]), pocket("y", ["a", "b"])]), list, 1)).toEqual({ b: 1, a: 2 });
+    expect(toolNumbers(project([pocket("x", ["b"])]), list, 3)).toEqual({ b: 3 });
+    expect(toolNumbers(project([]), list, 1)).toBeUndefined();
+  });
+
+  it("keeps a number once given: a new tool takes the lowest that is free, and one no step uses stays", () => {
+    const p = project([pocket("x", ["c", "a"])], { a: 2, b: 1 });
+    const numbers = toolNumbers(p, list, 1);
+    expect(numbers).toEqual({ a: 2, b: 1, c: 3 });
+    // The tool that keeps its number stays in the project's copies.
+    expect(toolSnapshots({ ...p, toolNumbers: numbers }, list).map((t) => t.id)).toEqual(["a", "b", "c"]);
+    // Nothing to do the second time, and a tool that is nowhere any more loses its number.
+    const settled = { ...p, toolNumbers: numbers };
+    expect(toolNumbers(settled, list, 1)).toBe(numbers);
+    expect(toolNumbers(settled, [mill("a"), mill("c")], 1)).toEqual({ a: 2, c: 3 });
+  });
+
+  it("moves a tool to another number, changing places with the tool that had it", () => {
+    const p = project([], { a: 1, b: 2, c: 5 });
+    expect(renumberTool(p, "a", 2).toolNumbers).toEqual({ a: 2, b: 1, c: 5 });
+    expect(renumberTool(p, "a", 9).toolNumbers).toEqual({ a: 9, b: 2, c: 5 });
+    expect(renumberTool(p, "a", 0)).toBe(p);
+    expect(renumberTool(p, "x", 3)).toBe(p);
+    expect(forgetTool(p, "c").toolNumbers).toEqual({ a: 1, b: 2 });
+    expect(forgetTool(project([], { a: 1 }), "a").toolNumbers).toBeUndefined();
+  });
+
+  it("takes the number along when a copy is matched to the list's own tool", () => {
+    const copy = { ...mill("a"), id: "old" };
+    const p = { ...project([pocket("x", ["old"])], { old: 4 }), tools: [copy] } as Project;
+    const linked = relinkTools(p, list);
+    expect(linked.toolNumbers).toEqual({ a: 4 });
   });
 });

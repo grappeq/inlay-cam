@@ -645,12 +645,13 @@ pub fn build_with(
     } else {
         format!("{} - {} - {}", project.name, step.name, name)
     };
-    let program = Program {
+    let mut program = Program {
         name: title.clone(),
         tools: cut.tools,
         safe_z: Setup::of(project, step).safe_height,
         moves: cut.moves,
     };
+    project_numbers(project, &mut program);
     let (gcode, interpreted, stats) = finish(&program, machine, name)?;
 
     Ok(Built {
@@ -683,6 +684,41 @@ pub fn build_with(
         pocket,
         gone,
     })
+}
+
+/// Gives a program's tools the numbers the project has for them, so that
+/// every file of the project calls for a tool by the same number. A tool the
+/// project has no number for takes the lowest one that is free, from the
+/// machine's first. Without any numbers in the project the program keeps
+/// its own, counted from the machine's first in the order of use.
+fn project_numbers(project: &Project, program: &mut Program) {
+    if project.tool_numbers.is_empty() {
+        return;
+    }
+    let mut taken: Vec<u32> = project.tool_numbers.values().copied().collect();
+    let mut to: HashMap<u32, u32> = HashMap::new();
+    for t in &program.tools {
+        let number = project.tool_number(&t.tool).unwrap_or_else(|| {
+            let free = (project.machine.first_tool..)
+                .find(|n| !taken.contains(n))
+                .unwrap_or(project.machine.first_tool);
+            taken.push(free);
+            free
+        });
+        to.insert(t.number, number);
+    }
+    for t in &mut program.tools {
+        t.number = to[&t.number];
+    }
+    for m in &mut program.moves {
+        if let Move::ToolChange { number } = m {
+            *number = to.get(number).copied().unwrap_or(*number);
+        }
+    }
+    // One line for a bit that came under two numbers, and in the order of
+    // the numbers: the order the machine is loaded in.
+    program.tools.sort_by_key(|t| t.number);
+    program.tools.dedup_by_key(|t| t.number);
 }
 
 /// Writes a program as G-code, checks the text and reads it back. `name` is
@@ -2995,7 +3031,7 @@ pub fn join(
     }
 
     let names: Vec<&str> = parts.iter().map(|(name, _)| *name).collect();
-    let program = Program {
+    let mut program = Program {
         name: format!("{} - {label} - {}", project.name, names.join(", ")),
         tools,
         safe_z: parts
@@ -3004,6 +3040,7 @@ pub fn join(
             .fold(0.0, f64::max),
         moves,
     };
+    project_numbers(project, &mut program);
     let (gcode, interpreted, stats) = finish(&program, &project.machine, "file")?;
 
     // Where each part's comment came to stand.
@@ -3337,6 +3374,7 @@ pub(crate) mod tests {
                 },
             }],
             tools: vec![end_mill(), v_bit()],
+            tool_numbers: Default::default(),
             profiles: Vec::new(),
             base: BaseStock::default(),
             machine: Machine::default(),
@@ -5251,6 +5289,30 @@ pub(crate) mod tests {
         twice.tools[2].flute_length = Some(30.0);
         let other = preview_combined(&twice, &ids(&["j", "c"])).unwrap();
         assert_eq!(other.built.interpreted.tool_changes, [1, 2]);
+
+        // Numbers kept in the project are the numbers in every file: alone
+        // or joined, a tool is called for by its own, and one the project
+        // has no number for takes the lowest that is free.
+        let mut numbered = p.clone();
+        numbered.tool_numbers.insert("t-endmill".into(), 4);
+        let alone = build(&numbered, "c", Part::Pocket).unwrap();
+        assert_eq!(alone.interpreted.tool_changes, [4]);
+        assert_eq!(alone.stats.per_tool[0].number, 4);
+        assert!(alone.gcode.contains("M6 T4") && alone.gcode.contains("(T4  "));
+        let bevel = build(&numbered, "v", Part::Pocket).unwrap();
+        assert_eq!(bevel.interpreted.tool_changes, [1]);
+        let all = preview_combined(&numbered, &ids(&["j", "v", "c"])).unwrap();
+        assert_eq!(all.problems, []);
+        assert_eq!(all.built.interpreted.tool_changes, [4, 1, 4]);
+        let listed: Vec<u32> = all.built.program.tools.iter().map(|t| t.number).collect();
+        assert_eq!(listed, [1, 4]);
+        numbered.tool_numbers.insert("t-vbit".into(), 1);
+        numbered.tool_numbers.insert("t-other".into(), 2);
+        assert!(numbered.validate().is_ok());
+        let both = preview_combined(&numbered, &ids(&["j", "v", "c"])).unwrap();
+        assert_eq!(both.built.interpreted.tool_changes, [4, 1, 4]);
+        numbered.tool_numbers.insert("t-other".into(), 4);
+        assert!(numbered.validate().unwrap_err().contains("share the number 4"));
 
         // With the chamfer between them the end mill is loaded twice, under one number.
         let three = preview_combined(&p, &ids(&["j", "v", "c"])).unwrap();

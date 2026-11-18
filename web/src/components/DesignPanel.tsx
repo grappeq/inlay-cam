@@ -30,6 +30,7 @@ import {
   stepColor,
   stepSetup,
   newStep,
+  numberedName,
   regionOwners,
   resolveTool,
   sameSetup,
@@ -42,7 +43,7 @@ import {
   withoutStep,
 } from "../state/model";
 import { useFileActions } from "../state/files";
-import { useApp, useDispatch } from "../state/store";
+import { useApp, useDispatch, type PanelPage } from "../state/store";
 import { pickTextFile, pickTextFiles } from "../util/files";
 import { FilletIcon, StepIcon } from "./icons";
 import { InlayDiagram, type InlayHot } from "./InlayDiagram";
@@ -50,6 +51,7 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { HelpTip } from "./HelpTip";
+import { ProjectTools } from "./ProjectTools";
 import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
 import { FacingDiagram, type FacingHot } from "./FacingDiagram";
 import { CHAMFER_PICTURES, CONTOUR_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
@@ -73,8 +75,8 @@ export function DesignPanel({ design }: { design: Design }) {
   const { project, importReport, activeStepId, arranging, panelPage } = useApp();
   const dispatch = useDispatch();
   const active = project.steps.find((j) => j.id === activeStepId);
-  const files = panelPage === "files" && project.steps.length > 0;
-  const setPage = (page: "list" | "files") => dispatch({ type: "setPanelPage", page });
+  const page: PanelPage = project.steps.length > 0 ? panelPage : "list";
+  const setPage = (to: PanelPage) => dispatch({ type: "setPanelPage", page: to });
 
   if (arranging) return <ArrangePanel design={design} />;
   if (active && isByHand(active.task)) return <HandEditor key={active.id} step={active} />;
@@ -83,17 +85,22 @@ export function DesignPanel({ design }: { design: Design }) {
     <aside className="panel" aria-label="Stock, inlays and operations">
       {project.steps.length > 0 && (
         <nav className="tabs panel-tabs" aria-label="What the panel shows">
-          <button aria-pressed={!files} onClick={() => setPage("list")}>
-            Inlays and operations
+          <button aria-pressed={page === "list"} onClick={() => setPage("list")}>
+            Operations
           </button>
-          <button aria-pressed={files} onClick={() => setPage("files")}>
+          <button aria-pressed={page === "tools"} onClick={() => setPage("tools")}>
+            Tools
+          </button>
+          <button aria-pressed={page === "files"} onClick={() => setPage("files")}>
             Files
           </button>
         </nav>
       )}
       <div className="panel-scroll">
-        {files ? (
+        {page === "files" ? (
           <FilesList />
+        ) : page === "tools" ? (
+          <ProjectTools />
         ) : (
           <>
             <StepsSection design={design} />
@@ -373,7 +380,7 @@ function StepsSection({ design }: { design: Design }) {
 
   return (
     <section>
-      <h2>Inlays and operations</h2>
+      <h2>Operations</h2>
       {project.steps.length > 0 && (
         <ul className="jobs">
           {project.steps.map((step, index) => (
@@ -545,7 +552,7 @@ function OpEditor({ step }: { step: Step }) {
         <section>
           <div className="editor-head">
             <button className="link" onClick={() => dispatch({ type: "setActiveStep", id: null })}>
-              ‹ All inlays and operations
+              ‹ All operations
             </button>
             <span className="tag">
               <StepSymbol step={step} />
@@ -918,7 +925,7 @@ function HandEditor({ step }: { step: Step }) {
         <section>
           <div className="editor-head">
             <button className="link" onClick={back}>
-              ‹ All inlays and operations
+              ‹ All operations
             </button>
             <span className="tag">
               <StepIcon type={sawing ? "saw" : "glue"} />
@@ -1214,7 +1221,7 @@ function StepEditor({ step }: { step: InlayStep }) {
         <section>
           <div className="editor-head">
             <button className="link" onClick={back}>
-              ‹ All inlays and operations
+              ‹ All operations
             </button>
             <span className="tag">
               <span className="swatch" style={{ background: stepColor(step, project.steps) }} />
@@ -1449,7 +1456,7 @@ function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string
         {picked !== undefined && !chosen && <option value={picked}>Missing tool</option>}
         {choices.map((tool) => (
           <option key={tool.id} value={tool.id}>
-            {tool.name}
+            {numberedName(tool, project)}
             {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
           </option>
         ))}
@@ -1544,7 +1551,7 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
           <option value="">{chosen.length === 0 ? "Choose an end mill…" : "Add another end mill…"}</option>
           {free.map((tool) => (
             <option key={tool.id} value={tool.id}>
-              {tool.name}
+              {numberedName(tool, project)}
               {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
             </option>
           ))}
@@ -1585,7 +1592,7 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
         <option value="">Choose…</option>
         {choices.map((tool) => (
           <option key={tool.id} value={tool.id}>
-            {tool.name}
+            {numberedName(tool, project)}
             {inList(tool) ? "" : " (from this project)"}
           </option>
         ))}

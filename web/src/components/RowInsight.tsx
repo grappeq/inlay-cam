@@ -124,7 +124,9 @@ export function Ruler(props: { tool: Tool; row: CuttingSettings; entry: FeedEntr
       : [
           place.kind === "blank"
             ? `How hard: needs ${plunge ? "speed and plunge" : "speed, feed, stepover and depth"}`
-            : `How hard, by ${plunge ? "plunge" : "volume"} per revolution: ${text}${pick.adaptive ? " (adaptive stops)" : ""}. The tall tick is the default, ${LEVEL_LABELS[def.level]}`,
+            : place.kind === "flat"
+              ? `How hard, by ${plunge ? "plunge" : "volume"} per revolution: ${text}${pick.adaptive ? " (adaptive stops)" : ""}. For this tool all five stops are the same cut`
+              : `How hard, by ${plunge ? "plunge" : "volume"} per revolution: ${text}${pick.adaptive ? " (adaptive stops)" : ""}. The tall tick is the default, ${LEVEL_LABELS[def.level]}`,
           ...flags.map((f) => f.sentence.replace(/\.$/, "")),
         ].join(". ");
   const x = TICKS[0] + place.x * (TICKS[4] - TICKS[0]);

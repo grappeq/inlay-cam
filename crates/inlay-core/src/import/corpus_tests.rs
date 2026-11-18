@@ -218,6 +218,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             task: inlay,
         }],
         tools: vec![end_mill(), vbit],
+        tool_numbers: Default::default(),
         profiles: Vec::new(),
         base: BaseStock::default(),
         machine: Default::default(),

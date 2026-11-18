@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CuttingSettings, FeedEntry, FeedLimits, FeedSuggestion } from "../core/types";
-import { comboKey, cutFlags, cutPlace, matchOf, parseCombo, placeAmong, rowFlags, rowHolds, rowStatus, suggestedValues, thinning, volPerRev, type Cut } from "./feedsView";
+import { comboKey, cutFlags, cutPlace, matchOf, parseCombo, placeAmong, placeText, rowFlags, rowHolds, rowStatus, suggestedValues, thinning, volPerRev, type Cut } from "./feedsView";
 
 // The cases of the tooling library's own smoke test for its ruler, word for word.
 describe("placeAmong", () => {
@@ -42,6 +42,16 @@ describe("placeAmong", () => {
       blank: "blank:-1:0:-1--1",
       infinite: "blank:-1:0:-1--1",
     });
+  });
+  // Not in the tooling library: stops that are all one cut have no end to be past.
+  it("places a value off stops that are all the same as off every stop, not past an end", () => {
+    const flat = [0.6923, 0.6923, 0.6923, 0.6923, 0.6923];
+    expect(r(flat, 0.75, 1)).toBe("flat:1:0.25:-1--1");
+    expect(r(flat, 0.5, 2)).toBe("flat:2:0.5:-1--1");
+    expect(placeText(placeAmong(flat, 0.75, 1))).toBe("8% over every stop");
+    expect(placeText(placeAmong(flat, 0.6, 1))).toBe("13% under every stop");
+    expect(placeText(placeAmong(flat, 0.6925, 1))).toBe("≈ every stop");
+    expect(placeText(placeAmong(flat, 0.6923, 1))).toBe("slot-safe");
   });
 });
 
@@ -152,6 +162,16 @@ describe("a row against its suggestions", () => {
     // The same feed at half the depth removes half as much: placed by volume, not by feed.
     const shallow = row({ feed: 1600, stepdown: 0.5 });
     expect(matchOf(shallow, e, null, asCut(shallow), 6, false).text).toBe("level with slot-safe");
+  });
+  it("says how far a row is off stops that are all the same cut", () => {
+    // A corner-rounding bit: its radius deep and the feed cap at every stop, at the machine's 13000 rpm.
+    const same = entry();
+    for (const k of Object.keys(same.combos)) {
+      const s = same.combos[k];
+      same.combos[k] = { ...s, values: { ...s.values!, rpm: 13000, feed: 1200, stepdown: 2.5 } };
+    }
+    const slower = row({ rpm: 12000, feed: 1200, stepdown: 2.5 });
+    expect(matchOf(slower, same, null, asCut(slower), 6, false).text).toBe("8% over every stop");
   });
   it("leaves what the model does not stand behind as the row has it", () => {
     const drill = suggestion("slot_safe", 100, { fields: ["rpm", "plunge"] });
