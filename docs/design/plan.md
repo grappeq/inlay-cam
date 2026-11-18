@@ -1126,3 +1126,23 @@ own cure, so there are four of them and not one.
 - Checked: 277 core tests, 89 UI tests. In the app: the tips on an inlay's panel and the
   Materials page, the rows, the marked dimension, and a chamfer with a 60° V-bit. The
   two lists of a file were looked at with made-up lines only, not on a generated file.
+
+The rest of it, the same day.
+
+- **Less, not more.** Tips and hints that said what a label already says are gone: the
+  material, the wood's colour, the order of end mills, which bit bevels and which
+  rounds, the cut past the bottom, the board round a cut-out plug, and the Makera, Note
+  and Rows headings of the Settings tables. A tip is for what a label cannot say.
+- **Facing in section** (`FacingDiagram`): the wood above the surface, what comes off
+  and the margin, with the field being typed in marked. Heights follow the numbers,
+  widths are a sketch. It takes the place of two lines of text.
+- **Steps done by hand** have one line, "By hand, with no file", and a "?" for what
+  their place in the list means. A step in the wrong place still says so.
+- The mark follows the last word of a label that takes two lines, and fields side by
+  side keep their boxes on one line.
+- Notes for after the cut (tabs to cut, a plug to glue in face down) stay with the notes
+  on a file: a third list was weighed and not made, for two kinds of line.
+- Put off: the Tools tab. On the roadmap.
+- Checked in the app with made-up tools: every picture card, the Profiles headings, a
+  chamfer with a corner-rounding bit, the facing drawing, the glue-up and sawing panels,
+  and both lists on generated files, in an operation's panel and in the list of files.

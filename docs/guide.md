@@ -515,7 +515,8 @@ click adds a shape to it or takes it away.
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
   surface* to remove what stands on it. With wood above the surface, the depth may be less
-  than 0: the cut then ends that far above the surface. The tool goes side to side in straight passes;
+  than 0: the cut then ends that far above the surface. The panel draws it in section: the
+  wood above the surface, what comes off, and the margin. The tool goes side to side in straight passes;
   "The passes run" chooses along the longer side of the area (the fewest turns), left and
   right along X, or to and from the front along Y, which matters for the look of a faced
   surface in wood. "The tool's path" can make it go in rings instead.

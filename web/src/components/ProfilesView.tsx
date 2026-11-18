@@ -78,18 +78,14 @@ export function ProfilesPage() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>
-                    Note <HelpTip topic="profileNote" />
-                  </th>
+                  <th>Note</th>
                   <th>
                     Suggestions start at <HelpTip topic="profileStart" />
                   </th>
                   <th>
                     Cut <HelpTip topic="profileCut" />
                   </th>
-                  <th className="num">
-                    Rows <HelpTip topic="profileRows" />
-                  </th>
+                  <th className="num">Rows</th>
                   <th />
                 </tr>
               </thead>

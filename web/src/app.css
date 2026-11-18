@@ -713,10 +713,9 @@ input[aria-invalid="true"] {
 }
 
 /* Help on demand: a "?" beside a label, and the card it opens. */
-.field-label:has(.help-mark) {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+/* The mark follows the last word of its label, also where the label takes two lines. */
+.field-label > .help-mark {
+  margin-left: 5px;
 }
 .help-mark {
   flex: none;
@@ -731,7 +730,8 @@ input[aria-invalid="true"] {
   line-height: 14px;
   text-align: center;
   cursor: help;
-  vertical-align: middle;
+  display: inline-block;
+  vertical-align: text-bottom;
 }
 .help-mark:hover:not(:disabled),
 .help-mark[aria-expanded="true"] {
@@ -1168,7 +1168,7 @@ details.more[open] > summary {
   font-size: 13px;
 }
 .panel .setup-row {
-  align-items: flex-start;
+  align-items: stretch;
 }
 .cut-out-tool {
   margin: 6px 0 8px;
@@ -3973,6 +3973,13 @@ ul.plain {
 .too-wide .ch-edge {
   stroke: var(--warn);
 }
+/* What a facing takes off. */
+.face-cut {
+  fill: var(--accent);
+  fill-opacity: 0.28;
+  stroke: var(--accent);
+  stroke-width: 1;
+}
 .ch-dim path {
   fill: none;
   stroke: var(--text);
@@ -4001,4 +4008,16 @@ ul.plain {
 }
 .ch-dim.faint {
   opacity: 0.35;
+}
+
+/* Fields side by side keep their boxes on one line, also where one label takes two. */
+.row > .field {
+  display: flex;
+  flex-direction: column;
+}
+.row > .field > .field-input {
+  margin-top: auto;
+}
+.row > .field > .hint {
+  margin-bottom: 0;
 }

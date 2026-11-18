@@ -63,19 +63,9 @@ export function MaterialsPage() {
                 <th>
                   Suggestions as <HelpTip topic="materialFeedsAs" />
                 </th>
-                {makera && (
-                  <th>
-                    Makera CAM <HelpTip topic="materialMakeraCam" />
-                  </th>
-                )}
-                {makera && (
-                  <th>
-                    Makera Studio <HelpTip topic="materialMakeraStudio" />
-                  </th>
-                )}
-                <th className="num">
-                  Rows <HelpTip topic="materialRows" />
-                </th>
+                {makera && <th>Makera CAM</th>}
+                {makera && <th>Makera Studio</th>}
+                <th className="num">Rows</th>
                 <th />
               </tr>
             </thead>

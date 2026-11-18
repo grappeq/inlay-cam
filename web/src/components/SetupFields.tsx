@@ -99,7 +99,7 @@ export function CutOutFields({ setup, onChange }: Props) {
         max={SETUP_LIMITS.throughCut[1]}
         value={setup.throughCut}
         onChange={(v) => v !== undefined && onChange({ throughCut: v })}
-        help="throughCut"
+        
       />
       <NumberField
         label="Board around a cut-out plug"
@@ -108,7 +108,7 @@ export function CutOutFields({ setup, onChange }: Props) {
         max={SETUP_LIMITS.cutOutBorder[1]}
         value={setup.cutOutBorder}
         onChange={(v) => v !== undefined && onChange({ cutOutBorder: v })}
-        help="cutOutBorder"
+        
       />
     </div>
   );

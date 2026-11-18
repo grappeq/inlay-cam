@@ -110,13 +110,25 @@ const RELIEF = (
   </Frame>
 );
 
+/** In section: the floor a V-bit's tip leaves, with a ridge between each pass and the next. */
+const RIDGES = (
+  <Frame>
+    <path className="help-wood" d="M0 50Q20 62 40 50Q60 62 80 50Q100 62 120 50Q140 62 160 50V90H0Z" />
+    <path className="help-steel" d="M28 0L58 54H62L92 0Z" />
+    <path className="help-dim" d="M97 50H109M103 50V56M97 56H109" />
+    <text className="help-text" x="114" y="44">
+      ridge
+    </text>
+  </Frame>
+);
+
 export const HELP = {
   // Clearances and tabs: keyed as the setup's own fields are.
   safeHeight: { title: "Travel height", text: "How high above the board the tool moves between cuts. Raise it to clear clamps.", picture: TRAVEL },
   plungeClearance: { title: "Plunge from", text: "The tool drops fast to this height above wood already cut, then goes down at the plunge feed.", picture: PLUNGE },
   rampAngle: {
     title: "Ramp angle",
-    text: "An end mill goes down into wood along its path at this slope instead of plunging. 0 plunges straight down. V-bits and corner-rounding bits are not affected.",
+    text: "An end mill goes down into wood along its path at this slope. 0 plunges straight down. V-bits and corner-rounding bits are not affected.",
     picture: RAMP,
   },
   finishAllowance: { title: "Left for a finishing pass", text: "Left on walls and edges while cutting down, and taken off in one light pass at the end. 0 for none.", picture: FINISH },
@@ -134,9 +146,13 @@ export const HELP = {
     text: "Where a shape is narrow, and into every corner, the plug comes to a point that fills the pocket to the bottom: no room for glue, and the point holds the plug up. Relieving cuts those points back by the glue gap.",
     picture: RELIEF,
   },
-  floorRidge: { title: "Ridges on the floor", text: "Between the V-bit's passes on a flat floor. Lower is smoother and takes longer." },
+  floorRidge: { title: "Ridges on the floor", text: "Between the V-bit's passes on a flat floor. Lower is smoother and takes longer.", picture: RIDGES },
   reliefKeep: { title: "Relief stays below the face", text: "Lower relieves more of a narrow ridge, and may show after sanding." },
   trimDepth: { title: "Where the fit check judges the face", text: "Below the surface: about what you sand off once the plug is in." },
+
+  // Other operations, and steps done by hand.
+  facingDepth: { title: "Depth below the surface", text: "How far under the stock's surface the facing goes. Under 0, it stops that far above the surface and leaves the wood proud." },
+  byHand: { title: "A step done by hand", text: "Its place in the list is what counts: the steps below it find the stock as this one leaves it. Drag it in the list to move it." },
 
   // Settings: the columns of the materials and profiles.
   materialKey: { title: "Key", text: "What files call the material. It never changes, also when the material is renamed." },
@@ -144,13 +160,10 @@ export const HELP = {
     title: "Suggestions as",
     text: "Which material the feeds model takes it for, so that a tool's sheet can suggest starting values and place its rows. It changes nothing else.",
   },
-  materialMakeraCam: { title: "Makera CAM", text: "The material of Makera CAM its rows are written for." },
-  materialMakeraStudio: { title: "Makera Studio", text: "The materials of Makera Studio its rows are written for." },
-  materialRows: { title: "Rows", text: "How many cutting rows your tools have for it." },
-  profileNote: { title: "Note", text: "Shown where the profile is chosen." },
+  
   profileStart: { title: "Suggestions start at", text: "The stop the suggestion on a tool's sheet begins at for this profile's rows. It changes no row and no file." },
   profileCut: { title: "Cut", text: "How this profile's rows are cut, which shapes what is suggested for them. It changes no row and no file." },
-  profileRows: { title: "Rows", text: "How many cutting rows your tools keep for it." },
+  
 } satisfies Record<string, HelpEntry>;
 
 export type HelpTopic = keyof typeof HELP;

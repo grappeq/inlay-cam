@@ -51,6 +51,7 @@ import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { HelpTip } from "./HelpTip";
 import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
+import { FacingDiagram, type FacingHot } from "./FacingDiagram";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
@@ -644,7 +645,7 @@ function OpEditor({ step }: { step: Step }) {
           <label className="field">
             <span className="field-label">Material</span>
             <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
-            <span className="hint">Picks which of the tool's cutting settings are used.</span>
+            
           </label>
           {inlay.type === "pocket" && (
             <ClearingTools
@@ -652,7 +653,7 @@ function OpEditor({ step }: { step: Step }) {
               ids={inlay.clearingToolIds}
               material={step.material}
               onChange={(ids) => setInlay({ clearingToolIds: ids })}
-              hint="Used in this order; each cuts only what those before it left."
+              
             />
           )}
           {(inlay.type === "facing" || inlay.type === "contour") && (
@@ -665,7 +666,7 @@ function OpEditor({ step }: { step: Step }) {
               value={inlay.toolId}
               material={step.material}
               onChange={(id) => setInlay({ toolId: id })}
-              hint="A V-bit bevels the edge. A corner-rounding (fillet) bit rounds it over to the bit's own radius."
+              
             />
           )}
         </section>
@@ -696,7 +697,7 @@ function OpEditor({ step }: { step: Step }) {
                     max={SETUP_LIMITS.throughCut[1]}
                     value={setup.throughCut}
                     onChange={(v) => v !== undefined && setSetup({ throughCut: v })}
-                    help="throughCut"
+                    
                   />
                 </div>
               </>
@@ -913,10 +914,13 @@ function HandEditor({ step }: { step: Step }) {
           )}
         </section>
         <section>
-          <h3>What this step does</h3>
-          {task.type === "saw" ? (
+          <p className="status-line">
+            By hand, with no file.
+            {!sawing && part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}{" "}
+            <HelpTip topic="byHand" />
+          </p>
+          {task.type === "saw" && (
             <>
-              <p className="hint">By hand, with no file: the backer is sawn off through the gap between it and the stock.</p>
               <div className="row">
                 <NumberField
                   label="Left standing above the surface"
@@ -927,15 +931,7 @@ function HandEditor({ step }: { step: Step }) {
                 />
               </div>
             </>
-          ) : (
-            <p className="hint">
-              By hand, with no file.
-              {part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}
-            </p>
           )}
-          <p className="hint">
-            Its place in the list is what counts: the steps below it find {sawing ? "what the saw left" : `the ${what} on the stock`}.
-          </p>
           {before && (
             <p className="status-line warn" role="status">
               {sawing
@@ -987,10 +983,13 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
   const fromInlay = inlayMargin(step, project.steps);
   const follows = inlay.marginAuto === true && fromInlay !== null;
   const margin = follows ? fromInlay : inlay.margin;
-  const total = above + inlay.depth;
+  // The field being typed in, whose number the drawing marks out.
+  const [hot, setHot] = useState<FacingHot>(null);
+  const mark = (which: FacingHot) => (focused: boolean) => setHot(focused ? which : null);
 
   return (
     <>
+      <FacingDiagram above={above} depth={inlay.depth} margin={whole ? null : margin} beyond={tool ? tool.diameter / 2 : null} hot={hot} />
       <label className="check">
         <input
           type="checkbox"
@@ -1008,9 +1007,10 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
           value={listed ? round2(above) : inlay.above}
           disabled={listed}
           onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })}
+          onFocusChange={mark("above")}
         />
-        <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} />
-        {!whole && <NumberField label="Margin" unit="mm" value={margin} disabled={follows} onChange={(v) => v !== undefined && onChange({ margin: v })} />}
+        <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} help="facingDepth" onFocusChange={mark("depth")} />
+        {!whole && <NumberField label="Margin" unit="mm" value={margin} disabled={follows} onChange={(v) => v !== undefined && onChange({ margin: v })} onFocusChange={mark("margin")} />}
       </div>
       {!whole && fromInlay !== null && (
         <label className="check">
@@ -1030,12 +1030,7 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
             : "When the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or untick the box and give the height."}
         </p>
       )}
-      <p className="hint">
-        {whole
-          ? "The tool runs out over every edge."
-          : "The area is the rectangle around the shapes, plus the margin."}{" "}
-        A depth under 0 stops the cut that far above the surface.
-      </p>
+      
       {inlays.map((owner) => {
         const part = standingPart(owner);
         if (!part || part.above <= 0) return null;
@@ -1053,13 +1048,7 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
           </p>
         );
       })}
-      {total > 0 && tool && (
-        <p className="derived">
-          {fmt(round2(total))} mm in all{above > 0 ? `, from ${fmt(round2(above))} mm above the surface` : ""}
-          {inlay.depth < 0 ? ` down to ${fmt(-inlay.depth)} mm above it` : ""}. The tool's centre goes to the edge of the
-          area, so it cuts {fmt(tool.diameter / 2)} mm beyond it.
-        </p>
-      )}
+      
       {above > 0 && (
         <p className="hint">The 3D view of this file alone does not draw the wood above the surface.</p>
       )}
@@ -1229,13 +1218,13 @@ function StepEditor({ step }: { step: InlayStep }) {
           <label className="field">
             <span className="field-label">Material</span>
             <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
-            <span className="hint">Picks which of each tool's cutting settings are used.</span>
+            
           </label>
           <ColorField
             label="Colour of the inlay's wood"
             value={stepColor(step, project.steps)}
             onChange={(color) => update({ color })}
-            hint="For the views only: it changes nothing in the files."
+            
           />
           {inlay.type === "vcarve" ? (
             <>
@@ -1245,7 +1234,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                 ids={inlay.clearingToolIds}
                 material={step.material}
                 onChange={(ids) => setInlay({ clearingToolIds: ids })}
-                hint="Optional, but much quicker than the V-bit alone. Used in this order; each cuts only what those before it left."
+                
               />
             </>
           ) : (
@@ -1255,7 +1244,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                 ids={inlay.clearingToolIds}
                 material={step.material}
                 onChange={(ids) => setInlay({ clearingToolIds: ids })}
-                hint="Used in this order; each cuts only what those before it left."
+                
               />
               {(() => {
                 const chosen = inlay.clearingToolIds.map((id) => resolveTool(id, tools, project)).filter((t): t is Tool => t !== undefined);
@@ -1449,7 +1438,7 @@ function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string
 }
 
 /** An ordered list of end mills: add, remove, and move up or down. */
-function ClearingTools(props: { label: string; ids: string[]; material: Material; hint: string; onChange: (ids: string[]) => void }) {
+function ClearingTools(props: { label: string; ids: string[]; material: Material; onChange: (ids: string[]) => void }) {
   const { tools, lists, project } = useApp();
   const dispatch = useDispatch();
   const { ids } = props;
@@ -1523,8 +1512,7 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
           </button>
         </span>
       )}
-      <span className="hint">{props.hint}</span>
-    </div>
+      </div>
   );
 }
 
