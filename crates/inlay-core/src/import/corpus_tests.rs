@@ -215,6 +215,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             color: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
+            cut_overrides: Default::default(),
             task: inlay,
         }],
         tools: vec![end_mill(), vbit],

@@ -204,22 +204,28 @@ Exported from the header as `<project name>.inlay.json`.
 {
   "app": "wooden-inlays",
   "kind": "project",
-  "formatVersion": 2,
+  "formatVersion": 3,
   "project": {
     "id": "5f0e…",
     "name": "Coaster",
     "design": { "…": "see below" },
     "steps": [],
     "tools": [],
-    "base": { "thickness": 18.0 }
+    "base": { "thickness": 18.0, "material": "hardwood" }
   }
 }
 ```
 
-**Version 2** is the current one. In version 1 the list was `jobs`, and what a step does
-was kept under `inlay`, from when the app made inlays only; everything else was the same.
-A version 1 file is read by renaming the two, and is written back as version 2. A version
-of the app from before version 2 refuses a version 2 file as written by a newer one.
+**Version 3** is the current one. In version 2 every step said what it was cut in, under
+its `material`. The stock is one board, so version 3 says it once, under `base`, and a
+step's `material` is left for the wood of an inlay's plug or insert. A version 2 file is
+read by giving the stock the `material` of its first pocket, contour, chamfer or facing
+that does not start above the surface, or without one, of its first inlay.
+
+In version 1 the list was `jobs`, and what a step does was kept under `inlay`, from when
+the app made inlays only; everything else was as in version 2. A version 1 file is read
+by renaming the two. Older files are written back as version 3, and a version of the app
+from before a version refuses its files as written by a newer one.
 
 | Field | Meaning |
 |---|---|
@@ -230,7 +236,7 @@ of the app from before version 2 refuses a version 2 file as written by a newer 
 | `tools` | Copies of every tool the steps refer to, in the tool format above. They let the project open correctly in a browser with a different tool list. While a tool with the same id exists in the user's list, the list's version is used and the copy is refreshed from it. A project file is made to be passed on, so a copy leaves out what belongs to the owner's own list: `description`, `source`, `inventory`, `verify`, `ids`, and each cutting row's `log`, `ids`, `camFlag`, `camExtra` and `modified`. |
 | `toolNumbers` | An object from tool id to the number the tool goes by in every file made from the project: each from 1 to 999, no two the same. A tool listed here stays among `tools` while no step uses it. A tool a file uses that has no number takes the lowest one free, from the machine's `firstTool`. May be missing: the tools of a file are then numbered from `firstTool` in the order the file uses them. |
 | `profiles` | Copies of the profiles the steps' `rowProfiles` name, in the profile format above. May be missing. |
-| `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0 }`. Default thickness 18. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
+| `base` | The stock, the board the pockets and other operations are cut into: `{ "thickness": 18.0, "material": "hardwood" }`. Default thickness 18. `material` is the key of what it is made of, which says which cutting rows of each tool are used wherever the stock is cut: `hardwood` (the default), `softwood`, or any other key the tools have rows for. Outside those two the build warns that the app's toolpaths have only been proven in wood. Its outline is the design's page after scaling; the work origin is the page's bottom-left corner and Z0 is its top face. Optional `color`: the colour of its wood in the app's pictures, as `#rrggbb`. |
 | `machine` | The machine the files are checked against, below. Default: the Carvera Air. The app overwrites it with the machine set in the browser whenever the project is open. |
 | `setup` | Clearances and tabs, below, for steps that have none of their own: those written before each step had them. Default: the values in the table. |
 
@@ -299,11 +305,12 @@ through them.
 | `id` | Unique within the project. |
 | `name` | Shown in the list. |
 | `color` | Optional. The colour of an inlay's wood in the app's pictures, as `#rrggbb`. It changes nothing in the G-code. |
-| `material` | The key of a material: which cutting rows of each tool are used. `hardwood`, `softwood`, or any other key the tools have rows for. Outside those two the build warns that the app's toolpaths have only been proven in wood. |
+| `material` | For an inlay: the key of the wood of its plug or insert, which says which cutting rows its board is cut with. Default `hardwood`. Its pocket is cut in the stock's material, as is every other step, whose `material` means nothing. One exception needs no field: a facing that starts above the surface (`above` greater than 0, or `aboveAuto`) over shapes of an inlay trims that inlay's glued-in plug, and is cut in the inlay's wood. |
 | `regionIds` | The design regions this step covers. Each must exist in the design. The app keeps a region in one inlay at most; plain operations may use any regions, also those of an inlay or of each other. A facing may have none. |
 | `setup` | Clearances and tabs for this inlay's files, as above. Optional: without it the project's `setup` is used. The app gives every new inlay its own. |
 | `cutOutToolId` | The flat end mill that cuts a plug out of its board, when `cutOut` is set. Optional: without it, the largest of the inlay's `clearingToolIds` whose flutes reach through the board is used. A file is refused when the chosen tool's flutes are shorter than the board plus `throughCut`. |
 | `rowProfiles` | By tool id, the key of the profile whose cutting row the tool runs in this step: `{ "0a6c…": "face_finish" }`. A tool without an entry runs its plain row. May be missing. A build is refused when the tool has no such row for the step's material, or when the profile is for adaptive clearing (as its copy under the project's `profiles` says, or, without a copy, a key of `adaptive`). Cutting a plug or insert out of its board is a full-width slot and always runs the plain row. |
+| `cutOverrides` | By tool id, the numbers of the tool's cutting row that this step changes: `{ "0a6c…": { "feed": 900.0, "stepdown": 0.5 } }`. Any of `rpm`, `feed`, `plunge`, `stepover` and `stepdown` (mm and mm/min), each greater than 0. A number left out is the row's own, so it follows the row when that is changed. May be missing. A build is refused when a changed `rpm` is over the machine's top speed or a changed `stepover` is wider than the tool. Cutting a plug or insert out of its board runs the plain row as it is. |
 | `task` | Type and parameters, below. |
 
 `task` for a V-carve inlay:

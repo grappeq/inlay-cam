@@ -259,7 +259,7 @@ corner is the work origin, with Z0 on its top face. The first drawing sets its s
 drawing's page, or for a DXF file, which has no page, the shapes' extent plus 5 mm on every
 side.
 
-Under **Stock and drawings** you set the stock's width, height and thickness, and the
+Under **Stock and drawings** you set the stock's width, height and thickness, its material, and the
 colour of its wood. Changing the size leaves the shapes where they are and as large as they
 are; the app says so when shapes end up outside the stock. "Fit the stock to the shapes",
 under "More", makes it the shapes' extent plus 5 mm.
@@ -376,13 +376,27 @@ bottom edge; the stock grows to the right and upwards when a shape reaches past 
 Click the shapes that will be cut from one wood, then choose the kind of inlay. Each
 inlay is edited in its own panel; "All operations" takes you back.
 
-Under "Material and tools", **Material** picks which of each tool's cutting settings are
-used. When a chosen tool has rows for a kind of toolpath in that material, a **Cutting
-row** list appears under it: the plain row, or one of those. The numbers of the row are
-shown below the list, and the generated file's notes say which row each tool ran. Leave
-it on the plain row unless you know the other suits the cut: the app does not check a row
-against the kind of cut, except that it refuses rows for adaptive clearing, which it has
-no toolpath for. Cutting a plug or insert out of its board always uses the plain row.
+What the stock is made of is set once, as its **Material** under "Stock and drawings":
+every pocket and operation cut in the stock uses its tools' cutting settings for that
+material. An inlay has one choice of its own under "Wood and tools", the **Wood of the
+inlay**, for the board its plug or insert is cut from. A facing that trims a glued-in
+plug is cut in that inlay's wood.
+
+Under each chosen bit one line says how it cuts in this step: its **profile**, then the
+speed, feed, plunge, stepover and stepdown of that cutting row.
+
+- Click the profile to choose another of the rows the bit has for the material: the plain
+  row, or one made for a kind of toolpath. A bit you choose starts on the profile for what
+  it is chosen for, when it has such a row: one named for facing in a facing, for clearing
+  or pockets where it clears, for chamfers in a chamfer, for carving as the V-bit of an
+  inlay, and one marked "Full width" (or named for slots or contours) in a contour.
+  Otherwise it starts on the plain row. The app does not check a row against the kind of
+  cut, except that it refuses rows for adaptive clearing, which it has no toolpath for.
+- **Edit** opens a field for each number. Type one to change it for this step only; it is
+  then shown in blue, and the arrow beside it puts the row's own back. A field left empty
+  follows the row, also when you tune it in the tool list later.
+
+Cutting a plug or insert out of its board always uses the plain row, unchanged.
 
 There too, an inlay has a **colour** for its wood: one of the woods offered, or
 any other colour. The drawing shows each inlay in its colour on the colour of the stock, so

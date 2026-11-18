@@ -189,11 +189,7 @@ impl Gone {
             for ring in tracks.iter().flat_map(Region::rings) {
                 for k in 0..ring.len() {
                     let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
-                    map.cut(
-                        &mill,
-                        [a[0], a[1], -self.depth],
-                        [b[0], b[1], -self.depth],
-                    );
+                    map.cut(&mill, [a[0], a[1], -self.depth], [b[0], b[1], -self.depth]);
                 }
             }
         }
@@ -378,6 +374,7 @@ pub fn build_with(
     let mut ctx = Context {
         project,
         step,
+        material: project.cut_material(step, part == Part::Plug),
         machine,
         depth,
         pattern: match &step.task {
@@ -392,10 +389,10 @@ pub fn build_with(
         before,
         warnings,
     };
-    if !step.material.is_built_in() {
+    if !ctx.material.is_built_in() {
         ctx.before.push(format!(
             "This is cut in {}: the app's toolpaths have only been proven in wood, so cut a test piece first.",
-            material_name(&step.material)
+            material_name(ctx.material)
         ));
     }
     let cut = match (part, &step.task) {
@@ -802,6 +799,8 @@ fn finish(
 struct Context<'a> {
     project: &'a Project,
     step: &'a Step,
+    /// What the part is cut in: the stock's material, or the wood of a plug.
+    material: &'a Material,
     machine: &'a Machine,
     /// Depth of the pocket floor, mm.
     depth: f64,
@@ -892,7 +891,7 @@ impl<'a> Context<'a> {
         id: Option<&str>,
         kind: ToolKind,
         what: &str,
-    ) -> Option<(&'a Tool, &'a CuttingSettings)> {
+    ) -> Option<(&'a Tool, CuttingSettings)> {
         let tool = checked_tool(self.project, id, kind, what, &mut self.errors)?;
         let profile = self.step.row_profiles.get(&tool.id).map(String::as_str);
         let label = profile.map(|key| {
@@ -911,21 +910,35 @@ impl<'a> Context<'a> {
                 return None;
             }
         }
-        let Some(cutting) = tool.cutting_row(&self.step.material, profile) else {
+        let Some(row) = tool.cutting_row(self.material, profile) else {
             self.errors.push(match label {
                 None => format!(
                     "\"{}\" has no cutting settings for {}. Add them in the tool list.",
                     tool.name,
-                    material_name(&self.step.material)
+                    material_name(self.material)
                 ),
                 Some(label) => format!(
                     "\"{}\" has no {label} row for {}. Choose another row, or add it in the tool list.",
                     tool.name,
-                    material_name(&self.step.material)
+                    material_name(self.material)
                 ),
             });
             return None;
         };
+        // The step's own numbers, where it changes the row's.
+        let cutting = match self.step.cut_overrides.get(&tool.id) {
+            Some(change) => change.apply(row),
+            None => row.clone(),
+        };
+        if cutting.stepover > tool.diameter + 1e-9 {
+            self.errors.push(format!(
+                "\"{}\" is set to a stepover of {} mm, more than its {} mm width.",
+                tool.name,
+                num(cutting.stepover),
+                num(tool.diameter)
+            ));
+            return None;
+        }
         if let Some(label) = label {
             let note = format!(
                 "\"{}\" runs its {label} row: {} rpm, feed {} mm/min, {} mm per pass.",
@@ -973,7 +986,7 @@ const SMALL_SHARE: f64 = 0.01;
 impl<'a> Context<'a> {
     /// Looks up and checks every clearing end mill of the step, in the order
     /// given. `None` when any of them cannot be used.
-    fn end_mills(&mut self, ids: &[String]) -> Option<Vec<(&'a Tool, &'a CuttingSettings)>> {
+    fn end_mills(&mut self, ids: &[String]) -> Option<Vec<(&'a Tool, CuttingSettings)>> {
         let found: Vec<_> = ids
             .iter()
             .map(|id| self.tool(Some(id), ToolKind::FlatEnd, "an end mill"))
@@ -990,7 +1003,7 @@ impl<'a> Context<'a> {
         &mut self,
         path: &mut PathBuilder,
         area: &[Region],
-        end_mills: &[(&Tool, &CuttingSettings)],
+        end_mills: &[(&Tool, CuttingSettings)],
         number: &mut u32,
         what: &str,
         vbit_follows: bool,
@@ -1728,11 +1741,11 @@ fn cut_piece_out(
         };
         tool
     };
-    let Some(cutting) = tool.cutting_for(&ctx.step.material) else {
+    let Some(cutting) = tool.cutting_for(ctx.material) else {
         ctx.errors.push(format!(
             "\"{}\" has no cutting settings for {}. Add them in the tool list.",
             tool.name,
-            material_name(&ctx.step.material)
+            material_name(ctx.material)
         ));
         return None;
     };
@@ -1887,7 +1900,7 @@ fn vbit_shape(vbit: &Tool) -> (f64, f64) {
 struct VcarveSetup<'a> {
     vbit: &'a Tool,
     vbit_rpm: u32,
-    end_mills: Vec<(&'a Tool, &'a CuttingSettings)>,
+    end_mills: Vec<(&'a Tool, CuttingSettings)>,
     params: VcarveParams,
 }
 
@@ -2417,7 +2430,7 @@ fn facing(
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     // The area has no walls: straight passes need no pass round its edge.
-    let params = clear_params(tool, cutting, total, ctx.setup().ramp_slope());
+    let params = clear_params(tool, &cutting, total, ctx.setup().ramp_slope());
     match ctx.pattern {
         Pattern::Offset => clear_centres(&mut path, &where_to, &params),
         Pattern::Raster => raster_centres(&mut path, &where_to, &params, false, ctx.direction),
@@ -2700,14 +2713,19 @@ pub fn chamfer_plan(project: &Project, step_id: &str) -> Option<Result<EdgePlan,
         return Some(Err("Choose a V-bit or a corner-rounding bit.".into()));
     };
     let profile = step.row_profiles.get(&bit.id).map(String::as_str);
-    let Some(cutting) = bit.cutting_row(&step.material, profile) else {
+    let material = project.cut_material(step, false);
+    let Some(row) = bit.cutting_row(material, profile) else {
         return Some(Err(format!(
             "\"{}\" has no cutting settings for {}.",
             bit.name,
-            material_name(&step.material)
+            material_name(material)
         )));
     };
-    Some(edge_plan(bit, cutting, *width, *tip_clearance))
+    let cutting = match step.cut_overrides.get(&bit.id) {
+        Some(change) => change.apply(row),
+        None => row.clone(),
+    };
+    Some(edge_plan(bit, &cutting, *width, *tip_clearance))
 }
 
 /// A V-bit of the list with the same angle that would cut a bevel this wide
@@ -2724,7 +2742,7 @@ fn one_track_bit<'a>(
         t.kind == ToolKind::VBit
             && t.id != like.id
             && (t.tip_angle.unwrap_or(90.0) - angle).abs() < 0.5
-            && t.cutting_row(&ctx.step.material, None).is_some()
+            && t.cutting_row(ctx.material, None).is_some()
             && edge_bit(t).is_some_and(|b| width <= chamfer::one_track_width(&b, tip_clearance))
     })
 }
@@ -2758,7 +2776,7 @@ fn chamfer(
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let plan = match edge_plan(bit, cutting, width, tip_clearance) {
+    let plan = match edge_plan(bit, &cutting, width, tip_clearance) {
         Ok(plan) => plan,
         Err(reason) => {
             ctx.errors.push(reason);
@@ -3361,6 +3379,7 @@ pub(crate) mod tests {
                 color: None,
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
+                cut_overrides: Default::default(),
                 task: Task::Flat {
                     pocket_depth: 2.0,
                     allowance: 0.1,
@@ -3673,7 +3692,7 @@ pub(crate) mod tests {
         );
 
         let mut p = project();
-        p.steps[0].material = Material::SOFTWOOD;
+        p.base.material = Material::SOFTWOOD;
         assert!(reasons(&p).contains("no cutting settings for softwood"));
 
         let mut p = project();
@@ -4816,7 +4835,7 @@ pub(crate) mod tests {
             clearing_tool_ids: vec!["t-endmill".into()],
         });
         let aluminum = Material::new("aluminum");
-        p.steps[0].material = aluminum.clone();
+        p.base.material = aluminum.clone();
         let errors = build(&p, "j", Part::Pocket).unwrap_err();
         assert!(errors[0].contains("no cutting settings for aluminum"));
 
@@ -4830,6 +4849,67 @@ pub(crate) mod tests {
             .before
             .iter()
             .any(|w| w.contains("cut in aluminum") && w.contains("only been proven in wood")));
+    }
+
+    /// The stock's material is for what is cut in the stock; an inlay's own
+    /// is for its plug, which is cut from another board.
+    #[test]
+    fn a_pocket_is_cut_in_the_stocks_material_and_a_plug_in_the_inlays() {
+        let mut p = project();
+        p.steps[0].material = Material::SOFTWOOD;
+        assert!(build(&p, "j", Part::Pocket).is_ok());
+        let errors = build(&p, "j", Part::Plug).unwrap_err();
+        assert!(
+            errors[0].contains("no cutting settings for softwood"),
+            "{errors:?}"
+        );
+        // An operation has no wood of its own.
+        let mut op = op_project(Task::Pocket {
+            pattern: Pattern::Offset,
+            direction: PassDirection::Longer,
+            depth: 2.5,
+            clearing_tool_ids: vec!["t-endmill".into()],
+        });
+        op.steps[0].material = Material::SOFTWOOD;
+        assert!(build(&op, "j", Part::Pocket).is_ok());
+    }
+
+    #[test]
+    fn a_step_runs_a_tool_at_the_numbers_it_changes() {
+        use crate::project::CutOverride;
+        let mut p = pocket_on_profile("face_finish", None);
+        let on_row = build(&p, "j", Part::Pocket).unwrap();
+        assert!(on_row.gcode.contains("F250") && on_row.gcode.contains("S12000"));
+        p.steps[0].cut_overrides.insert(
+            "t-endmill".into(),
+            CutOverride {
+                rpm: Some(9000),
+                feed: Some(333.0),
+                ..Default::default()
+            },
+        );
+        let changed = build(&p, "j", Part::Pocket).unwrap();
+        assert!(changed.gcode.contains("F333") && !changed.gcode.contains("F250"));
+        assert!(changed.gcode.contains("S9000") && !changed.gcode.contains("S12000"));
+        // A change for a tool the step does not use does nothing.
+        let other = p.steps[0].cut_overrides.remove("t-endmill").unwrap();
+        p.steps[0].cut_overrides.insert("t-other".into(), other);
+        assert_eq!(build(&p, "j", Part::Pocket).unwrap().gcode, on_row.gcode);
+        // The numbers are checked as a row's are.
+        let wide = CutOverride {
+            stepover: Some(50.0),
+            ..Default::default()
+        };
+        p.steps[0].cut_overrides.insert("t-endmill".into(), wide);
+        let errors = build(&p, "j", Part::Pocket).unwrap_err();
+        assert!(errors[0].contains("stepover of 50 mm"), "{errors:?}");
+        let fast = CutOverride {
+            rpm: Some(90000),
+            ..Default::default()
+        };
+        p.steps[0].cut_overrides.insert("t-endmill".into(), fast);
+        let errors = build(&p, "j", Part::Pocket).unwrap_err();
+        assert!(errors[0].contains("tops out"), "{errors:?}");
     }
 
     #[test]
@@ -5186,7 +5266,10 @@ pub(crate) mod tests {
                     let d = shape.distance_to_boundary(q);
                     let ideal = if d < 2.0 { -(2.0 - d) } else { 0.0 };
                     let z = map.at(ix, iy) as f64;
-                    assert!((z - ideal).abs() < 0.2, "{side:?}: {z} at {d}, wanted {ideal}");
+                    assert!(
+                        (z - ideal).abs() < 0.2,
+                        "{side:?}: {z} at {d}, wanted {ideal}"
+                    );
                     checked += 1;
                 }
             }
@@ -5317,7 +5400,10 @@ pub(crate) mod tests {
         let both = preview_combined(&numbered, &ids(&["j", "v", "c"])).unwrap();
         assert_eq!(both.built.interpreted.tool_changes, [4, 1, 4]);
         numbered.tool_numbers.insert("t-other".into(), 4);
-        assert!(numbered.validate().unwrap_err().contains("share the number 4"));
+        assert!(numbered
+            .validate()
+            .unwrap_err()
+            .contains("share the number 4"));
 
         // With the chamfer between them the end mill is loaded twice, under one number.
         let three = preview_combined(&p, &ids(&["j", "v", "c"])).unwrap();

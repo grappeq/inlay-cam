@@ -4173,3 +4173,118 @@ select.tool-number {
 .row > .field > .hint {
   margin-bottom: 0;
 }
+
+/* How a bit cuts in a step: its profile, the row's numbers on one line, and the numbers the step changes. */
+.cut-in {
+  font-size: 12px;
+  margin: -4px 0 8px;
+}
+.bit-cut {
+  font-size: 12px;
+  margin: 2px 0 10px;
+}
+.tool-order-name > .bit-cut {
+  margin-bottom: 0;
+}
+.bit-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.5;
+}
+.bit-profile {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--accent);
+}
+.bit-profile.plain,
+.bit-part {
+  flex: none;
+  color: var(--muted);
+}
+.bit-profile select {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  max-width: 120px;
+  font: inherit;
+  font-weight: 500;
+  color: inherit;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.bit-profile > span {
+  pointer-events: none;
+  font-size: 10px;
+  margin-left: 2px;
+}
+.bit-numbers {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.bit-numbers > span {
+  white-space: nowrap;
+}
+.bit-numbers .sep {
+  white-space: normal;
+  color: var(--muted);
+  font-weight: 400;
+}
+.bit-numbers.warn {
+  color: var(--warn);
+}
+.bit-cut .changed {
+  color: var(--accent);
+  font-weight: 500;
+}
+.bit-edit {
+  flex: none;
+  font-size: 12px;
+}
+.bit-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 46px 22px;
+  align-items: center;
+  gap: 5px 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.bit-fields input {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.bit-fields input.changed {
+  border-color: var(--accent);
+  font-weight: 400;
+}
+.bit-fields .bit-reset {
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  color: var(--accent);
+}
+.bit-foot,
+.bit-fields > .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.bit-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tool-order li:has(.bit-cut) {
+  align-items: flex-start;
+}
+.tool-order li:has(.bit-cut)::before {
+  line-height: 20px;
+}

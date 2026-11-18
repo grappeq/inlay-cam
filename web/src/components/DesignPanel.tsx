@@ -6,9 +6,11 @@ import {
   DEFAULT_STOCK_COLOR,
   STEP_LABELS,
   allMaterials,
-  findProfile,
-  isAdaptive,
   materialLabel,
+  stepMaterial,
+  trimmedInlay,
+  withDefaultProfile,
+  type CutUse,
   SETUP_LIMITS,
   WOODS,
   cutOutDepth,
@@ -50,6 +52,7 @@ import { InlayDiagram, type InlayHot } from "./InlayDiagram";
 import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
+import { BitCut } from "./BitCut";
 import { HelpTip } from "./HelpTip";
 import { ProjectTools } from "./ProjectTools";
 import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
@@ -205,6 +208,10 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
           cuts span more than that.
         </p>
       )}
+      <label className="field">
+        <span className="field-label">Material</span>
+        <MaterialSelect value={project.base.material} onChange={(material) => setBase({ material })} />
+      </label>
       <ColorField label="Wood" value={stockColor(project)} onChange={(color) => setBase({ color: color === DEFAULT_STOCK_COLOR ? undefined : color })} />
 
       <p className="muted file-name">
@@ -674,33 +681,14 @@ function OpEditor({ step }: { step: Step }) {
         </section>
 
         <section>
-          <h3>Material and tool</h3>
-          <label className="field">
-            <span className="field-label">Material</span>
-            <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
-            
-          </label>
-          {inlay.type === "pocket" && (
-            <ClearingTools
-              label="End mills"
-              ids={inlay.clearingToolIds}
-              material={step.material}
-              onChange={(ids) => setInlay({ clearingToolIds: ids })}
-              
-            />
-          )}
+          <h3>{inlay.type === "pocket" ? "Tools" : "Tool"}</h3>
+          <CutIn step={step} />
+          {inlay.type === "pocket" && <ClearingTools label="End mills" ids={inlay.clearingToolIds} use="clearing" onChange={(ids) => setInlay({ clearingToolIds: ids })} />}
           {(inlay.type === "facing" || inlay.type === "contour") && (
-            <ToolPicker label="End mill" kind="flat_end" value={inlay.toolId} material={step.material} onChange={(id) => setInlay({ toolId: id })} />
+            <ToolPicker label="End mill" kind="flat_end" value={inlay.toolId} use={inlay.type} onChange={(id) => setInlay({ toolId: id })} />
           )}
           {inlay.type === "chamfer" && (
-            <ToolPicker
-              label="V-bit or corner-rounding bit"
-              kind={["v_bit", "corner_round"]}
-              value={inlay.toolId}
-              material={step.material}
-              onChange={(id) => setInlay({ toolId: id })}
-              
-            />
+            <ToolPicker label="V-bit or corner-rounding bit" kind={["v_bit", "corner_round"]} value={inlay.toolId} use="chamfer" onChange={(id) => setInlay({ toolId: id })} />
           )}
         </section>
 
@@ -730,7 +718,7 @@ function OpEditor({ step }: { step: Step }) {
                     max={SETUP_LIMITS.throughCut[1]}
                     value={setup.throughCut}
                     onChange={(v) => v !== undefined && setSetup({ throughCut: v })}
-                    
+
                   />
                 </div>
               </>
@@ -1063,7 +1051,7 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
             : "When the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or untick the box and give the height."}
         </p>
       )}
-      
+
       {inlays.map((owner) => {
         const part = standingPart(owner);
         if (!part || part.above <= 0) return null;
@@ -1081,7 +1069,7 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
           </p>
         );
       })}
-      
+
       {above > 0 && (
         <p className="hint">The 3D view of this file alone does not draw the wood above the surface.</p>
       )}
@@ -1103,7 +1091,7 @@ function useChamferPlan(step: Step): Planned | null {
   const { project } = useApp();
   const task = step.task;
   const bit = task.type === "chamfer" ? project.tools.find((t) => t.id === task.toolId) : undefined;
-  const key = JSON.stringify([task, step.material, step.rowProfiles, bit]);
+  const key = JSON.stringify([task, project.base.material, step.rowProfiles, step.cutOverrides, bit]);
   const [planned, setPlanned] = useState<{ key: string; result: Planned | null } | null>(null);
   const latest = useRef(project);
   latest.current = project;
@@ -1275,38 +1263,25 @@ function StepEditor({ step }: { step: InlayStep }) {
         </section>
 
         <section>
-          <h3>Material and tools</h3>
+          <h3>Wood and tools</h3>
           <label className="field">
-            <span className="field-label">Material</span>
+            <span className="field-label">Wood of the inlay</span>
             <MaterialSelect value={step.material} onChange={(material) => update({ material })} />
-            
           </label>
           <ColorField
             label="Colour of the inlay's wood"
             value={stepColor(step, project.steps)}
             onChange={(color) => update({ color })}
-            
+
           />
           {inlay.type === "vcarve" ? (
             <>
-              <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} material={step.material} onChange={(id) => setInlay({ vbitToolId: id })} />
-              <ClearingTools
-                label="End mills for the flat floor"
-                ids={inlay.clearingToolIds}
-                material={step.material}
-                onChange={(ids) => setInlay({ clearingToolIds: ids })}
-                
-              />
+              <ToolPicker label="V-bit" kind="v_bit" value={inlay.vbitToolId} use="vcarve" onChange={(id) => setInlay({ vbitToolId: id })} />
+              <ClearingTools label="End mills for the flat floor" ids={inlay.clearingToolIds} use="clearing" onChange={(ids) => setInlay({ clearingToolIds: ids })} />
             </>
           ) : (
             <>
-              <ClearingTools
-                label="End mills"
-                ids={inlay.clearingToolIds}
-                material={step.material}
-                onChange={(ids) => setInlay({ clearingToolIds: ids })}
-                
-              />
+              <ClearingTools label="End mills" ids={inlay.clearingToolIds} use="clearing" onChange={(ids) => setInlay({ clearingToolIds: ids })} />
               {(() => {
                 const chosen = inlay.clearingToolIds.map((id) => resolveTool(id, tools, project)).filter((t): t is Tool => t !== undefined);
                 if (chosen.length === 0) return null;
@@ -1499,10 +1474,15 @@ function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string
 }
 
 /** An ordered list of end mills: add, remove, and move up or down. */
-function ClearingTools(props: { label: string; ids: string[]; material: Material; onChange: (ids: string[]) => void }) {
-  const { tools, lists, project } = useApp();
+function ClearingTools(props: { label: string; ids: string[]; use: CutUse; onChange: (ids: string[]) => void }) {
+  const { tools, lists, project, activeStepId } = useApp();
   const dispatch = useDispatch();
   const { ids } = props;
+  /** Adds an end mill, started on the profile for what it is chosen for. */
+  const add = (id: string) => {
+    props.onChange([...ids, id]);
+    if (activeStepId !== null) dispatch({ type: "updateStep", id: activeStepId, update: (j) => withDefaultProfile(j, id, props.use, tools, lists, project) });
+  };
   const choices = toolChoices("flat_end", tools, project);
   const free = choices.filter((t) => !ids.includes(t.id));
   const chosen = ids.map((id) => ({ id, tool: resolveTool(id, tools, project) }));
@@ -1530,10 +1510,7 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
               <span className="tool-order-name">
                 {tool ? tool.name : "Missing tool"}
                 <span className="muted"> {tool ? `Ø${fmt(tool.diameter)} mm` : "no longer in the tool list or the project"}</span>
-                {tool && !tool.cutting.some((c) => c.material === props.material) && (
-                  <span className="hint warn">No cutting settings for {materialLabel(props.material, lists).toLowerCase()}. Add them in the tool list.</span>
-                )}
-                {tool && <RowPicker tool={tool} material={props.material} />}
+                {tool && <BitCut tool={tool} />}
               </span>
               <button type="button" className="small" onClick={() => props.onChange(ids.filter((other) => other !== id))} aria-label={`Remove ${tool?.name ?? "tool"}`} title="Remove">
                 ×
@@ -1546,7 +1523,7 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
         <select
           value=""
           aria-label={chosen.length === 0 ? "Choose an end mill" : "Add another end mill"}
-          onChange={(e) => e.target.value !== "" && props.onChange([...ids, e.target.value])}
+          onChange={(e) => e.target.value !== "" && add(e.target.value)}
         >
           <option value="">{chosen.length === 0 ? "Choose an end mill…" : "Add another end mill…"}</option>
           {free.map((tool) => (
@@ -1577,9 +1554,14 @@ function ClearingTools(props: { label: string; ids: string[]; material: Material
   );
 }
 
-function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: string | null; material: Material; hint?: string; onChange: (id: string | null) => void }) {
-  const { tools, lists, project } = useApp();
+function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: string | null; use: CutUse; hint?: string; onChange: (id: string | null) => void }) {
+  const { tools, lists, project, activeStepId } = useApp();
   const dispatch = useDispatch();
+  /** Chooses the tool, started on the profile for what it is chosen for. */
+  const pick = (id: string | null) => {
+    props.onChange(id);
+    if (id !== null && activeStepId !== null) dispatch({ type: "updateStep", id: activeStepId, update: (j) => withDefaultProfile(j, id, props.use, tools, lists, project) });
+  };
   const choices = toolChoices(props.kind, tools, project);
   const chosen: Tool | undefined = resolveTool(props.value, tools, project);
   const inList = (tool: Tool) => tools.some((t) => t.id === tool.id);
@@ -1588,7 +1570,7 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
     <>
     <label className="field">
       <span className="field-label">{props.label}</span>
-      <select value={chosen ? chosen.id : ""} onChange={(e) => props.onChange(e.target.value === "" ? null : e.target.value)}>
+      <select value={chosen ? chosen.id : ""} onChange={(e) => pick(e.target.value === "" ? null : e.target.value)}>
         <option value="">Choose…</option>
         {choices.map((tool) => (
           <option key={tool.id} value={tool.id}>
@@ -1607,65 +1589,20 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
       )}
       {chosen && <span className="hint">{describeTool(chosen)}</span>}
       {props.hint && <span className="hint">{props.hint}</span>}
-      {chosen && !chosen.cutting.some((c) => c.material === props.material) && (
-        <span className="hint warn">This tool has no cutting settings for {materialLabel(props.material, lists).toLowerCase()}. Add them in the tool list.</span>
-      )}
     </label>
-    {chosen && <RowPicker tool={chosen} material={props.material} />}
+    {chosen && <BitCut tool={chosen} />}
     </>
   );
 }
 
-/**
- * Which of a tool's cutting rows the open part runs it with: the plain row,
- * or one made for a kind of toolpath. Shown only when the tool has such rows
- * for the material.
- */
-function RowPicker(props: { tool: Tool; material: Material }) {
-  const { lists, project, activeStepId } = useApp();
-  const dispatch = useDispatch();
-  const step = project.steps.find((j) => j.id === activeStepId);
-  if (!step) return null;
-  const { tool } = props;
-  const value = step.rowProfiles?.[tool.id] ?? "";
-  const rows = tool.cutting.filter((c) => c.material === props.material && c.profile !== undefined);
-  if (rows.length === 0 && value === "") return null;
-  const label = (key: string) => findProfile(key, lists, project)?.label ?? key;
-  const adaptive = (key: string) => isAdaptive(key, findProfile(key, lists, project));
-  const row = tool.cutting.find((c) => c.material === props.material && (c.profile ?? "") === value);
-  const set = (key: string) =>
-    dispatch({
-      type: "updateStep",
-      id: step.id,
-      update: (j) => {
-        const next = { ...(j.rowProfiles ?? {}) };
-        if (key === "") delete next[tool.id];
-        else next[tool.id] = key;
-        return { ...j, rowProfiles: Object.keys(next).length > 0 ? next : undefined };
-      },
-    });
-
+/** What an operation is cut in, which is not its own to choose: the stock's material, or the wood of the plug it trims. */
+function CutIn({ step }: { step: Step }) {
+  const { lists, project } = useApp();
+  const owner = trimmedInlay(step, project);
   return (
-    <label className="field">
-      <span className="field-label">Cutting row of {tool.name}</span>
-      <select value={value} onChange={(e) => set(e.target.value)}>
-        <option value="">Plain row: safe for any cut</option>
-        {rows.map((c) => (
-          <option key={c.profile} value={c.profile} disabled={adaptive(c.profile ?? "")}>
-            {label(c.profile ?? "")}
-            {adaptive(c.profile ?? "") ? " (adaptive clearing: this app has no such toolpath)" : ""}
-          </option>
-        ))}
-        {value !== "" && !rows.some((c) => c.profile === value) && <option value={value}>{label(value)} (the tool has no such row for this material)</option>}
-      </select>
-      {row && (
-        <span className="hint">
-          {row.rpm} rpm, feed {fmt(row.feed)}, plunge {fmt(row.plunge)} mm/min, stepover {fmt(row.stepover)} mm, {fmt(row.stepdown)} mm per pass.
-          {value !== "" && findProfile(value, lists, project)?.note ? ` ${findProfile(value, lists, project)?.note}` : ""}
-        </span>
-      )}
-      {value !== "" && (step.task.type === "vcarve" || step.task.type === "flat") && <span className="hint">Cutting the plug or insert out of its board always uses the plain row.</span>}
-    </label>
+    <p className="muted cut-in">
+      {materialLabel(stepMaterial(step, project), lists)}, {owner ? `the wood of ${owner.name}` : "from the stock"}
+    </p>
   );
 }
 

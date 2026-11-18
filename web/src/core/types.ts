@@ -379,9 +379,19 @@ export type Operation = PocketOp | FacingOp | ContourOp | ChamferOp;
 export type Task = TrueInlay | Operation | GlueStep | SawStep;
 export type StepType = Task["type"];
 
+/** The numbers of a tool's cutting row that one step changes. A number left out is the row's own. Lengths mm, feeds mm/min. */
+export interface CutOverride {
+  rpm?: number;
+  feed?: number;
+  plunge?: number;
+  stepover?: number;
+  stepdown?: number;
+}
+
 export interface Step {
   id: string;
   name: string;
+  /** For an inlay: the wood of its plug or insert. Any other step cuts the stock, in the stock's material. */
   material: Material;
   regionIds: number[];
   /** The colour of the inlay's wood in the app's pictures, as #rrggbb. */
@@ -392,6 +402,8 @@ export interface Step {
   cutOutToolId?: string;
   /** By tool id: the toolpath profile whose cutting row the tool runs in this step. A tool without an entry runs its plain row. */
   rowProfiles?: Record<string, string>;
+  /** By tool id: the numbers of the tool's cutting row that this step changes. Cutting a plug out of its board runs the plain row as it is. */
+  cutOverrides?: Record<string, CutOverride>;
   task: Task;
 }
 
@@ -444,7 +456,7 @@ export interface Project {
   /** Copies of the toolpath profiles the steps' row choices name. */
   profiles?: Profile[];
   /** The stock: the board the pockets and other operations are cut into. Its outline is the design's page. */
-  base: { thickness: number; color?: string };
+  base: { thickness: number; material: Material; color?: string };
   /** A copy of the machine set under Tools and settings. */
   machine: Machine;
   /** For inlays without clearances and tabs of their own. */

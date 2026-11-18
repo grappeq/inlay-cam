@@ -1,6 +1,6 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutResult, CuttingSettings, Design, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutOverride, CutResult, CuttingSettings, Design, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -83,7 +83,7 @@ export function readMachine(text: string | undefined): Machine {
 }
 
 export function newProject(name = "Untitled inlay"): Project {
-  return { id: newId(), name, design: null, steps: [], tools: [], base: { thickness: 18 }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
+  return { id: newId(), name, design: null, steps: [], tools: [], base: { thickness: 18, material: "hardwood" }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
 }
 
 export function defaultInlay(type: StepType): Task {
@@ -280,7 +280,6 @@ export function trimFacing(owner: Step, existing: Step[], setup: Setup): Step | 
   return {
     ...step,
     name,
-    material: owner.material,
     // The height is taken from the list and the margin from the inlay, so that both follow it; the numbers are what is used by hand.
     task: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, marginAuto: true, pattern: "raster", toolId: null },
   };
@@ -361,15 +360,99 @@ export function missingFor(step: Step): string | null {
   }
 }
 
-/** The first of a step's tools that has no cutting settings for the step's material, as a sentence; null when all have. */
-export function missingSettings(step: Step, tools: Tool[], lists: ToolLists): string | null {
+/** The first of a step's tools that has no cutting settings for what the step cuts, as a sentence; null when all have. */
+export function missingSettings(step: Step, tools: Tool[], lists: ToolLists, project: Project): string | null {
   for (const id of stepToolIds(step)) {
     const tool = tools.find((t) => t.id === id);
-    if (tool && !tool.cutting.some((c) => c.material === step.material)) {
-      return `"${tool.name}" has no cutting settings for ${materialLabel(step.material, lists).toLowerCase()}. Add them in the tool list, or choose another tool.`;
+    for (const material of stepMaterials(step, project)) {
+      if (tool && !tool.cutting.some((c) => c.material === material)) {
+        return `"${tool.name}" has no cutting settings for ${materialLabel(material, lists).toLowerCase()}. Add them in the tool list, or choose another tool.`;
+      }
     }
   }
   return null;
+}
+
+/**
+ * What a step cuts, which chooses the cutting settings of its tools, as the
+ * core works it out: the stock's material, except for the plug or insert of
+ * an inlay, which is in the inlay's own wood, and for a facing that starts
+ * above the surface over an inlay's shapes, which trims that inlay's plug.
+ */
+export function stepMaterial(step: Step, project: Project, part: "pocket" | "plug" = "pocket"): Material {
+  if (isInlay(step.task)) return part === "plug" ? step.material : project.base.material;
+  const owner = trimmedInlay(step, project);
+  return owner ? owner.material : project.base.material;
+}
+
+/** The inlay whose glued-in plug a facing trims: the first one its shapes belong to, when it starts above the surface. */
+export function trimmedInlay(step: Step, project: Project): Step | undefined {
+  if (step.task.type !== "facing" || !(step.task.aboveAuto === true || step.task.above > 0)) return undefined;
+  return project.steps.find((other) => isInlay(other.task) && other.regionIds.some((id) => step.regionIds.includes(id)));
+}
+
+/** Every material a step's tools cut: the stock's, and for an inlay in another wood, that of its plug. */
+export function stepMaterials(step: Step, project: Project): Material[] {
+  const stock = stepMaterial(step, project);
+  return isInlay(step.task) && step.material !== stock ? [stock, step.material] : [stock];
+}
+
+/** The numbers of a cutting row a step can change, in the order they are shown. */
+export const CUT_FIELDS: { key: keyof CutOverride; label: string; unit: string; short: string }[] = [
+  { key: "rpm", label: "Speed", unit: "rpm", short: "rpm" },
+  { key: "feed", label: "Feed", unit: "mm/min", short: "feed" },
+  { key: "plunge", label: "Plunge", unit: "mm/min", short: "plunge" },
+  { key: "stepover", label: "Stepover", unit: "mm", short: "over" },
+  { key: "stepdown", label: "Stepdown", unit: "mm", short: "down" },
+];
+
+/** A tool's row for a material: its plain one, or the one for a profile. */
+export function cutRow(tool: Tool, material: Material, profile: string | undefined): CuttingSettings | undefined {
+  return tool.cutting.find((c) => c.material === material && (c.profile ?? undefined) === profile);
+}
+
+/** How many of a row's numbers a step changes. */
+export function changedCount(change: CutOverride | undefined): number {
+  return change ? CUT_FIELDS.filter((f) => change[f.key] !== undefined).length : 0;
+}
+
+/** What a tool is chosen for in a step, which says which of its profiles to start on. */
+export type CutUse = "clearing" | "facing" | "contour" | "chamfer" | "vcarve";
+
+/** Words in a profile's key or name that say what it is for. */
+const USE_WORDS: Record<CutUse, RegExp> = {
+  clearing: /clear|pocket|rough/,
+  facing: /fac(e|ing)|surfac/,
+  contour: /slot|contour|outline|cut.?out/,
+  chamfer: /chamfer|bevel|edge|round/,
+  vcarve: /carv|engrav|inlay/,
+};
+
+/**
+ * The profile a tool starts on when it is chosen for a use: the first of the
+ * tool list's profiles that is for that use and that the tool has a row on
+ * for the material. A contour is a full-width cut, so a profile marked as
+ * one is for it too. Undefined is the plain row, which is safe for any cut.
+ * Never an adaptive profile: this app has no such toolpath.
+ */
+export function defaultProfile(use: CutUse, tool: Tool, material: Material, lists: ToolLists, project: Project): string | undefined {
+  const keys = tool.cutting.filter((c) => c.material === material && c.profile !== undefined && c.profile !== null).map((c) => c.profile as string);
+  const known = [...(lists.profiles ?? []), ...(project.profiles ?? [])].map((p) => p.key);
+  const ordered = [...new Set([...known.filter((key) => keys.includes(key)), ...keys])];
+  return ordered.find((key) => {
+    const profile = findProfile(key, lists, project);
+    if (isAdaptive(key, profile)) return false;
+    if (use === "contour" && profile?.slot === true) return true;
+    return USE_WORDS[use].test(`${key} ${profile?.label ?? ""}`.toLowerCase());
+  });
+}
+
+/** The step with a tool just chosen for it started on the profile for its use, unless the step says already which row the tool runs. */
+export function withDefaultProfile(step: Step, toolId: string, use: CutUse, tools: Tool[], lists: ToolLists, project: Project): Step {
+  if (step.rowProfiles?.[toolId] !== undefined) return step;
+  const tool = resolveTool(toolId, tools, project);
+  const key = tool && defaultProfile(use, tool, stepMaterial(step, project), lists, project);
+  return key === undefined ? step : { ...step, rowProfiles: { ...(step.rowProfiles ?? {}), [toolId]: key } };
 }
 
 /**
@@ -539,7 +622,7 @@ function toolDetails(tool: Tool): string {
 export function relinkTools(project: Project, tools: Tool[]): Project {
   const to = new Map<string, string>();
   // Only the copies a step still points at or that keep a number: the others go by themselves.
-  const used = new Set([...project.steps.flatMap((step) => [...stepToolIds(step), ...Object.keys(step.rowProfiles ?? {})]), ...Object.keys(project.toolNumbers ?? {})]);
+  const used = new Set([...project.steps.flatMap((step) => [...stepToolIds(step), ...Object.keys(step.rowProfiles ?? {}), ...Object.keys(step.cutOverrides ?? {})]), ...Object.keys(project.toolNumbers ?? {})]);
   for (const copy of projectOnlyTools(project, tools)) {
     if (!used.has(copy.id)) continue;
     const details = toolDetails(copy);
@@ -557,6 +640,7 @@ export function relinkTools(project: Project, tools: Tool[]): Project {
     const out: Step = { ...step, task };
     if (step.cutOutToolId !== undefined) out.cutOutToolId = one(step.cutOutToolId);
     if (step.rowProfiles) out.rowProfiles = Object.fromEntries(Object.entries(step.rowProfiles).map(([id, profile]) => [one(id), profile]));
+    if (step.cutOverrides) out.cutOverrides = Object.fromEntries(Object.entries(step.cutOverrides).map(([id, change]) => [one(id), change]));
     return out;
   });
   // The number goes with the tool, unless the list's own has one already.

@@ -7,15 +7,15 @@ use crate::file::{self, FileError, Migration};
 use crate::geom::{Region, Ring};
 use std::collections::BTreeMap;
 
-use crate::tools::{validate_tools, Material, Profile, Tool};
+use crate::tools::{validate_tools, CuttingSettings, Material, Profile, StepoverUnit, Tool};
 
 /// Current version of the project file. Raise it, and add a migration,
 /// whenever an old file could no longer be read as written.
-pub const PROJECT_FORMAT_VERSION: u32 = 2;
+pub const PROJECT_FORMAT_VERSION: u32 = 3;
 pub const PROJECT_KIND: &str = "project";
 
 /// Migrations for project files: entry `i` upgrades version `i + 1`.
-const MIGRATIONS: &[Migration] = &[steps_from_jobs];
+const MIGRATIONS: &[Migration] = &[steps_from_jobs, stock_material];
 
 /// Version 1 to 2. What the list holds was called a job and kept what it
 /// does under `inlay`, from when the app made inlays only. It holds
@@ -37,6 +37,54 @@ fn steps_from_jobs(mut file: serde_json::Value) -> Result<serde_json::Value, Str
     }
     file["formatVersion"] = 2.into();
     Ok(file)
+}
+
+/// Version 2 to 3. Every step said what it was cut in. The stock is one
+/// board: what it is made of is said once, under `base`, and a step's own
+/// `material` is left for the wood of an inlay's plug or insert. The stock
+/// takes the material of the first operation that cuts it, else of the
+/// first inlay, whose pocket was cut in it.
+fn stock_material(mut file: serde_json::Value) -> Result<serde_json::Value, String> {
+    let project = file
+        .get_mut("project")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("the file has no project")?;
+    let kind = |step: &serde_json::Value| step["task"]["type"].as_str().unwrap_or("").to_string();
+    let steps = project
+        .get("steps")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    // A facing that starts above the surface trims a plug: it was in the plug's wood.
+    let cuts_stock = |step: &&serde_json::Value| match kind(step).as_str() {
+        "pocket" | "contour" | "chamfer" => true,
+        "facing" => {
+            let task = &step["task"];
+            !(task["above"].as_f64().unwrap_or(0.0) > 0.0
+                || task["aboveAuto"].as_bool().unwrap_or(false))
+        }
+        _ => false,
+    };
+    let is_inlay = |step: &&serde_json::Value| matches!(kind(step).as_str(), "vcarve" | "flat");
+    let material = steps
+        .iter()
+        .find(cuts_stock)
+        .or_else(|| steps.iter().find(is_inlay))
+        .and_then(|step| step.get("material").cloned());
+    if let Some(material) = material {
+        let base = project
+            .entry("base")
+            .or_insert_with(|| serde_json::json!({ "thickness": BaseStock::default().thickness }));
+        if let Some(base) = base.as_object_mut() {
+            base.entry("material").or_insert(material);
+        }
+    }
+    file["formatVersion"] = 3.into();
+    Ok(file)
+}
+
+fn hardwood() -> Material {
+    Material::HARDWOOD
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,6 +346,10 @@ impl Setup {
 #[serde(rename_all = "camelCase")]
 pub struct BaseStock {
     pub thickness: f64,
+    /// What the stock is made of: chooses which cutting settings of each
+    /// tool are used wherever the stock is cut.
+    #[serde(default = "hardwood")]
+    pub material: Material,
     /// The colour of its wood in the app's pictures, as `#rrggbb`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -307,6 +359,7 @@ impl Default for BaseStock {
     fn default() -> Self {
         Self {
             thickness: 18.0,
+            material: Material::HARDWOOD,
             color: None,
         }
     }
@@ -406,7 +459,10 @@ pub struct Step {
     /// The colour of the inlay's wood in the app's pictures, as `#rrggbb`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
-    /// Chooses which cutting settings of each tool are used.
+    /// For an inlay: the wood of its plug or insert, which chooses the
+    /// cutting settings its board is cut with. Any other step cuts the
+    /// stock, in the stock's material ([`Project::cut_material`]).
+    #[serde(default = "hardwood")]
     pub material: Material,
     /// The design regions this inlay covers.
     pub region_ids: Vec<u32>,
@@ -423,7 +479,76 @@ pub struct Step {
     /// out of its board is a full-width slot and always runs the plain row.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub row_profiles: BTreeMap<String, String>,
+    /// By tool id: the numbers of the tool's cutting row that this step
+    /// changes. A number without an entry is the row's own. Cutting a plug
+    /// out of its board runs the plain row as it is.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cut_overrides: BTreeMap<String, CutOverride>,
     pub task: Task,
+}
+
+/// The numbers of a cutting row that one step runs a tool with in place of
+/// the row's own. `None` leaves the row's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CutOverride {
+    /// Spindle speed, rev/min.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpm: Option<u32>,
+    /// Feed rate while cutting sideways, mm/min.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed: Option<f64>,
+    /// Feed rate while cutting straight down, mm/min.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plunge: Option<f64>,
+    /// Sideways distance between passes, mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stepover: Option<f64>,
+    /// Depth per pass, mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stepdown: Option<f64>,
+}
+
+impl CutOverride {
+    pub fn is_empty(&self) -> bool {
+        *self == CutOverride::default()
+    }
+
+    /// The row with this step's numbers in place of its own.
+    pub fn apply(&self, row: &CuttingSettings) -> CuttingSettings {
+        let mut out = row.clone();
+        if let Some(rpm) = self.rpm {
+            out.rpm = rpm;
+        }
+        if let Some(feed) = self.feed {
+            out.feed = feed;
+        }
+        if let Some(plunge) = self.plunge {
+            out.plunge = plunge;
+        }
+        if let Some(stepover) = self.stepover {
+            out.stepover = stepover;
+            out.stepover_unit = StepoverUnit::Mm;
+        }
+        if let Some(stepdown) = self.stepdown {
+            out.stepdown = stepdown;
+        }
+        out
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let positive = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0);
+        if self.rpm == Some(0) {
+            return Err("a changed spindle speed must be greater than 0".into());
+        }
+        if !positive(self.feed) || !positive(self.plunge) {
+            return Err("a changed feed or plunge must be greater than 0".into());
+        }
+        if !positive(self.stepover) || !positive(self.stepdown) {
+            return Err("a changed stepover or stepdown must be greater than 0".into());
+        }
+        Ok(())
+    }
 }
 
 impl Step {
@@ -1059,6 +1184,37 @@ impl Project {
         })
     }
 
+    /// What a step cuts, which chooses the cutting settings of its tools.
+    /// The plug or insert of an inlay (`plug`) is in the inlay's own wood.
+    /// So is a facing that starts above the surface over an inlay's shapes:
+    /// it trims the glued-in plug. Everything else is the stock.
+    pub fn cut_material<'a>(&'a self, step: &'a Step, plug: bool) -> &'a Material {
+        if step.task.is_inlay() {
+            return if plug {
+                &step.material
+            } else {
+                &self.base.material
+            };
+        }
+        let trims = matches!(
+            &step.task,
+            Task::Facing { above, above_auto, .. } if *above_auto || *above > 0.0
+        );
+        if trims {
+            let owner = self.steps.iter().find(|other| {
+                other.task.is_inlay()
+                    && other
+                        .region_ids
+                        .iter()
+                        .any(|id| step.region_ids.contains(id))
+            });
+            if let Some(owner) = owner {
+                return &owner.material;
+            }
+        }
+        &self.base.material
+    }
+
     /// Checks the project is consistent: valid numbers, unique ids, and no
     /// reference to a region that does not exist.
     pub fn validate(&self) -> Result<(), String> {
@@ -1124,6 +1280,9 @@ impl Project {
             }
             if let Some(setup) = &step.setup {
                 setup.validate().map_err(fail)?;
+            }
+            for change in step.cut_overrides.values() {
+                change.validate().map_err(fail)?;
             }
             if let Task::Glue { inlay_id } = &step.task {
                 let glued = self.steps.iter().find(|other| &other.id == inlay_id);
@@ -1215,6 +1374,7 @@ mod tests {
                     setup: None,
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
+                    cut_overrides: Default::default(),
                     task: Task::Vcarve {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
@@ -1238,6 +1398,7 @@ mod tests {
                     setup: None,
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
+                    cut_overrides: Default::default(),
                     task: Task::Flat {
                         pocket_depth: 2.5,
                         allowance: 0.1,
@@ -1329,6 +1490,7 @@ mod tests {
                 setup: None,
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
+                cut_overrides: Default::default(),
                 task,
             })
         };
@@ -1464,6 +1626,7 @@ mod tests {
             setup: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
+            cut_overrides: Default::default(),
             task: Task::Glue {
                 inlay_id: of.into(),
             },
@@ -1588,19 +1751,87 @@ mod tests {
         let old =
             project_from_file_json(include_str!("../tests/fixtures/project-v1.json")).unwrap();
         assert_eq!(project_to_file_json(&old), project_to_file_json(&project));
-        assert!(project_to_file_json(&old).contains("\"formatVersion\": 2"));
+        assert!(project_to_file_json(&old).contains("\"formatVersion\": 3"));
+    }
+
+    /// Version 3 says what the stock is made of, once.
+    #[test]
+    fn version_3_fixture_loads_and_is_what_version_2_becomes() {
+        let text = include_str!("../tests/fixtures/project-v3.json");
+        let project = project_from_file_json(text).unwrap();
+        assert_eq!(project, sample());
+        assert_eq!(project_to_file_json(&project).trim(), text.trim());
+        let old =
+            project_from_file_json(include_str!("../tests/fixtures/project-v2.json")).unwrap();
+        assert_eq!(project_to_file_json(&old), project_to_file_json(&project));
+    }
+
+    /// A version 2 file said the material on every step: the stock takes
+    /// that of the first operation that cuts it, else of the first inlay.
+    #[test]
+    fn a_version_2_stock_takes_the_material_its_steps_were_cut_in() {
+        let v2 = include_str!("../tests/fixtures/project-v2.json");
+        // Two inlays, the first in hardwood and the second in softwood.
+        let soft_first = v2.replacen(
+            "\"material\": \"hardwood\"",
+            "\"material\": \"softwood\"",
+            1,
+        );
+        assert_ne!(soft_first, v2);
+        let project = project_from_file_json(&soft_first).unwrap();
+        assert_eq!(project.base.material, Material::SOFTWOOD);
+        let plain = project_from_file_json(v2).unwrap();
+        assert_eq!(plain.base.material, Material::HARDWOOD);
+        // Each inlay keeps its own for its plug.
+        assert_eq!(plain.steps[1].material, Material::SOFTWOOD);
+        assert_eq!(
+            plain.cut_material(&plain.steps[1], false),
+            &Material::HARDWOOD
+        );
+        assert_eq!(
+            plain.cut_material(&plain.steps[1], true),
+            &Material::SOFTWOOD
+        );
+    }
+
+    #[test]
+    fn a_step_can_change_numbers_of_a_tools_row() {
+        let mut project = sample();
+        let change = CutOverride {
+            feed: Some(900.0),
+            stepover: Some(1.0),
+            ..Default::default()
+        };
+        let row = end_mill().cutting[0].clone();
+        let run = change.apply(&row);
+        assert_eq!((run.feed, run.stepover), (900.0, 1.0));
+        assert_eq!(
+            (run.rpm, run.plunge, run.stepdown),
+            (row.rpm, row.plunge, row.stepdown)
+        );
+        project.steps[1]
+            .cut_overrides
+            .insert("t-endmill".into(), change);
+        let read = project_from_file_json(&project_to_file_json(&project)).unwrap();
+        assert_eq!(read, project);
+        project.steps[1]
+            .cut_overrides
+            .get_mut("t-endmill")
+            .unwrap()
+            .feed = Some(0.0);
+        assert!(project.validate().unwrap_err().contains("feed"));
     }
 
     /// A file from a newer version of the app is refused, not guessed at.
     #[test]
     fn a_newer_project_file_is_refused() {
-        let text = include_str!("../tests/fixtures/project-v2.json")
-            .replace("\"formatVersion\": 2", "\"formatVersion\": 3");
+        let text = include_str!("../tests/fixtures/project-v3.json")
+            .replace("\"formatVersion\": 3", "\"formatVersion\": 4");
         assert!(matches!(
             project_from_file_json(&text),
             Err(FileError::NewerVersion {
-                found: 3,
-                supported: 2
+                found: 4,
+                supported: 3
             })
         ));
     }

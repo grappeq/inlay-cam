@@ -1199,6 +1199,7 @@ mod tests {
             setup: None,
             cut_out_tool_id: None,
             row_profiles: Default::default(),
+            cut_overrides: Default::default(),
             task,
         }
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Design, Project, Step, Tool } from "../core/types";
-import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import type { Design, Profile, Project, Step, Tool } from "../core/types";
+import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -100,7 +100,10 @@ describe("steps", () => {
     expect(standingPart(inlay)).toEqual({ above: 7, margin: 8, what: "plug" });
     const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
     expect(trim.name).toBe("Trim Walnut star");
-    expect(trim.material).toBe("softwood");
+    // It cuts the plug, so it is in the plug's wood, whatever the stock is; a facing of the stock itself is in the stock's.
+    const cut = { base: { thickness: 18, material: "maple" }, steps: [inlay, trim], tools: [] } as unknown as Project;
+    expect(stepMaterial(trim, cut)).toBe("softwood");
+    expect(stepMaterial({ ...trim, task: { ...trim.task, above: 0, aboveAuto: false } as Step["task"] }, cut)).toBe("maple");
     expect(trim.regionIds).toEqual([1, 2]);
     expect(trim.task).toEqual({ type: "facing", above: 7, aboveAuto: true, depth: 0, margin: 8, marginAuto: true, pattern: "raster", toolId: null });
     // Its margin is the inlay's, whatever that is changed to; of shapes that belong to no plug there is none to take.
@@ -285,5 +288,70 @@ describe("toolNumbers", () => {
     const p = { ...project([pocket("x", ["old"])], { old: 4 }), tools: [copy] } as Project;
     const linked = relinkTools(p, list);
     expect(linked.toolNumbers).toEqual({ a: 4 });
+  });
+});
+
+describe("what a step is cut in, and with which numbers", () => {
+  const row = (material: string, profile?: string) => ({ material, profile, rpm: 10000, feed: 600, plunge: 200, stepover: 2, stepdown: 1 });
+  const mill = (profiles: string[], material = "hardwood"): Tool => ({ id: "m", name: "Ø6", kind: "flat_end", diameter: 6, shankDiameter: 6, cutting: [row(material), ...profiles.map((p) => row(material, p))] });
+  const profiles: Profile[] = [
+    { key: "adaptive", label: "Adaptive" },
+    { key: "clearing", label: "Clearing" },
+    { key: "face_finish", label: "Face finish" },
+    { key: "slotting", label: "Full width", slot: true },
+    { key: "bevel", label: "Chamfer" },
+    { key: "vcarve", label: "V-carve" },
+  ];
+  const lists = { profiles };
+  const step = (type: Parameters<typeof newStep>[0]) => newStep(type, [0], [], DEFAULT_SETUP);
+  const project = (steps: Step[], material = "hardwood"): Project => ({ id: "p", name: "P", design: null, tools: [], steps, base: { thickness: 18, material } }) as unknown as Project;
+
+  it("cuts an operation and an inlay's pocket in the stock's material, and a plug in the inlay's wood", () => {
+    const inlay = { ...step("flat"), material: "softwood" };
+    const pocket = { ...step("pocket"), material: "softwood" };
+    const p = project([inlay, pocket], "maple");
+    expect(stepMaterial(pocket, p)).toBe("maple");
+    expect([stepMaterial(inlay, p), stepMaterial(inlay, p, "plug")]).toEqual(["maple", "softwood"]);
+    expect(stepMaterials(inlay, p)).toEqual(["maple", "softwood"]);
+    expect(stepMaterials({ ...inlay, material: "maple" }, p)).toEqual(["maple"]);
+    // A tool needs settings for each of them.
+    const tool = mill([], "maple");
+    const uses = { ...inlay, task: { ...inlay.task, clearingToolIds: ["m"] } as Step["task"] };
+    expect(missingSettings(uses, [tool], {}, p)).toContain("no cutting settings for softwood");
+    expect(missingSettings({ ...uses, material: "maple" }, [tool], {}, p)).toBeNull();
+  });
+
+  it("starts a tool on the profile for what it is chosen for", () => {
+    const tool = mill(profiles.map((p) => p.key));
+    const p = project([]);
+    expect(defaultProfile("facing", tool, "hardwood", lists, p)).toBe("face_finish");
+    expect(defaultProfile("clearing", tool, "hardwood", lists, p)).toBe("clearing");
+    expect(defaultProfile("contour", tool, "hardwood", lists, p)).toBe("slotting");
+    expect(defaultProfile("chamfer", tool, "hardwood", lists, p)).toBe("bevel");
+    expect(defaultProfile("vcarve", tool, "hardwood", lists, p)).toBe("vcarve");
+    // Only a row the tool has for the material, never an adaptive one; else the plain row.
+    expect(defaultProfile("facing", tool, "softwood", lists, p)).toBeUndefined();
+    expect(defaultProfile("facing", mill(["clearing"]), "hardwood", lists, p)).toBeUndefined();
+    expect(defaultProfile("clearing", mill(["adaptive"]), "hardwood", { profiles: [{ key: "adaptive", label: "Adaptive clearing" }] }, p)).toBeUndefined();
+  });
+
+  it("leaves a row the step has chosen already alone", () => {
+    const tool = mill(["face_finish"]);
+    const facing = step("facing");
+    const p = project([facing]);
+    expect(withDefaultProfile(facing, "m", "facing", [tool], lists, p).rowProfiles).toEqual({ m: "face_finish" });
+    const chosen = { ...facing, rowProfiles: { m: "clearing" } };
+    expect(withDefaultProfile(chosen, "m", "facing", [tool], lists, p)).toBe(chosen);
+    expect(withDefaultProfile(facing, "m", "contour", [tool], lists, p)).toBe(facing);
+    expect(withDefaultProfile(facing, "gone", "facing", [tool], lists, p)).toBe(facing);
+  });
+
+  it("counts the numbers a step changes, and takes them along when a tool's copy is linked to the list", () => {
+    expect(changedCount(undefined)).toBe(0);
+    expect(changedCount({ feed: 900, stepdown: 0.5 })).toBe(2);
+    const copy: Tool = { ...mill([]), id: "old" };
+    const pocket = { ...step("pocket"), cutOverrides: { old: { feed: 900 } }, task: { type: "pocket", depth: 3, pattern: "offset", clearingToolIds: ["old"] } as Step["task"] };
+    const linked = relinkTools({ ...project([pocket]), tools: [copy] }, [mill([])]);
+    expect(linked.steps[0].cutOverrides).toEqual({ m: { feed: 900 } });
   });
 });

@@ -40,7 +40,7 @@ export function useOutput(step: Step) {
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
   // What has to be chosen before anything can be made.
-  const missing = missingFor(step) ?? missingSettings(step, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists);
+  const missing = missingFor(step) ?? missingSettings(step, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists, project);
 
   const generate = async () => {
     const out: Output = { stepId: step.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };

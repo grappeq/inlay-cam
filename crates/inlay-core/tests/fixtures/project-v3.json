@@ -1,0 +1,186 @@
+{
+  "app": "wooden-inlays",
+  "formatVersion": 3,
+  "kind": "project",
+  "project": {
+    "base": {
+      "material": "hardwood",
+      "thickness": 18.0
+    },
+    "design": {
+      "height": 100.0,
+      "mirror": false,
+      "regions": [
+        {
+          "color": "#000000",
+          "holes": [
+            [
+              [
+                20.0,
+                20.0
+              ],
+              [
+                20.0,
+                30.0
+              ],
+              [
+                30.0,
+                30.0
+              ],
+              [
+                30.0,
+                20.0
+              ]
+            ]
+          ],
+          "id": 0,
+          "outer": [
+            [
+              10.0,
+              10.0
+            ],
+            [
+              40.0,
+              10.0
+            ],
+            [
+              40.0,
+              40.0
+            ],
+            [
+              10.0,
+              40.0
+            ]
+          ]
+        },
+        {
+          "holes": [],
+          "id": 1,
+          "outer": [
+            [
+              60.0,
+              60.0
+            ],
+            [
+              90.0,
+              60.0
+            ],
+            [
+              75.0,
+              90.0
+            ]
+          ]
+        }
+      ],
+      "scale": 1.0,
+      "sourceName": "coaster.svg",
+      "width": 100.0
+    },
+    "id": "p1",
+    "machine": {
+      "firstTool": 1,
+      "maxRpm": 13000,
+      "minRpm": 5000,
+      "name": "Carvera Air",
+      "rapidRate": 2000.0,
+      "travel": [
+        300.0,
+        200.0
+      ]
+    },
+    "name": "Coaster",
+    "setup": {
+      "cutOutBorder": 5.0,
+      "finishAllowance": 0.1,
+      "plungeClearance": 1.0,
+      "rampAngle": 5.0,
+      "safeHeight": 5.0,
+      "tabSpacing": 40.0,
+      "tabThickness": 1.0,
+      "tabWidth": 4.0,
+      "throughCut": 0.2
+    },
+    "steps": [
+      {
+        "id": "j1",
+        "material": "hardwood",
+        "name": "Walnut square",
+        "regionIds": [
+          0
+        ],
+        "task": {
+          "clearingToolIds": [
+            "t-endmill"
+          ],
+          "cutOut": false,
+          "engagementDepth": 3.0,
+          "glueGap": 0.3,
+          "plugMargin": 8.0,
+          "plugThickness": 10.0,
+          "relief": true,
+          "sawGap": 1.5,
+          "tabs": false,
+          "type": "vcarve",
+          "vbitToolId": "t-vbit"
+        }
+      },
+      {
+        "id": "j2",
+        "material": "softwood",
+        "name": "Maple triangle",
+        "regionIds": [
+          1
+        ],
+        "task": {
+          "allowance": 0.1,
+          "clearingToolIds": [
+            "t-endmill"
+          ],
+          "cutOut": true,
+          "insertMargin": 8.0,
+          "insertStyle": "backer",
+          "insertThickness": 8.0,
+          "pocketDepth": 2.5,
+          "sawGap": 1.0,
+          "tabs": true,
+          "type": "flat"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "cutting": [
+          {
+            "feed": 600.0,
+            "material": "hardwood",
+            "plunge": 90.0,
+            "rpm": 12000,
+            "stepdown": 0.62,
+            "stepover": 1.27
+          }
+        ],
+        "diameter": 3.175,
+        "fluteLength": 22.0,
+        "flutes": 1,
+        "id": "t-endmill",
+        "kind": "flat_end",
+        "length": 45.0,
+        "name": "Ø3.175×22 1F Downcut",
+        "shankDiameter": 3.175
+      },
+      {
+        "cutting": [],
+        "diameter": 12.0,
+        "fluteLength": 15.5,
+        "flutes": 2,
+        "id": "t-vbit",
+        "kind": "v_bit",
+        "length": 46.5,
+        "name": "60° V-groove Ø12 S6",
+        "shankDiameter": 6.0,
+        "tipAngle": 60.0,
+        "tipDiameter": 0.1
+      }
+    ]
+  }
+}
