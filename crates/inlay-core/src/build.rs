@@ -2602,9 +2602,8 @@ fn one_track_bit<'a>(
         t.kind == ToolKind::VBit
             && t.id != like.id
             && (t.tip_angle.unwrap_or(90.0) - angle).abs() < 0.5
-            && t.cutting_row(&ctx.step.material, None).is_some_and(|row| {
-                edge_plan(t, row, width, tip_clearance).is_ok_and(|plan| plan.layers == 1)
-            })
+            && t.cutting_row(&ctx.step.material, None).is_some()
+            && edge_bit(t).is_some_and(|b| width <= chamfer::one_track_width(&b, tip_clearance))
     })
 }
 
@@ -4924,11 +4923,23 @@ pub(crate) mod tests {
                 tool_id: Some("t-vbit".into()),
             });
             p.base.thickness = p.base.thickness.max(15.0);
+            let shape = if width > 3.0 {
+                // Flutes shorter than the tip goes: the layers keep the
+                // wood off the bit above them, and the simulation agrees.
+                // The shape fills the stock, so that beside its edge the
+                // wood is gone, as a chamfer needs.
+                p.tools[1].flute_length = Some(5.0);
+                let design = p.design.as_mut().unwrap();
+                let whole = vec![[0.0, 0.0], [60.0, 0.0], [60.0, 40.0], [0.0, 40.0]];
+                design.regions[0].outer = whole.clone();
+                Region::new(whole)
+            } else {
+                rectangle()
+            };
             let preview = preview(&p, "j", Part::Pocket).unwrap();
             assert_eq!(preview.problems, []);
             let layered = preview.built.warnings.iter().any(|w| w.contains("layers"));
             assert_eq!(layered, width > 3.0, "{:?}", preview.built.warnings);
-            let shape = rectangle();
             let map = &preview.map;
             // The grid's own step, up the slope of the bevel.
             let slack = 0.15 + map.cell / tan;

@@ -124,6 +124,50 @@ impl HeightMap {
     }
 }
 
+impl HeightMap {
+    /// How far into wood the part of the tool above `flutes` would go on a
+    /// move, before the move cuts: wood within its radius that stands both
+    /// above its underside there and more than `flutes` above its tip. Such
+    /// wood the tool would rub away, not cut. 0 where there is none.
+    pub fn rubbed(&self, tool: &ToolProfile, from: P3, to: P3, flutes: f64) -> f64 {
+        let r = tool.radius;
+        if from[0].max(to[0]) + r < 0.0 || from[1].max(to[1]) + r < 0.0 {
+            return 0.0;
+        }
+        let ix0 = (((from[0].min(to[0]) - r) / self.cell).floor().max(0.0)) as usize;
+        let iy0 = (((from[1].min(to[1]) - r) / self.cell).floor().max(0.0)) as usize;
+        let ix1 = (((from[0].max(to[0]) + r) / self.cell)
+            .ceil()
+            .min(self.nx as f64)) as usize;
+        let iy1 = (((from[1].max(to[1]) + r) / self.cell)
+            .ceil()
+            .min(self.ny as f64)) as usize;
+        let lowest = from[2].min(to[2]);
+        let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+        let a = dx * dx + dy * dy;
+        let mut most: f64 = 0.0;
+        for iy in iy0..iy1 {
+            for ix in ix0..ix1 {
+                let [cx, cy] = self.centre(ix, iy);
+                // The nearest the axis comes to the cell along the move.
+                let (ex, ey) = (from[0] - cx, from[1] - cy);
+                let t = if a > 0.0 {
+                    (-(ex * dx + ey * dy) / a).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let (nx, ny) = (ex + t * dx, ey + t * dy);
+                let Some(under) = tool.height((nx * nx + ny * ny).sqrt()) else {
+                    continue;
+                };
+                let above = self.z[iy * self.nx + ix] as f64 - lowest;
+                most = most.max(above - under.max(flutes));
+            }
+        }
+        most
+    }
+}
+
 /// A tool as the simulator sees it: a shape turned around its axis. The
 /// underside is flat out to `tip_radius`, then rises at `slope` (height per
 /// mm of radius) out to `radius`. A corner-rounding bit has `round` instead
@@ -374,7 +418,19 @@ pub fn simulate_segments(
                 );
             }
             if let Some(flutes) = *flute_length {
-                if -lowest > flutes + 1e-9 {
+                // A V-bit or a corner-rounding bit may go deeper than its
+                // flutes where the wood above has been taken already, as a
+                // wide chamfer's layers do: what counts is wood its part
+                // above the flutes would take. Allowing for a cell's width,
+                // over which its flank rises at its slope.
+                let shaped = profile.slope > 0.0 || profile.round > 0.0;
+                let rubs = if shaped {
+                    let slack = map.cell * profile.slope.max(1.0) + 0.02;
+                    map.rubbed(profile, from, to, flutes) > slack
+                } else {
+                    -lowest > flutes + 1e-9
+                };
+                if rubs {
                     report(line, format!("cuts {:.2} mm deep, but the tool's cutting edges are only {flutes:.2} mm long", -lowest));
                 }
             }
@@ -608,6 +664,31 @@ mod tests {
         assert!(sim.problems[0]
             .message
             .contains("cutting edges are only 22.00 mm"));
+
+        // A V-bit (15.5 mm flutes) plunged 17 mm into wood meets it all the way up.
+        let text = "G90 G94\nG21\nM6 T8\nS12000 M3\nG54\nG0 X20.000 Y10.000\nG0 Z5.000\nG1 Z-17.000 F90\nG0 Z5.000\nM5\nG28\nM30\n";
+        let sim = simulate(&interpret(text).unwrap(), &tools(), 40.0, 20.0, 30.0, 0.1);
+        assert!(sim.problems[0]
+            .message
+            .contains("cutting edges are only 15.50 mm"));
+    }
+
+    #[test]
+    fn a_v_bit_may_go_past_its_flutes_where_the_wood_above_is_gone() {
+        // The end mill clears a 12 mm deep pit first; the V-bit then goes 17
+        // mm down in it, meeting only 5 mm of wood.
+        let mut text =
+            String::from("G90 G94\nG21\nM6 T7\nS12000 M3\nG54\nG0 X20.000 Y10.000\nG0 Z5.000\n");
+        for y in [4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0] {
+            text += &format!("G1 X12.000 Y{y:.3} Z-12.000 F90\nG1 X28.000 Y{y:.3} F300\n");
+        }
+        text += "G0 Z5.000\nM5\nM6 T8\nS12000 M3\nG0 X20.000 Y10.000\nG0 Z-11.000\nG1 Z-17.000 F90\nG0 Z5.000\nM5\nG28\nM30\n";
+        let sim = simulate(&interpret(&text).unwrap(), &tools(), 40.0, 20.0, 30.0, 0.1);
+        assert!(
+            !sim.problems.iter().any(|p| p.message.contains("15.50 mm")),
+            "{:?}",
+            sim.problems
+        );
     }
 
     #[test]

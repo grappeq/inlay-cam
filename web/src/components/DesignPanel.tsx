@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { ChamferOp, ContourOp, Design, EdgePlan, FacingOp, ImportReport, Task, Step, StepType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
@@ -1059,21 +1059,33 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 /** Said once, whichever bit cuts the chamfer. */
 const AFTER_THE_EDGE = "Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood must be gone that deep.";
 
-/** For a chamfer: its passes as the core plans them, or why it cannot. Null until known. */
-function useChamferPlan(step: Step): { plan: EdgePlan } | { problem: string } | null {
+type Planned = { plan: EdgePlan } | { problem: string };
+
+/**
+ * For a chamfer: its passes as the core plans them, or why it cannot. Null
+ * until known. Planned again only when what the plan depends on changes:
+ * the step's task, wood and rows, and its bit.
+ */
+function useChamferPlan(step: Step): Planned | null {
   const { project } = useApp();
-  const [planned, setPlanned] = useState<{ plan: EdgePlan } | { problem: string } | null>(null);
+  const task = step.task;
+  const bit = task.type === "chamfer" ? project.tools.find((t) => t.id === task.toolId) : undefined;
+  const key = JSON.stringify([task, step.material, step.rowProfiles, bit]);
+  const [planned, setPlanned] = useState<{ key: string; result: Planned | null } | null>(null);
+  const latest = useRef(project);
+  latest.current = project;
   useEffect(() => {
     let current = true;
     core
-      .call("chamferPlan", project, step.id)
-      .then((result) => current && setPlanned(result))
-      .catch(() => current && setPlanned(null));
+      .call("chamferPlan", latest.current, step.id)
+      .then((result) => current && setPlanned({ key, result }))
+      .catch(() => current && setPlanned({ key, result: null }));
     return () => {
       current = false;
     };
-  }, [project, step.id]);
-  return planned;
+  }, [key, step.id]);
+  // A plan for other numbers is not shown while the new one is worked out.
+  return planned?.key === key ? planned.result : null;
 }
 
 /** A chamfer's numbers, under a drawing of the bit against the edge as they place it. */

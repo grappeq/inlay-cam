@@ -1201,4 +1201,22 @@ The rest of it, the same day.
   a 6 mm bevel in layers, against the simulated stock); 91 UI tests; the drawing and
   the picture card rendered for a one-track bevel, a layered one and a rounding. Not
   yet cut on the machine, and not looked at in the running app.
+- **After a browser test and a review, the same day.**
+  - The simulation refused every layered bevel deeper than the bit's flutes: it held
+    the tip's depth against the flutes. For V-bits and corner-rounding bits it now
+    asks what the planner asks, whether the part of the bit above its flutes would
+    have to take wood (`HeightMap::rubbed`), allowing a cell's width up the flank. End
+    mills keep the plain check. A V-bit plunged past its flutes into solid wood is
+    still reported; a chamfer run on its own over a fresh block, with wood beside the
+    edge where the cut is meant to have been, is reported too, rightly.
+  - The groove follows the kind of bit (`feeds::groove_area`), not its shape: a V-bit
+    with a 1 mm flat was taken for a corner rounder and given a tenth of its groove.
+  - Layered bevels take the layer depth with the fewest passes that fits, not the
+    first. Where a layer's tracks leave ridges, a pass over one cuts deeper than a
+    stepdown in that column; it takes a sliver there, within the groove, and was left
+    so: holding every column to the stepdown put a pointed bit's tracks 0.17 mm apart.
+    The rule is that each layer is at most a stepdown below the last.
+  - A larger bit is named from its geometry alone (`one_track_width`), without
+    planning it; the panel plans again only when the chamfer's task, wood, rows or bit
+    change, and shows no plan for numbers it was not made for.
 

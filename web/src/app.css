@@ -3985,13 +3985,13 @@ ul.plain {
 /* The wood one pass takes; the next one's band is lighter. */
 .ch-pass {
   fill: var(--accent);
-  fill-opacity: 0.3;
+  fill-opacity: 0.36;
   stroke: var(--accent);
   stroke-width: 0.6;
   stroke-opacity: 0.6;
 }
 .ch-pass.alt {
-  fill-opacity: 0.14;
+  fill-opacity: 0.16;
 }
 /* What a facing takes off. */
 .face-cut {

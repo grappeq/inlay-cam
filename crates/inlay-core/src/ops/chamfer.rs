@@ -263,6 +263,18 @@ enum OneTrack {
 }
 use OneTrack::{Rubs, TooMany};
 
+/// The widest bevel a V-bit cuts from the one track beside the edge, its
+/// tip `tip_clearance` clear of it, mm: as far as its cutting edges reach
+/// across. Infinite for a corner-rounding bit, which has no width.
+pub fn one_track_width(bit: &EdgeBit, tip_clearance: f64) -> f64 {
+    match *bit {
+        EdgeBit::V { half_angle, .. } => {
+            (bit.cut_height() * half_angle.tan() - tip_clearance).max(0.0)
+        }
+        EdgeBit::Round { .. } => f64::INFINITY,
+    }
+}
+
 /// Plans the passes that shape an edge, or says why it cannot be done.
 pub fn plan(bit: &EdgeBit, spec: &EdgeSpec) -> Result<EdgePlan, String> {
     if spec.stepdown <= 0.0 || spec.groove <= 0.0 {
@@ -275,12 +287,11 @@ pub fn plan(bit: &EdgeBit, spec: &EdgeSpec) -> Result<EdgePlan, String> {
             ..
         } => {
             let aside = tip_radius + spec.tip_clearance;
-            let one_track = bit.cut_height() * half_angle.tan() - spec.tip_clearance;
             (
                 spec.width,
                 spec.width / half_angle.tan(),
                 aside,
-                one_track.max(0.0),
+                one_track_width(bit, spec.tip_clearance),
             )
         }
         EdgeBit::Round {
@@ -316,6 +327,9 @@ pub fn plan(bit: &EdgeBit, spec: &EdgeSpec) -> Result<EdgePlan, String> {
         (Err(TooMany), _) => return Err(TOO_MANY.into()),
     };
 
+    if passes.is_empty() {
+        return Err("The edge has nothing to cut: the bit goes no depth into it.".into());
+    }
     // Run once more in a fresh section, for what each pass takes and for
     // drawing.
     let mut section = Section::new(across, bit.body_radius());
@@ -459,21 +473,21 @@ fn layered(
         })
     };
 
-    let mut t = spec.stepdown.min(height / 2.0);
-    while t > 1e-3 {
-        let (passes, count) = build(t);
-        if passes.len() > MAX_PASSES {
-            break;
-        }
-        if fits(&passes) {
-            return Ok((passes, count));
-        }
-        t *= 0.92;
-    }
-    Err(TOO_MANY.into())
+    // Of the layer depths, the one with the fewest passes that fits: the
+    // candidates are cheap to lay out, and only checked in that order.
+    let top = spec.stepdown.min(height / 2.0);
+    let mut candidates: Vec<(Vec<Pass>, usize)> = (0..40)
+        .filter_map(|k| build(top * 0.9f64.powi(k)))
+        .collect();
+    candidates.sort_by_key(|(passes, _)| passes.len());
+    candidates
+        .into_iter()
+        .find(|(passes, _)| fits(passes))
+        .ok_or_else(|| TOO_MANY.into())
 }
 
 /// The layers of `layered` for a layer depth `t`, and how many there are.
+/// `None` when they would take too many passes.
 fn layered_build(
     bit: &EdgeBit,
     tan: f64,
@@ -482,13 +496,16 @@ fn layered_build(
     last: f64,
     spec: &EdgeSpec,
     t: f64,
-) -> (Vec<Pass>, usize) {
+) -> Option<(Vec<Pass>, usize)> {
     let height = bit.cut_height();
     let bevel_height = spec.width / tan;
     // Ridges between tracks stand (gap/2 - tip radius)/tan above the layer;
     // with the layer's depth they must stay within the flank.
     let half_gap = (tip_radius + t * tan).min(tip_radius + (height - t) * tan);
     let gap = 2.0 * half_gap;
+    if gap < 1e-3 {
+        return None;
+    }
     let count = (last / t - 1e-9).ceil().max(1.0) as usize;
     let mut passes = Vec::new();
     for j in 1..=count {
@@ -496,6 +513,9 @@ fn layered_build(
         let inner = (bevel_height - z) * tan - tip_radius;
         let outer = -aside;
         if inner <= outer + 1e-9 {
+            if passes.len() >= MAX_PASSES {
+                return None;
+            }
             passes.push(Pass {
                 aside,
                 depth: z,
@@ -513,7 +533,7 @@ fn layered_build(
             });
         }
     }
-    (passes, count)
+    Some((passes, count))
 }
 
 #[cfg(test)]
@@ -648,6 +668,7 @@ mod tests {
             (6.0, 90.0, 0.2, 10.0, 1.0),
             (3.175, 60.0, 0.1, 3.0, 0.5),
             (6.0, 60.0, 0.2, 4.0, 0.8),
+            (3.175, 60.0, 0.2, 8.0, 0.3),
         ] {
             let bit = vbit(d, angle, tip);
             let s = spec(&bit, width, stepdown);
