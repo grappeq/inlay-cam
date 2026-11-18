@@ -24,13 +24,15 @@ interface Props {
   deferred?: boolean;
   /** Shown, and not to be typed in: there is nothing for the number to be of. */
   disabled?: boolean;
+  /** Told when the field gets and loses the cursor, for a drawing that marks what the number moves. */
+  onFocusChange?: (focused: boolean) => void;
 }
 
 /**
  * A number input that only reports complete, in-range numbers. While the text
  * is not a usable number the field is marked invalid and the last good value stays.
  */
-export function NumberField({ label, value, onChange, unit, min = 0, max = Infinity, whole, optional, hint, help, deferred, disabled }: Props) {
+export function NumberField({ label, value, onChange, unit, min = 0, max = Infinity, whole, optional, hint, help, deferred, disabled, onFocusChange }: Props) {
   const id = useId();
   const unusable = (n: number) => Number.isNaN(n) || n < min || n > max || (whole === true && !Number.isInteger(n));
   const [text, setText] = useState(value === undefined ? "" : fmt(value));
@@ -95,7 +97,9 @@ export function NumberField({ label, value, onChange, unit, min = 0, max = Infin
           aria-invalid={invalid}
           disabled={disabled}
           onChange={(e) => change(e.target.value)}
+          onFocus={onFocusChange && (() => onFocusChange(true))}
           onBlur={() => {
+            onFocusChange?.(false);
             if (deferred) commit();
             else if (invalid) revert();
           }}

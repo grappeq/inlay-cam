@@ -50,6 +50,7 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { HelpTip } from "./HelpTip";
+import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
@@ -518,7 +519,7 @@ function StepsSection({ design }: { design: Design }) {
 
 /** The wood and the clearances of a plain operation, and its result: the parts every operation's panel shares. */
 function OpEditor({ step }: { step: Step }) {
-  const { project, defaults, tools } = useApp();
+  const { project, defaults } = useApp();
   const dispatch = useDispatch();
   const output = useOutput(step);
   const setup = stepSetup(step, project);
@@ -633,20 +634,7 @@ function OpEditor({ step }: { step: Step }) {
                 ]}
                 hint={inlay.side === "outside" ? "The shapes stand: the wood outside them has been cut away." : "The shapes are pockets or openings."}
               />
-              {resolveTool(inlay.toolId, tools, project)?.kind !== "corner_round" && (
-                <div className="row">
-                  <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && setInlay({ width: v })} />
-                  <NumberField
-                    label="Tip clear of the edge"
-                    unit="mm"
-                    min={0}
-                    max={MAX_TIP_CLEARANCE}
-                    value={inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE}
-                    onChange={(v) => v !== undefined && setInlay({ tipClearance: v === DEFAULT_TIP_CLEARANCE ? undefined : v })}
-                  />
-                </div>
-              )}
-              <ChamferNote inlay={inlay} />
+              <ChamferFields inlay={inlay} onChange={setInlay} />
             </>
           )}
         </section>
@@ -1094,37 +1082,35 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 /** Said once, whichever bit cuts the chamfer. */
 const AFTER_THE_EDGE = "Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood must be gone that deep.";
 
-/** How deep the V-bit runs for the chamfer, and whether it can cut one that wide. */
-function ChamferNote({ inlay }: { inlay: ChamferOp }) {
+/** A chamfer's numbers, under a drawing of the bit against the edge as they place it. */
+function ChamferFields({ inlay, onChange }: { inlay: ChamferOp; onChange: (change: Partial<ChamferOp>) => void }) {
   const { project, tools } = useApp();
+  // The field being typed in, whose numbers the drawing marks out.
+  const [hot, setHot] = useState<ChamferHot>(null);
   const bit = resolveTool(inlay.toolId, tools, project);
-  if (bit?.kind === "corner_round") {
-    const radius = bit.cornerRadius ?? 0;
-    return (
-      <>
-        <p className="derived">
-          The edge is rounded over to the bit's radius of {fmt(radius)} mm. The bit's tip runs {fmt(round2((bit.tipDiameter ?? 0) / 2))} mm{" "}
-          {inlay.side === "inside" ? "inside" : "outside"} the outline, {fmt(radius)} mm deep.
-        </p>
-        <p className="hint">{AFTER_THE_EDGE}</p>
-      </>
-    );
-  }
-  if (!bit || bit.kind !== "v_bit") return <p className="hint">{AFTER_THE_EDGE}</p>;
-  // As the core works it out: the tip runs its clearance beyond its flat from the edge.
-  const clear = inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE;
-  const aside = (bit.tipDiameter ?? 0) / 2 + clear;
-  const depth = (inlay.width + clear) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180);
-  const widest = bit.diameter / 2 - aside;
+  const clearance = inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE;
+  const cut = bit ? edgeCut(bit, inlay.width, clearance) : null;
+  const mark = (which: ChamferHot) => (focused: boolean) => setHot(focused ? which : null);
   return (
     <>
-      {inlay.width > widest + 1e-9 ? (
+      {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} hot={hot} />}
+      {bit?.kind !== "corner_round" && (
+        <div className="row">
+          <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && onChange({ width: v })} onFocusChange={mark("width")} />
+          <NumberField
+            label="Tip clear of the edge"
+            unit="mm"
+            min={0}
+            max={MAX_TIP_CLEARANCE}
+            value={clearance}
+            onChange={(v) => v !== undefined && onChange({ tipClearance: v === DEFAULT_TIP_CLEARANCE ? undefined : v })}
+            onFocusChange={mark("clearance")}
+          />
+        </div>
+      )}
+      {bit && cut && inlay.width > cut.widest + 1e-9 && (
         <p className="hint warn">
-          "{bit.name}" can cut a chamfer of {fmt(Math.floor(widest * 100) / 100)} mm at most.
-        </p>
-      ) : (
-        <p className="derived">
-          The bit's tip runs {fmt(round2(aside))} mm {inlay.side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
+          "{bit.name}" can cut a chamfer of {fmt(Math.floor(cut.widest * 100) / 100)} mm at most.
         </p>
       )}
       <p className="hint">{AFTER_THE_EDGE}</p>

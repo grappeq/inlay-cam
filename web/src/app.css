@@ -3889,3 +3889,55 @@ ul.plain {
   padding: 3px 9px;
   font-size: 13px;
 }
+
+/* The chamfer in section: the bit against the edge, and what the numbers give. */
+.ch-gone {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.ch-bit {
+  fill: var(--line-strong);
+  fill-opacity: 0.45;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.ch-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.too-wide .ch-edge {
+  stroke: var(--warn);
+}
+.ch-dim path {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1;
+}
+.ch-dim text {
+  fill: var(--text);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.ch-dim.on-wood text {
+  fill: #2a1d0c;
+  stroke: var(--maple);
+}
+.ch-dim.hot path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.ch-dim.hot:not(.on-wood) text {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.ch-dim.faint {
+  opacity: 0.35;
+}
