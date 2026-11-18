@@ -21,7 +21,7 @@ use crate::post::carvera;
 use crate::project::{
     InsertStyle, Machine, PassDirection, Pattern, Project, Setup, Side, Step, Task, VcarveTuning,
 };
-use crate::sim::{self, HeightMap};
+use crate::sim::{self, HeightMap, ToolProfile};
 use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
 use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
 
@@ -147,6 +147,53 @@ pub struct Built {
     /// a plug, the mirrored shapes as they are at the engagement depth.
     #[serde(skip)]
     pub pocket: Vec<Region>,
+    /// Wood the file expects to be gone before it runs.
+    #[serde(skip)]
+    pub gone: Option<Gone>,
+}
+
+/// Wood a file expects to be gone before it runs: a strip beside the edges
+/// it shapes, which another file cut. A file simulated on its own is run on
+/// a board with that strip taken out; in a list of steps the board is as the
+/// steps before left it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gone {
+    /// The outlines the strip runs beside.
+    pub regions: Vec<Region>,
+    /// Which side of them it is on.
+    pub side: Side,
+    /// How wide it is, from the outline, and how deep, mm.
+    pub width: f64,
+    pub depth: f64,
+}
+
+impl Gone {
+    /// Takes the strip out of `map`.
+    fn clear(&self, map: &mut HeightMap) {
+        let toward = if self.side == Side::Inside { -1.0 } else { 1.0 };
+        // An end mill as wide as the strip, taken along its middle. Narrower
+        // ones as well, nearer the edge: a shape narrower than the strip has
+        // no room for the wide one, and is cleared as far as they get.
+        for n in [1, 2, 4] {
+            let across = self.width / n as f64;
+            let mill = ToolProfile::flat(across);
+            for i in 0..n {
+                let aside = (i as f64 + 0.5) * across;
+                for track in offset(&self.regions, toward * aside) {
+                    for ring in track.rings() {
+                        for k in 0..ring.len() {
+                            let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                            map.cut(
+                                &mill,
+                                [a[0], a[1], -self.depth],
+                                [b[0], b[1], -self.depth],
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -571,6 +618,7 @@ pub fn build_with(
     let through = cut.through;
     let piece = cut.piece;
     let cut_width = cut.cut_width;
+    let gone = cut.gone;
     let shapes = extent(&pocket);
 
     let (width, height) = cut.board.unwrap_or_else(|| design.placed_size());
@@ -627,6 +675,7 @@ pub fn build_with(
         program,
         interpreted,
         pocket,
+        gone,
     })
 }
 
@@ -748,6 +797,8 @@ struct Cut {
     /// How far beyond the plug's edge the end mills cleared, when the plug
     /// is cut out of a larger board.
     overrun: f64,
+    /// Wood the moves expect to be gone already.
+    gone: Option<Gone>,
 }
 
 /// How far beyond the edge of a plug an end mill this wide may clear when the
@@ -2721,6 +2772,16 @@ fn chamfer(
         }],
         moves: path.finish(),
         pocket: regions.to_vec(),
+        // Room for the whole bit beside the edge on its last track, and a
+        // little over for the grid the simulation runs on.
+        gone: Some(Gone {
+            regions: regions.to_vec(),
+            side,
+            width: last.aside
+                + edge_bit(bit).map_or(bit.diameter / 2.0, |b| b.body_radius())
+                + 0.2,
+            depth,
+        }),
         ..Cut::default()
     })
 }
@@ -2964,6 +3025,8 @@ pub fn join(
         program,
         interpreted,
         pocket,
+        // The steps before it in the file are to have cut what one needs gone.
+        gone: None,
     };
     Ok(Joined { built, starts })
 }
@@ -3044,18 +3107,15 @@ fn simulated(built: Built) -> Preview {
         .map(|t| (t.number, t.tool.clone()))
         .collect();
     let cell = HeightMap::cell_for(width, height, 2_000_000.0, 0.05);
+    let mut map = HeightMap::new(width, height, cell);
+    if let Some(gone) = &built.gone {
+        gone.clear(&mut map);
+    }
     // Simulate what the file says, read back from its text.
-    let simulation = sim::simulate(
-        &built.interpreted,
-        &tools,
-        width,
-        height,
-        thickness + through,
-        cell,
-    );
+    let problems = sim::simulate_onto(&mut map, &built.interpreted, &tools, thickness + through);
     Preview {
-        map: simulation.map,
-        problems: simulation.problems,
+        map,
+        problems,
         built,
     }
 }
@@ -4966,6 +5026,64 @@ pub(crate) mod tests {
                 }
             }
             assert!(checked > 1000);
+        }
+    }
+
+    #[test]
+    fn a_chamfers_own_file_is_simulated_with_the_edge_already_cut() {
+        // A small 90° bit whose flank is 1.54 mm high bevels 2 mm in layers,
+        // its tip 2.2 mm deep beside the edge. That is no fault where the
+        // wood beside the edge is gone, as the file expects.
+        for side in [Side::Outside, Side::Inside] {
+            let mut p = op_project(Task::Chamfer {
+                side,
+                width: 2.0,
+                tip_clearance: DEFAULT_TIP_CLEARANCE,
+                tool_id: Some("t-vbit".into()),
+            });
+            p.tools[1].diameter = 3.175;
+            p.tools[1].tip_angle = Some(90.0);
+            p.tools[1].flute_length = Some(1.54);
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert!(preview.built.warnings.iter().any(|w| w.contains("layers")));
+            assert_eq!(preview.problems, [], "{side:?}");
+            // The bevel is cut, and the wood beyond it is left alone.
+            let shape = rectangle();
+            let map = &preview.map;
+            let mut checked = 0;
+            for iy in 0..map.ny {
+                for ix in 0..map.nx {
+                    let q = map.centre(ix, iy);
+                    if !(q[0] > 12.0 && q[0] < 28.0) || shape.contains(q) != (side == Side::Outside)
+                    {
+                        continue;
+                    }
+                    let d = shape.distance_to_boundary(q);
+                    let ideal = if d < 2.0 { -(2.0 - d) } else { 0.0 };
+                    let z = map.at(ix, iy) as f64;
+                    assert!((z - ideal).abs() < 0.2, "{side:?}: {z} at {d}, wanted {ideal}");
+                    checked += 1;
+                }
+            }
+            assert!(checked > 1000);
+
+            // In uncut wood the bit's body would run through it, and that is said.
+            let built = &preview.built;
+            let tools = built
+                .program
+                .tools
+                .iter()
+                .map(|t| (t.number, t.tool.clone()))
+                .collect();
+            let fresh = sim::simulate(
+                &built.interpreted,
+                &tools,
+                built.stock.width,
+                built.stock.height,
+                built.stock.thickness,
+                map.cell,
+            );
+            assert!(fresh.problems[0].message.contains("only 1.54 mm long"));
         }
     }
 

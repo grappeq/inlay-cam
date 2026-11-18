@@ -60,7 +60,7 @@ impl EdgeBit {
     }
 
     /// Half the width of the body above the cutting edges.
-    fn body_radius(&self) -> f64 {
+    pub fn body_radius(&self) -> f64 {
         match *self {
             EdgeBit::V { radius, .. } => radius,
             EdgeBit::Round {
