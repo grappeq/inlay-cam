@@ -1051,7 +1051,7 @@ impl<'a> Context<'a> {
             if loaded != Some(tool.id.as_str()) {
                 let known = tools
                     .iter()
-                    .find(|t| t.tool.id == tool.id)
+                    .find(|t| t.tool.same_bit(tool))
                     .map(|t| t.number);
                 let its = known.unwrap_or(*number);
                 if known.is_none() {
@@ -1754,7 +1754,7 @@ fn cut_piece_out(
     }
 
     // The same tool keeps its number if it was used before.
-    let number = match cut.tools.iter().find(|t| t.tool.id == tool.id) {
+    let number = match cut.tools.iter().find(|t| t.tool.same_bit(tool)) {
         Some(used) => used.number,
         None => {
             let number = cut
@@ -2822,7 +2822,8 @@ fn chamfer(
 /// Builds one file that runs the stock's part of several steps one after the
 /// other, in the order given: an inlay's pocket, or a plain operation. A tool
 /// that the next step also starts with stays in the spindle, and tools keep
-/// one number each through the whole file.
+/// one number each through the whole file: a bit the project carries under
+/// two ids is one tool there (`Tool::same_bit`).
 pub fn build_combined(project: &Project, step_ids: &[String]) -> Result<Built, Vec<String>> {
     if step_ids.is_empty() {
         return Err(vec!["Tick what the file should cut.".to_string()]);
@@ -2916,7 +2917,7 @@ pub fn join(
         // This part's tool numbers as they are in the whole file.
         let mut numbers: HashMap<u32, u32> = HashMap::new();
         for t in &built.program.tools {
-            let number = match tools.iter().find(|known| known.tool.id == t.tool.id) {
+            let number = match tools.iter().find(|known| known.tool.same_bit(&t.tool)) {
                 Some(known) => known.number,
                 None => {
                     let number = project.machine.first_tool + tools.len() as u32;
@@ -5228,6 +5229,28 @@ pub(crate) mod tests {
         assert!((two.built.stats.cutting_length - alone).abs() < 1e-6);
         let lowest = two.map.z.iter().fold(f32::INFINITY, |a, b| a.min(*b));
         assert!((lowest + 6.2).abs() < 1e-4);
+
+        // The same bit under another id, as a project carries a copy from
+        // another tool list beside the list's own, is one tool in the file.
+        let mut twice = p.clone();
+        let mut copy = twice.tools[0].clone();
+        copy.id = "t-endmill-copy".into();
+        copy.note = Some("from another list".into());
+        twice.tools.push(copy);
+        if let Task::Contour { tool_id, .. } = &mut twice.steps[1].task {
+            *tool_id = Some("t-endmill-copy".into());
+        }
+        let one = preview_combined(&twice, &ids(&["j", "c"])).unwrap();
+        assert_eq!(one.problems, []);
+        assert_eq!(one.built.program.tools.len(), 1);
+        assert_eq!(one.built.interpreted.tool_changes, [1]);
+        assert_eq!(one.built.gcode.matches("M6").count(), 1);
+        assert_eq!(one.built.gcode.matches("flat end mill)").count(), 1);
+        assert_eq!(one.built.gcode, two.built.gcode);
+        // One that differs in a measure is another tool.
+        twice.tools[2].flute_length = Some(30.0);
+        let other = preview_combined(&twice, &ids(&["j", "c"])).unwrap();
+        assert_eq!(other.built.interpreted.tool_changes, [1, 2]);
 
         // With the chamfer between them the end mill is loaded twice, under one number.
         let three = preview_combined(&p, &ids(&["j", "v", "c"])).unwrap();

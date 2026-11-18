@@ -397,6 +397,28 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// Whether the two are one bit to whoever loads the machine: the same
+    /// entry, or entries alike in name, kind and every measure. A project
+    /// can carry a tool twice under two ids, as a copy from another tool
+    /// list beside the list's own; a file names such a bit once.
+    pub fn same_bit(&self, other: &Tool) -> bool {
+        self.id == other.id
+            || (self.name == other.name
+                && self.kind == other.kind
+                && self.diameter == other.diameter
+                && self.tip_diameter == other.tip_diameter
+                && self.corner_radius == other.corner_radius
+                && self.tip_angle == other.tip_angle
+                && self.flute_length == other.flute_length
+                && self.shoulder_length == other.shoulder_length
+                && self.shank_diameter == other.shank_diameter
+                && self.length == other.length
+                && self.flutes == other.flutes
+                && self.thread_diameter == other.thread_diameter
+                && self.pitch == other.pitch
+                && self.drill_diameter == other.drill_diameter)
+    }
+
     /// A tool with a shank as wide as its cutting diameter and nothing else
     /// known about it. Its id is empty.
     pub fn new(name: impl Into<String>, kind: ToolKind, diameter: f64) -> Self {
