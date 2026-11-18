@@ -1296,7 +1296,8 @@ from any web host, and a server is something the same build can be served by.
 - **No login**, like the workbench, with its guards: only `localhost` is answered unless
   told otherwise, and a write needs a header that another site's page cannot send.
 - `Dockerfile` and `compose.yaml` build and run it with the data folder as a volume.
-  [../agent-brief.md](../agent-brief.md) is the workbench's agent prompt for this API.
+  [../agent-brief.md](../agent-brief.md) is the workbench's agent prompt for this API,
+  and [../server.md](../server.md) shows how the server works, with diagrams.
 - Checked by test: 31 in the server, on the routes as functions over a folder with the
   starter set (reads, patch, misspelt keys, conflict, dry run, backup and putting it back,
   log, add and delete, suggestions against the core, the exports against the core, the

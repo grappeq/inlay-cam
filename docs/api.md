@@ -12,6 +12,9 @@ tool is in that file's words: `fluteLength`, `shankDiameter`, `cutting`, and so 
 mm, `rpm` is rev/min, `feed` and `plunge` are mm/min, and a row's `stepover` is mm whatever
 its `stepoverUnit` says.
 
+[server.md](server.md) shows how the parts fit and what happens to a write, in pictures;
+this file is the reference.
+
 ## Conventions
 
 **No login.** Whoever reaches the server can read and change the tool file. Two checks keep

@@ -46,7 +46,7 @@ responsibility.
 | `crates/inlay-server` | Optional server: the built app, with tools, projects and settings kept in one data folder and an [HTTP API](docs/api.md) over them |
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
-| `docs` | [User guide](docs/guide.md) and [file formats](docs/formats.md); what is still to do is in the [roadmap](docs/roadmap.md); `docs/design` holds the original [requirements](docs/design/requirements.md) and the [build plan](docs/design/plan.md), with what was done and why |
+| `docs` | [User guide](docs/guide.md) and [file formats](docs/formats.md); [how the server works](docs/server.md) and its [API](docs/api.md); what is still to do is in the [roadmap](docs/roadmap.md); `docs/design` holds the original [requirements](docs/design/requirements.md) and the [build plan](docs/design/plan.md), with what was done and why |
 | `tools` | The script that writes the test drawings |
 
 ## Building
@@ -100,7 +100,8 @@ cargo run --release -p inlay-server -- --web web/dist --data data
   minute. When two change the list at the same moment, the second is told that the list was
   read again and its last change was not kept. A project is not checked so: open in two
   browsers at once, the one saved last is the one kept, as with two tabs of one browser.
-- [docs/api.md](docs/api.md) describes the API, and
+- [docs/server.md](docs/server.md) shows how the server works, with pictures.
+  [docs/api.md](docs/api.md) describes the API, and
   [docs/agent-brief.md](docs/agent-brief.md) is a brief to paste into an agent so that it
   reads your tools and their speeds and feeds from the server and logs your runs.
 
