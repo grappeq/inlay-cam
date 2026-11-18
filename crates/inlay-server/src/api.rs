@@ -205,7 +205,10 @@ impl Api {
     /// Why a request must not be answered at all, whatever it asks for:
     /// `Some` for a `Host` that is not this machine.
     pub fn refuse_host(&self, host: Option<&str>) -> Option<Response> {
-        if self.any_host || host.is_some_and(|h| LOCAL_HOSTS.contains(&host_name(h))) {
+        if self.any_host
+            || host
+                .is_some_and(|h| LOCAL_HOSTS.contains(&host_name(h).to_ascii_lowercase().as_str()))
+        {
             return None;
         }
         Some(
@@ -234,7 +237,18 @@ impl Api {
             .collect::<Option<_>>()
             .ok_or_else(|| Refusal::bad("the path is not UTF-8"))?;
         let segments: Vec<&str> = decoded.iter().map(String::as_str).collect();
-        for (_, value) in &request.query {
+        let known = query_names(&request.method, &segments);
+        for (name, value) in &request.query {
+            if !known.contains(&name.as_str()) {
+                let takes = if known.is_empty() {
+                    "it takes none".to_string()
+                } else {
+                    format!("it takes {}", known.join(", "))
+                };
+                return Err(Refusal::bad(format!(
+                    "{name} is not a query parameter of this route: {takes}. A write's token, dryRun and diff go in its body."
+                )));
+            }
             if value.chars().count() > MAX_QUERY {
                 return Err(Refusal::bad(format!(
                     "a query value has more than {MAX_QUERY} characters"
@@ -292,11 +306,15 @@ impl Api {
     fn current(&self) -> Result<(Loaded, ToolLibrary), Refusal> {
         let loaded = self.store.load().map_err(Refusal::internal)?;
         let library = library_from_file_json(&loaded.text).map_err(|e| {
-            Refusal::new(
+            let mut refusal = Refusal::new(
                 422,
                 "load_error",
-                format!("The tool file on the server cannot be read: {e}"),
-            )
+                format!("The tool file on the server cannot be read: {e}. PUT /api/library with this token replaces it; the backups are under /api/backups."),
+            );
+            refusal
+                .extra
+                .insert("token".into(), loaded.token.clone().into());
+            refusal
         })?;
         Ok((loaded, library))
     }
@@ -344,7 +362,7 @@ impl Api {
             .map_err(|_| Refusal::bad("the body is not UTF-8"))?;
         let replacement =
             library_from_file_json(text).map_err(|e| Refusal::invalid(e.to_string()))?;
-        self.write(&options, |library| {
+        self.write_over(&options, true, |library| {
             *library = replacement;
             Ok(Map::new())
         })
@@ -802,7 +820,17 @@ impl Api {
             _ => return Err(Refusal::bad("value is required: a text, or null")),
         };
         let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        let mut settings = self.read_settings()?;
+        // Settings that cannot be read are set aside, not left to refuse
+        // every setting from then on.
+        let mut settings = match self.read_settings() {
+            Ok(settings) => settings,
+            Err(_) => {
+                self.store
+                    .set_settings_aside((self.clock)())
+                    .map_err(Refusal::internal)?;
+                Map::new()
+            }
+        };
         if value.is_null() {
             settings.remove(key);
         } else {
@@ -823,8 +851,26 @@ impl Api {
         options: &Options,
         change: impl FnOnce(&mut ToolLibrary) -> Result<Map<String, Value>, Refusal>,
     ) -> Answer {
+        self.write_over(options, false, change)
+    }
+
+    /// `whole` is for a change that replaces the whole list. It goes
+    /// through over a file that cannot be read as a tool file, which is how
+    /// such a file is put right: the token is of its bytes, readable or not.
+    fn write_over(
+        &self,
+        options: &Options,
+        whole: bool,
+        change: impl FnOnce(&mut ToolLibrary) -> Result<Map<String, Value>, Refusal>,
+    ) -> Answer {
         let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        let (loaded, mut library) = self.current()?;
+        let (loaded, mut library) = match self.current() {
+            Err(refusal) if whole && refusal.code == "load_error" => (
+                self.store.load().map_err(Refusal::internal)?,
+                ToolLibrary::default(),
+            ),
+            other => other?,
+        };
         if options.token != loaded.token {
             let mut refusal = Refusal::new(
                 409,
@@ -863,6 +909,22 @@ impl Api {
             body.insert("backup".into(), saved.backup.into());
         }
         Ok(Response::json(200, &Value::Object(body)))
+    }
+}
+
+/// A refusal made outside the routes, in the same envelope.
+pub fn refusal(status: u16, code: &'static str, message: &str) -> Response {
+    Refusal::new(status, code, message).response()
+}
+
+/// The query parameters a route reads. One it does not read is refused: a
+/// `?dryRun=1` passed over in silence would write what was only to be tried.
+fn query_names(method: &str, segments: &[&str]) -> &'static [&'static str] {
+    match (method, segments) {
+        ("GET", ["api", "tools"]) => &["q", "material"],
+        ("GET", ["api", "tools", _, "suggestions"]) => &["row", "all"],
+        ("PUT", ["api", "library"]) => &["token", "dryRun", "diff"],
+        _ => &[],
     }
 }
 

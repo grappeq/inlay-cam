@@ -103,7 +103,7 @@ of one browser. Only the tool list has several writers by design.
   `tools-20261118-091203-000.json`.
 - **The newest 30 are all kept.** The page saves on every edit, so recent history is whole.
 - **Older ones thin to one a day, for 60 days**: the last backup of each day stays.
-- **A deleted project** is moved here, as `project-<date>-<time>-<id>.json`, and stays.
+- **A deleted project** is moved here, as `project-<date>-<time>-<ms>-<id>.json`, and stays.
 
 Putting a tool file back needs no route of its own: `GET /api/backups/<name>`, then `PUT`
 its text to `/api/library`. The file it replaces is backed up in turn.

@@ -1245,8 +1245,9 @@ from any web host, and a server is something the same build can be served by.
 - **The server** (`crates/inlay-server`). A small Rust program on the core: it serves
   `web/dist` and keeps `tools.json` in a data folder. Rust, so that the file is checked,
   the libraries for other programs written and the feeds model asked by the same code the
-  page runs as WebAssembly; nothing of them is written twice. `tiny_http` and threads, no
-  async runtime: the load is one household.
+  page runs as WebAssembly; nothing of them is written twice. Threads and no async
+  runtime: the load is one household. HTTP was `tiny_http` at first and is now the
+  server's own `http.rs`, see the review below.
 - **The file is the app's own tool file**, the text that "Export a tool file" writes and
   that browser storage held. No new format, and the page needs no second way to read or
   write its list. The Python workbench edited the lines of a YAML file in place to keep its
@@ -1298,14 +1299,44 @@ from any web host, and a server is something the same build can be served by.
 - `Dockerfile` and `compose.yaml` build and run it with the data folder as a volume.
   [../agent-brief.md](../agent-brief.md) is the workbench's agent prompt for this API,
   and [../server.md](../server.md) shows how the server works, with diagrams.
-- Checked by test: 31 in the server, on the routes as functions over a folder with the
+- **Reviewed and tested by three other agents the same day**, one reading the server, one
+  the page, one sending the running server whatever might break it. What they found and
+  what was done:
+  - A `Content-Length` of 99999999999 ended the process, whatever else the request was:
+    `tiny_http` allocates what a request claims when it lets an unread body go. It also
+    has no time limit on a read and no limit on a header. So HTTP is now `http.rs`, some
+    two hundred lines over the standard library: one request on a connection, a body by
+    `Content-Length` up to its route's limit, thirty seconds for any read or write, a
+    thread for each connection up to 512. With 200 clients stopped in the middle of a body
+    the server answers as before.
+  - A tool file that could not be read could not be replaced through the API either,
+    which is how a backup is put back. `PUT /api/library` now goes over it, by the token
+    of its bytes. Settings that cannot be read are moved to `backups/`.
+  - A `?dryRun=1` on a route that reads `dryRun` from the body was passed over, and the
+    write made. A query parameter a route does not read is now refused.
+  - The page wrote the default machine and inlay defaults to the server when its read of
+    them at start had failed. Nothing read at start is written back until it is changed.
+  - A change waiting behind a refused one was written over the list just taken from the
+    server, undoing someone else's change without a word; a list asked for before a save
+    and arriving after it put the older list on screen. Both are now let go.
+  - What the screens remember was written whole from one browser's copy. Each write is
+    now this page's choices over what the server has at that moment.
+  - Smaller: a backup is never thinned in the write that made it, whatever the clock
+    says; a deleted project's file is named to the millisecond; `Host` is compared without
+    regard to case.
+  - Not found: a way out of the data or web folder, a way in for a page of another site,
+    a write that loses the race and is kept all the same (30 at once: one kept, 29
+    refused).
+- Checked by test: 37 in the server, on the routes as functions over a folder with the
   starter set (reads, patch, misspelt keys, conflict, dry run, backup and putting it back,
   log, add and delete, suggestions against the core, the exports against the core, the
-  guards, projects, settings) and on the store (backup names, thinning, UTC dates). In a browser against the
+  guards, projects, settings, an unreadable file put right) and on the store (backup names, thinning, UTC dates) and on `http.rs` (lengths, refusals). In a browser against the
   running server: the starter set added in the page and found on the server; a tool
   renamed through the API shown in the page when it is come back to; a change made in the
   page over a list changed meanwhile refused, said, and the next one kept.
-- Known limits: nothing moves what a browser holds to a server but files, by hand; a
+- Known limits: deleted projects in `backups/` have no route and are never thinned; a
+  material whose key has an `@` in it cannot be given a new row by a patch; a project's
+  32 MB are read before the write is checked for where it comes from; nothing moves what a browser holds to a server but files, by hand; a
   project open in two browsers is the last one saved; saving a project reads it back from
   the server first, to tell a change from none; a refused change is dropped, not merged, though two changes to different
   tools could both be kept; materials, profiles and groups are changed through the API

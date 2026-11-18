@@ -394,8 +394,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { tools, ...lists } = await core.call("libraryFromFile", read.text);
     return { tools, lists, token: read.token, text: await core.call("libraryToFile", { ...lists, tools }) };
   }, []);
+  // Counts the lists taken from the server. A change waiting to be written
+  // was made to the list before, and is let go when another has been taken.
+  const taken = useRef(0);
+  // What was read at start. Until it is changed here it is not written
+  // back: what could not be read would go over what the server holds.
+  const asLoaded = useRef<{ tools?: Tool[]; lists?: ToolLists; machine?: Machine; defaults?: Setup }>({});
   /** Makes a list read from the server the one this page works on. */
   const hold = useCallback((read: SharedList) => {
+    taken.current++;
     shared.current = { token: read.token, text: read.text };
     dispatch({ type: "setTools", tools: read.tools, lists: read.lists });
   }, []);
@@ -437,6 +444,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
       const defaults = readSetup(await db.getSetting("inlayDefaults").catch(() => undefined));
       if (cancelled) return;
+      asLoaded.current = { tools, lists, machine, defaults };
       dispatch({ type: "loaded", tools, lists, home, machine, defaults, project, projects });
       if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
@@ -487,15 +495,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       (async () => db.putSetting("tools", await core.call("libraryToFile", library)))().catch(failed);
       return;
     }
+    if (state.tools === asLoaded.current.tools && state.lists === asLoaded.current.lists) return;
+    const base = taken.current;
     toolWritesWaiting.current++;
     let begun = false;
     const timer = setTimeout(() => {
       begun = true;
       toolWrites.current = toolWrites.current
         .then(async () => {
+          // Another list was taken while this change waited, after a
+          // refusal that has said so: written now, it would go over the
+          // change someone else made.
+          if (taken.current !== base) return;
           const text = await core.call("libraryToFile", library);
           if (text === shared.current.text) return;
-          if (shared.current.token === null) throw new Error("it could not be read from the server, so there is nothing to change.");
+          if (shared.current.token === null) {
+            // Never read: read now, and the change made on nothing is given up.
+            const read = await readShared();
+            if (read) hold(read);
+            throw new Error("it had not been read from the server. It has been read now, and your last change to it was not kept.");
+          }
           const token = await server.writeLibrary(text, shared.current.token);
           if (token !== "conflict") {
             shared.current = { token, text };
@@ -530,9 +549,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const look = async () => {
       if (looking || document.visibilityState !== "visible" || toolWritesWaiting.current > 0) return;
       looking = true;
+      const had = shared.current.token;
       try {
         const read = await readShared();
-        if (read && toolWritesWaiting.current === 0) hold(read);
+        // Not when a change went out meanwhile: this list is older than it.
+        if (read && toolWritesWaiting.current === 0 && shared.current.token === had) hold(read);
       } catch {
         // Out of reach for now: the next look, or the next save, will say.
       } finally {
@@ -550,14 +571,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state.ready, state.home, readShared, hold]);
 
   useEffect(() => {
-    if (!state.ready) return;
+    if (!state.ready || state.machine === asLoaded.current.machine) return;
     db.putSetting("machine", JSON.stringify(state.machine)).catch((e) =>
       dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } }),
     );
   }, [state.ready, state.machine]);
 
   useEffect(() => {
-    if (!state.ready) return;
+    if (!state.ready || state.defaults === asLoaded.current.defaults) return;
     db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch((e) =>
       dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } }),
     );

@@ -111,7 +111,9 @@ impl Store {
         }
         let backup = self.keep_backup(&before, now)?;
         self.replace(text)?;
-        self.prune()?;
+        // The write is done: a backup that cannot be thinned is no reason
+        // to call it failed.
+        let _ = self.prune(&backup);
         let loaded = self.load()?;
         Ok(Saved {
             token: loaded.token,
@@ -168,13 +170,21 @@ impl Store {
     /// Takes a project off the list. Its file is not destroyed: it is moved
     /// to `backups/`. False for an id no project has.
     pub fn delete_project(&self, id: &str, now: SystemTime) -> io::Result<bool> {
-        let (y, mo, d, h, mi, s, _) = civil(now);
-        let kept = format!("project-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}-{id}.json");
+        let (y, mo, d, h, mi, s, ms) = civil(now);
+        let kept = format!("project-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}-{ms:03}-{id}.json");
         match fs::rename(self.project_path(id), self.dir.join(BACKUPS).join(kept)) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e),
         }
+    }
+
+    /// Moves a `settings.json` that cannot be read out of the way, to
+    /// `backups/`, so that settings can be kept again.
+    pub fn set_settings_aside(&self, now: SystemTime) -> io::Result<()> {
+        let (y, mo, d, h, mi, s, ms) = civil(now);
+        let kept = format!("settings-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}-{ms:03}.json");
+        fs::rename(self.dir.join(SETTINGS), self.dir.join(BACKUPS).join(kept))
     }
 
     /// The text of `settings.json`; `{}` while there is none.
@@ -234,9 +244,14 @@ impl Store {
         }
     }
 
-    fn prune(&self) -> io::Result<()> {
+    /// Thins the backups, all but the one `just_kept`: with a clock set
+    /// back, the newest by name is not the one just made.
+    fn prune(&self, just_kept: &str) -> io::Result<()> {
         let names: Vec<String> = self.backups()?.into_iter().map(|b| b.name).collect();
-        for name in dropped(&names) {
+        for name in dropped(&names)
+            .into_iter()
+            .filter(|n| n.as_str() != just_kept)
+        {
             fs::remove_file(self.dir.join(BACKUPS).join(name))?;
         }
         Ok(())
@@ -466,7 +481,9 @@ pub mod tests {
         assert!(store.delete_project("a-1", at(1_794_993_123)).unwrap());
         assert!(!store.delete_project("a-1", at(1_794_993_123)).unwrap());
         assert!(store.project("a-1").unwrap().is_none());
-        let moved = scratch.0.join("backups/project-20261118-091203-a-1.json");
+        let moved = scratch
+            .0
+            .join("backups/project-20261118-091203-000-a-1.json");
         assert_eq!(fs::read_to_string(moved).unwrap(), "first");
         // It is not taken for a backup of the tool file.
         assert!(store.backups().unwrap().is_empty());

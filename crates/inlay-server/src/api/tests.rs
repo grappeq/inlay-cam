@@ -773,3 +773,85 @@ fn settings_are_kept_one_text_per_key() {
         400
     );
 }
+
+#[test]
+fn a_file_that_cannot_be_read_is_put_right_by_replacing_it() {
+    let served = served();
+    let (_, good) = served.get("/api/library");
+    let good = serde_json::to_string(&good).unwrap();
+    std::fs::write(served.api.store.path(), "{").unwrap();
+
+    let (status, body) = served.get("/api/library");
+    assert_eq!(
+        (status, &body["error"]["code"]),
+        (422, &json!("load_error"))
+    );
+    let token = body["error"]["token"].as_str().unwrap().to_string();
+    // One tool cannot be changed in a file that is no tool file.
+    let (status, _) = served.write(
+        "PATCH",
+        "/api/tools/starter-01",
+        json!({ "token": token, "patch": { "note": "x" } }),
+    );
+    assert_eq!(status, 422);
+    let put = served.send(
+        "PUT",
+        "/api/library",
+        &[("if-match", "wrong")],
+        good.as_bytes(),
+    );
+    assert_eq!(put.status, 409);
+    let put = served.send(
+        "PUT",
+        "/api/library",
+        &[("if-match", &token)],
+        good.as_bytes(),
+    );
+    assert_eq!(put.status, 200, "{}", String::from_utf8_lossy(&put.body));
+    assert_eq!(
+        served.get("/api/tools").1["tools"]
+            .as_array()
+            .unwrap()
+            .len(),
+        50
+    );
+    // What could not be read is kept all the same.
+    assert_eq!(
+        served.get("/api/backups").1["backups"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn settings_that_cannot_be_read_are_set_aside() {
+    let served = served();
+    let settings = served.api.store.path().with_file_name("settings.json");
+    std::fs::write(&settings, "not json").unwrap();
+    assert_eq!(served.get("/api/settings").0, 422);
+    assert_eq!(
+        served
+            .write("PUT", "/api/settings/machine", json!({ "value": "m" }))
+            .0,
+        200
+    );
+    assert_eq!(served.get("/api/settings").1, json!({ "machine": "m" }));
+}
+
+#[test]
+fn a_query_parameter_a_route_does_not_read_is_refused() {
+    let served = served();
+    let token = served.token();
+    let delete = served.send(
+        "DELETE",
+        "/api/tools/starter-01?dryRun=1",
+        &[("if-match", &token), ("content-type", "")],
+        b"",
+    );
+    assert_eq!(delete.status, 400);
+    assert_eq!(served.get("/api/tools/starter-01").0, 200);
+    assert_eq!(served.get("/api/attention?x=1").0, 400);
+    assert_eq!(served.get("/api/tools?q=drill").0, 200);
+}

@@ -24,7 +24,13 @@ other web sites out:
   `--any-host`. That stops DNS rebinding.
 - Anything but a `GET` needs the header `X-Inlay: 1` and `Content-Type: application/json`,
   and, when the browser sends them, an `Origin` that is the server's own and a
-  `Sec-Fetch-Site` of `same-origin` or `none`.
+  `Sec-Fetch-Site` of `same-origin` or `none`. A `DELETE` without a body needs no
+  `Content-Type`.
+- A body is sent with a `Content-Length`; a chunked one is refused with 411. A request's
+  headers may come to 64 KB, and each request is answered on a connection of its own.
+- A query parameter a route does not read is refused with 400. A write's `token`, `dryRun`
+  and `diff` go in its body; only `PUT /api/library`, whose body is the file, takes them in
+  the query.
 
 **The token.** Every read answers `token`: the SHA-256 of the tool file as it is. Every
 write sends back the token of the read it is based on, as `token` in the body or as
@@ -68,7 +74,7 @@ present `token`, and neither `savedAt` nor `backup`.
 | 413 | `too_large` | A body over 256 KB; over 8 MB for `PUT /api/library`; over 32 MB for a project | |
 | 415 | `unsupported_media_type` | A write without `Content-Type: application/json` | |
 | 422 | `invalid` | The write would leave the tool file invalid | |
-| 422 | `load_error` | The tool file on the server cannot be read, so nothing can be answered from it | |
+| 422 | `load_error` | The tool file on the server cannot be read, so nothing can be answered from it. `PUT /api/library` with the token given replaces it | `token` |
 | 422 | `export_failed` | Makera CAM could not read the library that would be written | |
 | 500 | `internal` | The data folder could not be read or written | |
 
@@ -231,7 +237,7 @@ milliseconds since 1970. `GET /api/projects/<id>` answers the project file's tex
 `X-Modified`. `PUT` takes a project file, checks it as the app checks an opened one and
 that its id is the path's, and keeps it as `projects/<id>.json`; an id is 1 to 64 letters,
 digits, `-` or `_`. Up to 32 MB. `DELETE` moves the file to `backups/` as
-`project-<date>-<time>-<id>.json`.
+`project-<date>-<time>-<ms>-<id>.json`.
 
 `GET /api/settings` answers an object of texts by key: `machine`, `inlayDefaults`,
 `lastProjectId` and `view` (what the screens remember, such as the tool list's sort order).

@@ -10,14 +10,15 @@
 //! keeps its tool list there, in place of the browser's own storage.
 
 mod api;
+mod http;
 mod store;
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use api::{Api, Request, Response};
-use tiny_http::{Header, Server, StatusCode};
 
 const USAGE: &str = "\
 inlay-server: the inlay-cam app with one shared tool file
@@ -113,8 +114,8 @@ fn main() {
         }
     }
     let address = format!("{}:{}", settings.host, settings.port);
-    let server = match Server::http(&address) {
-        Ok(server) => Arc::new(server),
+    let listener = match std::net::TcpListener::bind(&address) {
+        Ok(listener) => listener,
         Err(e) => {
             eprintln!("Cannot listen on {address}: {e}");
             std::process::exit(1);
@@ -126,20 +127,42 @@ fn main() {
     );
     let api = Arc::new(Api::new(store, settings.any_host));
     let web = Arc::new(settings.web);
-    // Requests are short; a few threads keep one slow client from holding
-    // up the rest.
-    let workers: Vec<_> = (0..4)
-        .map(|_| {
-            let (server, api, web) = (server.clone(), api.clone(), web.clone());
-            std::thread::spawn(move || {
-                while let Ok(request) = server.recv() {
-                    serve(request, &api, web.as_deref());
-                }
-            })
-        })
-        .collect();
-    for worker in workers {
-        let _ = worker.join();
+    // Each connection on a thread of its own: a client that stops in the
+    // middle of its request, or a request that ends in a panic, holds up
+    // and takes down nothing else. Past MAX_OPEN the newest is turned away.
+    let open = Arc::new(AtomicUsize::new(0));
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        let held = Held::of(&open);
+        if open.load(Ordering::Relaxed) > MAX_OPEN {
+            continue;
+        }
+        let (api, web) = (api.clone(), web.clone());
+        let _ = std::thread::Builder::new().spawn(move || {
+            let _held = held;
+            if let Ok(connection) = http::Connection::new(stream) {
+                serve(connection, &api, web.as_deref());
+            }
+        });
+    }
+}
+
+/// The most connections served at once.
+const MAX_OPEN: usize = 512;
+
+/// One connection among those open, for as long as this is held.
+struct Held(Arc<AtomicUsize>);
+
+impl Held {
+    fn of(open: &Arc<AtomicUsize>) -> Held {
+        open.fetch_add(1, Ordering::Relaxed);
+        Held(open.clone())
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -161,51 +184,38 @@ fn is_up(port: u16) -> bool {
     })
 }
 
-fn serve(mut incoming: tiny_http::Request, api: &Api, web: Option<&Path>) {
-    let method = incoming.method().as_str().to_uppercase();
-    let url = incoming.url().to_string();
-    let (path, query) = url.split_once('?').unwrap_or((&url, ""));
-    let headers: Vec<(String, String)> = incoming
-        .headers()
-        .iter()
-        .map(|h| {
-            (
-                h.field.as_str().as_str().to_lowercase(),
-                h.value.as_str().to_string(),
-            )
-        })
-        .collect();
-    let host = headers
-        .iter()
-        .find(|(n, _)| n == "host")
-        .map(|(_, v)| v.as_str());
+fn serve(mut connection: http::Connection, api: &Api, web: Option<&Path>) {
+    let head = match connection.head() {
+        Ok(head) => head,
+        Err(http::Refused::Gone) => return,
+        Err(http::Refused::Status(status, why)) => {
+            eprintln!("? ? {status}");
+            let headers = [("Content-Type", "text/plain; charset=utf-8")];
+            return connection.respond(status, &headers, why.as_bytes(), false);
+        }
+    };
+    let method = head.method.clone();
+    let (path, query) = head.target.split_once('?').unwrap_or((&head.target, ""));
 
-    let response = if let Some(refused) = api.refuse_host(host) {
+    let response = if let Some(refused) = api.refuse_host(head.header("host")) {
         refused
     } else if path == "/api" || path.starts_with("/api/") {
         let limit = Api::body_limit(&method, path);
-        let mut body = Vec::new();
-        let read = if incoming.body_length().is_some_and(|length| length > limit) {
-            Err(())
-        } else {
-            // One byte over the limit tells a body that is too long from
-            // one that just fits, for a client that gave no length.
-            incoming
-                .as_reader()
-                .take(limit as u64 + 1)
-                .read_to_end(&mut body)
-                .map_err(|_| ())
-                .and_then(|read| if read > limit { Err(()) } else { Ok(()) })
-        };
-        match read {
-            Ok(()) => api.handle(&Request {
+        match connection.body(&head, limit) {
+            Ok(body) => api.handle(&Request {
                 method: method.clone(),
                 path: path.to_string(),
                 query: api::parse_query(query),
-                headers,
+                headers: head.headers.clone(),
                 body,
             }),
-            Err(()) => plain(413, &format!("{{\"error\":{{\"code\":\"too_large\",\"message\":\"The body may have {limit} bytes at most.\"}}}}"), "application/json"),
+            Err(http::Refused::Gone) => return,
+            Err(http::Refused::Status(413, _)) => api::refusal(
+                413,
+                "too_large",
+                &format!("The body may have {limit} bytes at most."),
+            ),
+            Err(http::Refused::Status(status, why)) => api::refusal(status, "bad_request", why),
         }
     } else if method != "GET" && method != "HEAD" {
         plain(405, "Method not allowed", "text/plain; charset=utf-8")
@@ -221,8 +231,6 @@ fn serve(mut incoming: tiny_http::Request, api: &Api, web: Option<&Path>) {
     };
 
     eprintln!("{method} {} {}", printable(path), response.status);
-    let mut out =
-        tiny_http::Response::from_data(response.body).with_status_code(StatusCode(response.status));
     let fixed = [
         ("Content-Type", response.content_type.as_str()),
         ("X-Content-Type-Options", "nosniff"),
@@ -232,12 +240,8 @@ fn serve(mut incoming: tiny_http::Request, api: &Api, web: Option<&Path>) {
         .headers
         .iter()
         .map(|(n, v)| (n.as_str(), v.as_str()));
-    for (name, value) in fixed.into_iter().chain(given) {
-        if let Ok(header) = Header::from_bytes(name.as_bytes(), value.as_bytes()) {
-            out.add_header(header);
-        }
-    }
-    let _ = incoming.respond(out);
+    let headers: Vec<(&str, &str)> = fixed.into_iter().chain(given).collect();
+    connection.respond(response.status, &headers, &response.body, method == "HEAD");
 }
 
 fn plain(status: u16, text: &str, content_type: &str) -> Response {
