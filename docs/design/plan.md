@@ -1225,3 +1225,12 @@ The rest of it, the same day.
     against 3 and 30 in equal steps. Now 3, and about the stepdown's count where the
     stepdown is shallow, with the load spread over them.
 
+### The starter set from the start page (2026-11-18)
+
+- The first step of the start page, "List your tools", has "Use the starter tools"
+  beside "Add tools" while the list is empty. It adds the set as the Tools tab does
+  (`addStarterSetHere` in `files.ts`) but stays on the start page, where the step is
+  then ticked and the next one, the drawing, is the one marked to do.
+- Checked in the browser: on a fresh start the button adds 50 tools and the step is
+  ticked; with tools in the list the button is gone and "Open tool list" is as before.
+

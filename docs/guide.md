@@ -46,7 +46,8 @@ right.
 with, and a ball end mill, a drill and a thread mill, which it keeps and writes for other
 programs and cuts nothing with.
 
-**Add the starter set**, on an empty list and under "Import and export", adds 50 bits for a
+**Add the starter set**, on an empty list and under "Import and export", or **Use the
+starter tools** on the start page while the list is empty, adds 50 bits for a
 1/8" collet with cutting settings to start from, and the materials those are for. It adds
 only tools the list does not have, and changes none that it has. The settings are a
 starting point and untested here: check them before you cut, and delete the bits you do

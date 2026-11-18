@@ -109,13 +109,16 @@ export function useFileActions() {
     info(summary(file.name, merged.added, merged.updated));
   }
 
-  /** Adds the tools of the starter set that the list does not have yet. Nothing there is changed. */
-  async function addStarterSet() {
+  /**
+   * Adds the tools of the starter set that the list does not have yet. Nothing there is changed.
+   * `open`: show the tool list afterwards, as from the Tools tab; the start guide stays where it is.
+   */
+  async function addStarterSet(open: boolean) {
     const starter = await core.call("starterLibrary");
     const result = addStarter(tools, lists, starter);
     if (result.added === 0) return info("Every tool of the starter set is in your list already.");
     dispatch({ type: "setTools", tools: result.tools, lists: result.lists });
-    dispatch({ type: "setView", view: "settings", page: "tools" });
+    if (open) dispatch({ type: "setView", view: "settings", page: "tools" });
     const kept = starter.tools.length - result.added;
     info(`Added ${result.added} tool${result.added === 1 ? "" : "s"} from the starter set${kept > 0 ? `; ${kept} you already have ${kept === 1 ? "was" : "were"} left alone` : ""}. Their cutting settings are a starting point: check them before you cut.`);
   }
@@ -174,7 +177,9 @@ export function useFileActions() {
     openProject: guarded(openProject),
     importToolsYaml: guarded(importToolsYaml),
     importToolLibrary: guarded(importToolLibrary),
-    addStarterSet: () => addStarterSet().catch(fail),
+    addStarterSet: () => addStarterSet(true).catch(fail),
+    /** The same, staying on the view it is asked from. */
+    addStarterSetHere: () => addStarterSet(false).catch(fail),
     importAny: guarded(importAny),
   };
 }

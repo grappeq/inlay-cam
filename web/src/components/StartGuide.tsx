@@ -13,6 +13,7 @@ export function StartGuide() {
   const endMills = tools.filter((t) => t.kind === "flat_end").length;
   const vBits = tools.filter((t) => t.kind === "v_bit").length;
   const unset = tools.filter((t) => t.cutting.length === 0).length;
+  const openTools = () => dispatch({ type: "setView", view: "settings", page: "tools" });
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
   const trySample = async () => {
@@ -45,9 +46,18 @@ export function StartGuide() {
                   unset > 0 ? ` ${count(unset, "tool has", "tools have")} no cutting settings yet.` : ""
                 }`}
           </p>
-          <button className={tools.length === 0 ? "primary" : ""} onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
-            {tools.length === 0 ? "Add tools" : "Open tool list"}
-          </button>
+          {tools.length === 0 ? (
+            <div className="row start-actions">
+              <button className="primary" onClick={openTools}>
+                Add tools
+              </button>
+              <button onClick={files.addStarterSetHere} title={'50 bits for a 1/8" collet, with cutting settings to start from. Delete the ones you do not own.'}>
+                Use the starter tools
+              </button>
+            </div>
+          ) : (
+            <button onClick={openTools}>Open tool list</button>
+          )}
         </li>
         <li>
           <h2>Bring in a drawing</h2>
