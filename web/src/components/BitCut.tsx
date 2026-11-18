@@ -26,6 +26,9 @@ export function BitCut({ tool }: { tool: Tool }) {
   // Every profile the bit has a row on, for any of what the step cuts.
   const keys = [...new Set(tool.cutting.filter((c) => materials.includes(c.material) && c.profile !== undefined && c.profile !== null).map((c) => c.profile as string))];
 
+  // The plain row first, then each profile; one the step names though the bit has no such row is still shown, as the one chosen.
+  const choices = ["", ...keys, ...(profile !== undefined && !keys.includes(profile) ? [profile] : [])];
+
   const setStep = (update: (step: Step) => Step) => dispatch({ type: "updateStep", id: step.id, update });
   const setProfile = (key: string) =>
     setStep((j) => {
@@ -54,35 +57,32 @@ export function BitCut({ tool }: { tool: Tool }) {
   const own = (key: keyof CutOverride) => [...new Set(rows.filter((r) => r.row !== undefined).map((r) => fmt((r.row as CuttingSettings)[key])))].join(" / ");
 
   return (
-    <div className="bit-cut">
-      {rows.map(({ material, row }) => (
+    <div className="bit-card">
+      {choices.length > 1 && (
+        <div className="bit-profiles" role="group" aria-label={`Profile of ${tool.name}`}>
+          {choices.map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="chip"
+              aria-pressed={(profile ?? "") === key}
+              disabled={key !== "" && adaptive(key) && profile !== key}
+              title={key === "" ? "The plain row: safe for any cut" : adaptive(key) ? `${label(key)}: for adaptive clearing, which this app does not cut` : label(key)}
+              onClick={() => setProfile(key)}
+            >
+              {key === "" ? "Plain" : label(key)}
+            </button>
+          ))}
+        </div>
+      )}
+      {rows.map(({ material, row }, i) => (
         <div className="bit-line" key={material}>
-          {material === rows[0].material &&
-            (keys.length === 0 && profile === undefined ? (
-              <span className="bit-profile plain" title="The only row this bit has: safe for any cut">
-                Plain
-              </span>
-            ) : (
-              <span className="bit-profile">
-                <select value={profile ?? ""} aria-label={`Profile of ${tool.name}`} title="The profile whose cutting row the bit runs" onChange={(e) => setProfile(e.target.value)}>
-                  <option value="">Plain</option>
-                  {keys.map((key) => (
-                    <option key={key} value={key} disabled={adaptive(key)}>
-                      {label(key)}
-                      {adaptive(key) ? " (adaptive: not cut by this app)" : ""}
-                    </option>
-                  ))}
-                  {profile !== undefined && !keys.includes(profile) && <option value={profile}>{label(profile)}</option>}
-                </select>
-                <span aria-hidden="true">▾</span>
-              </span>
-            ))}
           {rows.length > 1 && <span className="bit-part">{material === step.material && material !== stepMaterial(step, project) ? "Plug" : "Pocket"}</span>}
           {row ? (
             <span className="bit-numbers">
-              {CUT_FIELDS.map((f, i) => (
+              {CUT_FIELDS.map((f, n) => (
                 <span key={f.key} className={change?.[f.key] !== undefined ? "changed" : undefined} title={`${f.label}, ${f.unit}`}>
-                  {i > 0 && <span className="sep"> · </span>}
+                  {n > 0 && <span className="sep"> · </span>}
                   {fmt(change?.[f.key] ?? row[f.key])} {f.short}
                 </span>
               ))}
@@ -90,8 +90,8 @@ export function BitCut({ tool }: { tool: Tool }) {
           ) : (
             <span className="bit-numbers warn">{missing(profile === undefined ? null : label(profile), material, materialLabel(material, lists))}</span>
           )}
-          {material === rows[0].material && (
-            <button type="button" className="link bit-edit" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {i === 0 && (
+            <button type="button" className="link bit-edit" aria-expanded={open} title="Change the numbers for this step" onClick={() => setOpen(!open)}>
               {open ? "Done" : changed > 0 ? `Edit (${changed})` : "Edit"}
             </button>
           )}

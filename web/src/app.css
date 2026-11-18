@@ -4311,17 +4311,43 @@ button.export-show:focus-visible {
   margin-bottom: 0;
 }
 
-/* How a bit cuts in a step: its profile, the row's numbers on one line, and the numbers the step changes. */
+/* How a bit cuts in a step: its profiles to choose from, the row's numbers on one line, and the numbers the step changes. */
 .cut-in {
   font-size: 12px;
   margin: -4px 0 8px;
 }
-.bit-cut {
+.bit-card {
   font-size: 12px;
-  margin: 2px 0 10px;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
 }
-.tool-order-name > .bit-cut {
-  margin-bottom: 0;
+/* Under the list a tool is chosen from, it reads as that tool's own. */
+.field + .bit-card {
+  margin-top: -4px;
+}
+/* In a list of end mills it takes the whole width, under the bit's name. */
+.tool-order li:has(.bit-card) {
+  flex-wrap: wrap;
+}
+.tool-order li > .bit-card {
+  order: 3;
+  flex: 0 0 100%;
+  margin: 3px 0 2px;
+}
+.bit-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.bit-profiles .chip {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bit-line {
   display: flex;
@@ -4329,35 +4355,9 @@ button.export-show:focus-visible {
   gap: 6px;
   line-height: 1.5;
 }
-.bit-profile {
-  flex: none;
-  display: inline-flex;
-  align-items: baseline;
-  color: var(--accent);
-}
-.bit-profile.plain,
 .bit-part {
   flex: none;
   color: var(--muted);
-}
-.bit-profile select {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  margin: 0;
-  width: auto;
-  max-width: 120px;
-  font: inherit;
-  font-weight: 500;
-  color: inherit;
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-.bit-profile > span {
-  pointer-events: none;
-  font-size: 10px;
-  margin-left: 2px;
 }
 .bit-numbers {
   flex: 1;
@@ -4376,12 +4376,13 @@ button.export-show:focus-visible {
 .bit-numbers.warn {
   color: var(--warn);
 }
-.bit-cut .changed {
+.bit-card .changed {
   color: var(--accent);
   font-weight: 500;
 }
 .bit-edit {
   flex: none;
+  margin-left: auto;
   font-size: 12px;
 }
 .bit-fields {
@@ -4389,10 +4390,9 @@ button.export-show:focus-visible {
   grid-template-columns: minmax(0, 1fr) 84px 46px 22px;
   align-items: center;
   gap: 5px 8px;
-  margin-top: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  margin-top: 7px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 .bit-fields input {
   width: 100%;
@@ -4418,10 +4418,4 @@ button.export-show:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-}
-.tool-order li:has(.bit-cut) {
-  align-items: flex-start;
-}
-.tool-order li:has(.bit-cut)::before {
-  line-height: 20px;
 }

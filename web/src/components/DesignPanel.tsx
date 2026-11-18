@@ -1509,11 +1509,11 @@ function ClearingTools(props: { label: string; ids: string[]; use: CutUse; onCha
               <span className="tool-order-name">
                 {tool ? tool.name : "Missing tool"}
                 <span className="muted"> {tool ? `Ø${fmt(tool.diameter)} mm` : "no longer in the tool list or the project"}</span>
-                {tool && <BitCut tool={tool} />}
               </span>
               <button type="button" className="small" onClick={() => props.onChange(ids.filter((other) => other !== id))} aria-label={`Remove ${tool?.name ?? "tool"}`} title="Remove">
                 ×
               </button>
+              {tool && <BitCut tool={tool} />}
             </li>
           ))}
         </ol>
