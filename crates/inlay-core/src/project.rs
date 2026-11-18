@@ -1013,13 +1013,12 @@ impl Task {
                     depth.is_none_or(|d| d.is_finite() && d > 0.0),
                     "depth must be greater than 0",
                 )?;
+                // A start at or below the end is refused when the file is
+                // made, with the numbers: a project in the middle of being
+                // changed passes through it, and has to be kept all the same.
                 check(
                     start_depth.is_finite() && start_depth >= 0.0,
                     "the depth a contour starts at must be 0 or more",
-                )?;
-                check(
-                    depth.is_none_or(|d| start_depth < d),
-                    "a contour must start above the depth it goes to",
                 )
             }
             Task::Chamfer {

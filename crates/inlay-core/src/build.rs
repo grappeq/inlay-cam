@@ -5042,7 +5042,12 @@ pub(crate) mod tests {
             .unwrap_err()
             .join(" | ");
         assert!(reasons.contains("starts 8 mm deep"), "{reasons}");
-        assert!(contour(5.0, Some(5.0), false).validate().is_err());
+        // Not a fault of the project, which is saved as it is: of its file.
+        assert!(contour(5.0, Some(5.0), false).validate().is_ok());
+        let reasons = build(&contour(5.0, Some(5.0), false), "j", Part::Pocket)
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.contains("it goes only 5 mm deep"), "{reasons}");
         assert!(contour(-1.0, None, false).validate().is_err());
         // A file written before there was a start depth starts at the surface.
         use crate::project::project_to_file_json;

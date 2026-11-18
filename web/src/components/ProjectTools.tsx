@@ -3,6 +3,11 @@
 
 import type { Project, Tool } from "../core/types";
 import { MAX_TOOL_NUMBER, describeTool, forgetTool, renumberTool, stepToolIds } from "../state/model";
+
+/** The ids of the tools some step uses. */
+function usedIds(project: Project): Set<string> {
+  return new Set(project.steps.flatMap(stepToolIds));
+}
 import { useApp, useDispatch } from "../state/store";
 import { ToolShape } from "./ToolShape";
 
@@ -24,6 +29,7 @@ export function ToolRack({ project, only, gaps = false, small = false }: { proje
   const all = numberedTools(project);
   const shown = only ? all.filter((t) => only.includes(t.number)) : all;
   if (shown.length === 0) return null;
+  const used = usedIds(project);
   const slots: { number: number; tool?: Tool }[] = [];
   let next = Math.min(shown[0].number, project.machine.firstTool);
   for (const entry of shown) {
@@ -35,7 +41,11 @@ export function ToolRack({ project, only, gaps = false, small = false }: { proje
   return (
     <ul className={`rack${small ? " small" : ""}`} aria-label={only ? "The tools of this file, by number" : "The project's tools, by number"}>
       {slots.map(({ number, tool }) => (
-        <li key={number} className={tool ? "slot" : "slot free"} title={tool ? `T${number}: ${tool.name}` : `T${number}: free`}>
+        <li
+          key={number}
+          className={tool ? (used.has(tool.id) ? "slot" : "slot idle") : "slot free"}
+          title={tool ? `T${number}: ${tool.name}${used.has(tool.id) ? "" : ", not used now"}` : `T${number}: free`}
+        >
           {tool ? <ToolShape tool={tool} size={small ? 28 : 38} /> : <span className="slot-gap" />}
           <span className="slot-number">T{number}</span>
         </li>

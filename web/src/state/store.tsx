@@ -218,7 +218,8 @@ function reducer(state: AppState, action: Action): AppState {
     case "setSelection":
       return { ...state, selection: action.ids };
     case "setActiveStep":
-      return { ...state, activeStepId: action.id, selection: [], stage: "drawing" };
+      // Going back to the list from the stock step by step leaves the stock on the stage.
+      return { ...state, activeStepId: action.id, selection: [], stage: action.id === null && state.stage === "timeline" ? "timeline" : "drawing" };
     case "setImportReport":
       return { ...state, importReport: action.report };
     case "notice":

@@ -82,7 +82,7 @@ export function DesignPanel({ design }: { design: Design }) {
   if (active && isByHand(active.task)) return <HandEditor key={active.id} step={active} />;
   if (active) return isInlay(active.task) ? <StepEditor key={active.id} step={active as InlayStep} /> : <OpEditor key={active.id} step={active} />;
   return (
-    <aside className="panel" aria-label="Stock, inlays and operations">
+    <aside className="panel" aria-label="Stock and operations">
       {project.steps.length > 0 && (
         <nav className="tabs panel-tabs" aria-label="What the panel shows">
           <button aria-pressed={page === "list"} onClick={() => setPage("list")}>

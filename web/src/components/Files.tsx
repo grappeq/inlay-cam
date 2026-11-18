@@ -5,6 +5,7 @@ import { useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
 import { FileNotes, formatMinutes, partName } from "./OutputPanel";
+import { ToolRack } from "./ProjectTools";
 import { useWorkOut } from "./Timeline";
 
 /** One line of the list: a file for the stock, an inlay's plug or insert file, or a step done by hand. */
@@ -177,6 +178,7 @@ export function FilesList() {
 /** One file in the list: what it is, how long it takes, whether it came out clean, and its download. */
 function FileRow(props: { n: number; title: string; note: string; built: Built | null; problems: number; errors: string[]; stale: boolean; onShow?: () => void }) {
   const { built } = props;
+  const { project } = useApp();
   const stats = built?.stats;
   const changes = stats ? (stats.toolChanges === 1 ? "loading the tool" : `${stats.toolChanges} tool changes`) : "";
   return (
@@ -199,6 +201,7 @@ function FileRow(props: { n: number; title: string; note: string; built: Built |
             {props.problems === 0 && <span className="ok">Simulated without problems.</span>}
           </span>
         )}
+        {built && stats && <ToolRack project={project} only={stats.perTool.map((t) => t.number)} small />}
         {built && props.problems > 0 && (
           <span className="warn">
             The simulation found {props.problems} problem{props.problems === 1 ? "" : "s"}. Do not run this file.
