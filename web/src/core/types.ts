@@ -304,6 +304,8 @@ export type PassDirection = "longer" | "x" | "y";
 export interface PocketOp {
   type: "pocket";
   depth: number;
+  /** How deep the clearing starts, where the wood above is gone already. Absent means at the surface. */
+  startDepth?: number;
   pattern: Pattern;
   /** Which way side-to-side passes run, in each shape. Absent: along its longer side. */
   direction?: PassDirection;
@@ -349,6 +351,8 @@ export interface ChamferOp {
   side: "outside" | "inside";
   /** Width of the bevel, seen from above. A corner-rounding bit cuts its own radius instead. */
   width: number;
+  /** How deep the edge lies, where the wood above it is gone already. Absent means the top edge of the stock. */
+  startDepth?: number;
   /** How far beyond its tip flat a V-bit's axis is kept from the edge, so that the tip runs in the air. Absent: 0.2 mm. Not used with a corner-rounding bit. */
   tipClearance?: number;
   /** The V-bit or corner-rounding bit. */

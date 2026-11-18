@@ -506,7 +506,10 @@ click adds a shape to it or takes it away.
   dashed after generating. "The tool's path" chooses between rings that follow the outline
   (the usual way) and straight passes side to side, which end with a pass round the walls
   at each depth. For straight passes, "The passes run" chooses their direction as it does
-  for facing: along the longer side of each shape, along X, or along Y.
+  for facing: along the longer side of each shape, along X, or along Y. "Start depth"
+  begins the clearing below the surface, for a deeper pocket in the floor of another:
+  nothing is cut above it, and the wood there must be gone over the shapes. Its file alone
+  is simulated with that wood taken out.
 - **Contour**: takes an end mill along the outlines. *Outside the shapes* keeps the shapes:
   the tool runs round them, and inside their holes. To cut round the outside of a part
   only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
@@ -523,10 +526,13 @@ click adds a shape to it or takes it away.
   tip runs beside the edge, where it expects air; in uncut wood it would leave a groove.
   The panel draws the edge in section with the bit against it, to scale: the bevel's width
   and height, the tip's depth, and the room the bit needs beside the edge, where the wood
-  must be gone (dashed). "Tip clear of the edge" is how far out a V-bit's tip runs, 0.2 mm
+  must be gone (dashed). "Tip clearance" is how far out a V-bit's tip runs, 0.2 mm
   unless changed. The
   bevel stays as wide; more clearance takes the bit deeper and cuts the bevel higher up
   its flutes, where it cuts better, and needs that much more room beside the edge.
+  "Edge depth" is for an edge below the surface, such as that of an opening in a pocket's
+  floor: the same bevel, that much lower. The wood above the edge must be gone on both
+  sides of it.
 
   The edge is cut in passes, each a band of its own in the drawing. No pass goes deeper
   than the cutting row's stepdown, or takes more wood than a full groove that deep, which

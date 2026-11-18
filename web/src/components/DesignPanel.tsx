@@ -50,6 +50,7 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { HelpTip } from "./HelpTip";
+import type { HelpTopic } from "./help";
 import { ProjectTools } from "./ProjectTools";
 import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
 import { FacingDiagram, type FacingHot } from "./FacingDiagram";
@@ -256,13 +257,13 @@ function describeStep(step: Step): string {
     case "flat":
       return `Flat inlay, ${shapes}`;
     case "pocket":
-      return `Pocket ${fmt(inlay.depth)} mm deep, ${shapes}`;
+      return `Pocket ${fmt(inlay.depth)} mm deep${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${shapes}`;
     case "facing":
       return step.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
     case "contour":
       return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${shapes}`;
     case "chamfer":
-      return `Chamfer or rounded edge, ${shapes}`;
+      return `Chamfer or rounded edge${inlay.startDepth ? ` ${fmt(inlay.startDepth)} mm down` : ""}, ${shapes}`;
     case "glue":
     case "saw":
       return "By hand, no file";
@@ -567,7 +568,9 @@ function OpEditor({ step }: { step: Step }) {
             <>
               <div className="row">
                 <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
+                <StartDepthField value={inlay.startDepth} help="pocketStart" onChange={(startDepth) => setInlay({ startDepth })} />
               </div>
+              <StartDepthNote start={inlay.startDepth} end={inlay.depth} what="pocket" />
               <PatternField
                 value={inlay.pattern}
                 walls
@@ -609,34 +612,19 @@ function OpEditor({ step }: { step: Step }) {
                 </label>
                 <HelpTip topic="throughCut" />
               </div>
-              {inlay.depth !== null ? (
-                <div className="row">
-                  <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
-                </div>
-              ) : (
+              <div className="row">
+                {inlay.depth !== null && <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />}
+                <StartDepthField value={inlay.startDepth} help="contourStart" onChange={(startDepth) => setInlay({ startDepth })} />
+                {/* Half the row, as beside a depth. */}
+                {inlay.depth === null && <span />}
+              </div>
+              {inlay.depth === null && (
                 <p className="derived">
                   {fmt(project.base.thickness + setup.throughCut)} mm deep: the stock's {fmt(project.base.thickness)} mm and {fmt(setup.throughCut)} mm past its
                   bottom. Put a spoilboard under it.
                 </p>
               )}
-              <div className="row">
-                <NumberField
-                  label="Start depth"
-                  unit="mm"
-                  min={0}
-                  value={inlay.startDepth ?? 0}
-                  onChange={(v) => v !== undefined && setInlay({ startDepth: v > 0 ? v : undefined })}
-                  help="contourStart"
-                />
-              </div>
-              {(inlay.startDepth ?? 0) > 0 &&
-                ((inlay.startDepth ?? 0) >= (inlay.depth ?? project.base.thickness) ? (
-                  <p className="hint warn">The cut has to start above where it ends: {fmt(inlay.depth ?? project.base.thickness)} mm.</p>
-                ) : (
-                  <p className="hint">
-                    Run it after the wood above is gone, as on the floor of a pocket: the tool comes down fast to {fmt(inlay.startDepth ?? 0)} mm where it runs.
-                  </p>
-                ))}
+              <StartDepthNote start={inlay.startDepth} end={inlay.depth ?? project.base.thickness} what="cut" />
               <div className="check-row">
                 <label className="check">
                   <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
@@ -1080,6 +1068,18 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
   );
 }
 
+/** How deep a plain operation starts below the surface. 0 is the surface, and is left out of the file. */
+function StartDepthField({ label = "Start depth", value, help, onChange }: { label?: string; value: number | undefined; help: HelpTopic; onChange: (startDepth: number | undefined) => void }) {
+  return <NumberField label={label} unit="mm" min={0} value={value ?? 0} onChange={(v) => v !== undefined && onChange(v > 0 ? v : undefined)} help={help} />;
+}
+
+/** One line under a start depth that is set: what it asks of the wood, or that it is not above the end. */
+function StartDepthNote({ start = 0, end, what }: { start?: number; end: number; what: "pocket" | "cut" }) {
+  if (start <= 0) return null;
+  if (start >= end) return <p className="hint warn">The {what} has to start above where it ends: {fmt(end)} mm.</p>;
+  return <p className="hint">The wood above {fmt(start)} mm must be gone {what === "pocket" ? "over the shapes" : "where the tool runs"}: the tool comes down fast to it.</p>;
+}
+
 /** Said once, whichever bit cuts the chamfer. */
 const AFTER_THE_EDGE = "Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood must be gone that deep.";
 
@@ -1127,22 +1127,30 @@ function ChamferFields({ step, inlay, onChange }: { step: Step; inlay: ChamferOp
   return (
     <>
       {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} hot={hot} plan={plan} blocked={problem !== null} />}
-      {bit?.kind !== "corner_round" && (
-        <div className="row">
-          <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && onChange({ width: v })} onFocusChange={mark("width")} />
-          <NumberField
-            label="Tip clear of the edge"
-            unit="mm"
-            min={0}
-            max={MAX_TIP_CLEARANCE}
-            value={clearance}
-            onChange={(v) => v !== undefined && onChange({ tipClearance: v === DEFAULT_TIP_CLEARANCE ? undefined : v })}
-            onFocusChange={mark("clearance")}
-          />
-        </div>
-      )}
+      <div className="row">
+        {bit?.kind !== "corner_round" && (
+          <>
+            <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && onChange({ width: v })} onFocusChange={mark("width")} />
+            <NumberField
+              label="Tip clearance"
+              unit="mm"
+              min={0}
+              max={MAX_TIP_CLEARANCE}
+              value={clearance}
+              onChange={(v) => v !== undefined && onChange({ tipClearance: v === DEFAULT_TIP_CLEARANCE ? undefined : v })}
+              onFocusChange={mark("clearance")}
+            />
+          </>
+        )}
+        <StartDepthField label="Edge depth" value={inlay.startDepth} help="chamferStart" onChange={(startDepth) => onChange({ startDepth })} />
+        {bit?.kind === "corner_round" && <span />}
+      </div>
       {problem && <p className="hint warn">{problem}</p>}
-      <p className="hint">{AFTER_THE_EDGE}</p>
+      <p className="hint">
+        {inlay.startDepth
+          ? `The edge lies ${fmt(inlay.startDepth)} mm down: run it after the wood above it is gone on both sides, and beside the edge as deep as the bit's tip runs.`
+          : AFTER_THE_EDGE}
+      </p>
     </>
   );
 }

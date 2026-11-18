@@ -1457,6 +1457,7 @@ mod tests {
             ..step(
                 "extra",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 1.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
@@ -1809,6 +1810,7 @@ mod tests {
             ..step(
                 "extra",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 1.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
@@ -1845,6 +1847,7 @@ mod tests {
             ..step(
                 "deep",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 3.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
