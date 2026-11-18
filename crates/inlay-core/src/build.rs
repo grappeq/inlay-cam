@@ -3293,6 +3293,30 @@ fn num(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// The name of a part's file among the files of a whole project, which
+/// are numbered so that the machine's file list shows them in the order
+/// they are cut: the project's name, `number` (the place in the list of
+/// the entry the part belongs to, from 1), what the part is, and the
+/// entry's name.
+pub(crate) fn numbered_part_name(
+    project: &Project,
+    number: usize,
+    part: Part,
+    step: &Step,
+) -> String {
+    file_name(&format!(
+        "{} {number:02} {} {}",
+        project.name,
+        part_name(part, &step.task),
+        step.name
+    ))
+}
+
+/// A file's name from what it is called in words.
+fn file_name(called: &str) -> String {
+    format!("{}.{}", file_stem(called), carvera::FILE_EXTENSION)
+}
+
 /// Letters, digits, dashes and underscores only, so the name is safe on the
 /// machine's SD card and in its file list.
 fn file_stem(name: &str) -> String {

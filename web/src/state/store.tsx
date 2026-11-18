@@ -16,8 +16,8 @@ export type View = "design" | "settings";
 export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
-/** What the panel shows while no inlay or operation is open: the list to work on, or the files it comes to. */
-export type PanelPage = "list" | "tools" | "files";
+/** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
+export type PanelPage = "list" | "tools" | "export";
 export type Notice = { kind: "info" | "error"; text: string };
 
 export interface AppState {

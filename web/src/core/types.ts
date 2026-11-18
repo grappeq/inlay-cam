@@ -642,6 +642,8 @@ export interface TimelineStep {
   seat: { height: number; proud: number; above: number } | null;
   /** A facing that takes the wood above the surface from the list: the height its file was given, as measured on the stock, mm. */
   startsAbove: number | null;
+  /** What the step comes to when cut on its own: its time and its tools. Null when it is done by hand or cannot be made. */
+  stats: BuildStats | null;
   /** The step's stretch of its file as a tool path, as in a preview, with the file's lines and tool numbers. Empty without a file. */
   path: Float32Array;
 }

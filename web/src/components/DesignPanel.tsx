@@ -16,7 +16,6 @@ import {
   MAX_TIP_CLEARANCE,
   VCARVE_TUNING,
   describeTool,
-  fileNumbers,
   fmt,
   glueOf,
   glueStep,
@@ -57,7 +56,7 @@ import { FacingDiagram, type FacingHot } from "./FacingDiagram";
 import { CHAMFER_PICTURES, CONTOUR_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
-import { FilesList } from "./Files";
+import { ExportList } from "./Export";
 
 /** A step that is an inlay proper, with a pocket and a plug or insert. */
 type InlayStep = Step & { task: TrueInlay };
@@ -91,14 +90,14 @@ export function DesignPanel({ design }: { design: Design }) {
           <button aria-pressed={page === "tools"} onClick={() => setPage("tools")}>
             Tools
           </button>
-          <button aria-pressed={page === "files"} onClick={() => setPage("files")}>
-            Files
+          <button aria-pressed={page === "export"} onClick={() => setPage("export")}>
+            Export
           </button>
         </nav>
       )}
       <div className="panel-scroll">
-        {page === "files" ? (
-          <FilesList />
+        {page === "export" ? (
+          <ExportList />
         ) : page === "tools" ? (
           <ProjectTools />
         ) : (
@@ -309,9 +308,6 @@ function StepsSection({ design }: { design: Design }) {
         return { ...p, steps };
       },
     });
-  // Which file for the stock each line goes into, shown once a step done by hand splits the list into several.
-  const files = fileNumbers(project.steps);
-  const filed = files.some((n) => n !== null && n > 1);
   // The inlays a glue-up can be added for: those of the selected shapes, else every one that has none yet.
   const unglued = project.steps.filter((j) => isInlay(j.task) && !glueOf(j, project.steps));
   const pickedInlays = unglued.filter((j) => j.regionIds.some((id) => selection.includes(id)));
@@ -386,15 +382,10 @@ function StepsSection({ design }: { design: Design }) {
           {project.steps.map((step, index) => (
             <li
               key={step.id}
-              className={`job-row${several ? " ordered" : ""}${filed ? " filed" : ""}${isByHand(step.task) ? " by-hand" : ""}`}
+              className={`job-row${several ? " ordered" : ""}${isByHand(step.task) ? " by-hand" : ""}`}
               {...(several ? sortable.row(index) : {})}
             >
               {several && <Grip {...sortable.grip(index, step.name)} />}
-              {filed && (
-                <span className="file-number" title={files[index] === null ? "Done by hand: in no file" : `Cut by file ${files[index]} for the stock`}>
-                  {files[index] === null ? "" : `file ${files[index]}`}
-                </span>
-              )}
               <button className="job" onClick={() => dispatch({ type: "setActiveStep", id: step.id })}>
                 <span className="job-icon" style={woodOf(step, project.steps) ? { color: woodOf(step, project.steps) } : undefined}>
                   <StepSymbol step={step} />

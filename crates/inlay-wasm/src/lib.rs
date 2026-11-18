@@ -474,6 +474,11 @@ impl StockTimeline {
                     "warnings": step.warnings,
                     "seat": step.seat,
                     "startsAbove": step.starts_above,
+                    "stats": step
+                        .part
+                        .as_deref()
+                        .and_then(|part| part.as_ref().ok())
+                        .map(|built| &built.stats),
                 })
             })
             .collect();
@@ -558,6 +563,23 @@ pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
             .map(|timeline| StockTimeline { timeline })
             .map_err(reasons)
     })
+}
+
+/// One file for the picked entries of the list, as `Built` JSON: what the
+/// timeline joins from one step done by hand to the next, of these entries
+/// only. `step_ids_json` is a JSON list of ids. Fails with every reason, one
+/// per line.
+#[wasm_bindgen(js_name = exportSteps)]
+pub fn export_steps(project_json: &str, step_ids_json: &str) -> Result<String, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    let step_ids: Vec<String> = from_json(step_ids_json, "steps")?;
+    project.validate().map_err(err)?;
+    // The list is taken through from what is kept: for a project that has
+    // just been worked out, nothing is built or cut again.
+    let built = TIMELINE
+        .with(|kept| inlay_core::timeline::export(&project, &step_ids, &mut kept.borrow_mut()))
+        .map_err(reasons)?;
+    serde_json::to_string(&built).map_err(err)
 }
 
 /// Builds the G-code for one part of a step ("pocket" or "plug") and

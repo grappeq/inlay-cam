@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Attention, EdgePlan, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Attention, Built, EdgePlan, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -53,6 +53,8 @@ export interface CoreApi {
   chamferPlan(project: Project, stepId: string): { plan: EdgePlan } | { problem: string } | null;
   /** Takes the stock through every inlay and operation of the project, in the order of the list, and makes the files for the stock. Fails only for a project without a drawing. */
   stockTimeline(project: Project): StockTimeline;
+  /** One file for the picked entries of the list, which have to stand between the same two steps done by hand. Fails with every reason it cannot be made, one per line of the error message. */
+  exportSteps(project: Project, stepIds: string[]): Built;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */
   checkFit(project: Project, stepId: string): FitCheck;
 }

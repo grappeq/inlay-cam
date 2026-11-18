@@ -1,6 +1,7 @@
 // The project's tools and the number each goes by: the machine is loaded
 // once, and every file of the project calls for a tool by the same number.
 
+import { showInToolList } from "./ToolsView";
 import type { Project, Tool } from "../core/types";
 import { MAX_TOOL_NUMBER, describeTool, forgetTool, renumberTool, stepToolIds } from "../state/model";
 
@@ -55,9 +56,14 @@ export function ToolRack({ project, only, gaps = false, small = false }: { proje
 }
 
 export function ProjectTools() {
-  const { project } = useApp();
+  const { project, tools: listed } = useApp();
   const dispatch = useDispatch();
   const tools = numberedTools(project);
+  // To the tool in the tool list, where its sizes and cutting settings are.
+  const open = (id: string) => {
+    showInToolList(id);
+    dispatch({ type: "setView", view: "settings", page: "tools" });
+  };
   const usedBy = (id: string) => project.steps.filter((step) => stepToolIds(step).includes(id));
   // Every number up to one past the highest, so that a tool can also move to the end.
   const highest = tools.reduce((most, t) => Math.max(most, t.number), project.machine.firstTool);
@@ -106,7 +112,13 @@ export function ProjectTools() {
                       );
                     })}
                   </select>
-                  <strong>{tool.name}</strong>
+                  {listed.some((t) => t.id === tool.id) ? (
+                    <button type="button" className="link tool-name" title="Open this tool in your tool list" onClick={() => open(tool.id)}>
+                      {tool.name}
+                    </button>
+                  ) : (
+                    <strong title="This tool is in the project only, not in your tool list">{tool.name}</strong>
+                  )}
                 </div>
                 <span className="hint">{describeTool(tool)}</span>
                 {steps.length > 0 ? (

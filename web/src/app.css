@@ -3808,9 +3808,21 @@ ul.plain {
   gap: 8px;
   min-width: 0;
 }
-.tool-row-head strong {
+.tool-row-head strong,
+.tool-row-head .tool-name {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.tool-row-head .tool-name {
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+}
+.tool-row-head .tool-name:hover,
+.tool-row-head .tool-name:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
 }
 select.tool-number {
   flex: 0 0 auto;
@@ -3833,17 +3845,9 @@ select.tool-number {
   border-style: dashed;
   background: transparent;
 }
-/* The list in the order it is cut: a grip, then, once a step done by hand splits it, the file each line goes into. */
+/* The list in the order it is cut, with a grip to move a line by. */
 .job-row.ordered {
   grid-template-columns: auto 1fr;
-}
-.job-row.ordered.filed {
-  grid-template-columns: auto 30px 1fr;
-}
-.file-number {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
 }
 /* What comes after an inlay is cut: a row for each step, in the list or not yet. */
 .life {
@@ -3921,17 +3925,6 @@ select.tool-number {
   align-items: center;
   gap: 5px;
 }
-/* The lines that one file cuts, with the file's download */
-.file-group {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 5px 3px 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface-2);
-}
 .file-name {
   font-size: 12px;
   color: var(--muted);
@@ -4000,71 +3993,215 @@ select.tool-number {
 .panel-tabs button {
   flex: 1;
 }
-.files-list .status-line,
-.files-list .callout {
-  margin: 0 0 8px;
+/* What to export: everything to cut, each with a tick, and the files the ticks come to */
+.panel section.export {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0;
 }
-.file-rows {
+.export > .status-line,
+.export > .callout {
+  margin: 14px 16px 0;
+}
+.export-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px 4px;
+  font-size: 12px;
+}
+.export-head .muted {
+  flex: 1;
+}
+.export-board {
+  margin: 0;
+  padding: 14px 16px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.export-board .muted {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.export-rows,
+.export-card ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.file-row {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  gap: 4px 8px;
-  align-items: start;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
+.export-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 16px;
 }
-.file-row-n {
+/* What comes to one file: its lines in a frame, the file at the frame's foot */
+.export-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.export-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 8px;
+  padding: 6px 10px;
+}
+.export-row + .export-row {
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.export-row label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.export-row input {
+  flex: none;
+  margin: 0;
+}
+.export-name {
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.export-tools,
+.export-time {
   color: var(--muted);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.file-row-main {
+.export-time {
+  min-width: 40px;
+  text-align: right;
+}
+button.export-show {
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+button.export-show:hover,
+button.export-show:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.export-notes {
+  flex: 0 0 100%;
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
-}
-.file-row-main > .link {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 500;
-  text-align: left;
-}
-.file-row-main .muted {
-  font-size: 12px;
-}
-.file-row-main .warn {
-  font-size: 12px;
+  padding: 2px 0 2px 22px;
   color: var(--warn);
-}
-.file-row-main .ok {
-  color: var(--ok);
-  font-weight: 400;
-}
-.file-row-main details.more > summary {
-  font-size: 12px;
-  font-weight: 400;
-}
-.file-row-main .notes {
-  margin: 0;
   font-size: 12px;
 }
-.files-foot {
+.export-file {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 1px 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.export-file-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.export-file > .export-notes,
+.export-file > .before-marks {
+  grid-column: 1 / -1;
+  padding-left: 0;
+}
+/* What to do before a file is run: a mark for each kind of thing, with a card that says it */
+.before-marks {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 10px;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--warn);
+}
+.before-mark {
+  display: inline-flex;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: var(--warn-soft);
+  color: var(--warn);
+  cursor: help;
+}
+.before-mark:hover:not(:disabled),
+.before-mark[aria-expanded="true"] {
+  background: var(--warn-soft);
+  border-color: var(--warn);
+}
+.before-mark svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.help-tape {
+  fill: #e9d9a0;
+  stroke: #8a7a3a;
+  stroke-width: 1;
+}
+/* A step done by hand, between two files for the stock */
+.export-hand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 8px;
+  padding: 0 11px;
   font-size: 12px;
 }
-.files-foot button {
-  flex: none;
+.export-hand .job-icon {
+  color: var(--muted);
+}
+.export-hand .link {
+  margin-right: auto;
+  color: var(--text);
+  text-align: left;
+}
+.export-origin {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12px;
+}
+.export-foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+  text-align: center;
+}
+.export-foot button.primary {
+  padding: 8px 11px;
 }
 
 /* Which inlay a step done by hand is for, when there are several */
