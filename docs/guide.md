@@ -6,8 +6,8 @@ the other cuts the piece that fills it. It simulates both files and reports how 
 parts will fit. It also cuts plain pockets, contours and chamfers into the stock, and faces
 it.
 
-**Check every file before you run it.** The app is new: its G-code has been run on a real
-machine only as an air cut, and no inlay has been cut with it yet. Look at the simulation,
+**Check every file before you run it.** The app is experimental: a few jobs have been
+machined with it on a Carvera Air, with success, and that is all. Look at the simulation,
 read the file, and run it above the board first. You use the app and its files at your own
 risk; see [Before you cut](#6-cut).
 
@@ -217,7 +217,9 @@ none to cut. The page adds, renames and deletes them; deleting one also deletes 
 from your tools, after asking. "Suggestions start at" and the four marks under "Cut"
 (ramped, lubricated, full width, adaptive) only say where the suggestion on a tool's
 sheet begins for the profile's rows. A profile marked **Adaptive** is for other CAM
-programs: this app has no such toolpath and does not cut with its rows.
+programs: this app has no such toolpath and does not cut with its rows. A profile's name
+matters in one place: it says which operations start a bit on it (see
+[Make an inlay](#3-make-an-inlay)), so "Face finish" is where a facing's bit starts.
 
 **Machine** holds the limits every file is checked against. They start as those of the
 Carvera Air; "Fill in for" sets them for the Carvera.
@@ -383,19 +385,27 @@ material. An inlay has one choice of its own under "Wood and tools", the **Wood 
 inlay**, for the board its plug or insert is cut from. A facing that trims a glued-in
 plug is cut in that inlay's wood.
 
-Under each chosen bit one line says how it cuts in this step: its **profile**, then the
-speed, feed, plunge, stepover and stepdown of that cutting row.
+Under each chosen bit a card says how it cuts in this step: the speed, feed, plunge,
+stepover and stepdown of the cutting row it runs.
 
-- Click the profile to choose another of the rows the bit has for the material: the plain
-  row, or one made for a kind of toolpath. A bit you choose starts on the profile for what
-  it is chosen for, when it has such a row: one named for facing in a facing, for clearing
-  or pockets where it clears, for chamfers in a chamfer, for carving as the V-bit of an
-  inlay, and one marked "Full width" (or named for slots or contours) in a contour.
-  Otherwise it starts on the plain row. The app does not check a row against the kind of
-  cut, except that it refuses rows for adaptive clearing, which it has no toolpath for.
+- When the bit has rows on **profiles** for the material, the card begins with a button
+  for each: "Plain", the row that is safe for any cut, then one per profile. The one in
+  use is marked; click another to run that row. A bit with only its plain row has no
+  buttons. A profile for adaptive clearing is shown and cannot be chosen: the app has no
+  such toolpath.
+- A bit you choose starts on the profile for what it is chosen for, when it has such a
+  row. The app goes by the profile's name: one named for facing in a facing, for clearing,
+  pockets or roughing where it clears, for chamfers, bevels or edges in a chamfer, for
+  carving or engraving as the V-bit of an inlay, and one marked "Full width" (or named for
+  slots or contours) in a contour. Otherwise it starts on the plain row. A bit that was
+  chosen before keeps the row it had. The app does not check a row against the kind of
+  cut.
 - **Edit** opens a field for each number. Type one to change it for this step only; it is
-  then shown in blue, and the arrow beside it puts the row's own back. A field left empty
-  follows the row, also when you tune it in the tool list later.
+  then shown in blue, the link reads "Edit (1)", and the arrow beside the field puts the
+  row's own back. A field left empty follows the row, also when you tune it in the tool
+  list later. "Reset all" empties them.
+- In an inlay whose wood is not the stock's, the card has two lines, "Pocket" and "Plug",
+  one for each material's row. A number you change is changed for both.
 
 Cutting a plug or insert out of its board always uses the plain row, unchanged.
 

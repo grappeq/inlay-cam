@@ -58,7 +58,8 @@ are checked by a token, and backups ([api.md](api.md)). Still to do:
   small end mills and engravers: the chip is over what the model allows. To decide:
   whether a starter row says it is Makera's and untested here.
 - No tool of the set has a row on Clearing or Facing: Makera has one preset for each
-  tool and material. So the two profiles are not added with the set. To decide: whether
+  tool and material. So the two profiles are not added with the set, and a bit of the
+  set starts every operation on its plain row. To decide: whether
   those rows come from the feeds model, which would in places be slower than Makera's
   plain row.
 - The set's engraving bits are as wide as their shank, 3.175 mm, so the 60° one reaches
@@ -80,15 +81,19 @@ are checked by a token, and backups ([api.md](api.md)). Still to do:
 
 ## Operations and cutting settings
 
-- **Profiles that come with the app**, each the default for the operations it suits. The
-  two are chosen, in `starter.rs`: Clearing for pockets and floors, Facing for facing;
-  contours and cut-outs keep the plain row, which is safe for a full-width cut. Still to
-  do: a new operation starts on its profile's row where the tool has one.
-- **A profile chosen for each of an operation's bits.** Today a bit's row can be picked
-  only where the bit already has rows on profiles for the material (`RowPicker`, kept in
-  a step's `rowProfiles`). This is to be a plain choice for every bit of every operation.
-- **Cutting settings shown in the operation**: the numbers it will run with, able to be
-  overridden there for that operation alone.
+- **Which profile a bit starts on is read from the profile's name.** A bit chosen for an
+  operation starts on the first profile whose key or name has a word for that operation
+  (`USE_WORDS` in `model.ts`), where the bit has such a row. To decide: a setting on the
+  profile, "starts in", in place of the words, which a name in another language misses.
+  Nothing moves a bit that was chosen before, and the core does not do this: a project
+  written by hand or by an agent says its `rowProfiles` itself.
+- **The card of a bit, to try with real tools.** Its profile buttons were looked at with
+  made-up profiles only: the lists the app was tried with have no row on a profile.
+- **Numbers a step changes**, what is left: the cut that frees a plug cannot be changed,
+  it runs the plain row as it is; an inlay's pocket and plug take the same changes,
+  though they may be in two woods; changes for a bit taken out of a step stay in the
+  file; a changed number is checked against the machine's top speed and the bit's width
+  and not by the feeds model, which a tool's sheet asks about its rows.
 - **Chamfers in passes, to try.** A chamfer's passes are planned against the row's
   groove, and wide bevels are cut in layers; this was checked in the core's section and
   simulation and in rendered drawings, not yet in the running app or on the machine.
@@ -106,8 +111,6 @@ The list of inlays and operations is the order the stock goes through, with glue
 steps done by hand. The lines between two of them are one file, and the stock can be
 looked at in 3D after each line. What that makes possible, and is not built:
 
-- **A line left out of its file.** The tick boxes could do that. To decide whether it is
-  missed: a line still has a file of its own.
 - **Sawing as the machine would see it.** What the saw leaves is one typed height, level;
   a hand saw leaves neither.
 
@@ -127,7 +130,11 @@ looked at in 3D after each line. What that makes possible, and is not built:
 
 ## Documentation
 
-- Clean up the docs, and add screenshots to the README.
+- The README's screenshots are taken by a script that drives a browser, which is not in
+  the repository, and so is their drawing. To decide: keep both here, so that the
+  pictures can be taken again when the screens change.
+- [design/plan.md](design/plan.md) has the later work of 2026-11-18 from the commits
+  alone, without the reasons, for all but the stock's material and the bits' cards.
 
 ## Toolpaths and checks
 
@@ -158,5 +165,7 @@ From the original requirements' list of what version 1 would not do.
 - Snapping and aligning one shape to another. A drawn shape is placed by eye or by typed
   position, like a second drawing.
 - Sequenced work in several colours. An inlay into an inlay can be put in order and
-  looked at: pocket, glue-up, trim, then the second pocket into the plug. Not built:
-  cutting settings by the wood a cut is in, and boundaries shared by two inlay woods.
+  looked at: pocket, glue-up, trim, then the second pocket into the plug. A cut takes
+  the stock's material, a plug its inlay's wood and a trim the wood of the plug it trims.
+  Not built: a pocket or contour cut into a glued-in plug still takes the stock's
+  material, and boundaries shared by two inlay woods.

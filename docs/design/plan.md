@@ -1344,3 +1344,77 @@ from any web host, and a server is something the same build can be served by.
   spindle, since the machine is a browser's setting; the page does not say when the
   server is out of reach until something is saved; the Docker image was built once and not
   run behind a proxy.
+
+### Later the same day, from the commits (2026-11-18)
+
+Written afterwards from the commit log, for work this file did not record at the time.
+What each does is in its commit message and in [../guide.md](../guide.md); the reasons
+are not written down.
+
+- **A contour can start below the surface**, and its side is chosen from pictures. A
+  project's copies of tools are matched to the tool list by their details.
+- **A project keeps a number for each of its tools** (`toolNumbers`), shown on a Tools
+  tab of the panel with each bit drawn. Every file calls for a tool by that number, names
+  a bit once, and leaves it in the spindle from one step to the next.
+- **The Files tab is Export.** What to cut is ticked line by line, and the ticks on one
+  board come to one file; a project's files are numbered in the order they are cut. This
+  is the roadmap's "a line left out of its file".
+- **A pocket and a chamfer can start below the surface**: a start depth beside the
+  pocket's depth, an edge depth beside the chamfer's width.
+- **Outlines that cross or touch each other import whole**, one lying on the other; only
+  an outline wholly inside another is cut out of it.
+
+### The stock's material, and a profile and numbers for each bit (2026-11-18)
+
+The user asked for a profile chosen for each operation, for the material to be said once
+for the stock, and for a tool's settings to be changed for one operation. Three roadmap
+items, built together after mockups: of three ways to change the numbers the user took
+"a line of numbers, and fields on Edit"; of the ways to choose a profile, first a word in
+that line, then, once it was on screen and did not read as a control, a labelled list,
+and last a button for each profile.
+
+- **The material is the stock's** (`base.material`). Every step had one, which let two
+  operations on one board disagree. A step's `material` is kept for one thing, the wood
+  of an inlay's plug or insert, since that is cut from another board.
+  `Project::cut_material` is the one place that says what a cut is in: the stock's
+  material, except for a plug, and for a facing that starts above the surface over an
+  inlay's shapes, which trims that inlay's plug and is in its wood. That rule takes the
+  place of the copy of the material a trim was given when it was added. `stepMaterial`
+  in `model.ts` says the same for the page.
+- **The project file is version 3.** A meaning changed, so the version did. A version 2
+  file gives the stock the material of its first pocket, contour, chamfer or facing of
+  the stock itself, else of its first inlay, whose pocket was cut in it. Where two
+  operations of an old file were in different materials, one of them changes: the file
+  could not have meant both.
+- **A step changes numbers of a bit's row** (`cutOverrides`, by tool id): any of speed,
+  feed, plunge, stepover and stepdown. A number left out is the row's, so tuning the row
+  in the tool list still reaches the step. `Context::tool` in `build.rs` hands on the row
+  with the changes worked in, and refuses a speed over the machine's top and a stepover
+  wider than the bit, as it does for a row. The cut that frees a plug runs the plain row
+  untouched: it is a full-width slot, and a change meant for clearing must not reach it.
+- **A profile for each bit** was there already, as `rowProfiles`, behind a list that only
+  appeared for a bit with such rows. It is now on every bit's card.
+- **A bit starts on the profile for its operation** when it is chosen
+  (`withDefaultProfile`), where it has such a row for the material. The profiles are the
+  user's own, with names of their choosing, so the match is by words in the key or name:
+  "face" or "facing" for a facing, and so on, and "Full width" for a contour. The page
+  does this and writes the choice into the step; the core never guesses, and a bit
+  chosen earlier is left alone. Never an adaptive profile.
+- **The card** (`BitCut.tsx`): a button for each profile when there is more than the
+  plain row, the row's numbers on one line with those the step changes in blue, and
+  "Edit" for a field per number. Under a single tool's list, and across the full width
+  under each line of a list of end mills.
+- Two mistakes on the way, for whoever edits here next. The card's class was first
+  `bit-cut`, which the tool drawings already use; it is `bit-card`. And two writes to one
+  file a moment apart left the dev server on the first: the page then showed no cards at
+  all though the file was right.
+- Checked by test: in the core, the version 2 and 3 fixtures, the stock's material taken
+  from old files, a pocket in the stock's material and a plug in the inlay's, and a file
+  cut at the numbers a step changes; in the page, what a step is cut in, the profile a
+  bit starts on for each use, and changes taken along when a tool's copy is linked to the
+  list. In the browser: the card on a pocket, a changed feed reaching the generated
+  file, the reset, and the stock's material field.
+- Known limits: the profile buttons were seen with made-up profiles only; an inlay's
+  pocket and plug share one set of changes; changes for a bit no longer in a step stay
+  in the file; a changed number is not put to the feeds model; a pocket cut into a
+  glued-in plug takes the stock's material.

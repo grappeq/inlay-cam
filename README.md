@@ -7,6 +7,8 @@ pocket into the stock, the other cuts the piece that fills it. It also cuts plai
 contours and chamfers, and faces the stock. It simulates every file and reports how an
 inlay's two parts will fit before any wood is cut.
 
+![A coaster on the Design tab: three inlays in maple and walnut, each with its glue-up and the facing that trims it flush, and the cut that frees the coaster](docs/screenshots/design.png)
+
 - **V-carve inlays**, with sloped walls and sharp corners, and **flat inlays**, with
   upright walls, as loose pieces or as one plug.
 - Reads **SVG and DXF** drawings; simple shapes can be drawn, and shapes moved, resized, turned and deleted, in the
@@ -14,6 +16,9 @@ inlay's two parts will fit before any wood is cut.
 - Writes G-code for a **Carvera Air running the
   [Carvera Community Firmware](https://github.com/Carvera-Community/Carvera_Community_Firmware)**.
   No other controller is supported yet.
+- Cuts with **your own tool list**: each bit runs the speeds and feeds it has for the
+  stock's material, on the profile chosen for it, and an operation can change any of the
+  numbers for itself.
 - The simulation runs on the text of the G-code file itself, and the **fit check** lowers
   the simulated plug into the simulated pocket.
 - Everything runs in the browser. It needs no server: drawings, projects and tools stay
@@ -24,11 +29,26 @@ inlay's two parts will fit before any wood is cut.
 Try it at <https://grappeq.github.io/inlay-cam/>, and read the
 [user guide](docs/guide.md).
 
+## Screenshots
+
+A coaster with a walnut mountain range, a maple sun and a maple snow cap, as V-carve
+inlays in an 88 mm blank. The drawing is one small SVG.
+
+| | |
+|---|---|
+| ![A V-carve inlay's panel, with a section through plug and pocket](docs/screenshots/inlay.png) An inlay: how deep the plug sits, its wood and its bits. | ![The mountains' plug simulated in 3D](docs/screenshots/plug.png) The plug, simulated from its own G-code file. |
+| ![The fit check: the finished face, and a cross-section through plug and pocket](docs/screenshots/fit.png) The fit check lowers the simulated plug into the simulated pocket. | ![The finished coaster in 3D, beside the list of files to export](docs/screenshots/step-by-step.png) The stock after every step of the list, and the files to cut it. |
+
+![The tool list, with one end mill's sheet: its shape to scale and its cutting settings by material](docs/screenshots/tools.png)
+
 ## Status and safety
 
-The app is new. All of its planned features are built and checked in simulation, and an
-air cut on a Carvera Air confirmed that the firmware reads its G-code as intended (see
-[machine-tests](machine-tests/README.md)). **No inlay has been cut with it yet.**
+The app has been used to machine a few jobs on a Carvera Air, with success. It is still
+**very much experimental**: that is a handful of cuts, on one machine, with one person's
+tools and woods, and much of what the app can do has been checked in simulation only. An
+air cut confirmed that the firmware reads its G-code as intended (see
+[machine-tests](machine-tests/README.md)). Expect rough edges, and treat every file as
+untested until you have watched it run.
 
 G-code moves a spinning tool. The simulation checks a file against the board and tools you
 described, not against your machine as it stands: it cannot see clamps, a wrong work
@@ -62,7 +82,7 @@ cd web && npm install
 ```bash
 cargo test --workspace          # core tests
 cd web && npm run wasm          # build the core to WebAssembly into web/src/wasm
-cd web && npm test              # tests of the drawing-arranging logic
+cd web && npm test              # tests of the web app's own logic
 cd web && npm run dev           # dev server on http://localhost:5173
 cd web && npm run build         # type-check and build static files into web/dist
 ```
