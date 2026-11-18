@@ -36,8 +36,7 @@ export function ArrangePanel({ design }: { design: Design }) {
                   : `${count} selected. Drag ${selection.length === 1 ? "it" : "them"}, or use the tools above the drawing.`}
           </p>
           <p className="hint">
-            A click selects one outline. What lies inside it is a shape of its own and stays where it is; to take a part with everything in it, drag a box
-            around it.
+            A click selects one outline; to take a part with everything inside it, drag a box around it.
           </p>
           <div className="row links">
             <button className="link" disabled={everything} onClick={() => dispatch({ type: "setSelection", ids: design.regions.map((r) => r.id) })}>
@@ -62,7 +61,6 @@ export function ArrangePanel({ design }: { design: Design }) {
             <NumberField label="Margin" unit="mm" value={margin} onChange={(v) => v !== undefined && setMargin(v)} />
             <button onClick={() => edit((d) => trimBoard(d, margin / d.scale))}>Fit stock to shapes</button>
           </div>
-          <p className="hint">Fitting leaves the margin between the outermost shapes and the stock's edges.</p>
         </section>
 
         <section>

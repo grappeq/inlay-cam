@@ -2,7 +2,7 @@
 // the design panel and for the defaults in the settings.
 
 import type { Setup } from "../core/types";
-import { SETUP_LIMITS, fmt } from "../state/model";
+import { SETUP_LIMITS } from "../state/model";
 import { NumberField } from "./NumberField";
 
 interface Props {
@@ -23,7 +23,7 @@ export function HeightFields({ setup, onChange }: Props) {
         value={setup.safeHeight}
         // The plunge can never start above the height the tool travels at.
         onChange={(v) => v !== undefined && onChange({ safeHeight: v, plungeClearance: Math.min(setup.plungeClearance, v) })}
-        hint="Above the board, between cuts. Raise it to clear clamps."
+        help="safeHeight"
       />
       <NumberField
         label="Plunge from"
@@ -32,7 +32,7 @@ export function HeightFields({ setup, onChange }: Props) {
         max={setup.safeHeight}
         value={setup.plungeClearance}
         onChange={(v) => v !== undefined && onChange({ plungeClearance: v })}
-        hint="Above wood already cut. The tool drops fast to here, then goes down at the plunge feed."
+        help="plungeClearance"
       />
     </div>
   );
@@ -43,6 +43,7 @@ export function TabFields({ setup, onChange }: Props) {
   const field = (key: "tabWidth" | "tabSpacing" | "tabThickness", label: string) => (
     <NumberField
       label={label}
+      help={key === "tabWidth" ? "tabs" : undefined}
       unit="mm"
       min={SETUP_LIMITS[key][0]}
       max={SETUP_LIMITS[key][1]}
@@ -51,17 +52,11 @@ export function TabFields({ setup, onChange }: Props) {
     />
   );
   return (
-    <>
-      <div className="row setup-row">
-        {field("tabWidth", "Tab width")}
-        {field("tabSpacing", "Tab spacing")}
-        {field("tabThickness", "Tab thickness")}
-      </div>
-      <p className="hint">
-        An outline gets a tab about every {fmt(setup.tabSpacing)} mm, and at least three, where it is long enough. A tab is never thicker than half
-        the board.
-      </p>
-    </>
+    <div className="row setup-row">
+      {field("tabWidth", "Tab width")}
+      {field("tabSpacing", "Tab spacing")}
+      {field("tabThickness", "Tab thickness")}
+    </div>
   );
 }
 
@@ -76,7 +71,7 @@ export function EntryFields({ setup, onChange, finish = true }: Props & { finish
         max={SETUP_LIMITS.rampAngle[1]}
         value={setup.rampAngle}
         onChange={(v) => v !== undefined && onChange({ rampAngle: v })}
-        hint="An end mill goes down into wood along its path at this slope instead of plunging. 0 plunges straight down."
+        help="rampAngle"
       />
       {finish && (
         <NumberField
@@ -86,7 +81,7 @@ export function EntryFields({ setup, onChange, finish = true }: Props & { finish
           max={SETUP_LIMITS.finishAllowance[1]}
           value={setup.finishAllowance}
           onChange={(v) => v !== undefined && onChange({ finishAllowance: v })}
-          hint="Left on walls and edges while cutting down, and taken off in one light pass at the end. 0 for none."
+          help="finishAllowance"
         />
       )}
     </div>
@@ -104,7 +99,7 @@ export function CutOutFields({ setup, onChange }: Props) {
         max={SETUP_LIMITS.throughCut[1]}
         value={setup.throughCut}
         onChange={(v) => v !== undefined && onChange({ throughCut: v })}
-        hint="Where a part is cut out of its board, into the spoilboard."
+        help="throughCut"
       />
       <NumberField
         label="Board around a cut-out plug"
@@ -113,7 +108,7 @@ export function CutOutFields({ setup, onChange }: Props) {
         max={SETUP_LIMITS.cutOutBorder[1]}
         value={setup.cutOutBorder}
         onChange={(v) => v !== undefined && onChange({ cutOutBorder: v })}
-        hint="Left on every side, beyond the cut."
+        help="cutOutBorder"
       />
     </div>
   );

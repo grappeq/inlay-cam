@@ -8,6 +8,7 @@ import type { Machine, Setup } from "../core/types";
 import { DEFAULT_SETUP, FEED_MATERIALS, MACHINE_PRESETS, MAX_TOOL_CHANGE_SECONDS, SETUP_LIMITS, allMaterials, fmt, sameSetup } from "../state/model";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { Num, PageHead } from "./Cells";
+import { HELP } from "./help";
 import { MaterialsPage } from "./MaterialsView";
 import { ProfilesPage } from "./ProfilesView";
 import { ToolsArea } from "./ToolsView";
@@ -176,18 +177,19 @@ function MachinePage() {
 }
 
 const SETUP_ROWS: { title: string; rows: { key: keyof Setup; label: string; unit: string; what: string }[] }[] = [
+  // What a field is, is said once: here as it is beside the field in an inlay's panel.
   {
     title: "Heights",
     rows: [
-      { key: "safeHeight", label: "Travel height", unit: "mm", what: "Above the board, between cuts. Raise it to clear clamps." },
-      { key: "plungeClearance", label: "Plunge from", unit: "mm", what: "Above wood already cut. The tool drops fast to here, then goes down at the plunge feed." },
+      { key: "safeHeight", label: "Travel height", unit: "mm", what: HELP.safeHeight.text },
+      { key: "plungeClearance", label: "Plunge from", unit: "mm", what: HELP.plungeClearance.text },
     ],
   },
   {
     title: "Entry and finishing",
     rows: [
-      { key: "rampAngle", label: "Ramp angle", unit: "°", what: "An end mill goes down along its path at this slope. 0 plunges straight down. V-bits and corner-rounding bits are not affected." },
-      { key: "finishAllowance", label: "Left for a finishing pass", unit: "mm", what: "Left on walls and edges while cutting down, and taken off in one light pass at the end. 0 for none." },
+      { key: "rampAngle", label: "Ramp angle", unit: "°", what: HELP.rampAngle.text },
+      { key: "finishAllowance", label: "Left for a finishing pass", unit: "mm", what: HELP.finishAllowance.text },
     ],
   },
   {
@@ -201,8 +203,8 @@ const SETUP_ROWS: { title: string; rows: { key: keyof Setup; label: string; unit
   {
     title: "Cutting parts out",
     rows: [
-      { key: "throughCut", label: "Cut past the bottom", unit: "mm", what: "Into the spoilboard, where a part is cut out of its board." },
-      { key: "cutOutBorder", label: "Board around a cut-out plug", unit: "mm", what: "Left on every side, beyond the cut." },
+      { key: "throughCut", label: "Cut past the bottom", unit: "mm", what: HELP.throughCut.text },
+      { key: "cutOutBorder", label: "Board around a cut-out plug", unit: "mm", what: HELP.cutOutBorder.text },
     ],
   },
 ];

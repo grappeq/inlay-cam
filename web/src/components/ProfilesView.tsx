@@ -3,6 +3,7 @@ import type { FeedLevel, Profile } from "../core/types";
 import { isAdaptive, profileKey } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { NameField, PageHead } from "./Cells";
+import { HelpTip } from "./HelpTip";
 
 const LEVELS: { value: FeedLevel; label: string }[] = [
   { value: "gentle", label: "Gentle" },
@@ -77,10 +78,18 @@ export function ProfilesPage() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th title="Shown where the profile is chosen">Note</th>
-                  <th title="The stop the suggestion on a tool's sheet begins at for this profile's rows. It changes no row and no file.">Suggestions start at</th>
-                  <th title="How this profile's rows are cut, which shapes what is suggested for them. It changes no row and no file.">Cut</th>
-                  <th className="num" title="How many cutting rows your tools keep for it">Rows</th>
+                  <th>
+                    Note <HelpTip topic="profileNote" />
+                  </th>
+                  <th>
+                    Suggestions start at <HelpTip topic="profileStart" />
+                  </th>
+                  <th>
+                    Cut <HelpTip topic="profileCut" />
+                  </th>
+                  <th className="num">
+                    Rows <HelpTip topic="profileRows" />
+                  </th>
                   <th />
                 </tr>
               </thead>

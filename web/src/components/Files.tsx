@@ -73,8 +73,7 @@ export function FilesList() {
   return (
     <section className="files-list">
       <p className="hint">
-        Everything to cut and to do, in order. A file for the stock cuts the lines from one glue-up to the next, and is simulated on the stock as the steps
-        before it leave it.
+        Everything to cut and to do, in order; a file for the stock cuts the lines from one glue-up to the next.
       </p>
       {
         <>

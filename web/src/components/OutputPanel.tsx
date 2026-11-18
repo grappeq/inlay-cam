@@ -263,8 +263,7 @@ function PartCard(props: { name: string; board: string; preview: PocketPreview; 
         Download {name} file
       </button>
       <p className="hint file-name">
-        {built.fileName}, {built.stats.lines} lines, {fmt(Math.round(built.stats.cuttingLength) / 1000)} m of cutting. The work origin is the
-        board's bottom-left corner, on its top face. Run a new file above the board first: the app comes with no warranty.
+        {built.fileName}, {built.stats.lines} lines, {fmt(Math.round(built.stats.cuttingLength) / 1000)} m of cutting. Run a new file above the board first: the app comes with no warranty.
       </p>
     </section>
   );

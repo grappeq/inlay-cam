@@ -3,6 +3,7 @@ import type { MaterialInfo } from "../core/types";
 import { FEED_MATERIALS, allMaterials, isBuiltInMaterial, materialKey } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { NameField, PageHead } from "./Cells";
+import { HelpTip } from "./HelpTip";
 
 /** The materials cutting settings can be given for: a page of the settings view. */
 export function MaterialsPage() {
@@ -56,11 +57,25 @@ export function MaterialsPage() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th title="What files call the material. It never changes, also when the material is renamed.">Key</th>
-                <th title="Which material the feeds model takes it for, so that a tool's sheet can suggest starting values and place its rows. It changes nothing else.">Suggestions as</th>
-                {makera && <th title="The material of Makera CAM its rows are written for">Makera CAM</th>}
-                {makera && <th title="The materials of Makera Studio its rows are written for">Makera Studio</th>}
-                <th className="num" title="How many cutting rows your tools have for it">Rows</th>
+                <th>
+                  Key <HelpTip topic="materialKey" />
+                </th>
+                <th>
+                  Suggestions as <HelpTip topic="materialFeedsAs" />
+                </th>
+                {makera && (
+                  <th>
+                    Makera CAM <HelpTip topic="materialMakeraCam" />
+                  </th>
+                )}
+                {makera && (
+                  <th>
+                    Makera Studio <HelpTip topic="materialMakeraStudio" />
+                  </th>
+                )}
+                <th className="num">
+                  Rows <HelpTip topic="materialRows" />
+                </th>
                 <th />
               </tr>
             </thead>

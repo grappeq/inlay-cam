@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { fmt } from "../state/model";
+import { HelpTip } from "./HelpTip";
+import type { HelpTopic } from "./help";
 
 interface Props {
   label: string;
@@ -13,6 +15,8 @@ interface Props {
   /** Allow the field to be left empty (the value is then undefined). */
   optional?: boolean;
   hint?: string;
+  /** What the number is, for a "?" beside the label. For what explains; `hint` is for what the number gives. */
+  help?: HelpTopic;
   /**
    * Report the number only when the user is done with it (Enter, or leaving
    * the field) instead of at every keystroke. Escape puts the old value back.
@@ -26,7 +30,8 @@ interface Props {
  * A number input that only reports complete, in-range numbers. While the text
  * is not a usable number the field is marked invalid and the last good value stays.
  */
-export function NumberField({ label, value, onChange, unit, min = 0, max = Infinity, whole, optional, hint, deferred, disabled }: Props) {
+export function NumberField({ label, value, onChange, unit, min = 0, max = Infinity, whole, optional, hint, help, deferred, disabled }: Props) {
+  const id = useId();
   const unusable = (n: number) => Number.isNaN(n) || n < min || n > max || (whole === true && !Number.isInteger(n));
   const [text, setText] = useState(value === undefined ? "" : fmt(value));
   const [invalid, setInvalid] = useState(false);
@@ -76,10 +81,14 @@ export function NumberField({ label, value, onChange, unit, min = 0, max = Infin
   }
 
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
+    <div className="field">
+      <span className="field-label">
+        <label htmlFor={id}>{label}</label>
+        {help && <HelpTip topic={help} />}
+      </span>
       <span className="field-input">
         <input
+          id={id}
           type="text"
           inputMode="decimal"
           value={text}
@@ -110,6 +119,6 @@ export function NumberField({ label, value, onChange, unit, min = 0, max = Infin
         {unit && <span className="unit">{unit}</span>}
       </span>
       {hint && <span className="hint">{hint}</span>}
-    </label>
+    </div>
   );
 }

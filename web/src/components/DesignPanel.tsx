@@ -49,6 +49,7 @@ import { InlayDiagram } from "./InlayDiagram";
 import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
+import { HelpTip } from "./HelpTip";
 import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
@@ -179,10 +180,7 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
         <NumberField deferred label="Height (Y)" unit="mm" min={1} value={round2(design.height)} onChange={(v) => v !== undefined && setDesign({ height: v })} />
         <NumberField label="Thickness" unit="mm" min={0.1} value={project.base.thickness} onChange={(v) => v !== undefined && setBase({ thickness: v })} />
       </div>
-      <p className="hint">
-        The stock is the board the pockets and the other operations are cut into. The work origin is its bottom-left corner, on its top face.
-        Changing its size leaves the shapes as they are.
-      </p>
+      <p className="hint">The work origin is its bottom-left corner, on its top face.</p>
       {outside && (
         <p className="status-line warn" role="status">
           Some shapes lie outside the stock. Move them, or{" "}
@@ -204,10 +202,6 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
         {count === 0 ? "No shapes yet." : `${count} shape${count === 1 ? "" : "s"}${design.sourceName ? ` from ${design.sourceName}` : ""}.`}
       </p>
       {report && <ReportNotes report={report} />}
-      <p className="hint">
-        "Add drawing", above the drawing, brings in the shapes of further SVG or DXF files. "Edit" draws rectangles, circles and polygons, and moves,
-        resizes or deletes shapes.
-      </p>
       <details className="more">
         <summary>More</summary>
         <div className="row">
@@ -425,8 +419,8 @@ function StepsSection({ design }: { design: Design }) {
             </div>
             {owned > 0 && (
               <p className="hint">
-                {owned === 1 ? "One of the selected shapes belongs" : `${owned} of the selected shapes belong`} to an inlay already. A shape is one wood, so
-                it can be in one inlay only; the operations below take any shapes, and shapes can also be added once an operation is open.
+                {owned === 1 ? "One of the selected shapes belongs" : `${owned} of the selected shapes belong`} to an inlay already, and a shape can be in one
+                inlay only.
               </p>
             )}
           </>
@@ -565,7 +559,6 @@ function OpEditor({ step }: { step: Step }) {
               ? "No shapes: the whole stock is faced. Click shapes in the drawing to face over them only."
               : `${step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.`}
           </p>
-          <p className="hint">{OPERATION_HINTS[inlay.type]} It may use shapes that belong to an inlay or to other operations.</p>
         </section>
 
         <section>
@@ -625,13 +618,7 @@ function OpEditor({ step }: { step: Step }) {
                 <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
                 Leave tabs across the cut
               </label>
-              <p className="hint">
-                {inlay.tabs
-                  ? "Tabs keep what the cut frees attached until you cut them."
-                  : through
-                    ? "Without tabs, what the cut frees comes loose on the last pass: hold it down with tape."
-                    : "Tabs matter when the cut goes through."}
-              </p>
+              {through && !inlay.tabs && <p className="hint">Without tabs, what the cut frees comes loose on the last pass: hold it down with tape.</p>}
             </>
           )}
           {inlay.type === "chamfer" && (
@@ -677,7 +664,7 @@ function OpEditor({ step }: { step: Step }) {
               ids={inlay.clearingToolIds}
               material={step.material}
               onChange={(ids) => setInlay({ clearingToolIds: ids })}
-              hint="One is enough. With several, they are used in this order and each cuts only what those before it left. Inside corners are rounded to the smallest."
+              hint="Used in this order; each cuts only what those before it left."
             />
           )}
           {(inlay.type === "facing" || inlay.type === "contour") && (
@@ -702,7 +689,7 @@ function OpEditor({ step }: { step: Step }) {
               {!sameSetup(setup, defaults) ? " (changed)" : ""}
             </summary>
             <p className="hint">
-              For the file of this operation. A new one starts with your defaults, which are set under{" "}
+              A new operation starts with your defaults, set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
                 Settings
               </button>
@@ -721,7 +708,7 @@ function OpEditor({ step }: { step: Step }) {
                     max={SETUP_LIMITS.throughCut[1]}
                     value={setup.throughCut}
                     onChange={(v) => v !== undefined && setSetup({ throughCut: v })}
-                    hint="When the cut goes right through, into the spoilboard."
+                    help="throughCut"
                   />
                 </div>
               </>
@@ -792,8 +779,8 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
           hint={
             direction === "longer"
               ? walls
-                ? "In each shape, along whichever of its sides is longer: the fewest turns. In wood, a floor comes out cleanest along the grain: pick X or Y if the grain runs across."
-                : "Along whichever side of the area is longer: the fewest turns. In wood, a face comes out cleanest along the grain: pick X or Y if the grain runs across the longer side."
+                ? "Along each shape's longer side, for the fewest turns; pick X or Y to follow the grain."
+                : "Along the area's longer side, for the fewest turns; pick X or Y to follow the grain."
               : `${direction === "x" ? "Left and right" : "To and from the front"}. Cleanest when the grain runs ${direction === "x" ? "left to right" : "front to back"}.`
           }
         />
@@ -844,8 +831,7 @@ function TrimOffer({ step }: { step: Step }) {
     <section>
       <h3>The glue-up, and after it</h3>
       <p className="hint">
-        Gluing the {part.what} in is done by hand. As a step in the list, it tells the steps below it that the {part.what === "plug" ? "plug is" : "inserts are"}{" "}
-        on the stock: "Stock, step by step" then shows {part.what === "plug" ? "it" : "them"} in {part.what === "plug" ? "its" : "their"} wood.
+        As a step in the list, the glue-up puts the {part.what} on the stock for the steps below it.
       </p>
       {glue ? (
         <p className="derived">
@@ -861,10 +847,7 @@ function TrimOffer({ step }: { step: Step }) {
       )}
       {trims && glue && (
         <>
-          <p className="hint after-glue">
-            The backer can be sawn off by hand before the plug is trimmed, which leaves the facing little to do. As a step in the list, it tells the facing how
-            much is left standing.
-          </p>
+          <p className="hint after-glue">Sawing the backer off first leaves the facing little to do.</p>
           {saw ? (
             <p className="derived">
               "{saw.name}" is in the list.{" "}
@@ -889,10 +872,7 @@ function TrimPart({ above, made, add }: { step: Step; above: number; made: Step 
   const dispatch = useDispatch();
   return (
     <>
-      <p className="hint after-glue">
-        Glued in, the plug stands {fmt(round2(above))} mm above the stock's surface. A facing mills it down flush, over the plug's blank. It is an operation
-        of its own in the list, with a file of its own, to run once the glue has set.
-      </p>
+      <p className="hint after-glue">Glued in, the plug stands {fmt(round2(above))} mm above the stock's surface.</p>
       {made ? (
         <p className="derived">
           "{made.name}" trims this plug.{" "}
@@ -960,10 +940,7 @@ function HandEditor({ step }: { step: Step }) {
           <h3>What this step does</h3>
           {task.type === "saw" ? (
             <>
-              <p className="hint">
-                Nothing is cut by the machine and there is no file: the backer is sawn off by hand, through the gap between it and the stock. What is left of
-                the plug stands a little above the surface, and nothing of its blank is left around it.
-              </p>
+              <p className="hint">By hand, with no file: the backer is sawn off through the gap between it and the stock.</p>
               <div className="row">
                 <NumberField
                   label="Left standing above the surface"
@@ -976,18 +953,12 @@ function HandEditor({ step }: { step: Step }) {
             </>
           ) : (
             <p className="hint">
-              Nothing is cut and there is no file: the {what} {what === "plug" ? "is" : "are"} glued into the pocket by hand.
+              By hand, with no file.
               {part && part.above > 0 ? ` As designed, ${what === "plug" ? "it stands" : "they stand"} ${fmt(round2(part.above))} mm above the stock's surface.` : ""}
             </p>
           )}
           <p className="hint">
-            Its place in the list is what counts.{" "}
-            {sawing
-              ? "The steps above it find the plug with its backer; the steps below it find what the saw left, and a facing that takes its height from the list starts there."
-              : `The steps above it find the stock without the ${what}; the steps below it find the ${what} there, to face ${what === "plug" ? "it" : "them"} off, to cut into ${
-                  what === "plug" ? "it" : "them"
-                }, or to run into ${what === "plug" ? "it" : "them"}.`}{" "}
-            Drag it in the list to move it. "Stock, step by step", above the drawing, shows the stock at every step.
+            Its place in the list is what counts: the steps below it find {sawing ? "what the saw left" : `the ${what} on the stock`}.
           </p>
           {before && (
             <p className="status-line warn" role="status">
@@ -1085,9 +1056,9 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
       )}
       <p className="hint">
         {whole
-          ? "To flatten the stock, give a depth below its surface. The tool runs out over every edge."
-          : "The area is the rectangle around the shapes, plus the margin. To trim a glued-in plug flush, give how far it stands above the surface and 0 below, with the plug's own margin, so that the area is the plug's blank. With the backer sawn off, add that as a step, and the list gives what is left standing."}{" "}
-        The surface is where Z0 is set. A depth under 0 stops the cut that far above the surface, to leave the wood standing there a little proud.
+          ? "The tool runs out over every edge."
+          : "The area is the rectangle around the shapes, plus the margin."}{" "}
+        A depth under 0 stops the cut that far above the surface.
       </p>
       {inlays.map((owner) => {
         const part = standingPart(owner);
@@ -1114,14 +1085,14 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
         </p>
       )}
       {above > 0 && (
-        <p className="hint">
-          The 3D view of this file alone shows the stock only: the wood above its surface is not drawn. "Stock, step by step" draws it, once the glue-up is a
-          step of the list.
-        </p>
+        <p className="hint">The 3D view of this file alone does not draw the wood above the surface.</p>
       )}
     </>
   );
 }
+
+/** Said once, whichever bit cuts the chamfer. */
+const AFTER_THE_EDGE = "Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood must be gone that deep.";
 
 /** How deep the V-bit runs for the chamfer, and whether it can cut one that wide. */
 function ChamferNote({ inlay }: { inlay: ChamferOp }) {
@@ -1135,14 +1106,11 @@ function ChamferNote({ inlay }: { inlay: ChamferOp }) {
           The edge is rounded over to the bit's radius of {fmt(radius)} mm. The bit's tip runs {fmt(round2((bit.tipDiameter ?? 0) / 2))} mm{" "}
           {inlay.side === "inside" ? "inside" : "outside"} the outline, {fmt(radius)} mm deep.
         </p>
-        <p className="hint">
-          Run it after the edge has been cut: the tip expects the wood beside the edge to be gone already, at least that deep. In uncut wood it cuts a
-          groove as wide as the bit instead.
-        </p>
+        <p className="hint">{AFTER_THE_EDGE}</p>
       </>
     );
   }
-  if (!bit || bit.kind !== "v_bit") return <p className="hint">Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood is gone.</p>;
+  if (!bit || bit.kind !== "v_bit") return <p className="hint">{AFTER_THE_EDGE}</p>;
   // As the core works it out: the tip runs its clearance beyond its flat from the edge.
   const clear = inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE;
   const aside = (bit.tipDiameter ?? 0) / 2 + clear;
@@ -1159,10 +1127,7 @@ function ChamferNote({ inlay }: { inlay: ChamferOp }) {
           The bit's tip runs {fmt(round2(aside))} mm {inlay.side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
         </p>
       )}
-      <p className="hint">
-        Run it after the edge has been cut: the tip expects the wood beside the edge to be gone already, at least that deep. In uncut wood it leaves a
-        V-groove instead.
-      </p>
+      <p className="hint">{AFTER_THE_EDGE}</p>
     </>
   );
 }
@@ -1170,9 +1135,9 @@ function ChamferNote({ inlay }: { inlay: ChamferOp }) {
 /** The numbers of a V-carve inlay that are seldom changed: closed until asked for, and marked when one is not the usual. */
 function FinerPoints({ inlay, onChange }: { inlay: VcarveInlay; onChange: (change: Partial<VcarveInlay>) => void }) {
   const fields = [
-    { key: "floorRidge", label: "Ridges on the floor, at most", hint: "Between the V-bit's passes on a flat floor. Lower is smoother and takes longer." },
-    { key: "reliefKeep", label: "Relief stays below the face by", hint: "Lower relieves more of a narrow ridge, and may show after sanding." },
-    { key: "trimDepth", label: "Fit check judges the face at", hint: "Below the surface: about what you sand off once the plug is in." },
+    { key: "floorRidge", label: "Ridges on the floor, at most" },
+    { key: "reliefKeep", label: "Relief stays below the face by" },
+    { key: "trimDepth", label: "Fit check judges the face at" },
   ] as const;
   const changed = fields.some((f) => inlay[f.key] !== undefined);
   return (
@@ -1188,7 +1153,7 @@ function FinerPoints({ inlay, onChange }: { inlay: VcarveInlay; onChange: (chang
               max={VCARVE_TUNING[f.key].range[1]}
               value={inlay[f.key] ?? VCARVE_TUNING[f.key].default}
               onChange={(v) => v !== undefined && onChange({ [f.key]: v === VCARVE_TUNING[f.key].default ? undefined : v })}
-              hint={f.hint}
+              help={f.key}
             />
           </div>
         ))}
@@ -1271,19 +1236,13 @@ function StepEditor({ step }: { step: InlayStep }) {
           )}
           {inlay.type === "vcarve" && (
             <>
-              <p className="hint">
-                Engagement: how deep the plug goes in. Glue gap: space left under it. Saw gap: space above the surface for sawing the plug's backer
-                off.
-              </p>
-              <label className="check">
-                <input type="checkbox" checked={inlay.relief} onChange={(e) => setInlay({ relief: e.target.checked })} />
-                Relieve the plug's narrow ridges and corner edges
-              </label>
-              <p className="hint">
-                Where a shape is narrow, and along the edge into every corner, the plug comes to a point that fills the pocket to the bottom: no room
-                for glue, and a bit with a tip flat leaves the pocket shallower still, so the point holds the plug up. With this the V-bit cuts those
-                points back by the glue gap. The cut stays {fmt(inlay.reliefKeep ?? VCARVE_TUNING.reliefKeep.default)} mm below the finished face.
-              </p>
+              <div className="check-row">
+                <label className="check">
+                  <input type="checkbox" checked={inlay.relief} onChange={(e) => setInlay({ relief: e.target.checked })} />
+                  Relieve the plug's narrow ridges and corner edges
+                </label>
+                <HelpTip topic="relief" />
+              </div>
             </>
           )}
         </section>
@@ -1299,7 +1258,7 @@ function StepEditor({ step }: { step: InlayStep }) {
             label="Colour of the inlay's wood"
             value={stepColor(step, project.steps)}
             onChange={(color) => update({ color })}
-            hint="For the drawing, the 3D view of the plug and the fit view. It changes nothing in the files."
+            hint="For the views only: it changes nothing in the files."
           />
           {inlay.type === "vcarve" ? (
             <>
@@ -1319,7 +1278,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                 ids={inlay.clearingToolIds}
                 material={step.material}
                 onChange={(ids) => setInlay({ clearingToolIds: ids })}
-                hint="One is enough. With several, they are used in this order and each cuts only what those before it left."
+                hint="Used in this order; each cuts only what those before it left."
               />
               {(() => {
                 const chosen = inlay.clearingToolIds.map((id) => resolveTool(id, tools, project)).filter((t): t is Tool => t !== undefined);
@@ -1399,12 +1358,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                         ? "The whole plug is cut out as one piece, round the edge of its blank, after it is carved."
                         : "The file carves the plug into a blank cut to size beforehand: the shapes' outer size plus the margin on every side."
                       : "The insert board is the shapes' outer size plus the margin on every side."}{" "}
-                    {inlay.tabs && (!plug || inlay.cutOut)
-                      ? "Tabs keep the wood attached until you cut it free."
-                      : !plug || inlay.cutOut
-                        ? "Without tabs it comes loose on the last pass: hold it down with tape."
-                        : ""}{" "}
-                    The exact board size is given with the file.
+                    {!inlay.tabs && (!plug || inlay.cutOut) ? "Without tabs it comes loose on the last pass: hold it down with tape." : ""}
                   </p>
                 </>
               );
@@ -1418,7 +1372,7 @@ function StepEditor({ step }: { step: InlayStep }) {
           <details className="more">
             <summary>Clearances and tabs{ownSetup ? " (changed)" : ""}</summary>
             <p className="hint">
-              For the files of this inlay. A new inlay starts with your defaults, which are set under{" "}
+              A new inlay starts with your defaults, set under{" "}
               <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "defaults" })}>
                 Settings
               </button>
