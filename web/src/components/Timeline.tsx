@@ -140,7 +140,8 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
     };
   }, [result, at, made]);
 
-  const go = (to: number) => dispatch({ type: "setTimelineAt", at: to });
+  // The panel follows to the entry shown, unless it is on the files, which stay to be looked through.
+  const go = (to: number) => dispatch({ type: "setTimelineAt", at: to, open: !byFile });
   const stale = made !== project;
   const several = result.files.length > 1;
   // The list as it is cut: the lines of one file together, a step done by hand on its own.

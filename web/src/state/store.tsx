@@ -106,7 +106,8 @@ export type Action =
   | { type: "setOutput"; output: Output | null }
   | { type: "setStage"; stage: Stage }
   | { type: "setTimeline"; timeline: Timeline | null }
-  | { type: "setTimelineAt"; at: number }
+  /** Shows the stock at a point of the list. With `open`, the panel turns to the entry it is shown after, or to the list for the fresh stock. */
+  | { type: "setTimelineAt"; at: number; open?: boolean }
   | { type: "setPanelPage"; page: PanelPage }
   /** Brings in a drawing: onto the stock beside what is there, or in place of it. */
   | { type: "addDrawing"; design: Design; replace: boolean }
@@ -228,8 +229,14 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, timeline: action.timeline, timelineAt: Math.min(state.timelineAt, action.timeline?.result?.steps.length ?? 0) };
     case "setPanelPage":
       return { ...state, panelPage: action.page };
-    case "setTimelineAt":
-      return { ...state, timelineAt: Math.max(0, Math.min(action.at, state.timeline?.result?.steps.length ?? 0)) };
+    case "setTimelineAt": {
+      const at = Math.max(0, Math.min(action.at, state.timeline?.result?.steps.length ?? 0));
+      if (!action.open) return { ...state, timelineAt: at };
+      // The entry as the project has it now; one that is gone since leaves the list.
+      const id = at > 0 ? state.timeline?.result?.steps[at - 1]?.stepId : undefined;
+      const step = state.project.steps.find((j) => j.id === id);
+      return { ...state, timelineAt: at, activeStepId: step?.id ?? null, selection: [] };
+    }
     case "addDrawing": {
       const current = state.project.design;
       if (!current || action.replace) {
