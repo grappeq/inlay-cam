@@ -9,7 +9,7 @@ import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
+import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
@@ -170,13 +170,13 @@ function reducer(state: AppState, action: Action): AppState {
         home: action.home,
         machine: action.machine,
         defaults: action.defaults,
-        project: normalised(action.project),
+        project: relinkTools(normalised(action.project), action.tools),
         projects: action.projects,
       });
     case "openProject":
       return withSnapshots({
         ...state,
-        project: normalised(action.project),
+        project: relinkTools(normalised(action.project), state.tools),
         selection: [],
         activeStepId: null,
         importReport: action.importReport ?? null,
@@ -200,7 +200,8 @@ function reducer(state: AppState, action: Action): AppState {
         project: { ...state.project, steps: state.project.steps.map((j) => (j.id === action.id ? action.update(j) : j)) },
       });
     case "setTools":
-      return withSnapshots({ ...state, tools: action.tools, lists: action.lists ?? state.lists });
+      // A tool that comes into the list may be one the project carries a copy of under another id.
+      return withSnapshots({ ...state, tools: action.tools, lists: action.lists ?? state.lists, project: relinkTools(state.project, action.tools) });
     case "setMachine":
       return withSnapshots({ ...state, machine: action.machine });
     case "setDefaults":

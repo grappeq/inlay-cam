@@ -52,7 +52,7 @@ import { NumberField } from "./NumberField";
 import { HelpTip } from "./HelpTip";
 import { ChamferDiagram, edgeCut, type ChamferHot } from "./ChamferDiagram";
 import { FacingDiagram, type FacingHot } from "./FacingDiagram";
-import { CHAMFER_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
+import { CHAMFER_PICTURES, CONTOUR_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURES, PictureChoice } from "./PictureChoice";
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { FilesList } from "./Files";
@@ -254,7 +254,7 @@ function describeStep(step: Step): string {
     case "facing":
       return step.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
     case "contour":
-      return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}, ${shapes}`;
+      return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${shapes}`;
     case "chamfer":
       return `Chamfer or rounded edge, ${shapes}`;
     case "glue":
@@ -587,25 +587,30 @@ function OpEditor({ step }: { step: Step }) {
           )}
           {inlay.type === "contour" && (
             <>
-              <label className="field">
-                <span className="field-label">The tool runs</span>
-                <select value={inlay.side} onChange={(e) => setInlay({ side: e.target.value as Side })}>
-                  <option value="outside">Outside the shapes: the shapes are what is kept</option>
-                  <option value="inside">Inside the shapes: the shapes are cut away</option>
-                  <option value="on">On the line: the tool's centre follows the outline</option>
-                </select>
-                <span className="hint">
-                  {inlay.side === "outside"
-                    ? "A shape's holes are cut too, from inside them. To cut round the outside of a part only, add everything inside it to the operation as well."
+              <PictureChoice
+                label="The tool runs"
+                value={inlay.side}
+                onChange={(side: Side) => setInlay({ side })}
+                options={[
+                  { value: "outside", label: "Outside the shapes", picture: CONTOUR_PICTURES.outside },
+                  { value: "inside", label: "Inside the shapes", picture: CONTOUR_PICTURES.inside },
+                  { value: "on", label: "On the line", picture: CONTOUR_PICTURES.on },
+                ]}
+                hint={
+                  inlay.side === "outside"
+                    ? "The shapes are what is kept. A shape's holes are cut too, from inside them. To cut round the outside of a part only, add everything inside it to the operation as well."
                     : inlay.side === "inside"
-                      ? "The opening comes out the size of the shapes, with inside corners rounded to the tool."
-                      : "The cut is as wide as the tool, half on each side of the line."}
-                </span>
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={through} onChange={(e) => setInlay({ depth: e.target.checked ? null : Math.min(3, project.base.thickness / 2) })} />
-                Cut right through the stock
-              </label>
+                      ? "The shapes are cut away: the opening comes out their size, with inside corners rounded to the tool."
+                      : "The tool's centre follows the outline: the cut is as wide as the tool, half on each side of the line."
+                }
+              />
+              <div className="check-row">
+                <label className="check">
+                  <input type="checkbox" checked={through} onChange={(e) => setInlay({ depth: e.target.checked ? null : Math.min(3, project.base.thickness / 2) })} />
+                  Cut right through the stock
+                </label>
+                <HelpTip topic="throughCut" />
+              </div>
               {inlay.depth !== null ? (
                 <div className="row">
                   <NumberField label="Depth" unit="mm" min={0.01} value={inlay.depth} onChange={(v) => v !== undefined && setInlay({ depth: v })} />
@@ -616,10 +621,31 @@ function OpEditor({ step }: { step: Step }) {
                   bottom. Put a spoilboard under it.
                 </p>
               )}
-              <label className="check">
-                <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
-                Leave tabs across the cut
-              </label>
+              <div className="row">
+                <NumberField
+                  label="Start depth"
+                  unit="mm"
+                  min={0}
+                  value={inlay.startDepth ?? 0}
+                  onChange={(v) => v !== undefined && setInlay({ startDepth: v > 0 ? v : undefined })}
+                  help="contourStart"
+                />
+              </div>
+              {(inlay.startDepth ?? 0) > 0 &&
+                ((inlay.startDepth ?? 0) >= (inlay.depth ?? project.base.thickness) ? (
+                  <p className="hint warn">The cut has to start above where it ends: {fmt(inlay.depth ?? project.base.thickness)} mm.</p>
+                ) : (
+                  <p className="hint">
+                    Run it after the wood above is gone, as on the floor of a pocket: the tool comes down fast to {fmt(inlay.startDepth ?? 0)} mm where it runs.
+                  </p>
+                ))}
+              <div className="check-row">
+                <label className="check">
+                  <input type="checkbox" checked={inlay.tabs} onChange={(e) => setInlay({ tabs: e.target.checked })} />
+                  Leave tabs across the cut
+                </label>
+                <HelpTip topic="tabs" />
+              </div>
               {through && !inlay.tabs && <p className="hint">Without tabs, what the cut frees comes loose on the last pass: hold it down with tape.</p>}
             </>
           )}

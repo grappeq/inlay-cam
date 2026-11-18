@@ -158,38 +158,42 @@ pub struct Built {
 /// steps before left it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gone {
-    /// The outlines the strip runs beside.
-    pub regions: Vec<Region>,
-    /// Which side of them it is on.
-    pub side: Side,
-    /// How wide it is, from the outline, and how deep, mm.
-    pub width: f64,
+    /// The strips: the lines each runs along, and how wide it is, mm.
+    pub strips: Vec<(Vec<Region>, f64)>,
+    /// How deep they are, mm.
     pub depth: f64,
 }
 
 impl Gone {
-    /// Takes the strip out of `map`.
-    fn clear(&self, map: &mut HeightMap) {
-        let toward = if self.side == Side::Inside { -1.0 } else { 1.0 };
+    /// A strip `width` wide beside the outlines of `regions`, on one side.
+    fn beside(regions: &[Region], side: Side, width: f64, depth: f64) -> Gone {
+        let toward = if side == Side::Inside { -1.0 } else { 1.0 };
+        let mut strips = Vec::new();
         // An end mill as wide as the strip, taken along its middle. Narrower
         // ones as well, nearer the edge: a shape narrower than the strip has
         // no room for the wide one, and is cleared as far as they get.
         for n in [1, 2, 4] {
-            let across = self.width / n as f64;
-            let mill = ToolProfile::flat(across);
+            let across = width / n as f64;
             for i in 0..n {
                 let aside = (i as f64 + 0.5) * across;
-                for track in offset(&self.regions, toward * aside) {
-                    for ring in track.rings() {
-                        for k in 0..ring.len() {
-                            let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
-                            map.cut(
-                                &mill,
-                                [a[0], a[1], -self.depth],
-                                [b[0], b[1], -self.depth],
-                            );
-                        }
-                    }
+                strips.push((offset(regions, toward * aside), across));
+            }
+        }
+        Gone { strips, depth }
+    }
+
+    /// Takes the strips out of `map`.
+    fn clear(&self, map: &mut HeightMap) {
+        for (tracks, width) in &self.strips {
+            let mill = ToolProfile::flat(*width);
+            for ring in tracks.iter().flat_map(Region::rings) {
+                for k in 0..ring.len() {
+                    let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                    map.cut(
+                        &mill,
+                        [a[0], a[1], -self.depth],
+                        [b[0], b[1], -self.depth],
+                    );
                 }
             }
         }
@@ -436,6 +440,7 @@ pub fn build_with(
             _,
             Task::Contour {
                 side,
+                start_depth,
                 tabs,
                 tool_id,
                 ..
@@ -444,6 +449,7 @@ pub fn build_with(
             &mut ctx,
             &regions,
             *side,
+            *start_depth,
             through_stock,
             *tabs,
             tool_id.as_deref(),
@@ -1390,6 +1396,7 @@ fn flat_insert(
     let params = ProfileParams {
         tool_diameter: tool.diameter,
         depth: ctx.depth,
+        start: 0.0,
         stepdown: cutting.stepdown,
         feed: cutting.feed,
         plunge: cutting.plunge,
@@ -1778,6 +1785,7 @@ fn cut_piece_out(
         &ProfileParams {
             tool_diameter: tool.diameter,
             depth,
+            start: 0.0,
             stepdown: cutting.stepdown,
             feed: cutting.feed,
             plunge: cutting.plunge,
@@ -2430,11 +2438,12 @@ fn facing(
 
 /// A contour: an end mill taken along the outlines of the shapes, outside
 /// them, inside them or on them, down to the step's depth or right through
-/// the stock.
+/// the stock. It starts `start` deep, where the wood above is gone already.
 fn contour(
     ctx: &mut Context,
     regions: &[Region],
     side: Side,
+    start: f64,
     through: bool,
     tabs: bool,
     tool_id: Option<&str>,
@@ -2478,10 +2487,26 @@ fn contour(
     let setup = ctx.setup();
     let depth = ctx.depth;
     let thickness = ctx.project.base.thickness;
+    if start >= depth.min(thickness) {
+        ctx.errors.push(format!(
+            "The cut starts {} mm deep, but {}. Start it higher.",
+            num(start),
+            if through {
+                format!("the stock is only {} mm thick", num(thickness))
+            } else {
+                format!("it goes only {} mm deep", num(depth))
+            }
+        ));
+        return None;
+    }
+    // No thicker than half of what is cut, also in what a through cut has
+    // left to cut below a deep start.
     let tab_thickness = if through {
-        setup.tab_thickness_on(thickness)
+        setup
+            .tab_thickness_on(thickness)
+            .min((thickness - start) / 2.0)
     } else {
-        setup.tab_thickness.min(depth / 2.0)
+        setup.tab_thickness.min((depth - start) / 2.0)
     };
     // Cutting down a little further from the wood that stays leaves its edge
     // for one clean pass. Not where that would close the way between two
@@ -2514,6 +2539,7 @@ fn contour(
         &ProfileParams {
             tool_diameter: tool.diameter,
             depth,
+            start,
             stepdown: cutting.stepdown,
             feed: cutting.feed,
             plunge: cutting.plunge,
@@ -2555,6 +2581,15 @@ fn contour(
         moves: path.finish(),
         pocket: regions.to_vec(),
         through: if through { setup.through_cut } else { 0.0 },
+        // Where the tool runs, down to where it starts.
+        gone: (start > 0.0).then(|| Gone {
+            strips: tracks
+                .iter()
+                .chain(further.iter().flatten())
+                .map(|t| (t.clone(), tool.diameter))
+                .collect(),
+            depth: start,
+        }),
         ..Cut::default()
     })
 }
@@ -2774,14 +2809,12 @@ fn chamfer(
         pocket: regions.to_vec(),
         // Room for the whole bit beside the edge on its last track, and a
         // little over for the grid the simulation runs on.
-        gone: Some(Gone {
-            regions: regions.to_vec(),
+        gone: Some(Gone::beside(
+            regions,
             side,
-            width: last.aside
-                + edge_bit(bit).map_or(bit.diameter / 2.0, |b| b.body_radius())
-                + 0.2,
+            last.aside + edge_bit(bit).map_or(bit.diameter / 2.0, |b| b.body_radius()) + 0.2,
             depth,
-        }),
+        )),
         ..Cut::default()
     })
 }
@@ -4908,6 +4941,7 @@ pub(crate) mod tests {
             let p = op_project(Task::Contour {
                 side,
                 depth: Some(3.0),
+                start_depth: 0.0,
                 tabs: false,
                 tool_id: Some("t-endmill".into()),
             });
@@ -4934,10 +4968,56 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_contour_can_start_below_the_surface() {
+        let contour = |start_depth: f64, depth: Option<f64>, tabs: bool| {
+            let mut p = op_project(Task::Contour {
+                side: Side::Outside,
+                depth,
+                start_depth,
+                tabs,
+                tool_id: Some("t-endmill".into()),
+            });
+            p.base.thickness = 8.0;
+            p
+        };
+        let length = |p: &Project| build(p, "j", Part::Pocket).unwrap().stats.cutting_length;
+        for (depth, tabs, bottom) in [(Some(5.0), false, 5.0), (None, true, 8.2)] {
+            let p = contour(3.0, depth, tabs);
+            // The file alone is simulated with the wood above the start gone
+            // where the tool runs: it comes down there fast, and that is no fault.
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, [], "{depth:?}");
+            let cuts = cuts(&preview.built);
+            let lowest = cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min);
+            assert!((lowest + bottom).abs() < 1e-9, "{lowest}");
+            // Nothing is cut above the start but the way down to it, from
+            // the plunge clearance above.
+            let highest = cuts.iter().map(|q| q[2]).fold(f64::NEG_INFINITY, f64::max);
+            assert!((highest + 2.0).abs() < 1e-9, "{depth:?}: {highest}");
+            // Less to cut than from the surface.
+            assert!(length(&p) < length(&contour(0.0, depth, tabs)) - 50.0);
+        }
+
+        // It has to start above where it ends.
+        let reasons = build(&contour(8.0, None, false), "j", Part::Pocket)
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.contains("starts 8 mm deep"), "{reasons}");
+        assert!(contour(5.0, Some(5.0), false).validate().is_err());
+        assert!(contour(-1.0, None, false).validate().is_err());
+        // A file written before there was a start depth starts at the surface.
+        use crate::project::project_to_file_json;
+        let text = project_to_file_json(&contour(0.0, None, false));
+        assert!(!text.contains("startDepth"));
+        assert!(project_to_file_json(&contour(3.0, None, false)).contains("\"startDepth\": 3"));
+    }
+
+    #[test]
     fn a_contour_without_a_depth_goes_through_the_stock_and_can_leave_tabs() {
         let mut p = op_project(Task::Contour {
             side: Side::Outside,
             depth: None,
+            start_depth: 0.0,
             tabs: true,
             tool_id: Some("t-endmill".into()),
         });
@@ -4959,6 +5039,7 @@ pub(crate) mod tests {
         p.steps[0].task = Task::Contour {
             side: Side::Outside,
             depth: Some(6.0),
+            start_depth: 0.0,
             tabs: false,
             tool_id: Some("t-endmill".into()),
         };
@@ -5104,6 +5185,7 @@ pub(crate) mod tests {
         outline.task = Task::Contour {
             side: Side::Outside,
             depth: None,
+            start_depth: 0.0,
             tabs: true,
             tool_id: Some("t-endmill".into()),
         };

@@ -16,6 +16,9 @@ pub struct ProfileParams {
     pub tool_diameter: f64,
     /// How deep to cut below Z0: the board's thickness plus a little. Positive.
     pub depth: f64,
+    /// How deep the cut starts: the wood above it, where the tool runs, is
+    /// gone already. 0 to start at the surface.
+    pub start: f64,
     /// Largest depth per pass, mm.
     pub stepdown: f64,
     pub feed: f64,
@@ -144,16 +147,16 @@ pub fn follow(
     for (i, part) in parts.iter().enumerate() {
         let mut tabs_left = 0;
         let roughed = match rough.and_then(|r| r.get(i)) {
-            Some(further) if tab_top > 1e-9 => {
+            Some(further) if tab_top > p.start + 1e-9 => {
                 for track in further {
                     for (ring, _) in rings_of(track) {
                         let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
-                        descend(path, ring, &stations(ring, start), start, &[], 0.0, tab_top);
+                        descend(path, ring, &stations(ring, start), start, &[], p.start, tab_top);
                     }
                 }
                 tab_top
             }
-            _ => 0.0,
+            _ => p.start,
         };
         for track in part {
             for (ring, outline) in rings_of(track) {
@@ -165,14 +168,18 @@ pub fn follow(
                     _ => Vec::new(),
                 };
                 tabs_left += tabs.len();
-                if roughed > 0.0 {
+                if roughed > p.start + 1e-9 {
                     // What was left on the wall, in one pass down its whole height.
-                    let needed = if p.ramp > 0.0 { roughed / p.ramp } else { 0.0 };
+                    let needed = if p.ramp > 0.0 {
+                        (roughed - p.start) / p.ramp
+                    } else {
+                        0.0
+                    };
                     let run = ring_run(ring, start, needed);
                     ramp_in(
                         path,
                         &run,
-                        0.0,
+                        -p.start,
                         -roughed,
                         p.ramp,
                         f64::INFINITY,
@@ -204,6 +211,7 @@ pub fn follow_depths(
     let p = ProfileParams {
         tool_diameter: 0.0,
         depth: depths.iter().copied().fold(0.0, f64::max),
+        start: 0.0,
         stepdown: f64::INFINITY,
         feed,
         plunge,
@@ -321,6 +329,7 @@ mod tests {
         ProfileParams {
             tool_diameter: 3.0,
             depth: 4.2,
+            start: 0.0,
             stepdown: 1.5,
             feed: 600.0,
             plunge: 100.0,

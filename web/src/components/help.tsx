@@ -143,6 +143,19 @@ const PASSES = (
   </Frame>
 );
 
+/** In section: a pocket already cut, and the contour's cut going on down from its floor. */
+const START = (
+  <Frame>
+    <path className="help-wood" d="M0 16H30V46H84V90H110V46H130V16H160V90H0Z" />
+    <rect className="help-steel" x="84" y="0" width="26" height="72" />
+    <path className="help-level" d="M30 46H130" />
+    <path className="help-dim" d="M137 16H143M140 16V46M137 46H143" />
+    <text className="help-text" x="36" y="34">
+      gone already
+    </text>
+  </Frame>
+);
+
 export const HELP = {
   // Clearances and tabs: keyed as the setup's own fields are.
   safeHeight: { title: "Travel height", text: "How high above the board the tool moves between cuts. Raise it to clear clamps.", picture: TRAVEL },
@@ -176,6 +189,11 @@ export const HELP = {
     title: "Passes",
     text: "No pass goes deeper than the cutting row's stepdown, or takes more wood than a full groove that deep: the cut the row is set for. The edge widens as it deepens, so the passes get shallower going down. A bevel wider than the bit's flank is cut in layers from the top, stepping out to the edge. A deeper stepdown in the row gives fewer passes.",
     picture: PASSES,
+  },
+  contourStart: {
+    title: "Start depth",
+    text: "Where the cut begins, below the surface: the first pass goes down from here, and nothing is cut above it. For a cut on the floor of a pocket, or one that goes on where another stopped. The wood above must be gone where the tool runs. 0 starts at the surface.",
+    picture: START,
   },
   facingDepth: { title: "Depth below the surface", text: "How far under the stock's surface the facing goes. Under 0, it stops that far above the surface and leaves the wood proud." },
   byHand: { title: "A step done by hand", text: "Its place in the list is what counts: the steps below it find the stock as this one leaves it. Drag it in the list to move it." },

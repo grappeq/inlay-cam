@@ -378,6 +378,7 @@ half its diameter beyond it. The tool travels `safeHeight` above the standing wo
 | `type` | `contour` |
 | `side` | `outside` (default): the tool runs its radius outside the regions, and inside their holes. `inside`: its radius inside the regions. `on`: its centre on the outlines. |
 | `depth` | How deep the cut goes, greater than 0 and less than the stock's thickness; or `null` (default) for right through the stock, `throughCut` past its bottom. |
+| `startDepth` | How deep the cut starts: the wood above it, where the tool runs, is taken to be gone already, and the first pass goes down from there. 0 or more, and less than `depth`, or than the stock's thickness in a cut right through. Default 0; may be missing, and is not written when it is 0. |
 | `tabs` | Leave tabs across the cut, on the outer outline of each region. Default false. Their size is in the step's `setup`; in a cut that is not through they are no thicker than half its depth. |
 | `toolId` | The flat end mill, or `null` when not chosen yet. |
 

@@ -3695,6 +3695,21 @@ ul.plain {
   stroke: var(--accent);
   opacity: 1;
 }
+/* A cut through the wood, as wide as the tool, and the outline it is cut to. */
+.pic-slot {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 4;
+}
+.pic-line {
+  fill: none;
+  stroke: #6b5330;
+  stroke-width: 1;
+  stroke-dasharray: 2.5 1.5;
+}
+.picture[aria-checked="true"] .pic-line {
+  stroke: var(--accent);
+}
 
 /* Steps done by hand in the list of inlays and operations */
 .job-row.by-hand .job {

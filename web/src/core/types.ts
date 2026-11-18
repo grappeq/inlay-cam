@@ -336,6 +336,8 @@ export interface ContourOp {
   side: Side;
   /** How deep the cut goes; null for right through the stock. */
   depth: number | null;
+  /** How deep the cut starts, where the wood above is gone already. Absent means at the surface. */
+  startDepth?: number;
   tabs: boolean;
   toolId: string | null;
 }

@@ -127,3 +127,28 @@ export const CHAMFER_PICTURES = {
     </Frame>
   ),
 };
+
+/** Where a contour's tool runs, seen from above: the cut is the gap in the wood, the dashed line the shape's outline. */
+export const CONTOUR_PICTURES = {
+  outside: (
+    <Frame>
+      <rect className="pic-wood" x="3" y="3" width="50" height="34" rx="2" />
+      <rect className="pic-slot" x="12" y="7" width="32" height="26" rx="5" />
+      <rect className="pic-line" x="14" y="9" width="28" height="22" rx="3" />
+    </Frame>
+  ),
+  inside: (
+    <Frame>
+      <rect className="pic-wood" x="3" y="3" width="50" height="34" rx="2" />
+      <rect className="pic-slot" x="16" y="11" width="24" height="18" rx="2" />
+      <rect className="pic-line" x="14" y="9" width="28" height="22" rx="3" />
+    </Frame>
+  ),
+  on: (
+    <Frame>
+      <rect className="pic-wood" x="3" y="3" width="50" height="34" rx="2" />
+      <rect className="pic-slot" x="14" y="9" width="28" height="22" rx="3" />
+      <rect className="pic-line" x="14" y="9" width="28" height="22" rx="3" />
+    </Frame>
+  ),
+};

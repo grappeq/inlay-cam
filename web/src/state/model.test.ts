@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Design, Step } from "../core/types";
-import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import type { Design, Project, Step, Tool } from "../core/types";
+import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -210,5 +210,38 @@ describe("the starter set", () => {
     expect(first.added).toBe(3);
     expect(first.tools[0].note).toBe(STARTER_NOTE);
     expect(addStarter(first.tools, first.lists, starter).added).toBe(0);
+  });
+});
+
+describe("relinkTools", () => {
+  const mill = (id: string, extra: Partial<Tool> = {}): Tool => ({ id, name: "Ø6×18 3F", kind: "flat_end", diameter: 6, fluteLength: 18, shankDiameter: 6, cutting: [], ...extra });
+  const project = (tools: Tool[]): Project =>
+    ({
+      id: "p",
+      name: "P",
+      design: null,
+      tools,
+      steps: [
+        { id: "a", name: "Pocket", material: "hardwood", regionIds: [0], rowProfiles: { old: "adaptive" }, task: { type: "pocket", depth: 3, pattern: "offset", clearingToolIds: ["old", "kept"] } },
+        { id: "b", name: "Outline", material: "hardwood", regionIds: [0], task: { type: "contour", side: "outside", tabs: false, toolId: "old" } },
+      ],
+    }) as unknown as Project;
+
+  it("points the steps at the list's tool where a copy differs from it only by its id", () => {
+    // The list's tool has other feeds and another note: it is the same tool still.
+    const list = [mill("new", { note: "mine", cutting: [{ material: "hardwood" } as Tool["cutting"][number]] }), mill("kept", { name: "Ø4×12 3F", diameter: 4 })];
+    const p = project([mill("old"), list[1]]);
+    const linked = relinkTools(p, list);
+    expect(linked.steps.map(stepToolIds)).toEqual([["new", "kept"], ["new"]]);
+    expect(linked.steps[0].rowProfiles).toEqual({ new: "adaptive" });
+    // Nothing to do the second time.
+    expect(relinkTools(linked, list)).toBe(linked);
+  });
+
+  it("leaves a copy alone that differs in a measure, or that two tools of the list match", () => {
+    const p = project([mill("old")]);
+    expect(relinkTools(p, [mill("new", { fluteLength: 22 })])).toBe(p);
+    expect(relinkTools(p, [mill("one"), mill("two")])).toBe(p);
+    expect(relinkTools(p, [])).toBe(p);
   });
 });

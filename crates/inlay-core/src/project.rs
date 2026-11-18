@@ -567,6 +567,10 @@ pub enum Task {
         /// stock.
         #[serde(default)]
         depth: Option<f64>,
+        /// How deep the cut starts: the wood above it, where the tool runs,
+        /// is gone already, as in a pocket. 0 to start at the surface.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// Leave tabs across the cut.
         #[serde(default)]
         tabs: bool,
@@ -996,10 +1000,22 @@ impl Task {
                     "the margin must be 0 or more",
                 )
             }
-            Task::Contour { depth, .. } => check(
-                depth.is_none_or(|d| d.is_finite() && d > 0.0),
-                "depth must be greater than 0",
-            ),
+            Task::Contour {
+                depth, start_depth, ..
+            } => {
+                check(
+                    depth.is_none_or(|d| d.is_finite() && d > 0.0),
+                    "depth must be greater than 0",
+                )?;
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth a contour starts at must be 0 or more",
+                )?;
+                check(
+                    depth.is_none_or(|d| start_depth < d),
+                    "a contour must start above the depth it goes to",
+                )
+            }
             Task::Chamfer {
                 width,
                 side,
@@ -1313,6 +1329,7 @@ mod tests {
             Task::Contour {
                 side: Side::Inside,
                 depth: None,
+                start_depth: 0.0,
                 tabs: true,
                 tool_id: Some("t-endmill".into()),
             },

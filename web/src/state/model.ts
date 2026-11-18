@@ -470,6 +470,45 @@ export function projectOnlyTools(project: Project, tools: Tool[]): Tool[] {
   return project.tools.filter((p) => !tools.some((t) => t.id === p.id));
 }
 
+/** What makes a tool the tool it is, whatever its id: its name, its kind and its measures. */
+function toolDetails(tool: Tool): string {
+  const { name, kind, diameter, tipDiameter, cornerRadius, tipAngle, fluteLength, shankDiameter, length, flutes, shoulderLength, threadDiameter, pitch, drillDiameter } = tool;
+  return JSON.stringify([name, kind, diameter, tipDiameter, cornerRadius, tipAngle, fluteLength, shankDiameter, length, flutes, shoulderLength, threadDiameter, pitch, drillDiameter].map((v) => v ?? null));
+}
+
+/**
+ * The project with its steps pointed at the tool list's own tools, where a
+ * copy it carries under another id is one of them in all but the id: the
+ * same name, kind and measures. Such a copy comes from a tool list that was
+ * built again, which gives its tools new ids. A copy that matches no tool of
+ * the list, or more than one, is left as it is.
+ */
+export function relinkTools(project: Project, tools: Tool[]): Project {
+  const to = new Map<string, string>();
+  // Only the copies a step still points at: the others go by themselves.
+  const used = new Set(project.steps.flatMap((step) => [...stepToolIds(step), ...Object.keys(step.rowProfiles ?? {})]));
+  for (const copy of projectOnlyTools(project, tools)) {
+    if (!used.has(copy.id)) continue;
+    const details = toolDetails(copy);
+    const matches = tools.filter((t) => toolDetails(t) === details);
+    if (matches.length === 1) to.set(copy.id, matches[0].id);
+  }
+  if (to.size === 0) return project;
+  const one = (id: string) => to.get(id) ?? id;
+  const many = (ids: string[]) => [...new Set(ids.map(one))];
+  const steps = project.steps.map((step): Step => {
+    const task = { ...step.task } as Task;
+    if ("clearingToolIds" in task) task.clearingToolIds = many(task.clearingToolIds);
+    if ("vbitToolId" in task && task.vbitToolId !== null) task.vbitToolId = one(task.vbitToolId);
+    if ("toolId" in task && task.toolId !== null) task.toolId = one(task.toolId);
+    const out: Step = { ...step, task };
+    if (step.cutOutToolId !== undefined) out.cutOutToolId = one(step.cutOutToolId);
+    if (step.rowProfiles) out.rowProfiles = Object.fromEntries(Object.entries(step.rowProfiles).map(([id, profile]) => [one(id), profile]));
+    return out;
+  });
+  return { ...project, steps };
+}
+
 /** Tools offered for a slot: the tool list plus project-only copies, of one kind or of several, by kind and diameter. */
 export function toolChoices(kind: ToolKind | ToolKind[], tools: Tool[], project: Project): Tool[] {
   const kinds = Array.isArray(kind) ? kind : [kind];

@@ -510,7 +510,10 @@ click adds a shape to it or takes it away.
   only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
   leaving an opening of their size. *On the line* puts the tool's centre on the outline.
   The cut goes to a depth, or right through the stock and a little into the spoilboard,
-  with or without tabs.
+  with or without tabs. "Start depth" begins the cut below the surface, for a cut on the
+  floor of a pocket or one that goes on where another stopped: nothing is cut above it,
+  and the wood there must be gone where the tool runs. Its file alone is simulated with
+  that wood taken out.
 - **Chamfer**: shapes the top edge along the outlines. With a V-bit the edge is bevelled
   to the width given. With a corner-rounding (fillet) bit it is rounded over to the bit's
   own radius, and there is no width to give. Choose the side where the wood has been cut
