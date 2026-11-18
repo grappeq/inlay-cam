@@ -774,7 +774,9 @@ when it is done.
    offers its differences to tick. The fixtures were made by running the tooling
    library's own generators on the made-up list; the scripts that do so are kept with the
    tooling library (`scripts/inlay_cam_*.py`), since they need its code.
-4. **A server.** Not started.
+4. **A server.** Begun on 2026-11-18, as told under "A server" below: the server, the
+   shared tool file, the API and the backups are built. Not done: it is not deployed, and
+   the Python repository is not archived.
 5. **What only the joined app can do.** Not started.
 
 Parity with the workbench, reached on 2026-11-16: the list's search, chips with "only"
@@ -1234,3 +1236,79 @@ The rest of it, the same day.
 - Checked in the browser: on a fresh start the button adds 50 tools and the step is
   ticked; with tools in the list the button is gone and "Open tool list" is as before.
 
+### A server (2026-11-18)
+
+Phase 4 of joining with the tooling library, whose workbench was a Python server with the
+tool list in a `tools.yaml` on it. Here the app stays what it is, static files that work
+from any web host, and a server is something the same build can be served by.
+
+- **The server** (`crates/inlay-server`). A small Rust program on the core: it serves
+  `web/dist` and keeps `tools.json` in a data folder. Rust, so that the file is checked,
+  the libraries for other programs written and the feeds model asked by the same code the
+  page runs as WebAssembly; nothing of them is written twice. `tiny_http` and threads, no
+  async runtime: the load is one household.
+- **The file is the app's own tool file**, the text that "Export a tool file" writes and
+  that browser storage held. No new format, and the page needs no second way to read or
+  write its list. The Python workbench edited the lines of a YAML file in place to keep its
+  comments and layout; a JSON file written whole by one writer has neither to keep, so a
+  write here is: read, change the tool list, check, write.
+- **The page finds the server** by asking `api/health` at start. With the server's answer,
+  everything is read from and written to the server in place of browser storage; on a
+  static host the question gets a 404 and nothing changes.
+- **One or the other, never a mix.** First built with only the tool list on the server,
+  as the roadmap had it, and projects, machine and defaults left in the browser. The user
+  asked for no such hybrid, the same day: where things are kept is one answer for all of
+  them. `storage/home.ts` is that answer, asked once, and the one way to storage for the
+  store, the header and the file actions: `db.ts` under it in a browser, `server.ts` on a
+  server. Projects are project files in `projects/`, by id; the machine, the inlay
+  defaults and the last open project are texts in `settings.json`, as they were in the
+  browser's store. What the screens remember (the tool list's sort and chips, where a
+  suggestion was left) was in local storage from three places: it goes through
+  `storage/view.ts`, and on a server is one more setting, read at start. Checked in two
+  browsers that share nothing: the second opens the project the first renamed, with the
+  first's sort order, and neither has anything in its own storage.
+- **Projects are not checked by a token.** The last write is kept, as between two tabs of
+  one browser before. A project saves itself three times a second while it is worked on,
+  and a refused save would have to be merged or dropped in the middle of drawing; the
+  tool list is where two writers are expected, since agents write to it. A project
+  deleted is moved to `backups/`, since "this cannot be undone" is harder to stand behind
+  on a server others use.
+- **Writes are checked by a token**: the SHA-256 of the file. A write names the token of
+  the file it changed, and is refused with `409` when the file is no longer that one. This
+  is the tooling library's rule. The page, refused, reads the list again and says that its
+  last change was not kept; it also looks for a newer list when it is come back to, and
+  once a minute, so that this is rare.
+- **The API** (`api.rs`, [../api.md](../api.md)). For the page: the whole file, read and
+  replaced. For agents and scripts: a compact tool list with a word search, one tool, a
+  patch of one tool, add and delete, a row's log entry, the feeds model's numbers for a
+  row, what needs attention, and the libraries for the other programs made on the spot.
+  Every write takes a dry run and answers a diff of the file on request, since the agent
+  brief's rule is that the owner approves the exact diff. A patch is a JSON merge patch of
+  the tool as the file holds it, with cutting rows by key; a key the model does not have is
+  refused (`serde_ignored`), because a misspelt key would otherwise vanish in silence.
+  The tooling library's `/check` routes, its `generate` with a `build/` folder, its import
+  routes and its patch grammar of `op`s are not here: a dry run flag, libraries on demand,
+  the app's own import, and the merge patch take their places.
+- **Backups.** The file as it was, before every write that changes it. The page saves on
+  every change, so "the last 20" of the tooling library would be gone in an afternoon: the
+  newest 30 are kept, and of older ones the last of each day, for 60 days. Putting one
+  back is a `GET` of it and a `PUT` of the file.
+- **No login**, like the workbench, with its guards: only `localhost` is answered unless
+  told otherwise, and a write needs a header that another site's page cannot send.
+- `Dockerfile` and `compose.yaml` build and run it with the data folder as a volume.
+  [../agent-brief.md](../agent-brief.md) is the workbench's agent prompt for this API.
+- Checked by test: 31 in the server, on the routes as functions over a folder with the
+  starter set (reads, patch, misspelt keys, conflict, dry run, backup and putting it back,
+  log, add and delete, suggestions against the core, the exports against the core, the
+  guards, projects, settings) and on the store (backup names, thinning, UTC dates). In a browser against the
+  running server: the starter set added in the page and found on the server; a tool
+  renamed through the API shown in the page when it is come back to; a change made in the
+  page over a list changed meanwhile refused, said, and the next one kept.
+- Known limits: nothing moves what a browser holds to a server but files, by hand; a
+  project open in two browsers is the last one saved; saving a project reads it back from
+  the server first, to tell a change from none; a refused change is dropped, not merged, though two changes to different
+  tools could both be kept; materials, profiles and groups are changed through the API
+  only by replacing the whole file; the server's suggestions are for a Carvera Air's
+  spindle, since the machine is a browser's setting; the page does not say when the
+  server is out of reach until something is saved; the Docker image was built once and not
+  run behind a proxy.

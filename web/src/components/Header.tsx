@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { core } from "../core/client";
-import * as db from "../storage/db";
+import * as db from "../storage/home";
 import { useFileActions } from "../state/files";
 import { newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch, type SettingsPage } from "../state/store";
@@ -8,7 +8,7 @@ import { mayLeave } from "../state/unsaved";
 import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
 
 export function Header() {
-  const { project, view, settingsPage, saveError, ready } = useApp();
+  const { project, view, settingsPage, saveError, ready, home } = useApp();
   const inTools = view === "settings" && settingsPage === "tools";
   // The settings page last looked at, to come back to after the tools.
   const lastPage = useRef<SettingsPage>("materials");
@@ -55,11 +55,11 @@ export function Header() {
         onChange={(e) => dispatch({ type: "updateProject", update: (p) => ({ ...p, name: e.target.value }) })}
       />
       <span className={`save-state${saveError ? " error" : ""}`} role="status">
-        {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : "Saved in this browser"}
+        {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
       </span>
       <div className="actions">
         <button onClick={() => mayLeave() && dispatch({ type: "openProject", project: newProject() })}>New project</button>
-        <button onClick={() => setShowProjects(true)} title="Projects stored in this browser">
+        <button onClick={() => setShowProjects(true)} title={home === "server" ? "Projects kept on this server" : "Projects stored in this browser"}>
           Projects…
         </button>
         <button onClick={importProject} title="Open a project file from disk">
@@ -89,15 +89,19 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
   };
 
   const remove = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}" from this browser? This cannot be undone. Export it first if you want a copy.`)) return;
+    const asked =
+      db.home() === "server"
+        ? `Delete "${name}" from this server? It goes for everyone who opens the app here. Its file is moved to the server's backups folder.`
+        : `Delete "${name}" from this browser? This cannot be undone. Export it first if you want a copy.`;
+    if (!confirm(asked)) return;
     await db.deleteProject(id);
     dispatch({ type: "setProjects", projects: await db.listProjects() });
   };
 
   return (
     <div className="backdrop" onClick={onClose}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="Projects in this browser" onClick={(e) => e.stopPropagation()}>
-        <h2>Projects in this browser</h2>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={db.home() === "server" ? "Projects on this server" : "Projects in this browser"} onClick={(e) => e.stopPropagation()}>
+        <h2>{db.home() === "server" ? "Projects on this server" : "Projects in this browser"}</h2>
         {projects.length === 0 && <p className="muted">Nothing stored yet. A project is stored here as soon as it has a drawing.</p>}
         <ul className="project-list">
           {projects.map((p) => (

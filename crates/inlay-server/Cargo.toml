@@ -1,0 +1,16 @@
+[package]
+name = "inlay-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Serves the inlay-cam app with one shared tool file and an HTTP API"
+
+[dependencies]
+inlay-core = { version = "0.1.0", path = "../inlay-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_ignored = "0.1"
+serde_json = "1.0.154"
+sha2 = "0.10"
+similar = "2"
+tiny_http = "0.12"

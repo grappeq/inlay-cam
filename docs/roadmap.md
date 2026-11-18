@@ -9,7 +9,7 @@ Within a section the order is the order to take things in, where there is one.
 
 The app is taking over the work of the tooling library, a separate Python program. Three
 of five phases are done: one tool model, the feeds model with the tool sheet, and the
-libraries for other programs.
+libraries for other programs. The fourth, a server, is built and not yet in use.
 
 **To check with the real programs**
 
@@ -21,10 +21,21 @@ libraries for other programs.
 
 **Phase 4: a server**
 
-- The same build served with one shared tool file, so that the list is no longer kept in
-  one browser.
-- An HTTP API for agents, with writes checked by a token, and backups.
+Built: `inlay-server` serves the same build and keeps everything on the server that a
+browser would keep, the tool list in one shared file, with an HTTP API whose writes to it
+are checked by a token, and backups ([api.md](api.md)). Still to do:
+
+- Deploy it in place of the tooling library's workbench, and bring the real tool list
+  over: export a `tools.yaml` there, import it in the served app.
+- Point the agents at it: [agent-brief.md](agent-brief.md) takes the place of the
+  workbench's prompt.
 - Then the Python repository is archived.
+- A change refused because the list changed elsewhere is dropped. Keep both where they
+  are to different tools.
+- A project open in two browsers: the one saved last is kept, without a word to the other.
+- Materials, profiles and groups through the API one at a time. Today only the whole file
+  can be replaced.
+- The page says nothing when the server is out of reach, until something is saved.
 
 **Phase 5: what only the joined app can do**
 

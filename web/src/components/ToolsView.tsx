@@ -37,6 +37,7 @@ import {
 import { downloadBytes, downloadText, pickBinaryFile, pickTextFile } from "../util/files";
 import { ExportReportDialog, MakeraImportDialog, type ExportReport } from "./LibraryDialogs";
 import { ToolCard } from "./ToolCard";
+import { recall, remember } from "../storage/view";
 
 /** What a group of tools is called when the tools name none of their own. */
 const KIND_GROUPS: Record<ToolKind, string> = {
@@ -61,21 +62,6 @@ const STATE_WORD = { only: "only", hide: "hidden" };
 const NEXT_STEP = { off: "click to show only, again to hide", only: "click to hide", hide: "click to clear" };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-function recall<T>(key: string, fallback: T): T {
-  try {
-    const text = localStorage.getItem(key);
-    return text === null ? fallback : (JSON.parse(text) as T);
-  } catch {
-    return fallback;
-  }
-}
-function remember(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Without storage the choice lasts as long as the page.
-  }
-}
 
 /** Something that opens under a button and closes when the pointer goes elsewhere. */
 function Popover(props: { label: ReactNode; title?: string; className?: string; disabled?: boolean; up?: boolean; children: (close: () => void) => ReactNode }) {
@@ -217,7 +203,7 @@ type Mode = { kind: "read" } | { kind: "new"; tool: Tool };
 const left: { query: string; selected: string | null; closed: string[]; onlyAttention: boolean; category: Attention["kind"] | null } = { query: "", selected: null, closed: [], onlyAttention: false, category: null };
 
 export function ToolsArea() {
-  const { tools, lists, project } = useApp();
+  const { tools, lists, project, home } = useApp();
   const dispatch = useDispatch();
   const actions = useFileActions();
   const [selected, setSelected] = useState<string | null>(left.selected);
@@ -577,7 +563,7 @@ export function ToolsArea() {
         </div>
         <div className="tl-foot">
           <LibraryMenu />
-          <span className="muted">Kept in this browser, for all your projects.</span>
+          <span className="muted">{home === "server" ? "Kept on this server, for everyone who opens it." : "Kept in this browser, for all your projects."}</span>
         </div>
       </section>
 

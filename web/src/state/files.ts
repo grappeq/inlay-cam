@@ -1,7 +1,7 @@
 // What happens when a file comes into the app, whether picked or dropped.
 
 import { core } from "../core/client";
-import * as db from "../storage/db";
+import * as db from "../storage/home";
 import type { ImportReport } from "../core/types";
 import { addStarter, mergeLists, mergeTools, newId } from "./model";
 import { message, useApp, useDispatch } from "./store";

@@ -12,7 +12,11 @@ read the file, and run it above the board first. You use the app and its files a
 risk; see [Before you cut](#6-cut).
 
 Everything runs in the browser. Projects and tools are stored in that browser only; use
-"Save to file" to keep a copy or move a project to another computer.
+"Save to file" to keep a copy or move a project to another computer. When the app is opened
+from a server set up to hold them (the README's "With a server"), everything is kept there
+instead, projects included, and every browser that opens it sees the same; where this
+guide says "in this browser", read "on the server". The header says which it is: "Saved in
+this browser" or "Saved on this server".
 
 ## 1. List your tools
 

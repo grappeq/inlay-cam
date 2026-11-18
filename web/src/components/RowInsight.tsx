@@ -33,6 +33,7 @@ import {
   type Pick,
 } from "../state/feedsView";
 import { OUTCOMES, currentResult, feedMaterial, fmt, materialLabel, today } from "../state/model";
+import { recall, remember } from "../storage/view";
 
 export { round6 } from "../state/feedsView";
 export const percentOf = (row: CuttingSettings, diameter: number) => Math.round((row.stepover / diameter) * 100000) / 1000;
@@ -49,19 +50,11 @@ const PICK_KEY = "tools.sugPick";
  */
 export function startPick(row: CuttingSettings, lists: ToolLists): Pick {
   if (row.profile !== undefined) return profilePick(lists.profiles?.find((p) => p.key === row.profile), row.profile);
-  try {
-    return { ...sanePick(JSON.parse(localStorage.getItem(PICK_KEY) ?? "null") ?? PLAIN_PICK), adaptive: false };
-  } catch {
-    return PLAIN_PICK;
-  }
+  return { ...sanePick(recall(PICK_KEY, PLAIN_PICK)), adaptive: false };
 }
 
 export function rememberPick(pick: Pick) {
-  try {
-    localStorage.setItem(PICK_KEY, JSON.stringify({ level: pick.level, ramping: pick.ramping, lubricated: pick.lubricated }));
-  } catch {
-    // Not remembered, then.
-  }
+  remember(PICK_KEY, { level: pick.level, ramping: pick.ramping, lubricated: pick.lubricated });
 }
 
 /** The tool as the model reads it: its shape and name. Its rows are left out, so one being edited cannot trip it. */

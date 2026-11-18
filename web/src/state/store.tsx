@@ -1,10 +1,13 @@
 // App state: the open project, the tool list, and what is selected.
-// Changes are saved to browser storage automatically.
+// Changes are saved automatically: to browser storage, or to the server when
+// the app is served by one (storage/home.ts).
 
-import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
-import * as db from "../storage/db";
+import * as db from "../storage/home";
+import { loadView } from "../storage/view";
+import * as server from "../storage/server";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, toolSnapshots, withoutOrphans } from "./model";
 
@@ -23,9 +26,11 @@ export interface AppState {
   tools: Tool[];
   /** The materials, profiles and groups the tools refer to. Kept with the tools. */
   lists: ToolLists;
-  /** The machine the files are for. Like the tools, it is kept in this browser and copied into the open project. */
+  /** Where everything is kept: in this browser, or on the server the app came from, shared by everyone who opens it. Never some of it in one and some in the other. */
+  home: db.Home;
+  /** The machine the files are for. Like the tools, it is copied into the open project. */
   machine: Machine;
-  /** The clearances and tabs a new inlay starts with. Kept in this browser. */
+  /** The clearances and tabs a new inlay starts with. */
   defaults: Setup;
   project: Project;
   projects: db.ProjectSummary[];
@@ -83,7 +88,7 @@ export interface Timeline {
 }
 
 export type Action =
-  | { type: "loaded"; tools: Tool[]; lists: ToolLists; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
+  | { type: "loaded"; tools: Tool[]; lists: ToolLists; home: db.Home; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
   | { type: "openProject"; project: Project; importReport?: ImportReport | null }
   | { type: "updateProject"; update: (project: Project) => Project }
   | { type: "updateStep"; id: string; update: (step: Step) => Step }
@@ -116,6 +121,7 @@ const initial: AppState = {
   ready: false,
   tools: [],
   lists: {},
+  home: "browser",
   machine: DEFAULT_MACHINE,
   defaults: DEFAULT_SETUP,
   project: newProject(),
@@ -160,6 +166,7 @@ function reducer(state: AppState, action: Action): AppState {
         ready: true,
         tools: action.tools,
         lists: action.lists,
+        home: action.home,
         machine: action.machine,
         defaults: action.defaults,
         project: normalised(action.project),
@@ -358,15 +365,40 @@ export function useDispatch(): Dispatch<Action> {
   return useContext(DispatchContext);
 }
 
-/** Loads a project from browser storage, upgrading it if an older version of the app wrote it. */
+/** Loads a kept project, upgrading it if an older version of the app wrote it. */
 export async function loadStoredProject(id: string): Promise<Project> {
   const stored = await db.getProject(id);
-  if (!stored) throw new Error("That project is no longer in browser storage.");
+  if (!stored) throw new Error("That project is no longer kept.");
   return core.call("projectFromFile", stored.text);
+}
+
+/** A tool list read from the server: the token that names its version, and its text as this app writes it. */
+interface SharedList {
+  tools: Tool[];
+  lists: ToolLists;
+  token: string;
+  text: string;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
+
+  // The tool list as the server has it: the token that names that version,
+  // and its text as this app writes it, to tell a change from none. Without
+  // a token the list was never read, and must not be written over.
+  const shared = useRef<{ token: string | null; text: string | null }>({ token: null, text: null });
+  /** Reads the server's tool list; null when it is still the version held. It is not held until `hold` is given it. */
+  const readShared = useCallback(async (): Promise<SharedList | null> => {
+    const read = await server.readLibrary(shared.current.token ?? undefined);
+    if (!read) return null;
+    const { tools, ...lists } = await core.call("libraryFromFile", read.text);
+    return { tools, lists, token: read.token, text: await core.call("libraryToFile", { ...lists, tools }) };
+  }, []);
+  /** Makes a list read from the server the one this page works on. */
+  const hold = useCallback((read: SharedList) => {
+    shared.current = { token: read.token, text: read.text };
+    dispatch({ type: "setTools", tools: read.tools, lists: read.lists });
+  }, []);
 
   // Load stored tools and the last open project once.
   useEffect(() => {
@@ -376,11 +408,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let lists: ToolLists = {};
       let project = newProject();
       let problem: string | null = null;
+      const home = await db.findHome();
+      await loadView();
       try {
-        const toolsText = await db.getSetting("tools");
-        if (toolsText) ({ tools, ...lists } = await core.call("libraryFromFile", toolsText));
+        if (home === "server") {
+          const read = await readShared();
+          if (read) {
+            ({ tools, lists } = read);
+            shared.current = { token: read.token, text: read.text };
+          }
+        } else {
+          const toolsText = await db.getSetting("tools");
+          if (toolsText) ({ tools, ...lists } = await core.call("libraryFromFile", toolsText));
+        }
       } catch (e) {
-        problem = `Your stored tool list could not be read: ${message(e)}`;
+        problem =
+          home === "server"
+            ? `The tool list could not be read from the server, and changes to it will not be kept: ${message(e)}`
+            : `Your stored tool list could not be read: ${message(e)}`;
       }
       try {
         const last = await db.getSetting("lastProjectId");
@@ -392,13 +437,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
       const defaults = readSetup(await db.getSetting("inlayDefaults").catch(() => undefined));
       if (cancelled) return;
-      dispatch({ type: "loaded", tools, lists, machine, defaults, project, projects });
+      dispatch({ type: "loaded", tools, lists, home, machine, defaults, project, projects });
       if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [readShared]);
 
   // Save the project shortly after every change. Saves run one at a time, in
   // order, so an older save can never overwrite a newer one.
@@ -428,17 +473,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [state.ready, state.project]);
 
+  // Save the tool list after every change. On a server, shortly after, one
+  // write at a time: each names the version it changed, and a write over a
+  // version that someone else has changed since is refused. The server's
+  // list is then read again, and the change made here is given up.
+  const toolWrites = useRef<Promise<void>>(Promise.resolve());
+  const toolWritesWaiting = useRef(0);
   useEffect(() => {
     if (!state.ready) return;
     const library = { ...state.lists, tools: state.tools };
-    (async () => {
+    const failed = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
+    if (state.home === "browser") {
+      (async () => db.putSetting("tools", await core.call("libraryToFile", library)))().catch(failed);
+      return;
+    }
+    toolWritesWaiting.current++;
+    let begun = false;
+    const timer = setTimeout(() => {
+      begun = true;
+      toolWrites.current = toolWrites.current
+        .then(async () => {
+          const text = await core.call("libraryToFile", library);
+          if (text === shared.current.text) return;
+          if (shared.current.token === null) throw new Error("it could not be read from the server, so there is nothing to change.");
+          const token = await server.writeLibrary(text, shared.current.token);
+          if (token !== "conflict") {
+            shared.current = { token, text };
+            return;
+          }
+          const read = await readShared();
+          if (read) hold(read);
+          dispatch({
+            type: "notice",
+            notice: { kind: "error", text: "The tool list was changed somewhere else in the meantime. It was read again from the server, and your last change to it was not kept." },
+          });
+        })
+        .catch(failed)
+        .finally(() => {
+          toolWritesWaiting.current--;
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      if (!begun) toolWritesWaiting.current--;
+    };
+  }, [state.ready, state.home, state.tools, state.lists, readShared, hold]);
+
+  // A shared list changes without this page: look again when the page is
+  // come back to, and once a minute while it is shown. Not while a change
+  // made here is on its way, and a list that arrives after such a change
+  // was made is let go: the change then finds out by being refused, and
+  // says so, where taking the list would drop it without a word.
+  useEffect(() => {
+    if (!state.ready || state.home !== "server") return;
+    let looking = false;
+    const look = async () => {
+      if (looking || document.visibilityState !== "visible" || toolWritesWaiting.current > 0) return;
+      looking = true;
       try {
-        await db.putSetting("tools", await core.call("libraryToFile", library));
-      } catch (e) {
-        dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
+        const read = await readShared();
+        if (read && toolWritesWaiting.current === 0) hold(read);
+      } catch {
+        // Out of reach for now: the next look, or the next save, will say.
+      } finally {
+        looking = false;
       }
-    })();
-  }, [state.ready, state.tools, state.lists]);
+    };
+    const timer = setInterval(look, 60_000);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [state.ready, state.home, readShared, hold]);
 
   useEffect(() => {
     if (!state.ready) return;

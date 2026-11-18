@@ -1,0 +1,30 @@
+# inlay-cam with its server: docker compose up --build, then open http://localhost:8000
+name: inlay-cam
+
+services:
+  inlay-cam:
+    build: .
+    image: inlay-cam
+    # No login, so publish on this machine only. INLAY_BIND=0.0.0.0 alone already lets anyone
+    # who can reach the port use the API; add INLAY_ANY_HOST=1 so browsers can open it by its
+    # network address. See README "With a server" for what that opens.
+    ports:
+      - "${INLAY_BIND:-127.0.0.1}:${INLAY_PORT:-8000}:8000"
+    environment:
+      INLAY_ANY_HOST: ${INLAY_ANY_HOST:-0}
+    volumes:
+      - inlay-data:/data
+      # To keep tools.json in a folder on this machine instead, replace the line above with a
+      # folder mount. Mount a folder, not the file itself: a save replaces the file.
+      # - ./data:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    restart: unless-stopped
+
+volumes:
+  inlay-data:

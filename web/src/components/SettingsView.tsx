@@ -14,7 +14,7 @@ import { ProfilesPage } from "./ProfilesView";
 import { ToolsArea } from "./ToolsView";
 
 export function SettingsView() {
-  const { settingsPage, lists, machine, defaults } = useApp();
+  const { settingsPage, lists, machine, defaults, home } = useApp();
   const dispatch = useDispatch();
   if (settingsPage === "tools") return <ToolsArea />;
 
@@ -37,7 +37,9 @@ export function SettingsView() {
             <span>{page.summary}</span>
           </button>
         ))}
-        <p className="set-nav-foot">Kept in this browser, for all your projects.</p>
+        <p className="set-nav-foot">
+          {home === "server" ? "Kept on this server, for everyone who opens it." : "Kept in this browser, for all your projects."}
+        </p>
       </nav>
       <main className="tool-pane">
         <div className="card set-card">{settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "profiles" ? <ProfilesPage /> : settingsPage === "machine" ? <MachinePage /> : <DefaultsPage />}</div>

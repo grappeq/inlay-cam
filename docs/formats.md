@@ -47,7 +47,8 @@ A file written by any released version of the app opens in every later version.
 - The test suite keeps one fixture file per released version
   (`crates/inlay-core/tests/fixtures/`), and every one of them must keep loading.
 - Projects kept in browser storage are stored as this same file text, so they go through
-  the same migrations.
+  the same migrations. So is the tool list. On a server ([api.md](api.md)) both are kept as
+  the same file text: `tools.json`, and one file per project.
 
 ## Tool library (`kind: "tool-library"`)
 
