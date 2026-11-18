@@ -1163,3 +1163,42 @@ The rest of it, the same day.
   tools its owner may not have.
 - Checked: 2 UI tests of `addStarter`; in the app, 50 tools added to an empty list and
   none on a second click.
+
+### Chamfers in passes the row is set for (2026-11-18)
+
+- **What was wrong.** A chamfer went down in equal steps of the row's stepdown on one
+  track. A V-bit's row is sized for a full groove one stepdown deep (`slot_area` in the
+  feeds model), but a chamfer's pass takes a strip as wide as the bevel already is, so
+  the last passes took 1.5 to 3 times that: 2.9 times on the last of six passes of a
+  2.5 mm bevel with a Ø6 90° bit at 0.5 mm. And a bevel wider than the flank was refused.
+- **Planned in section** (`ops/chamfer.rs`). The edge is cut in a section square to the
+  outline, column by column, and every plan is run there: what each pass takes, and
+  whether the bit's uncut part above its cutting edges would meet wood. Above the
+  flutes the bit keeps its shape: a V-bit's cone goes on to its diameter, a
+  corner-rounding bit's quarter circle to its top. Two limits, both the row's: no pass
+  more than a stepdown deeper, and none taking more than the groove
+  (`feeds::groove_area`). Equal steps were not kept as an option: the choice would be
+  between within the row and up to three times over it.
+- **One track** where the bit can: full stepdowns while the edge is narrow, then
+  shallower, as evenly loaded as that number of passes allows, so that the last is not a
+  sliver. The same for corner-rounding bits, whose groove is the quarter-round corner.
+- **Layers** where it cannot: a bevel wider than the flank, or than short flutes reach.
+  Layers of equal depth, at most a stepdown; in each, tracks from the one whose flank
+  lies on the bevel out to the one beside the edge, close enough that the ridges they
+  leave stay below the next layer's uncut part. The layer depth is the deepest at which
+  every pass fits, found by trying. About 1.5 to 1.8 times the fewest passes the wood
+  would allow, so the file and the panel name a V-bit of the same angle in the list that
+  would cut it from one track. A corner-rounding bit whose flutes stop short of its
+  radius is refused.
+- **Shown.** The chamfer's drawing has a band for the wood each pass takes, from the
+  core's plan (`chamferPlan` in the wrapper); the caption says how many passes and how
+  far they go down, or how many layers, with a "?" for the rule. The error that a bit
+  is too narrow is gone.
+- **Paths.** `follow_depths` in `ops/profile.rs` runs the planned depths round each
+  track, straight down at the start of each round; between tracks the bit lifts.
+- Checked: 8 core tests of the plan (both limits, the uncut part clear, the bevel or the
+  rounding to 0.02 mm, short flutes, layers), 2 of the files (the steps from the G-code;
+  a 6 mm bevel in layers, against the simulated stock); 91 UI tests; the drawing and
+  the picture card rendered for a one-track bevel, a layered one and a rounding. Not
+  yet cut on the machine, and not looked at in the running app.
+

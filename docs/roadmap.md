@@ -78,13 +78,11 @@ libraries for other programs.
   a step's `rowProfiles`). This is to be a plain choice for every bit of every operation.
 - **Cutting settings shown in the operation**: the numbers it will run with, able to be
   overridden there for that operation alone.
-- **Chamfers deeper than one pass along the edge allows.** A chamfer is one path at one
-  depth, so its width is limited by the bit: the tip must clear the wall and the bevel
-  must fit on the flank. A wider or deeper bevel needs several paths, stepping the bit
-  out from the edge and down.
-- **Uneven chamfer passes, for an even load.** A bevel cut in passes of equal depth takes
-  more wood with each pass, as the cut gets wider. An option to make the passes shallower
-  as they go down, so that each takes about the same.
+- **Chamfers in passes, to try.** A chamfer's passes are planned against the row's
+  groove, and wide bevels are cut in layers; this was checked in the core's section and
+  simulation and in rendered drawings, not yet in the running app or on the machine.
+  To watch for: a layered bevel's time, and whether a corner-rounding bit's many thin
+  last passes burn.
 - **Joining larger gaps on import.** Line ends are joined into closed outlines when they
   meet within 0.01 mm. When outlines were left out, offer to join larger gaps, in place
   of a setting for the distance.

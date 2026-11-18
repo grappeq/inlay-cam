@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { core } from "../core/client";
-import type { ChamferOp, ContourOp, Design, FacingOp, ImportReport, Task, Step, StepType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
+import type { ChamferOp, ContourOp, Design, EdgePlan, FacingOp, ImportReport, Task, Step, StepType, Material, PassDirection, Pattern, PocketOp, Setup, Side, Tool, ToolKind, TrueInlay, VcarveInlay } from "../core/types";
 import { boxOf, trimBoard } from "../state/arrange";
 import {
   DEFAULT_STOCK_COLOR,
@@ -635,7 +635,7 @@ function OpEditor({ step }: { step: Step }) {
                 ]}
                 hint={inlay.side === "outside" ? "The shapes stand: the wood outside them has been cut away." : "The shapes are pockets or openings."}
               />
-              <ChamferFields inlay={inlay} onChange={setInlay} />
+              <ChamferFields step={step} inlay={inlay} onChange={setInlay} />
             </>
           )}
         </section>
@@ -1059,18 +1059,38 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 /** Said once, whichever bit cuts the chamfer. */
 const AFTER_THE_EDGE = "Run it after the edge has been cut: the bit's tip runs beside the edge, where the wood must be gone that deep.";
 
+/** For a chamfer: its passes as the core plans them, or why it cannot. Null until known. */
+function useChamferPlan(step: Step): { plan: EdgePlan } | { problem: string } | null {
+  const { project } = useApp();
+  const [planned, setPlanned] = useState<{ plan: EdgePlan } | { problem: string } | null>(null);
+  useEffect(() => {
+    let current = true;
+    core
+      .call("chamferPlan", project, step.id)
+      .then((result) => current && setPlanned(result))
+      .catch(() => current && setPlanned(null));
+    return () => {
+      current = false;
+    };
+  }, [project, step.id]);
+  return planned;
+}
+
 /** A chamfer's numbers, under a drawing of the bit against the edge as they place it. */
-function ChamferFields({ inlay, onChange }: { inlay: ChamferOp; onChange: (change: Partial<ChamferOp>) => void }) {
+function ChamferFields({ step, inlay, onChange }: { step: Step; inlay: ChamferOp; onChange: (change: Partial<ChamferOp>) => void }) {
   const { project, tools } = useApp();
   // The field being typed in, whose numbers the drawing marks out.
   const [hot, setHot] = useState<ChamferHot>(null);
   const bit = resolveTool(inlay.toolId, tools, project);
   const clearance = inlay.tipClearance ?? DEFAULT_TIP_CLEARANCE;
   const cut = bit ? edgeCut(bit, inlay.width, clearance) : null;
+  const planned = useChamferPlan(step);
+  const plan = planned && "plan" in planned ? planned.plan : null;
+  const problem = bit && planned && "problem" in planned ? planned.problem : null;
   const mark = (which: ChamferHot) => (focused: boolean) => setHot(focused ? which : null);
   return (
     <>
-      {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} hot={hot} />}
+      {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} hot={hot} plan={plan} blocked={problem !== null} />}
       {bit?.kind !== "corner_round" && (
         <div className="row">
           <NumberField label="Width" unit="mm" min={0.01} value={inlay.width} onChange={(v) => v !== undefined && onChange({ width: v })} onFocusChange={mark("width")} />
@@ -1085,11 +1105,7 @@ function ChamferFields({ inlay, onChange }: { inlay: ChamferOp; onChange: (chang
           />
         </div>
       )}
-      {bit && cut && inlay.width > cut.widest + 1e-9 && (
-        <p className="hint warn">
-          "{bit.name}" can cut a chamfer of {fmt(Math.floor(cut.widest * 100) / 100)} mm at most.
-        </p>
-      )}
+      {problem && <p className="hint warn">{problem}</p>}
       <p className="hint">{AFTER_THE_EDGE}</p>
     </>
   );

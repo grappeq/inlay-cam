@@ -580,6 +580,34 @@ export interface FitCheck {
 }
 
 /** A built G-code file together with the simulation of that file. */
+/** One trip of a chamfer's bit along the outline (`ops::chamfer` in the core). */
+export interface EdgePass {
+  /** How far the bit's axis is from the edge, mm: beside it, where the wood is gone, when positive; over the wood when negative. */
+  aside: number;
+  /** How deep the tip goes, mm. */
+  depth: number;
+  /** The wood it takes, in section, mm². */
+  area: number;
+}
+
+/** How a chamfer's edge is cut, pass by pass, in the order they run. */
+export interface EdgePlan {
+  passes: EdgePass[];
+  /** 1 when every pass runs on the track beside the edge; more when the bevel is cut in layers. */
+  layers: number;
+  /** The row's stepdown, and the groove one stepdown deep that no pass takes more than, mm². */
+  stepdown: number;
+  groove: number;
+  /** How far the shaped edge reaches into the wood and down the wall, mm. */
+  across: number;
+  down: number;
+  /** The widest bevel the bit cuts from one track, mm; null for a corner-rounding bit. */
+  oneTrack: number | null;
+  /** The section's surface after each pass: depths of `columns + 1` points spread evenly over `across`, from the edge in. */
+  surfaces: number[][];
+  columns: number;
+}
+
 export interface PocketPreview {
   built: Built;
   /** Problems found while simulating, each with its G-code line. */

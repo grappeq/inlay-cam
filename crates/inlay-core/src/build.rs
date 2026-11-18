@@ -8,12 +8,14 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::{self, Fit, PlugFrame};
+use crate::feeds;
 use crate::gcode::{self, Interpreted};
 use crate::geom::boolean::{difference, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
+use crate::ops::chamfer::{self, EdgeBit, EdgePlan, EdgeSpec};
 use crate::ops::clear::{centres, clear_centres, finish_walls, raster_centres, ClearParams};
-use crate::ops::profile::{follow, profile, ProfileError, ProfileParams, Tabs};
+use crate::ops::profile::{follow, follow_depths, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
 use crate::project::{
@@ -2506,38 +2508,110 @@ fn contour(
     })
 }
 
-/// How an edge-shaping bit is run along an outline: how far its axis is from
-/// the outline, on the side where the wood is gone, and how deep its tip is.
-struct EdgeCut {
-    aside: f64,
-    depth: f64,
-}
-
-/// How a V-bit is run to bevel an edge `width` wide, its axis `tip_clearance`
-/// beyond its tip flat from the edge, or a corner-rounding bit to round it
-/// over to its own radius. `None` for any other tool.
-fn edge_cut(bit: &Tool, width: f64, tip_clearance: f64) -> Option<EdgeCut> {
+/// The bit of a chamfer as its section sees it. `None` for a tool that does
+/// not shape an edge.
+fn edge_bit(bit: &Tool) -> Option<EdgeBit> {
     match bit.kind {
         ToolKind::VBit => {
             let (half_angle, tip_radius) = vbit_shape(bit);
-            Some(EdgeCut {
-                aside: tip_radius + tip_clearance,
-                depth: (width + tip_clearance) / half_angle.tan(),
+            Some(EdgeBit::V {
+                half_angle,
+                tip_radius,
+                radius: bit.diameter / 2.0,
+                flutes: bit.flute_length,
             })
         }
-        // The tip's side runs along the wall, and the quarter circle above it
-        // ends level with the surface.
-        ToolKind::CornerRound => Some(EdgeCut {
-            aside: bit.tip_diameter.unwrap_or(0.0) / 2.0,
-            depth: bit.corner_radius.unwrap_or(0.0),
+        ToolKind::CornerRound => Some(EdgeBit::Round {
+            tip_radius: bit.tip_diameter.unwrap_or(0.0) / 2.0,
+            corner: bit.corner_radius.unwrap_or(0.0),
+            radius: bit.diameter / 2.0,
+            flutes: bit.flute_length,
         }),
         ToolKind::FlatEnd | ToolKind::BallEnd | ToolKind::Drill | ToolKind::ThreadMill => None,
     }
 }
 
+/// How a chamfer's edge is cut with `bit` on its cutting row, pass by pass.
+fn edge_plan(
+    bit: &Tool,
+    cutting: &CuttingSettings,
+    width: f64,
+    tip_clearance: f64,
+) -> Result<EdgePlan, String> {
+    let shape = edge_bit(bit)
+        .ok_or_else(|| format!("\"{}\" is not a V-bit or a corner-rounding bit.", bit.name))?;
+    if matches!(shape, EdgeBit::Round { corner, .. } if corner <= 0.0) {
+        return Err(format!(
+            "\"{}\" has no corner radius. Give it in the tool list.",
+            bit.name
+        ));
+    }
+    chamfer::plan(
+        &shape,
+        &EdgeSpec {
+            width,
+            tip_clearance,
+            stepdown: cutting.stepdown,
+            groove: feeds::groove_area(bit, cutting.stepdown),
+        },
+    )
+    .map_err(|reason| format!("\"{}\" cannot shape this edge. {reason}", bit.name))
+}
+
+/// For a chamfer: how its edge would be cut, pass by pass, with its bit on
+/// its row. `None` for any other step, the reason when there is no plan.
+pub fn chamfer_plan(project: &Project, step_id: &str) -> Option<Result<EdgePlan, String>> {
+    let step = project.steps.iter().find(|j| j.id == step_id)?;
+    let Task::Chamfer {
+        width,
+        tip_clearance,
+        tool_id,
+        ..
+    } = &step.task
+    else {
+        return None;
+    };
+    let Some(bit) = tool_id
+        .as_deref()
+        .and_then(|id| project.tools.iter().find(|t| t.id == id))
+    else {
+        return Some(Err("Choose a V-bit or a corner-rounding bit.".into()));
+    };
+    let profile = step.row_profiles.get(&bit.id).map(String::as_str);
+    let Some(cutting) = bit.cutting_row(&step.material, profile) else {
+        return Some(Err(format!(
+            "\"{}\" has no cutting settings for {}.",
+            bit.name,
+            material_name(&step.material)
+        )));
+    };
+    Some(edge_plan(bit, cutting, *width, *tip_clearance))
+}
+
+/// A V-bit of the list with the same angle that would cut a bevel this wide
+/// from one track, on its row for the step's wood.
+fn one_track_bit<'a>(
+    ctx: &Context<'a>,
+    like: &Tool,
+    width: f64,
+    tip_clearance: f64,
+) -> Option<&'a Tool> {
+    let angle = like.tip_angle.unwrap_or(90.0);
+    let project = ctx.project;
+    project.tools.iter().find(|t| {
+        t.kind == ToolKind::VBit
+            && t.id != like.id
+            && (t.tip_angle.unwrap_or(90.0) - angle).abs() < 0.5
+            && t.cutting_row(&ctx.step.material, None).is_some_and(|row| {
+                edge_plan(t, row, width, tip_clearance).is_ok_and(|plan| plan.layers == 1)
+            })
+    })
+}
+
 /// A chamfer or a rounded edge: a V-bit or a corner-rounding bit taken along
 /// the outlines of the shapes, on the side where the wood has been cut away,
-/// so that it shapes the top edge.
+/// so that it shapes the top edge. The passes are planned in a section
+/// through the edge (`ops::chamfer`).
 fn chamfer(
     ctx: &mut Context,
     regions: &[Region],
@@ -2546,12 +2620,11 @@ fn chamfer(
     tip_clearance: f64,
     tool_id: Option<&str>,
 ) -> Option<Cut> {
-    // The depth follows from the bit, and the bit is checked against the depth.
     let chosen = tool_id.and_then(|id| ctx.project.tools.iter().find(|t| t.id == id));
     let rounding = chosen.is_some_and(|t| t.kind == ToolKind::CornerRound);
-    if let Some(cut) = chosen.and_then(|bit| edge_cut(bit, width, tip_clearance)) {
-        ctx.depth = cut.depth;
-    }
+    // The plan checks the bit's reach itself: a wide bevel takes the tip
+    // further down than the cutting edges reach, on purpose.
+    ctx.depth = 0.0;
     let (bit, cutting) = ctx.tool(
         tool_id,
         if rounding {
@@ -2564,19 +2637,14 @@ fn chamfer(
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let EdgeCut { aside, depth } = edge_cut(bit, width, tip_clearance)?;
-    if !rounding {
-        let widest = bit.diameter / 2.0 - aside;
-        if width > widest + 1e-9 {
-            ctx.errors.push(format!(
-                "\"{}\" is too narrow for a chamfer {} mm wide: it can cut one of {} mm at most.",
-                bit.name,
-                num(width),
-                num((widest * 100.0).floor() / 100.0)
-            ));
+    let plan = match edge_plan(bit, cutting, width, tip_clearance) {
+        Ok(plan) => plan,
+        Err(reason) => {
+            ctx.errors.push(reason);
             return None;
         }
-    }
+    };
+    let depth = plan.depth();
     if depth >= ctx.project.base.thickness {
         ctx.errors.push(format!(
             "The bit's tip would run {} mm deep, but the stock is only {} mm thick.",
@@ -2585,39 +2653,38 @@ fn chamfer(
         ));
         return None;
     }
-    let delta = if side == Side::Inside { -aside } else { aside };
-    let tracks: Vec<Vec<Region>> = regions
-        .iter()
-        .map(|r| offset(std::slice::from_ref(r), delta))
-        .collect();
-    if tracks.iter().any(Vec::is_empty) {
-        ctx.errors
-            .push("One of the shapes is too small for the bit to run inside it.".into());
-        return None;
+    let toward = if side == Side::Inside { -1.0 } else { 1.0 };
+    let tracks = plan.tracks();
+    let mut runs: Vec<(Vec<Region>, &[f64])> = Vec::new();
+    for region in regions {
+        for (aside, depths) in &tracks {
+            let track = offset(std::slice::from_ref(region), toward * aside);
+            if track.is_empty() {
+                ctx.errors.push(if *aside < 0.0 {
+                    format!(
+                        "One of the shapes is too narrow for a bevel {} mm wide.",
+                        num(width)
+                    )
+                } else {
+                    "One of the shapes is too small for the bit to run inside it.".into()
+                });
+                return None;
+            }
+            runs.push((track, depths));
+        }
     }
 
     let number = ctx.project.machine.first_tool;
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
-    follow(
-        &mut path,
-        &tracks,
-        None,
-        &ProfileParams {
-            tool_diameter: bit.diameter,
-            depth,
-            stepdown: cutting.stepdown,
-            feed: cutting.feed,
-            plunge: cutting.plunge,
-            tabs: None,
-            // The bit's tip runs in the air: nothing to ramp into or to finish.
-            ramp: 0.0,
-            finish: 0.0,
-        },
-    );
+    for (track, depths) in &runs {
+        follow_depths(&mut path, track, depths, cutting.feed, cutting.plunge);
+    }
+
+    let last = plan.passes.last()?;
     let where_to = format!(
         "{} mm {} the outline, {} mm deep",
-        num((aside * 100.0).round() / 100.0),
+        num((last.aside * 100.0).round() / 100.0),
         if side == Side::Inside {
             "inside"
         } else {
@@ -2635,6 +2702,19 @@ fn chamfer(
             "Run this after the edge has been cut. The V-bit's tip runs {where_to}, where it expects the wood to be gone already; in uncut wood it leaves a V-groove instead."
         )
     });
+    if plan.layers > 1 {
+        let instead = one_track_bit(ctx, bit, width, tip_clearance)
+            .map(|t| format!(" \"{}\" would cut it from one track.", t.name))
+            .unwrap_or_default();
+        ctx.warnings.push(format!(
+            "\"{}\" bevels {} mm from one track, so this {} mm bevel is cut in {} layers, {} times round each outline.{instead}",
+            bit.name,
+            num((plan.one_track * 100.0).floor() / 100.0),
+            num(width),
+            plan.layers,
+            plan.passes.len()
+        ));
+    }
     Some(Cut {
         tools: vec![ProgramTool {
             number,
@@ -4829,19 +4909,29 @@ pub(crate) mod tests {
 
     #[test]
     fn a_chamfer_bevels_the_edge_to_its_width() {
-        let width = 1.5;
         let tan = 30f64.to_radians().tan();
-        for side in [Side::Outside, Side::Inside] {
-            let p = op_project(Task::Chamfer {
+        // 1.5 mm is cut from one track; 6 mm is wider than the 60° bit's
+        // flank and is cut in layers.
+        for (width, side) in [
+            (1.5, Side::Outside),
+            (1.5, Side::Inside),
+            (6.0, Side::Outside),
+        ] {
+            let mut p = op_project(Task::Chamfer {
                 side,
                 width,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
                 tool_id: Some("t-vbit".into()),
             });
+            p.base.thickness = p.base.thickness.max(15.0);
             let preview = preview(&p, "j", Part::Pocket).unwrap();
             assert_eq!(preview.problems, []);
+            let layered = preview.built.warnings.iter().any(|w| w.contains("layers"));
+            assert_eq!(layered, width > 3.0, "{:?}", preview.built.warnings);
             let shape = rectangle();
             let map = &preview.map;
+            // The grid's own step, up the slope of the bevel.
+            let slack = 0.15 + map.cell / tan;
             let mut checked = 0;
             for iy in 0..map.ny {
                 for ix in 0..map.nx {
@@ -4858,23 +4948,14 @@ pub(crate) mod tests {
                     let z = map.at(ix, iy) as f64;
                     let ideal = if d < width { -(width - d) / tan } else { 0.0 };
                     assert!(
-                        (z - ideal).abs() < 0.15,
-                        "{side:?}: {z} at {d} mm from the edge, wanted {ideal}"
+                        (z - ideal).abs() < slack,
+                        "{side:?} {width}: {z} at {d} mm from the edge, wanted {ideal}"
                     );
                     checked += 1;
                 }
             }
             assert!(checked > 1000);
         }
-        // A bevel wider than the bit can cut is refused.
-        let p = op_project(Task::Chamfer {
-            side: Side::Outside,
-            width: 6.0,
-            tip_clearance: DEFAULT_TIP_CLEARANCE,
-            tool_id: Some("t-vbit".into()),
-        });
-        let reasons = build(&p, "j", Part::Pocket).unwrap_err().join(" | ");
-        assert!(reasons.contains("too narrow for a chamfer"), "{reasons}");
     }
 
     /// A pocket in the rectangle, a contour round it and a chamfer on it.
@@ -4981,6 +5062,37 @@ pub(crate) mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("standing above")));
+    }
+
+    #[test]
+    fn a_chamfer_goes_down_in_steps_that_get_shallower() {
+        // The row's stepdown is 1 mm; the bevel widens as it deepens, so the
+        // steps shrink to keep each pass within a 1 mm groove.
+        let p = op_project(Task::Chamfer {
+            side: Side::Outside,
+            width: 2.5,
+            tip_clearance: DEFAULT_TIP_CLEARANCE,
+            tool_id: Some("t-vbit".into()),
+        });
+        let built = build(&p, "j", Part::Pocket).unwrap();
+        let mut depths: Vec<f64> = cuts(&built)
+            .iter()
+            .map(|q| -q[2])
+            .filter(|z| *z > 1e-6)
+            .collect();
+        depths.sort_by(f64::total_cmp);
+        depths.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+        let steps: Vec<f64> = std::iter::once(0.0)
+            .chain(depths.iter().copied())
+            .collect::<Vec<_>>()
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .collect();
+        assert!((steps[0] - 1.0).abs() < 1e-3, "{steps:?}");
+        assert!(steps.windows(2).all(|w| w[1] <= w[0] + 1e-3), "{steps:?}");
+        assert!(steps.len() > 5, "{steps:?}");
+        let deepest = depths.last().unwrap();
+        assert!((deepest - 2.7 / 30f64.to_radians().tan()).abs() < 1e-3);
     }
 
     #[test]

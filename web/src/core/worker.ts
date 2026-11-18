@@ -37,6 +37,10 @@ const api: CoreApi = {
     }
   },
   facingStart: (project, stepId) => wasm.facingStart(JSON.stringify(project), stepId) ?? null,
+  chamferPlan: (project, stepId) => {
+    const planned = wasm.chamferPlan(JSON.stringify(project), stepId);
+    return planned ? JSON.parse(planned) : null;
+  },
   stockTimeline: (project) => {
     const timeline = wasm.stockTimeline(JSON.stringify(project));
     try {

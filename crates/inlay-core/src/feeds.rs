@@ -647,6 +647,14 @@ fn tan_half(geometry: &Geometry) -> f64 {
     (geometry.tip_angle / 2.0).to_radians().tan()
 }
 
+/// The cut a tool's row is sized for, in section, mm²: full width, `ap`
+/// deep. For a V-bit a full V groove; for a corner-rounding bit the corner
+/// it rounds off.
+pub fn groove_area(tool: &Tool, ap: f64) -> f64 {
+    let (cutter, geometry) = cutter_of(tool);
+    slot_area(cutter, &geometry, ap)
+}
+
 /// Cross-section of a full-width cut: the quarter-round corner a corner
 /// rounder removes, a V groove for other V-bits, a rectangle otherwise.
 fn slot_area(cutter: Cutter, geometry: &Geometry, ap: f64) -> f64 {

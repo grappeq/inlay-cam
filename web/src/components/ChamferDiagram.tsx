@@ -1,22 +1,36 @@
 // A section through the edge a chamfer shapes, with the bit against it as the
 // numbers place it: drawn to scale, so that the width, the tip's clearance and
-// the bit show what they give instead of a sentence saying so.
+// the bit show what they give instead of a sentence saying so. The wood each
+// pass takes is a band of its own, as the core plans them.
 
 import { useId } from "react";
-import type { Tool } from "../core/types";
+import type { EdgePlan, Tool } from "../core/types";
 import { fmt } from "../state/model";
+import { HelpTip } from "./HelpTip";
 
 /** Which numbers to mark out: those of the field being typed in. */
 export type ChamferHot = "width" | "clearance" | null;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
-/** How the core runs the bit (`edge_cut` in build.rs): its axis `aside` from the outline, its tip `depth` down. */
-export function edgeCut(bit: Tool, width: number, clearance: number): { aside: number; depth: number; widest: number } | null {
-  if (bit.kind === "corner_round") return { aside: (bit.tipDiameter ?? 0) / 2, depth: bit.cornerRadius ?? 0, widest: Infinity };
+/** Where the core runs the bit on the last pass (`ops::chamfer`): its axis `aside` from the outline, its tip `depth` down. */
+export function edgeCut(bit: Tool, width: number, clearance: number): { aside: number; depth: number } | null {
+  if (bit.kind === "corner_round") return { aside: (bit.tipDiameter ?? 0) / 2, depth: bit.cornerRadius ?? 0 };
   if (bit.kind !== "v_bit") return null;
   const aside = (bit.tipDiameter ?? 0) / 2 + clearance;
-  return { aside, depth: (width + clearance) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180), widest: bit.diameter / 2 - aside };
+  return { aside, depth: (width + clearance) / Math.tan((((bit.tipAngle ?? 90) / 2) * Math.PI) / 180) };
+}
+
+/** What the caption says of the passes: how many, and how far each goes down. */
+function passesLine(bit: Tool, plan: EdgePlan): string {
+  const n = plan.passes.length;
+  const times = n === 1 ? "once" : `${n} times`;
+  if (plan.layers > 1)
+    return `Wider than "${bit.name}" bevels from one track (${fmt(Math.floor((plan.oneTrack ?? 0) * 100) / 100)} mm): cut in ${plan.layers} layers, ${times} round the outline.`;
+  if (n === 1) return "Cut in one pass.";
+  const first = plan.passes[0].depth;
+  const last = plan.passes[n - 1].depth - plan.passes[n - 2].depth;
+  return `Cut in ${n} passes, going down ${fmt(round2(first))} mm at first and ${fmt(round2(last))} mm at the last.`;
 }
 
 /**
@@ -24,7 +38,25 @@ export function edgeCut(bit: Tool, width: number, clearance: number): { aside: n
  * wood is gone, as it must be before the bit runs there. Lengths are in mm
  * until `X` and `Y` place them.
  */
-export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool; width: number; clearance: number; side: "inside" | "outside"; hot: ChamferHot }) {
+export function ChamferDiagram({
+  bit,
+  width,
+  clearance,
+  side,
+  hot,
+  plan,
+  blocked,
+}: {
+  bit: Tool;
+  width: number;
+  clearance: number;
+  side: "inside" | "outside";
+  hot: ChamferHot;
+  /** The core's passes, once known. */
+  plan: EdgePlan | null;
+  /** The edge cannot be cut as it stands. */
+  blocked: boolean;
+}) {
   const clip = useId();
   const cut = edgeCut(bit, width, clearance);
   if (!cut || cut.depth <= 0) return null;
@@ -38,7 +70,6 @@ export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool
   // The bit's half-width where it leaves the surface, and so the room it needs beside the edge.
   const atSurface = rounding ? tip / 2 + depth : Math.min(bit.diameter / 2, tip / 2 + depth * tan);
   const room = aside + atSurface;
-  const tooWide = width > cut.widest + 1e-9;
 
   const left = -(across + 1.6);
   const right = room + 0.5;
@@ -49,6 +80,15 @@ export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool
   const Y = (mm: number) => 36 + (mm - top) * s;
   const H = Y(bottom) + 20;
   const r = across * s;
+
+  // The wood each pass takes: between the surface it leaves and the one before.
+  const bands = (plan?.surfaces ?? []).map((surface, k, all) => {
+    const at = (depths: number[], i: number) => `${X(-(plan!.across * i) / plan!.columns)} ${Y(depths[i])}`;
+    const before = k === 0 ? surface.map(() => 0) : all[k - 1];
+    const down = surface.map((_, i) => at(surface, i));
+    const up = before.map((_, i) => at(before, i)).reverse();
+    return `M${down.join("L")}L${up.join("L")}Z`;
+  });
 
   const wood = rounding
     ? `M${X(left)} ${Y(0)}H${X(-across)}A${r} ${r} 0 0 1 ${X(0)} ${Y(down)}V${Y(bottom)}H${X(left)}Z`
@@ -71,7 +111,7 @@ export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool
   const yTop = Y(0) - 22;
 
   return (
-    <figure className={`diagram${tooWide ? " too-wide" : ""}`}>
+    <figure className={`diagram${blocked ? " blocked" : ""}`}>
       <svg viewBox={`0 0 320 ${H}`} role="img" aria-label="Section through the edge, with the bit against it">
         <defs>
           <clipPath id={clip}>
@@ -81,6 +121,10 @@ export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool
         <rect className="ch-gone" x={X(0)} y={Y(0)} width={X(right) - X(0)} height={Y(bottom) - Y(0)} />
         <path className="wood-base" d={wood} />
         <path className="ch-bit" clipPath={`url(#${clip})`} d={body} />
+        {/* Over the bit, which stands where the last of them ends. */}
+        {bands.map((d, k) => (
+          <path key={k} className={`ch-pass${k % 2 ? " alt" : ""}`} d={d} />
+        ))}
         <path className="ch-edge" d={edge} />
         <g className={mark("width")}>
           <path d={across_(-across, 0, yTop)} />
@@ -118,7 +162,13 @@ export function ChamferDiagram({ bit, width, clearance, side, hot }: { bit: Tool
         )}
       </svg>
       <figcaption>
-        The bit's tip runs {fmt(round2(aside))} mm {side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
+        The bit's tip ends {fmt(round2(aside))} mm {side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
+        {plan && (
+          <>
+            {" "}
+            {passesLine(bit, plan)} <HelpTip topic="chamferPasses" />
+          </>
+        )}
       </figcaption>
     </figure>
   );

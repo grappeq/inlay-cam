@@ -1,7 +1,7 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Attention, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Attention, EdgePlan, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -49,6 +49,8 @@ export interface CoreApi {
   previewPart(project: Project, stepId: string, part: Part): PocketPreview;
   /** For a facing: how far above the surface its first pass begins, as given or as the list gives it. Null for any other step. */
   facingStart(project: Project, stepId: string): number | null;
+  /** For a chamfer: how its edge would be cut, pass by pass, or why it cannot be. Null for any other step. */
+  chamferPlan(project: Project, stepId: string): { plan: EdgePlan } | { problem: string } | null;
   /** Takes the stock through every inlay and operation of the project, in the order of the list, and makes the files for the stock. Fails only for a project without a drawing. */
   stockTimeline(project: Project): StockTimeline;
   /** Builds and simulates both parts of a V-carve inlay and measures their fit. */

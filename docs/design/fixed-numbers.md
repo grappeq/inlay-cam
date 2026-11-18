@@ -84,6 +84,7 @@ Thresholds and tolerances that a user has no reason to turn.
 | Border rounded up | `build.rs` | whole mm | The cut-out border is rounded up so the plug sits on the simulation's grid. |
 | Tab rules | `ops/profile.rs`; `build.rs` | as much cut as tab; fewer than 2 means none; half the depth | Where tabs fit, and their thickness in a cut that is not through. |
 | Chamfer and V-bit entry | `build.rs`; `ops/vcarve.rs` | straight plunge | These bits never ramp; the ramp angle is for end mills. |
+| A chamfer's passes | `ops/chamfer.rs` `GROOVE_SLACK`, `RUB_TOLERANCE`, `MAX_PASSES` | 1 %; 0.001 mm; 2000 | A pass may take 1 % over the row's groove where that saves a pass of a sliver; the bit's uncut part may touch wood by the section's own rounding; an edge needing more passes is refused. The limits themselves are the row's stepdown and its groove, not fixed numbers. |
 | Shortest ramp | `ops/clear.rs` `MIN_RAMP_RUN` | 0.5 mm | Shorter runs are plunged. |
 | Staying down between passes | `ops/clear.rs`; `ops/vcarve.rs` | within 2 tool diameters; within 4 stepovers | When the tool stays in the wood to reach the next pass instead of lifting. |
 | Rest machining | `ops/clear.rs` `REST_SLIVER`, `REST_MARGIN`, `MISSED_OVERLAP` | 0.02, 0.05, 0.01 mm | What a later tool treats as left over. |

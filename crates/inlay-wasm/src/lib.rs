@@ -605,6 +605,19 @@ pub fn facing_start(project_json: &str, step_id: &str) -> Result<Option<f64>, Js
     Ok(build::facing_start(&project, step_id).map(|(_, above)| above))
 }
 
+/// For a chamfer: how its edge would be cut, pass by pass, as JSON:
+/// `{"plan": …}` or `{"problem": "…"}`. `None` for any other step.
+#[wasm_bindgen(js_name = chamferPlan)]
+pub fn chamfer_plan(project_json: &str, step_id: &str) -> Result<Option<String>, JsError> {
+    let project: Project = from_json(project_json, "project")?;
+    Ok(
+        build::chamfer_plan(&project, step_id).map(|planned| match planned {
+            Ok(plan) => to_json(&serde_json::json!({ "plan": plan })),
+            Err(problem) => to_json(&serde_json::json!({ "problem": problem })),
+        }),
+    )
+}
+
 /// Both parts of a V-carve inlay simulated and fitted together.
 #[wasm_bindgen]
 pub struct FitCheck {

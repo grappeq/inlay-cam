@@ -122,6 +122,27 @@ const RIDGES = (
   </Frame>
 );
 
+/** How far in from the wall each pass of a 45° chamfer reaches at the surface: what the core plans for a 2.5 mm bevel on a 0.5 mm stepdown, drawn 24 to the mm. */
+const PASS_REACH = [7, 19, 28, 34, 40, 45, 49, 53, 57, 60];
+
+/** In section: the wood a chamfer's passes take, each a band; deep at first, thinner as the bevel widens. */
+const PASSES = (
+  <Frame>
+    <path className="help-wood" d="M0 22H52L112 82V90H0Z" />
+    {PASS_REACH.map((u, k) => {
+      const v = k === 0 ? 0 : PASS_REACH[k - 1];
+      return <path key={u} className={`help-band${k % 2 ? " alt" : ""}`} d={`M${112 - u} 22L112 ${22 + u}V${22 + v}L${112 - v} 22Z`} />;
+    })}
+    <path className="help-level" d="M112 22V90" />
+    <text className="help-text" x="117" y="34">
+      first
+    </text>
+    <text className="help-text" x="117" y="80">
+      last
+    </text>
+  </Frame>
+);
+
 export const HELP = {
   // Clearances and tabs: keyed as the setup's own fields are.
   safeHeight: { title: "Travel height", text: "How high above the board the tool moves between cuts. Raise it to clear clamps.", picture: TRAVEL },
@@ -151,6 +172,11 @@ export const HELP = {
   trimDepth: { title: "Where the fit check judges the face", text: "Below the surface: about what you sand off once the plug is in." },
 
   // Other operations, and steps done by hand.
+  chamferPasses: {
+    title: "Passes",
+    text: "No pass goes deeper than the cutting row's stepdown, or takes more wood than a full groove that deep: the cut the row is set for. The edge widens as it deepens, so the passes get shallower going down. A bevel wider than the bit's flank is cut in layers from the top, stepping out to the edge. A deeper stepdown in the row gives fewer passes.",
+    picture: PASSES,
+  },
   facingDepth: { title: "Depth below the surface", text: "How far under the stock's surface the facing goes. Under 0, it stops that far above the surface and leaves the wood proud." },
   byHand: { title: "A step done by hand", text: "Its place in the list is what counts: the steps below it find the stock as this one leaves it. Drag it in the list to move it." },
 

@@ -190,6 +190,43 @@ pub fn follow(
     report
 }
 
+/// Takes the tool's centre round every ring of `tracks`, once at each of
+/// `depths` in turn, going straight down at the start of each round. No tabs
+/// and no finishing pass: for shaping an edge, whose depths are planned for
+/// it (`ops::chamfer`).
+pub fn follow_depths(
+    path: &mut PathBuilder,
+    tracks: &[Region],
+    depths: &[f64],
+    feed: f64,
+    plunge: f64,
+) {
+    let p = ProfileParams {
+        tool_diameter: 0.0,
+        depth: depths.iter().copied().fold(0.0, f64::max),
+        stepdown: f64::INFINITY,
+        feed,
+        plunge,
+        tabs: None,
+        ramp: 0.0,
+        finish: 0.0,
+    };
+    for track in tracks {
+        for (ring, _) in rings_of(track) {
+            let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+            let stations = stations(ring, start);
+            let mut above = 0.0;
+            for &z in depths {
+                let run = ring_run(ring, start, 0.0);
+                ramp_in(path, &run, -above, -z, 0.0, f64::INFINITY, feed, plunge);
+                cut_round(path, &stations, z, z, &[], &p);
+                above = z;
+            }
+        }
+    }
+    path.retract();
+}
+
 /// The ring's points from `start` round to `start` again, each with its
 /// distance along the ring.
 fn stations(ring: &Ring, start: usize) -> Vec<(Point, f64)> {

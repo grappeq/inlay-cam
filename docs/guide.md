@@ -517,6 +517,19 @@ click adds a shape to it or takes it away.
   unless changed. The
   bevel stays as wide; more clearance takes the bit deeper and cuts the bevel higher up
   its flutes, where it cuts better, and needs that much more room beside the edge.
+
+  The edge is cut in passes, each a band of its own in the drawing. No pass goes deeper
+  than the cutting row's stepdown, or takes more wood than a full groove that deep, which
+  is the cut the row is set for. The edge widens as it deepens, so the passes get
+  shallower going down: full stepdowns while the edge is narrow, then less and less. A
+  deeper stepdown in the row gives fewer passes. This holds for both kinds of bit.
+
+  A bevel wider than the V-bit's flank, or than its cutting edges reach, is cut in layers
+  from the top: in each layer the bit runs first with its flank on the bevel, then in
+  steps out to the edge, so that the uncut part of the bit above the flank only ever
+  meets wood already taken away. That goes round the outline many times; the panel and
+  the file say how many, and name a larger V-bit of the same angle in the list that would
+  cut it from one track.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
   a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
