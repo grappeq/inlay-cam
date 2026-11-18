@@ -4,7 +4,7 @@ import { fmt, isByHand, stepColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
-import { formatMinutes, partName } from "./OutputPanel";
+import { FileNotes, formatMinutes, partName } from "./OutputPanel";
 import { useWorkOut } from "./Timeline";
 
 /** One line of the list: a file for the stock, an inlay's plug or insert file, or a step done by hand. */
@@ -209,18 +209,7 @@ function FileRow(props: { n: number; title: string; note: string; built: Built |
             Not made: {props.errors.join(" ")}
           </span>
         )}
-        {built && built.warnings.length > 0 && (
-          <details className="more">
-            <summary>
-              {built.warnings.length} thing{built.warnings.length === 1 ? "" : "s"} to know before cutting
-            </summary>
-            <ul className="notes">
-              {built.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </details>
-        )}
+        {built && <FileNotes built={built} compact />}
       </div>
       {built && (
         <button className="small" disabled={props.stale} title={`${built.fileName}, ${built.stats.lines} lines`} onClick={() => downloadText(built.fileName, built.gcode, "text/plain")}>

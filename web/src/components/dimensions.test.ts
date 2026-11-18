@@ -12,6 +12,7 @@ function built(change: Partial<Built>): Built {
     fileName: "",
     gcode: "",
     stats: { lines: 0, cuttingLength: 0, minutes: 0, tools: [], toolChanges: 0, toolChangeMinutes: 0, perTool: [] },
+    before: [],
     warnings: [],
     piece: null,
     cutWidth: null,

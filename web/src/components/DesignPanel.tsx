@@ -45,7 +45,7 @@ import { useFileActions } from "../state/files";
 import { useApp, useDispatch } from "../state/store";
 import { pickTextFile, pickTextFiles } from "../util/files";
 import { FilletIcon, StepIcon } from "./icons";
-import { InlayDiagram } from "./InlayDiagram";
+import { InlayDiagram, type InlayHot } from "./InlayDiagram";
 import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
@@ -778,9 +778,10 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
 }
 
 /**
- * In an inlay's panel: what happens after the glue-up. Offers a facing that
- * trims the plug flush, as an operation of its own in the list, or leads to
- * the one there is. Nothing for loose inserts, which are not one plug.
+ * In an inlay's panel: what is done with it once it is cut, as the steps they
+ * are. Each says whether it is in the list, and is added or opened from here:
+ * the glue-up, then for a plug that stands above the surface the sawing off
+ * of its backer and the facing that trims it flush.
  */
 function TrimOffer({ step }: { step: Step }) {
   const { project, tools, defaults } = useApp();
@@ -815,65 +816,52 @@ function TrimOffer({ step }: { step: Step }) {
     dispatch({ type: "setActiveStep", id: trim.id });
   };
 
+  const open = (id: string) => dispatch({ type: "setActiveStep", id });
+  const height = (mm: number) => `${fmt(round2(mm))} mm`;
+  // What the facing has to take off: what the saw leaves, or all that stands.
+  const standing = saw && saw.task.type === "saw" ? saw.task.leave : part.above;
+
   return (
     <section>
-      <h3>The glue-up, and after it</h3>
-      <p className="hint">
-        As a step in the list, the glue-up puts the {part.what} on the stock for the steps below it.
-      </p>
-      {glue ? (
-        <p className="derived">
-          "{glue.name}" is in the list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: glue.id })}>
-            Open it
-          </button>
-        </p>
-      ) : (
-        <button type="button" onClick={addGlue}>
-          Add the glue-up as a step
-        </button>
-      )}
-      {trims && glue && (
-        <>
-          <p className="hint after-glue">Sawing the backer off first leaves the facing little to do.</p>
-          {saw ? (
-            <p className="derived">
-              "{saw.name}" is in the list.{" "}
-              <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: saw.id })}>
-                Open it
-              </button>
-            </p>
-          ) : (
-            <button type="button" onClick={addSaw}>
-              Add sawing the backer off as a step
-            </button>
-          )}
-        </>
-      )}
-      {trims && <TrimPart step={step} above={part.above} made={made} add={add} />}
+      <h3>After the cut</h3>
+      <ul className="life">
+        <LifeRow title={`Glue the ${part.what} in`} note={part.above > 0 ? `by hand · ${part.what === "plug" ? "stands" : "stand"} ${height(part.above)} above the surface` : "by hand"} step={glue} onAdd={addGlue} onOpen={open} />
+        {trims && (
+          <LifeRow
+            title="Saw the backer off"
+            note={saw && saw.task.type === "saw" ? `by hand · leaves ${height(saw.task.leave)} standing` : "by hand · optional"}
+            step={saw}
+            onAdd={glue ? addSaw : undefined}
+            needs="After the glue-up, once that is in the list."
+            onOpen={open}
+          />
+        )}
+        {trims && <LifeRow title="Trim the plug flush" note={`a facing · takes off ${height(standing)}`} step={made} onAdd={add} onOpen={open} />}
+      </ul>
     </section>
   );
 }
 
-/** The facing that trims a glued-in plug flush: the offer to add it, or the way to the one there is. */
-function TrimPart({ above, made, add }: { step: Step; above: number; made: Step | undefined; add: () => void }) {
-  const dispatch = useDispatch();
+/** One step of what comes after an inlay is cut: in the list, with its name and the way to it, or offered. */
+function LifeRow(props: { title: string; note: string; step: Step | undefined; onAdd?: () => void; needs?: string; onOpen: (id: string) => void }) {
+  const { step } = props;
   return (
-    <>
-      <p className="hint after-glue">Glued in, the plug stands {fmt(round2(above))} mm above the stock's surface.</p>
-      {made ? (
-        <p className="derived">
-          "{made.name}" trims this plug.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setActiveStep", id: made.id })}>
-            Open it
-          </button>
-        </p>
+    <li className={step ? "listed" : undefined}>
+      <span className="life-dot" aria-hidden="true" />
+      <span>
+        {props.title}
+        <small>{step ? `${step.name} · ${props.note}` : props.note}</small>
+      </span>
+      {step ? (
+        <button type="button" className="link" onClick={() => props.onOpen(step.id)}>
+          Open
+        </button>
       ) : (
-        <button type="button" onClick={add}>
-          Add a facing to trim the plug flush
+        <button type="button" className="small" disabled={!props.onAdd} title={props.onAdd ? undefined : props.needs} onClick={props.onAdd} aria-label={`Add to the list: ${props.title}`}>
+          Add
         </button>
       )}
-    </>
+    </li>
   );
 }
 
@@ -1158,6 +1146,9 @@ function StepEditor({ step }: { step: InlayStep }) {
   const setup = stepSetup(step, project);
   const setSetup = (change: Partial<Setup>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, setup: { ...stepSetup(j, project), ...change } }) });
   const ownSetup = !sameSetup(setup, defaults);
+  // The depth being typed in, which the cross-section marks out.
+  const [hot, setHot] = useState<InlayHot>(null);
+  const mark = (which: InlayHot) => (focused: boolean) => setHot(focused ? which : null);
   const update = (change: Partial<Step>) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, ...change }) });
   const setInlay = (change: Partial<Task>) => update({ task: { ...step.task, ...change } as Task });
   const back = () => dispatch({ type: "setActiveStep", id: null });
@@ -1198,18 +1189,18 @@ function StepEditor({ step }: { step: InlayStep }) {
 
         <section>
           <h3>Depths and fit</h3>
-          <InlayDiagram inlay={inlay} halfAngle={halfAngle} />
+          <InlayDiagram inlay={inlay} halfAngle={halfAngle} hot={hot} />
           {inlay.type === "vcarve" ? (
             <div className="row">
-              <NumberField label="Engagement" unit="mm" min={0.01} value={inlay.engagementDepth} onChange={(v) => v !== undefined && setInlay({ engagementDepth: v })} />
-              <NumberField label="Glue gap" unit="mm" value={inlay.glueGap} onChange={(v) => v !== undefined && setInlay({ glueGap: v })} />
-              <NumberField label="Saw gap" unit="mm" min={0.01} value={inlay.sawGap} onChange={(v) => v !== undefined && setInlay({ sawGap: v })} />
+              <NumberField label="Engagement" unit="mm" min={0.01} value={inlay.engagementDepth} onChange={(v) => v !== undefined && setInlay({ engagementDepth: v })} onFocusChange={mark("engagement")} />
+              <NumberField label="Glue gap" unit="mm" value={inlay.glueGap} onChange={(v) => v !== undefined && setInlay({ glueGap: v })} onFocusChange={mark("glue")} />
+              <NumberField label="Saw gap" unit="mm" min={0.01} value={inlay.sawGap} onChange={(v) => v !== undefined && setInlay({ sawGap: v })} onFocusChange={mark("saw")} />
             </div>
           ) : (
             <>
               <div className="row">
-                <NumberField label="Pocket depth" unit="mm" min={0.01} value={inlay.pocketDepth} onChange={(v) => v !== undefined && setInlay({ pocketDepth: v })} />
-                <NumberField label={inlay.insertStyle === "backer" ? "Plug board" : "Insert thickness"} unit="mm" min={0.01} value={inlay.insertThickness} onChange={(v) => v !== undefined && setInlay({ insertThickness: v })} />
+                <NumberField label="Pocket depth" unit="mm" min={0.01} value={inlay.pocketDepth} onChange={(v) => v !== undefined && setInlay({ pocketDepth: v })} onFocusChange={mark("pocket")} />
+                <NumberField label={inlay.insertStyle === "backer" ? "Plug board" : "Insert thickness"} unit="mm" min={0.01} value={inlay.insertThickness} onChange={(v) => v !== undefined && setInlay({ insertThickness: v })} onFocusChange={mark("insert")} />
                 <NumberField label="Fit allowance" unit="mm" value={inlay.allowance} onChange={(v) => v !== undefined && setInlay({ allowance: v })} />
               </div>
               <p className="hint">
@@ -1312,7 +1303,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                 <div className="row">
                   <NumberField label="Margin" unit="mm" min={0.01} value={inlay.insertMargin} onChange={(v) => v !== undefined && setInlay({ insertMargin: v })} />
                   {inlay.insertStyle === "backer" && (
-                    <NumberField label="Saw gap" unit="mm" value={inlay.sawGap} onChange={(v) => v !== undefined && setInlay({ sawGap: v })} />
+                    <NumberField label="Saw gap" unit="mm" value={inlay.sawGap} onChange={(v) => v !== undefined && setInlay({ sawGap: v })} onFocusChange={mark("saw")} />
                   )}
                 </div>
               </>

@@ -1083,3 +1083,46 @@ Three more of them (2026-11-18).
   The panel still shows the number the inlays give, which needs no simulation.
 - **The underside of glued-in wood** is drawn, a shade darker, and its walls end on it
   corner by corner in place of the lowest point of the square.
+
+### Text that explained (2026-11-18)
+
+The roadmap's item on the blocks of text in the panels. Counted before: 144 blocks of
+hint, muted or warning text in the components, about 1,870 words, 1,040 of them in
+`DesignPanel.tsx`. Read one by one they were seven things in one grey style: what a word
+means, what the numbers give, why an option exists, how the order of the list works,
+where something is on screen, something said before, and something wrong. Each has its
+own cure, so there are four of them and not one.
+
+- **Cut.** Pointers to what is on screen and repeats are gone, and what was left is a
+  sentence each. The rule kept since: a line that is always on screen reports something
+  (a number worked out, a warning, a thing to do), and never explains.
+- **Help on demand** (`HelpTip`, `help.tsx`). A "?" beside a label opens a card: a
+  title, a line or two, and a small picture where one says more. It shows while pointed
+  at or focused, stays on a click, and goes on Escape, a click elsewhere or scrolling.
+  The entries are in one file, keyed as the setup's fields are where they are a setup's,
+  so the "New inlays" page of the Settings reads its lines from them too. The column
+  headings of Materials and Profiles use it in place of a `title`. `NumberField` takes
+  `help` for what explains and keeps `hint` for what the number gives; it is a `div`
+  with a `label` for its input now, so that the mark is not part of the field's name.
+  A strip at the foot of the panel showing the help of the focused field was mocked up
+  too and not built: nothing on a field says it has help, and there is no foot outside
+  the panel.
+- **Drawn.** A chamfer is a section through the edge with the bit against it, to scale
+  (`ChamferDiagram`, with `edge_cut`'s numbers): width and height of the bevel, the
+  tip's clearance and depth, the room beside the edge, the wood that must be gone dashed;
+  a corner-rounding bit with its radius. The field being typed in marks its numbers
+  (`onFocusChange`), and the inlay's cross-section does the same.
+- **Said by the screen.** "After the cut" in an inlay's panel is a row for each step that
+  follows (glue-up, sawing the backer off, the trim), each in the list or offered, in
+  place of three paragraphs round a button.
+- **Before cutting, and notes.** A file's "things to know before cutting" were two kinds
+  in one list. The core now keeps them apart (`Built.before`, `Built.warnings`): what
+  to do before the file is run, each line one thing to do and said first (a spoilboard,
+  tape, clamps, the size of board, a test piece in a material other than wood), and
+  notes on what it cuts, which ask for nothing. The panel shows the first and keeps the
+  second closed. The texts are shorter; none was dropped.
+- Not built: an "Explain" switch that hides every explanation, which hides the wall and
+  leaves it the explanation.
+- Checked: 277 core tests, 89 UI tests. In the app: the tips on an inlay's panel and the
+  Materials page, the rows, the marked dimension, and a chamfer with a 60° V-bit. The
+  two lists of a file were looked at with made-up lines only, not on a generated file.

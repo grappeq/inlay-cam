@@ -505,7 +505,10 @@ click adds a shape to it or takes it away.
   own radius, and there is no width to give. Choose the side where the wood has been cut
   away: round the shapes, or inside them. Run it after that edge has been cut. The bit's
   tip runs beside the edge, where it expects air; in uncut wood it would leave a groove.
-  "Tip clear of the edge" is how far out a V-bit's tip runs, 0.2 mm unless changed. The
+  The panel draws the edge in section with the bit against it, to scale: the bevel's width
+  and height, the tip's depth, and the room the bit needs beside the edge, where the wood
+  must be gone (dashed). "Tip clear of the edge" is how far out a V-bit's tip runs, 0.2 mm
+  unless changed. The
   bevel stays as wide; more clearance takes the bit deeper and cuts the bevel higher up
   its flutes, where it cuts better, and needs that much more room beside the edge.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
@@ -520,8 +523,8 @@ click adds a shape to it or takes it away.
 ### Trimming a plug flush
 
 An inlay with a plug on a backer (a V-carve inlay, or a flat inlay made as "One plug")
-has "Add a facing to trim the plug flush" under **The glue-up, and after it** in its
-panel. It adds a facing to the list as an operation of its own, named "Trim" and the
+has a line "Trim the plug flush" under **After the cut** in its panel, with what the
+facing will take off. Its **Add** adds a facing to the list as an operation of its own, named "Trim" and the
 inlay's name, over the inlay's shapes and in its wood, and opens it. It goes in after the
 inlay's glue-up when the list has one, else at the end:
 
@@ -559,8 +562,9 @@ Gluing a plug or inserts in is done by hand, and has no file. It can still be a 
 the list: **Glue-up**, under "Steps done by hand" where inlays and operations are added,
 adds it. With one inlay that has none yet it is for that one; with several it asks which,
 by name and wood, or takes all of them; with shapes selected it is for their inlays. An
-inlay's own panel has "Add the glue-up as a step" as well, under **The glue-up, and after
-it**. The step goes in right after its inlay, drawn with a dashed edge.
+inlay's own panel has it as well: **After the cut** lists what is done with the inlay once
+it is cut, the glue-up first, each line with **Add** while it is not in the list and
+**Open** once it is. The step goes in right after its inlay, drawn with a dashed edge.
 
 Its place in the list is what it says. The lines above it find the stock without the plug;
 the lines below it find the plug on the stock. Drag it like any other line. Deleting an
@@ -599,7 +603,8 @@ panel on the right has a tab of its own for the files themselves, **Files**, bes
 **Files** is a list numbered in the order to do things: each file for the stock with
 the lines it cuts, each inlay's plug or insert file before the glue-up that needs it, and
 the glue-ups, which are done by hand. Every file has its time, its tool changes, whether
-it was simulated without problems, what to know before cutting, and its **Download**. The
+it was simulated without problems, what to do before cutting, notes on what it cuts, and
+its **Download**. The
 name of a file for the stock, or of a glue-up, goes to the stock in 3D as it is after it.
 A file with a line that cannot be made says why in place of its download. The files are
 made the first time the tab is opened; **Generate again**, at its foot, makes everything
@@ -649,7 +654,11 @@ checks them. For each file the panel shows:
 - whether the simulation found a problem (a rapid move through wood, a cut below the
   board, a cut deeper than the tool's flutes). Do not run a file that has one;
 - the size of board it needs, the time per tool and the number of tool changes;
-- things to know before cutting, such as clamps to keep clear.
+- **Before cutting**: what the file asks of you before it is run, each line one thing to
+  do, such as a spoilboard to put under the board, a part to hold down with tape or
+  clamps to keep clear;
+- notes on what it cuts, closed until opened: what a tool could not reach, how many tabs
+  are left, which row a tool runs.
 
 **Show in 3D** shows the simulated part. The simulation is run on the text of the G-code
 file itself, so what you see is what the file does. Curves are written as arcs (G2 and

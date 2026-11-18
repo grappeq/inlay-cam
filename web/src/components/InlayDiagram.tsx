@@ -1,8 +1,12 @@
 import type { TrueInlay } from "../core/types";
 import { fmt } from "../state/model";
 
+/** The numbers the picture marks: named as the fields that set them, so that the one being typed in can be marked out. */
+export type InlayHot = "saw" | "engagement" | "glue" | "pocket" | "insert" | null;
+
 /** One measured height in the picture: where it starts and ends, and what to call it. */
 interface Dimension {
+  of: InlayHot;
   from: number;
   to: number;
   label: string;
@@ -11,7 +15,7 @@ interface Dimension {
 }
 
 /** Brackets down the right-hand side, each with its label, kept from overlapping. */
-function Dimensions({ x, items }: { x: number; items: Dimension[] }) {
+function Dimensions({ x, items, hot }: { x: number; items: Dimension[]; hot: InlayHot }) {
   let previous = -Infinity;
   return (
     <g className="dims">
@@ -20,7 +24,7 @@ function Dimensions({ x, items }: { x: number; items: Dimension[] }) {
         previous = y;
         const bx = x + (d.shift ?? 0);
         return (
-          <g key={d.label}>
+          <g key={d.label} className={hot === null ? undefined : d.of === hot ? "hot" : "faint"}>
             <path d={`M${bx - 3} ${d.from}H${bx + 3}M${bx} ${d.from}V${d.to}M${bx - 3} ${d.to}H${bx + 3}`} />
             <path className="leader" d={`M${bx + 3} ${(d.from + d.to) / 2}L${x + 22} ${y}`} />
             <text x={x + 25} y={y} dominantBaseline="middle">
@@ -38,7 +42,7 @@ function Dimensions({ x, items }: { x: number; items: Dimension[] }) {
  * board, and the plug or insert in place. Heights follow the numbers; very
  * small ones are drawn large enough to see.
  */
-export function InlayDiagram({ inlay, halfAngle }: { inlay: TrueInlay; halfAngle: number }) {
+export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInlay; halfAngle: number; hot?: InlayHot }) {
   const left = 8;
   const right = 176;
   const middle = (left + right) / 2;
@@ -68,11 +72,12 @@ export function InlayDiagram({ inlay, halfAngle }: { inlay: TrueInlay; halfAngle
           <path className="wood-base" d={base} />
           <path className="wood-plug" d={plug} />
           <Dimensions
+            hot={hot}
             x={dimX}
             items={[
-              { from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
-              { from: y0, to: yTip, label: `Engagement ${fmt(inlay.engagementDepth)}` },
-              { from: yTip, to: yFloor, label: `Glue gap ${fmt(inlay.glueGap)}` },
+              { of: "saw", from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
+              { of: "engagement", from: y0, to: yTip, label: `Engagement ${fmt(inlay.engagementDepth)}` },
+              { of: "glue", from: yTip, to: yFloor, label: `Glue gap ${fmt(inlay.glueGap)}` },
             ]}
           />
         </svg>
@@ -103,10 +108,11 @@ export function InlayDiagram({ inlay, halfAngle }: { inlay: TrueInlay; halfAngle
           <path className="wood-base" d={base} />
           <path className="wood-plug" d={plug} />
           <Dimensions
+            hot={hot}
             x={dimX}
             items={[
-              { from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
-              { from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
+              { of: "saw", from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
+              { of: "pocket", from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
             ]}
           />
         </svg>
@@ -135,10 +141,11 @@ export function InlayDiagram({ inlay, halfAngle }: { inlay: TrueInlay; halfAngle
         <path className="wood-base" d={base} />
         <rect className="wood-plug" x={middle - half + gap} y={yTop} width={2 * (half - gap)} height={thickness} />
         <Dimensions
+          hot={hot}
           x={dimX}
           items={[
-            { from: yTop, to: yFloor, label: `Insert ${fmt(inlay.insertThickness)} thick`, shift: 10 },
-            { from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
+            { of: "insert", from: yTop, to: yFloor, label: `Insert ${fmt(inlay.insertThickness)} thick`, shift: 10 },
+            { of: "pocket", from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
           ]}
         />
       </svg>

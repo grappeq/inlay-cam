@@ -94,18 +94,21 @@ looked at in 3D after each line. What that makes possible, and is not built:
 
 ## The screens
 
-- **Text that explains how things work.** Go through the app, find the blocks of it, and
-  get rid of them: by a screen that needs no explaining, or by one shared way of showing
-  help on demand. A tooltip with a small picture of the thing (what "plunge from" is,
-  what a tab is, what stepover means on a V-bit) would say more than bare text. The
-  Settings pages keep one line per setting and put the rest in the `title` of a column
-  heading, which is a stopgap. Facing and chamfer already show their options as pictures.
-  A chamfer's numbers are a case for it. Its width, the tip's clearance, the bit's tip
-  flat and its angle give how far outside the outline the bit runs and how deep, and the
-  panel says so in a sentence that is hard to follow. A picture of the bit against the
-  edge in section, with those numbers marked on it, would show it: the bevel's width and
-  height, the gap between the tip and the wall, and the room the bit needs beside the
-  edge.
+- **Text that explains how things work.** The Design tab's panels have been gone
+  through: what explained is cut, moved to a "?" beside its field (`help.tsx`,
+  `HelpTip`) or drawn, and what a file asks for before it is run is a list of its own.
+  The rule since: a line that is always on screen reports something, and never explains.
+  Still to do:
+  - The Tools tab, whose tool sheet has not been gone through.
+  - Pictures for the help entries that have text only. Six have one: travel height,
+    plunge from, ramp angle, the finishing pass, tabs and relief. What stepover means on
+    a V-bit has none, and no entry.
+  - The hints left in the inlay's panel that explain: what the material picks, what the
+    colour is for, the order of the end mills.
+  - A drawing for facing a plug that stands above the surface, as the chamfer has: the
+    wood above, the depth below, the margin.
+  - The glue-up and sawing steps' own panels, which still say in a sentence what their
+    place in the list means.
 - **A design pass over the Design tab**, which has not had what the Tools and Settings
   tabs got. Known from testing: at 800 px wide the drawing is small beside the panel.
 - **Whether "Cancel" on a tool's sheet should ask** before it drops changes. It does not.

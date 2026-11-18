@@ -856,6 +856,21 @@ input[aria-invalid="true"] {
 .notes li + li {
   margin-top: 4px;
 }
+/* Notes that ask for nothing. */
+.notes.plain {
+  color: var(--muted);
+}
+/* What to do before a file is run. */
+.before-cut {
+  margin: 10px 0 6px;
+}
+.before-cut h4 {
+  font-size: 13px;
+  color: var(--warn);
+}
+details.before-cut > summary {
+  color: var(--warn);
+}
 .status-line {
   font-size: 13px;
   color: var(--muted);
@@ -997,6 +1012,18 @@ details.more[open] > summary {
   fill: var(--text);
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
+}
+/* The number being typed in is marked out, and the others stand back. */
+.dims .hot path:not(.leader) {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dims .hot text {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.dims .faint {
+  opacity: 0.35;
 }
 
 /* Ordered tools */
@@ -3677,8 +3704,42 @@ ul.plain {
   color: var(--muted);
   white-space: nowrap;
 }
-.hint.after-glue {
-  margin-top: 12px;
+/* What comes after an inlay is cut: a row for each step, in the list or not yet. */
+.life {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.life li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.life li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.life-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+}
+.life li.listed .life-dot {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.life small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.life li:not(.listed) > span:nth-child(2) {
+  color: var(--muted);
 }
 
 /* The stock in 3D at a point of the list */

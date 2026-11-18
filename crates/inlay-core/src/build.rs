@@ -116,7 +116,10 @@ pub struct Built {
     pub file_name: String,
     pub gcode: String,
     pub stats: Stats,
-    /// Things worth knowing that do not stop the step.
+    /// What to do before the file is run: what to put under the board, hold
+    /// down or keep clear. Each is one thing to do, said first.
+    pub before: Vec<String>,
+    /// Things worth knowing about what the file cuts, which ask for nothing.
     pub warnings: Vec<String>,
     /// For a plug: where its blank lies on the base board once turned over.
     #[serde(skip)]
@@ -283,6 +286,7 @@ pub fn build_with(
     let through_stock = matches!(&step.task, Task::Contour { depth: None, .. });
 
     let mut errors: Vec<String> = Vec::new();
+    let before: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
 
     let regions = union(&design.placed_regions(&step.region_ids));
@@ -332,11 +336,12 @@ pub fn build_with(
             _ => PassDirection::Longer,
         },
         errors,
+        before,
         warnings,
     };
     if !step.material.is_built_in() {
-        ctx.warnings.push(format!(
-            "This is cut in {}. The app's toolpaths have only been proven in wood: check the simulation, and cut a test piece first.",
+        ctx.before.push(format!(
+            "This is cut in {}: the app's toolpaths have only been proven in wood, so cut a test piece first.",
             material_name(&step.material)
         ));
     }
@@ -540,7 +545,7 @@ pub fn build_with(
                 narrow.clear();
             } else {
                 ctx.warnings.push(format!(
-                    "About {} mm of the design is too narrow for the plug to seat: the pocket there is shallower than the engagement depth of {} mm. These parts are marked on the drawing.",
+                    "About {} mm of the design is too narrow for the plug to seat to its {} mm engagement. These parts are marked on the drawing.",
                     num(length.round()),
                     num(*engagement_depth)
                 ));
@@ -549,6 +554,7 @@ pub fn build_with(
     }
     let Context {
         errors,
+        before,
         mut warnings,
         ..
     } = ctx;
@@ -614,6 +620,7 @@ pub fn build_with(
         ),
         stats,
         gcode,
+        before,
         warnings,
         program,
         interpreted,
@@ -710,6 +717,9 @@ struct Context<'a> {
     /// Which way its side-to-side passes run.
     direction: PassDirection,
     errors: Vec<String>,
+    /// What to do before the file is run.
+    before: Vec<String>,
+    /// What is worth knowing about what it cuts.
     warnings: Vec<String>,
 }
 
@@ -1160,7 +1170,7 @@ fn flat_fit(
     let interferes = interference_area > INTERFERENCE_AREA;
     if !as_drawn {
         ctx.warnings.push(format!(
-            "The parts cannot follow the drawing exactly: \"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm. {} mm² of the drawing is left out and {} mm² is added. The outline that will be cut is dashed on the drawing.",
+            "The parts cannot follow the drawing exactly: \"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm, which leaves out {} mm² and adds {} mm². What is cut is dashed on the drawing.",
             tool.name,
             num(tool.diameter / 2.0),
             num(tool.diameter),
@@ -1361,31 +1371,31 @@ fn flat_insert(
     if insert.tabs {
         let without = report.tabs.iter().filter(|n| **n == 0).count();
         if without > 0 {
-            ctx.warnings.push(format!(
-                "{} too small for tabs and will come loose on the last pass. Hold {} down with tape.",
+            ctx.before.push(format!(
+                "Hold {} down with tape: {} too small for tabs and will come loose on the last pass.",
+                if without == 1 { "it" } else { "them" },
                 if parts.len() == 1 {
-                    "The insert is".to_string()
+                    "the insert is".to_string()
                 } else {
                     format!("{without} of the {} inserts are", parts.len())
-                },
-                if without == 1 { "it" } else { "them" }
+                }
             ));
         }
         if without < parts.len() {
             ctx.warnings.push(format!(
-                "Tabs {} mm wide and {} mm thick hold each insert to its board: {} in all. Cut them and sand the edge flush before fitting.",
+                "{} tabs {} mm wide and {} mm thick hold the inserts to their board. Cut them and sand the edge flush before fitting.",
+                report.tabs.iter().sum::<usize>(),
                 num(setup.tab_width),
-                num(setup.tab_thickness_on(insert.thickness)),
-                report.tabs.iter().sum::<usize>()
+                num(setup.tab_thickness_on(insert.thickness))
             ));
         }
     } else {
-        ctx.warnings.push(
-            "Without tabs the inserts come loose on the last pass. Hold them down with tape or they can be thrown by the tool.".into(),
+        ctx.before.push(
+            "Hold the inserts down with tape: without tabs they come loose on the last pass and can be thrown by the tool.".into(),
         );
     }
-    ctx.warnings.push(format!(
-        "The cut goes {} mm past the bottom of the insert board: put a spoilboard under it.",
+    ctx.before.push(format!(
+        "Put a spoilboard under the insert board: the cut goes {} mm past its bottom.",
         num(setup.through_cut)
     ));
     Some(Cut {
@@ -1529,12 +1539,12 @@ fn flat_backer(
 
     let fit = flat_fit(ctx, regions, &shapes, smallest, insert.saw_gap);
     ctx.warnings.push(format!(
-        "The plug is mirrored: glue it in face down, then saw or plane off the backer, which sits {} mm above the surface.",
+        "The plug is mirrored: glue it in face down, then saw or plane off the backer, {} mm above the surface.",
         num(insert.saw_gap)
     ));
     if !cut_out {
-        ctx.warnings.push(format!(
-            "The tools run up to {} mm beyond the edges of the plug blank. Keep clamps and stops clear, and do not use a board larger than {} × {} mm unless you trim it to that size afterwards.",
+        ctx.before.push(format!(
+            "Keep clamps and stops {} mm clear of the plug blank's edges, and use a blank of {} × {} mm or trim it to that afterwards.",
             num((largest / 2.0 * 10.0).ceil() / 10.0),
             num((width * 100.0).round() / 100.0),
             num((height * 100.0).round() / 100.0)
@@ -1732,27 +1742,25 @@ fn cut_piece_out(
 
     let (board_width, board_height) = (width + 2.0 * border, height + 2.0 * border);
     let round = |v: f64| num((v * 100.0).round() / 100.0);
-    ctx.warnings.push(format!(
-        "The plug, {} × {} mm, is cut out of its board last, with \"{}\". The board must be at least {} × {} mm: {} mm more than the plug on every side.",
-        round(width),
-        round(height),
-        tool.name,
+    ctx.before.push(format!(
+        "Use a board of at least {} × {} mm, {} mm more than the plug on every side: the plug is cut out of it last, with \"{}\".",
         round(board_width),
         round(board_height),
-        round(border)
+        round(border),
+        tool.name
     ));
-    ctx.warnings.push(if tabs {
-        format!(
+    if tabs {
+        ctx.warnings.push(format!(
             "{} tabs {} mm wide and {} mm thick hold the plug to its board. Cut them and trim the edge before use.",
             report.tabs.iter().sum::<usize>(),
             num(setup.tab_width),
             num(tab_height)
-        )
+        ));
     } else {
-        "Without tabs the plug comes loose on the last pass. Hold it down with tape or it can be thrown by the tool.".into()
-    });
-    ctx.warnings.push(format!(
-        "The cut goes {} mm past the bottom of the board: put a spoilboard under it.",
+        ctx.before.push("Hold the plug down with tape: without tabs it comes loose on the last pass and can be thrown by the tool.".into());
+    }
+    ctx.before.push(format!(
+        "Put a spoilboard under the board: the cut goes {} mm past its bottom.",
         num(setup.through_cut)
     ));
     cut.board = Some((board_width, board_height));
@@ -1811,7 +1819,7 @@ fn vcarve_setup<'a>(
     let floor_stepover = 2.0 * tip_radius + 2.0 * floor_ridge * half_angle.tan();
     if vcutting.stepover > floor_stepover + 0.005 {
         ctx.warnings.push(format!(
-            "On the flat floor \"{}\" takes passes {} mm apart, not the {} mm of its cutting settings: only its tip cuts there, and the ridges between passes are kept to {} mm. The ridge height is under \"Finer points\".",
+            "On the flat floor \"{}\" takes passes {} mm apart, not the {} mm of its cutting settings, to keep the ridges between them to {} mm.",
             vbit.name,
             num((floor_stepover * 100.0).round() / 100.0),
             num(vcutting.stepover),
@@ -2026,10 +2034,9 @@ fn vcarve_plug_cut(
             p,
         ) {
             Ok(length) if length >= 0.5 => ctx.warnings.push(format!(
-                "The tips of the plug's narrow ridges and corner edges are cut back along {} mm, by up to {} mm, so that they leave room for glue and cannot hold the plug up. The cut stays {} mm below the finished face.",
+                "The plug's narrow ridges and corner edges are cut back along {} mm, by up to {} mm, to leave room for glue.",
                 num(length.round()),
-                num(((plug.glue_gap + p.tip_radius / p.tan()) * 100.0).round() / 100.0),
-                num(plug.relief_keep)
+                num(((plug.glue_gap + p.tip_radius / p.tan()) * 100.0).round() / 100.0)
             )),
             Ok(_) => {}
             Err(e) => {
@@ -2039,8 +2046,8 @@ fn vcarve_plug_cut(
         }
     }
     if !plug.cut_out {
-        ctx.warnings.push(format!(
-            "The tools cut right up to the edges of the plug blank, and the V-bit's flank passes up to {} mm beyond them. Keep clamps and stops clear, and do not use a blank larger than {} × {} mm unless you trim it to that size afterwards.",
+        ctx.before.push(format!(
+            "Keep clamps and stops {} mm clear of the plug blank's edges, and use a blank of {} × {} mm or trim it to that afterwards.",
             num((p.radius_at(ctx.depth) * 10.0).ceil() / 10.0),
             num((width * 100.0).round() / 100.0),
             num((height * 100.0).round() / 100.0)
@@ -2346,17 +2353,17 @@ fn facing(
             )
         });
     }
-    ctx.warnings.push(if whole {
-        format!(
-            "The tool runs {} mm out over every edge of the stock. Keep clamps below the surface or out of its way.",
+    if whole {
+        ctx.before.push(format!(
+            "Keep clamps below the surface or out of the way: the tool runs {} mm out over every edge of the stock.",
             num(radius)
-        )
+        ));
     } else {
-        format!(
+        ctx.warnings.push(format!(
             "The tool's centre goes to the edge of the area, so it cuts up to {} mm beyond it.",
             num(radius)
-        )
-    });
+        ));
+    }
     Some(Cut {
         tools: vec![ProgramTool {
             number,
@@ -2480,10 +2487,10 @@ fn contour(
     }
     if through {
         if !tabs || left == 0 {
-            ctx.warnings.push("Without tabs, what the cut frees comes loose on the last pass. Hold it down with tape or it can be thrown by the tool.".into());
+            ctx.before.push("Hold what the cut frees down with tape: without tabs it comes loose on the last pass and can be thrown by the tool.".into());
         }
-        ctx.warnings.push(format!(
-            "The cut goes {} mm past the bottom of the stock: put a spoilboard under it.",
+        ctx.before.push(format!(
+            "Put a spoilboard under the stock: the cut goes {} mm past its bottom.",
             num(setup.through_cut)
         ));
     }
@@ -2673,24 +2680,23 @@ pub fn build_combined(project: &Project, step_ids: &[String]) -> Result<Built, V
     let borrowed: Vec<(&str, &Built)> = parts.iter().map(|(name, b)| (*name, b)).collect();
     let mut built = join(project, &borrowed, "stock")?.built;
 
-    let mut warnings: Vec<String> = Vec::new();
+    let mut before: Vec<String> = Vec::new();
     // Wood standing above the surface is only allowed for by the step that faces it off.
     for (i, id) in step_ids.iter().enumerate().skip(1) {
         if let Some((_, above)) = facing_start(project, id) {
             if above > 0.0 {
-                warnings.push(format!(
-                    "\"{}\" faces off {} mm of wood standing above the surface, but {} before it in this file {} as if the surface were clear. Make sure nothing stands in {} way, or put the facing first.",
+                before.push(format!(
+                    "Make sure nothing stands in the way of {2} before \"{0}\", or put the facing first: it faces off {1} mm of wood standing above the surface, but {2} {3} as if the surface were clear.",
                     name_of(id),
                     num(above),
                     if i == 1 { "the step" } else { "the steps" },
-                    if i == 1 { "travels" } else { "travel" },
-                    if i == 1 { "its" } else { "their" }
+                    if i == 1 { "travels" } else { "travel" }
                 ));
             }
         }
     }
-    warnings.append(&mut built.warnings);
-    built.warnings = warnings;
+    before.append(&mut built.before);
+    built.before = before;
     Ok(built)
 }
 
@@ -2840,8 +2846,10 @@ pub fn join(
         starts.push(line);
     }
 
+    let mut before: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     for (name, built) in parts {
+        before.extend(built.before.iter().map(|w| format!("{name}: {w}")));
         warnings.extend(built.warnings.iter().map(|w| format!("{name}: {w}")));
     }
     let pocket: Vec<Region> = parts.iter().flat_map(|(_, b)| b.pocket.clone()).collect();
@@ -2872,6 +2880,7 @@ pub fn join(
         ),
         stats,
         gcode,
+        before,
         warnings,
         program,
         interpreted,
@@ -3325,8 +3334,8 @@ pub(crate) mod tests {
         assert!((built.stock.height - 45.9).abs() < 0.01);
         assert_eq!(built.stock.thickness, 4.0);
         assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
-        assert!(built.warnings.iter().any(|w| w.contains("Without tabs")));
-        assert!(built.warnings.iter().any(|w| w.contains("spoilboard")));
+        assert!(built.before.iter().any(|w| w.contains("without tabs")));
+        assert!(built.before.iter().any(|w| w.contains("spoilboard")));
         // The same fit either way round.
         let pocket = build_pocket(&project, "j").unwrap();
         assert_eq!(built.flat_fit, pocket.flat_fit);
@@ -3371,7 +3380,7 @@ pub(crate) mod tests {
             built
                 .warnings
                 .iter()
-                .any(|w| w.contains("Tabs 4 mm wide and 1 mm thick")),
+                .any(|w| w.contains("tabs 4 mm wide and 1 mm thick")),
             "{:?}",
             built.warnings
         );
@@ -3816,7 +3825,7 @@ pub(crate) mod tests {
             built
                 .warnings
                 .iter()
-                .any(|w| w.contains("Tabs 6 mm wide and 1.5 mm thick")),
+                .any(|w| w.contains("tabs 6 mm wide and 1.5 mm thick")),
             "{:?}",
             built.warnings
         );
@@ -4015,9 +4024,9 @@ pub(crate) mod tests {
         assert_eq!(cut.built.stats.tools.len(), 2);
         assert!(cut
             .built
-            .warnings
+            .before
             .iter()
-            .any(|w| w.contains("is cut out of its board last, with \"6 mm upcut\"")));
+            .any(|w| w.contains("is cut out of it last, with \"6 mm upcut\"")));
         // The board grows by the chosen tool's width plus the border.
         let plain = {
             let mut q = p.clone();
@@ -4034,7 +4043,7 @@ pub(crate) mod tests {
         let both = build(&q, "j", Part::Plug).unwrap();
         assert_eq!(both.stats.tools.len(), 3);
         assert!(both
-            .warnings
+            .before
             .iter()
             .any(|w| w.contains("with \"6 mm upcut\"")));
 
@@ -4286,9 +4295,9 @@ pub(crate) mod tests {
             assert_eq!(cut.built.gcode.matches("M6 T1\n").count(), 2);
             assert!(cut
                 .built
-                .warnings
+                .before
                 .iter()
-                .any(|w| w.contains("is cut out of its board last")));
+                .any(|w| w.contains("is cut out of it last")));
             assert_eq!(
                 cut.built
                     .warnings
@@ -4607,7 +4616,7 @@ pub(crate) mod tests {
         let built = build(&p, "j", Part::Pocket).unwrap();
         assert!(built.gcode.contains("F180") && !built.gcode.contains("F600"));
         assert!(built
-            .warnings
+            .before
             .iter()
             .any(|w| w.contains("cut in aluminum") && w.contains("only been proven in wood")));
     }
@@ -4802,7 +4811,8 @@ pub(crate) mod tests {
         assert!((bottom + 6.2).abs() < 1e-9, "bottom at {bottom}");
         let notes = preview.built.warnings.join(" | ");
         assert!(notes.contains("tabs 4 mm wide and 1 mm thick"), "{notes}");
-        assert!(notes.contains("spoilboard"), "{notes}");
+        let to_do = preview.built.before.join(" | ");
+        assert!(to_do.contains("spoilboard"), "{to_do}");
         // Tabs: level cuts 1.2 mm above the bottom of the cut.
         assert!(cuts.iter().any(|q| (q[2] + 5.0).abs() < 1e-9));
 
@@ -4963,7 +4973,7 @@ pub(crate) mod tests {
         };
         let ids = vec!["j".to_string(), "v".to_string()];
         let built = build_combined(&p, &ids).unwrap();
-        assert!(built.warnings[0].contains("standing above the surface"));
+        assert!(built.before[0].contains("standing above the surface"));
         // The end mill stays in, and crosses to the facing above that wood.
         assert_eq!(built.interpreted.tool_changes, [1]);
         let reversed = build_combined(&p, &["v".to_string(), "j".to_string()]).unwrap();
@@ -5449,10 +5459,7 @@ pub(crate) mod tests {
             before.built.stats.cutting_length
         );
         let said = after.built.warnings.join(" | ");
-        assert!(
-            said.contains("0.02 mm") && said.contains("Finer points"),
-            "{said}"
-        );
+        assert!(said.contains("0.02 mm") && said.contains("apart"), "{said}");
 
         // The face is judged where the inlay says.
         let mut deep = usual.clone();

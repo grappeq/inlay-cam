@@ -522,6 +522,9 @@ export interface Built {
   fileName: string;
   gcode: string;
   stats: BuildStats;
+  /** What to do before the file is run: each one thing to do, said first. */
+  before: string[];
+  /** What is worth knowing about what the file cuts, which asks for nothing. */
   warnings: string[];
 }
 
