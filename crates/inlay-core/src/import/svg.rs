@@ -3,8 +3,9 @@
 //! Each filled path becomes one or more regions (one per separate filled
 //! area), with overlaps inside the path resolved by its fill rule. A path with
 //! an outline but no fill, as CAD exports draw everything, is read as the area
-//! its closed outlines enclose, less any smaller outline drawn over it: the
-//! areas between the lines, as the drawing reads. Regions from different paths
+//! its closed outlines enclose, less any outline drawn wholly inside it: the
+//! areas between the lines, as the drawing reads. Outlines that cross or touch
+//! stay whole. Regions from different paths
 //! are kept apart so they can be selected separately.
 
 use i_overlay::core::fill_rule::FillRule;
@@ -53,8 +54,8 @@ pub struct ImportReport {
     pub unit_note: Option<String>,
 }
 
-/// The areas between outlines that carry no fill: every smaller outline is
-/// cut out of each larger one it overlaps.
+/// The areas between outlines that carry no fill: every outline that lies
+/// wholly inside another is cut out of it.
 pub(crate) fn regions_between_outlines(regions: Vec<DesignRegion>) -> Vec<DesignRegion> {
     let mut importer = Importer {
         height_px: 0.0,
@@ -199,42 +200,56 @@ impl Importer {
     }
 
     /// Outlines carry no fill to say which side of a line belongs to which
-    /// shape, so the shapes are the areas between the lines: every smaller
-    /// outline is cut out of each larger one it overlaps. A circle around six
-    /// shapes becomes the web between them, not a disc underneath.
+    /// shape, so the shapes are the areas between the lines: an outline that
+    /// lies wholly inside another is cut out of it. A circle around six
+    /// shapes becomes the web between them, not a disc underneath. An outline
+    /// that crosses or touches another is not inside it, and both stay whole:
+    /// shapes may lie on top of each other.
     fn split_nested_outlines(&mut self) {
         if self.outlines.iter().filter(|&&o| o).count() < 2 {
             return;
         }
-        let shapes: Vec<Option<(Region, f64)>> = self
+        let shapes: Vec<Option<Outline>> = self
             .regions
             .iter()
             .zip(&self.outlines)
             .map(|(region, &outline)| {
                 outline.then(|| {
                     let shape = Region::with_holes(region.outer.clone(), region.holes.clone());
-                    let area = shape.area();
-                    (shape, area)
+                    Outline {
+                        area: shape.area(),
+                        bounds: ring_bounds(&region.outer),
+                        shape,
+                    }
                 })
             })
             .collect();
         let mut out: Vec<DesignRegion> = Vec::with_capacity(self.regions.len());
         for (i, region) in std::mem::take(&mut self.regions).into_iter().enumerate() {
-            let Some((shape, area)) = &shapes[i] else {
+            let Some(around) = &shapes[i] else {
                 out.push(region);
                 continue;
             };
-            // Ties go to the later outline, so two identical outlines leave one shape.
-            let smaller: Vec<Region> = shapes
-                .iter()
-                .enumerate()
-                .filter_map(|(j, other)| {
-                    let (other, other_area) = other.as_ref()?;
-                    (j != i && (*other_area < *area || (*other_area == *area && j > i)))
-                        .then(|| other.clone())
-                })
+            let others = || {
+                shapes
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(j, other)| Some((j, other.as_ref()?)))
+                    .filter(move |&(j, _)| j != i)
+            };
+            // The same outline drawn twice is one shape: the later one.
+            if others().any(|(j, other)| j > i && around.same_as(other)) {
+                continue;
+            }
+            let inside: Vec<Region> = others()
+                .filter(|(_, other)| other.lies_inside(around))
+                .map(|(_, other)| other.shape.clone())
                 .collect();
-            for piece in difference(shape, &smaller) {
+            if inside.is_empty() {
+                out.push(region);
+                continue;
+            }
+            for piece in difference(&around.shape, &inside) {
                 if piece.area() >= MIN_REGION_AREA {
                     out.push(DesignRegion {
                         id: 0,
@@ -289,6 +304,71 @@ impl Importer {
         finish(&mut current, false, &mut rings);
         rings
     }
+}
+
+/// How far inside another outline's area an outline has to stay, mm, to
+/// count as lying inside it. The app's drawing tools use the same distance.
+const INSIDE: f64 = 0.01;
+
+/// A shape read from an outline without a fill.
+struct Outline {
+    shape: Region,
+    area: f64,
+    /// Left, bottom, right, top.
+    bounds: [f64; 4],
+}
+
+impl Outline {
+    /// True when the whole of this outline lies in `around`'s area, clear of
+    /// its edges.
+    fn lies_inside(&self, around: &Outline) -> bool {
+        let (a, b) = (&self.bounds, &around.bounds);
+        if self.area >= around.area || a[0] < b[0] || a[1] < b[1] || a[2] > b[2] || a[3] > b[3] {
+            return false;
+        }
+        let clear = |p: &Point| {
+            around.shape.contains(*p) && around.shape.distance_to_boundary(*p) >= INSIDE
+        };
+        // The corners first; then the lines between them, which may cross a
+        // notch that no corner lies in.
+        self.shape.outer.iter().all(clear)
+            && difference(&self.shape, std::slice::from_ref(&around.shape))
+                .iter()
+                .all(|piece| piece.area() < MIN_REGION_AREA)
+    }
+
+    fn same_as(&self, other: &Outline) -> bool {
+        let near = |a: &Outline, b: &Outline| {
+            a.shape
+                .rings()
+                .flatten()
+                .all(|p| b.shape.distance_to_boundary(*p) < CLOSED_GAP)
+        };
+        self.bounds
+            .iter()
+            .zip(&other.bounds)
+            .all(|(a, b)| (a - b).abs() < CLOSED_GAP)
+            && near(self, other)
+            && near(other, self)
+    }
+}
+
+fn ring_bounds(ring: &[Point]) -> [f64; 4] {
+    let mut b = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for p in ring {
+        b = [
+            b[0].min(p[0]),
+            b[1].min(p[1]),
+            b[2].max(p[0]),
+            b[3].max(p[1]),
+        ];
+    }
+    b
 }
 
 /// Moves `current` into `rings` if it is a usable ring, dropping repeated points.
@@ -603,6 +683,49 @@ mod tests {
         assert_close(areas[web], PI * 40.0 * 40.0 - wedges, 2.0);
         // Together they tile the outer disc without overlap.
         assert_close(areas.iter().sum::<f64>(), PI * 44.0 * 44.0, 2.0);
+    }
+
+    #[test]
+    fn outlines_that_touch_or_cross_stay_whole() {
+        // A blank with a rounded square on it, and a circle that touches the
+        // square's four sides from inside: reference outlines for two parts.
+        let out = import(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="108mm" height="108mm" viewBox="0 0 108 108">
+                 <g fill="none" stroke="black">
+                 <rect width="108" height="108"/>
+                 <circle cx="5" cy="14.5" r="2.05"/>
+                 <circle cx="49.25" cy="58.75" r="44"/>
+                 <rect x="5.25" y="14.75" width="88" height="88" rx="7.25"/>
+                 <rect x="80" y="2" width="20" height="20"/></g></svg>"#,
+        );
+        let corners = 7.25 * 7.25 * (4.0 - PI);
+        let square = 88.0 * 88.0 - corners;
+        let mut areas: Vec<f64> = out.design.regions.iter().map(area).collect();
+        areas.sort_by(f64::total_cmp);
+        assert_eq!(areas.len(), 5, "{areas:?}");
+        assert_close(areas[0], PI * 2.05 * 2.05, 0.1);
+        // The small square crosses the rounded one's corner: both whole.
+        assert_close(areas[1], 400.0, 1e-2);
+        assert_close(areas[3], PI * 44.0 * 44.0, 2.0);
+        assert_close(areas[4], square, 0.5);
+        // The blank loses what lies wholly inside it: the bore, and the two
+        // squares with the circle as one hole.
+        let blank = out.design.regions.iter().find(|r| r.outer.len() == 4);
+        assert_eq!(blank.unwrap().holes.len(), 2);
+        let overlap = 13.25 * 7.25 - corners / 4.0;
+        let cut = PI * 2.05 * 2.05 + square + 400.0 - overlap;
+        assert_close(areas[2], 108.0 * 108.0 - cut, 2.0);
+    }
+
+    #[test]
+    fn the_same_outline_drawn_twice_is_one_shape() {
+        let out = import(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="40mm" height="40mm" viewBox="0 0 40 40">
+                 <g fill="none" stroke="black"><rect x="5" y="5" width="20" height="20"/>
+                 <path d="M25 5V25H5V5Z"/></g></svg>"#,
+        );
+        assert_eq!(out.design.regions.len(), 1);
+        assert_close(area(&out.design.regions[0]), 400.0, 1e-2);
     }
 
     #[test]

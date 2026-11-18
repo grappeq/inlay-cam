@@ -459,8 +459,10 @@ Read by `crates/inlay-core/src/import/svg.rs`.
   end to end wherever two ends are within 0.01 mm, in either direction, so a shape drawn
   as separate lines and arcs is read as one outline.
 - Outlines have no fill to say which side of a line belongs to which shape, so the shapes
-  are the areas between the lines: every smaller outline is cut out of each larger one it
-  overlaps. A circle drawn around six shapes becomes the web between them.
+  are the areas between the lines: an outline that lies wholly inside another, at least
+  0.01 mm clear of its edges, is cut out of it. A circle drawn around six shapes becomes
+  the web between them. Outlines that cross or touch stay whole, one lying on the other.
+  The same outline drawn twice is one shape.
 - Filled shapes are not cut this way: a filled shape drawn over another leaves both whole.
 - Left out, and reported after import: outlines without a fill that do not close, text
   that has not been converted to outlines, embedded images, and filled areas under

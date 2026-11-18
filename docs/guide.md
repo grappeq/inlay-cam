@@ -248,7 +248,8 @@ takes several files at once.
 - Shapes must be filled, or drawn as lines that join into closed outlines. Lines are
   joined where their ends meet within 0.01 mm.
 - In a drawing made of outlines only, as CAD programs export, the shapes are the areas
-  between the lines. A circle drawn around six shapes is the web between them.
+  between the lines. A circle drawn around six shapes is the web between them. Outlines
+  that cross or touch each other stay whole, one lying on the other.
 - Text must be converted to outlines first. Images are ignored.
 - After the import the app lists what it left out.
 
