@@ -264,33 +264,21 @@ function PartCard(props: { name: string; board: string; preview: PocketPreview; 
 /** A length to two decimals, without trailing zeros. */
 /**
  * What a file asks of whoever runs it, and what is worth knowing about it.
- * What to do is shown; the notes wait until they are asked for. `compact`
- * for a row of the list of files, where what to do is counted and opens too.
+ * What to do is shown; the notes wait until they are asked for.
  */
-export function FileNotes({ built, compact }: { built: Built; compact?: boolean }) {
-  const toDo = (
-    <ul className="notes">
-      {built.before.map((text) => (
-        <li key={text}>{text}</li>
-      ))}
-    </ul>
-  );
+export function FileNotes({ built }: { built: Built }) {
   return (
     <>
-      {built.before.length > 0 &&
-        (compact ? (
-          <details className="more before-cut">
-            <summary>
-              {built.before.length} thing{built.before.length === 1 ? "" : "s"} to do before cutting
-            </summary>
-            {toDo}
-          </details>
-        ) : (
-          <div className="before-cut">
-            <h4>Before cutting</h4>
-            {toDo}
-          </div>
-        ))}
+      {built.before.length > 0 && (
+        <div className="before-cut">
+          <h4>Before cutting</h4>
+          <ul className="notes">
+            {built.before.map((text) => (
+              <li key={text}>{text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {built.warnings.length > 0 && (
         <details className="more">
           <summary>

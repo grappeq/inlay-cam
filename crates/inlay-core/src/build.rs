@@ -158,10 +158,10 @@ pub struct Built {
 /// steps before left it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gone {
-    /// The strips: the lines each runs along, and how wide it is, mm.
-    pub strips: Vec<(Vec<Region>, f64)>,
-    /// How deep they are, mm.
-    pub depth: f64,
+    /// The strips: the lines each runs along, how wide it is and how deep, mm.
+    pub strips: Vec<(Vec<Region>, f64, f64)>,
+    /// Whole areas, and how deep they are gone, mm.
+    pub areas: Vec<(Vec<Region>, f64)>,
 }
 
 impl Gone {
@@ -176,20 +176,53 @@ impl Gone {
             let across = width / n as f64;
             for i in 0..n {
                 let aside = (i as f64 + 0.5) * across;
-                strips.push((offset(regions, toward * aside), across));
+                strips.push((offset(regions, toward * aside), across, depth));
             }
         }
-        Gone { strips, depth }
+        Gone {
+            strips,
+            areas: Vec::new(),
+        }
     }
 
-    /// Takes the strips out of `map`.
+    /// The area of `regions`, down to `depth`.
+    fn over(regions: &[Region], depth: f64) -> Gone {
+        Gone {
+            strips: Vec::new(),
+            areas: vec![(regions.to_vec(), depth)],
+        }
+    }
+
+    /// This and `other` both.
+    fn and(mut self, other: Gone) -> Gone {
+        self.strips.extend(other.strips);
+        self.areas.extend(other.areas);
+        self
+    }
+
+    /// Takes the strips and the areas out of `map`.
     fn clear(&self, map: &mut HeightMap) {
-        for (tracks, width) in &self.strips {
+        for (tracks, width, depth) in &self.strips {
             let mill = ToolProfile::flat(*width);
             for ring in tracks.iter().flat_map(Region::rings) {
                 for k in 0..ring.len() {
                     let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
-                    map.cut(&mill, [a[0], a[1], -self.depth], [b[0], b[1], -self.depth]);
+                    map.cut(&mill, [a[0], a[1], -depth], [b[0], b[1], -depth]);
+                }
+            }
+        }
+        for (regions, depth) in &self.areas {
+            let Some([x0, y0, x1, y1]) = extent(regions) else {
+                continue;
+            };
+            let index = |v: f64, n: usize| ((v / map.cell).floor().max(0.0) as usize).min(n);
+            for iy in index(y0, map.ny)..index(y1 + map.cell, map.ny) {
+                for ix in index(x0, map.nx)..index(x1 + map.cell, map.nx) {
+                    let centre = map.centre(ix, iy);
+                    if regions.iter().any(|r| r.contains(centre)) {
+                        let z = &mut map.z[iy * map.nx + ix];
+                        *z = z.min(-*depth as f32);
+                    }
                 }
             }
         }
@@ -377,6 +410,10 @@ pub fn build_with(
         material: project.cut_material(step, part == Part::Plug),
         machine,
         depth,
+        start: match &step.task {
+            Task::Pocket { start_depth, .. } => *start_depth,
+            _ => 0.0,
+        },
         pattern: match &step.task {
             Task::Pocket { pattern, .. } | Task::Facing { pattern, .. } => *pattern,
             _ => Pattern::Offset,
@@ -456,6 +493,7 @@ pub fn build_with(
             Task::Chamfer {
                 side,
                 width,
+                start_depth,
                 tip_clearance,
                 tool_id,
             },
@@ -464,6 +502,7 @@ pub fn build_with(
             &regions,
             *side,
             *width,
+            *start_depth,
             *tip_clearance,
             tool_id.as_deref(),
         ),
@@ -804,6 +843,9 @@ struct Context<'a> {
     machine: &'a Machine,
     /// Depth of the pocket floor, mm.
     depth: f64,
+    /// How deep an end mill starts clearing, where the wood above is gone
+    /// already, mm. 0 but in a pocket that starts below the surface.
+    start: f64,
     /// The shape of the path an end mill clears an area along.
     pattern: Pattern,
     /// Which way its side-to-side passes run.
@@ -1070,7 +1112,10 @@ impl<'a> Context<'a> {
             }
             path.start_tool(*number, cutting.rpm);
             loaded = Some(&tool.id);
-            let params = clear_params(tool, cutting, self.depth, ramp);
+            let params = ClearParams {
+                start: self.start,
+                ..clear_params(tool, cutting, self.depth, ramp)
+            };
             let swept = match self.pattern {
                 Pattern::Offset => clear_centres(path, &where_to, &params),
                 Pattern::Raster => raster_centres(path, &where_to, &params, true, self.direction),
@@ -1115,7 +1160,10 @@ impl<'a> Context<'a> {
             finish_walls(
                 path,
                 &tracks,
-                &clear_params(tool, cutting, self.depth, ramp),
+                &ClearParams {
+                    start: self.start,
+                    ..clear_params(tool, cutting, self.depth, ramp)
+                },
             );
             cleared.extend(offset(&tracks, tool.diameter / 2.0));
             cleared = union(&cleared);
@@ -1147,6 +1195,7 @@ fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64, ramp: f64) -
         ramp,
         tool_diameter: tool.diameter,
         depth,
+        start: 0.0,
         stepover: cutting.stepover,
         stepdown: cutting.stepdown,
         feed: cutting.feed,
@@ -2189,6 +2238,15 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
+    let start = ctx.start;
+    if start >= ctx.depth {
+        ctx.errors.push(format!(
+            "The pocket starts {} mm deep, but its floor is only {} mm deep. Start it higher.",
+            num(start),
+            num(ctx.depth)
+        ));
+        return None;
+    }
     let smallest = end_mills
         .iter()
         .map(|(tool, _)| *tool)
@@ -2228,6 +2286,9 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
         moves: path.finish(),
         cuttable: outlines(&cleared),
         pocket: cleared,
+        // Over the shapes, down to where it starts, and a little over for
+        // the grid the simulation runs on.
+        gone: (start > 0.0).then(|| Gone::over(&offset(regions, 0.2), start)),
         ..Cut::default()
     })
 }
@@ -2635,9 +2696,9 @@ fn contour(
             strips: tracks
                 .iter()
                 .chain(further.iter().flatten())
-                .map(|t| (t.clone(), tool.diameter))
+                .map(|t| (t.clone(), tool.diameter, start))
                 .collect(),
-            depth: start,
+            areas: Vec::new(),
         }),
         ..Cut::default()
     })
@@ -2750,12 +2811,14 @@ fn one_track_bit<'a>(
 /// A chamfer or a rounded edge: a V-bit or a corner-rounding bit taken along
 /// the outlines of the shapes, on the side where the wood has been cut away,
 /// so that it shapes the top edge. The passes are planned in a section
-/// through the edge (`ops::chamfer`).
+/// through the edge (`ops::chamfer`). The edge lies `start` deep, where the
+/// wood above it is gone already, as on the floor of a pocket.
 fn chamfer(
     ctx: &mut Context,
     regions: &[Region],
     side: Side,
     width: f64,
+    start: f64,
     tip_clearance: f64,
     tool_id: Option<&str>,
 ) -> Option<Cut> {
@@ -2784,10 +2847,11 @@ fn chamfer(
         }
     };
     let depth = plan.depth();
-    if depth >= ctx.project.base.thickness {
+    let bottom = start + depth;
+    if bottom >= ctx.project.base.thickness {
         ctx.errors.push(format!(
             "The bit's tip would run {} mm deep, but the stock is only {} mm thick.",
-            num((depth * 100.0).round() / 100.0),
+            num((bottom * 100.0).round() / 100.0),
             num(ctx.project.base.thickness)
         ));
         return None;
@@ -2817,7 +2881,14 @@ fn chamfer(
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     for (track, depths) in &runs {
-        follow_depths(&mut path, track, depths, cutting.feed, cutting.plunge);
+        follow_depths(
+            &mut path,
+            track,
+            depths,
+            start,
+            cutting.feed,
+            cutting.plunge,
+        );
     }
 
     let last = plan.passes.last()?;
@@ -2829,7 +2900,7 @@ fn chamfer(
         } else {
             "outside"
         },
-        num((depth * 100.0).round() / 100.0)
+        num((bottom * 100.0).round() / 100.0)
     );
     ctx.warnings.push(if rounding {
         format!(
@@ -2862,13 +2933,24 @@ fn chamfer(
         moves: path.finish(),
         pocket: regions.to_vec(),
         // Room for the whole bit beside the edge on its last track, and a
-        // little over for the grid the simulation runs on.
-        gone: Some(Gone::beside(
-            regions,
-            side,
-            last.aside + edge_bit(bit).map_or(bit.diameter / 2.0, |b| b.body_radius()) + 0.2,
-            depth,
-        )),
+        // little over for the grid the simulation runs on. Below the
+        // surface, the wood above the edge is gone on its other side too.
+        gone: Some({
+            let body = edge_bit(bit).map_or(bit.diameter / 2.0, |b| b.body_radius());
+            let beside = Gone::beside(regions, side, last.aside + body + 0.2, bottom);
+            // The shapes, and as far round them as the bit reaches: strips
+            // would leave the sharp inside corners of the wood that stays.
+            if start > 0.0 {
+                let reach = if side == Side::Inside {
+                    body + 0.2
+                } else {
+                    0.2
+                };
+                beside.and(Gone::over(&offset(regions, reach), start))
+            } else {
+                beside
+            }
+        }),
         ..Cut::default()
     })
 }
@@ -3309,6 +3391,30 @@ pub fn fit_of(
 fn num(v: f64) -> String {
     let s = format!("{:.3}", (v * 1000.0).round() / 1000.0);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// The name of a part's file among the files of a whole project, which
+/// are numbered so that the machine's file list shows them in the order
+/// they are cut: the project's name, `number` (the place in the list of
+/// the entry the part belongs to, from 1), what the part is, and the
+/// entry's name.
+pub(crate) fn numbered_part_name(
+    project: &Project,
+    number: usize,
+    part: Part,
+    step: &Step,
+) -> String {
+    file_name(&format!(
+        "{} {number:02} {} {}",
+        project.name,
+        part_name(part, &step.task),
+        step.name
+    ))
+}
+
+/// A file's name from what it is called in words.
+fn file_name(called: &str) -> String {
+    format!("{}.{}", file_stem(called), carvera::FILE_EXTENSION)
 }
 
 /// Letters, digits, dashes and underscores only, so the name is safe on the
@@ -4741,6 +4847,7 @@ pub(crate) mod tests {
     /// feed of 250, and is set to run it.
     fn pocket_on_profile(key: &str, adaptive: Option<bool>) -> Project {
         let mut p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -4829,6 +4936,7 @@ pub(crate) mod tests {
     #[test]
     fn a_step_in_another_material_uses_its_rows_and_says_it_is_unproven() {
         let mut p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -4868,6 +4976,7 @@ pub(crate) mod tests {
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
+            start_depth: 0.0,
             clearing_tool_ids: vec!["t-endmill".into()],
         });
         op.steps[0].material = Material::SOFTWOOD;
@@ -4915,6 +5024,7 @@ pub(crate) mod tests {
     #[test]
     fn a_plain_pocket_is_cleared_to_its_depth_and_nothing_else_is_touched() {
         let p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -5137,6 +5247,84 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_pocket_can_start_below_the_surface() {
+        let pocket = |start_depth: f64| {
+            let mut p = op_project(Task::Pocket {
+                depth: 5.0,
+                start_depth,
+                pattern: Pattern::Offset,
+                direction: PassDirection::Longer,
+                clearing_tool_ids: vec!["t-endmill".into()],
+            });
+            p.base.thickness = 8.0;
+            p
+        };
+        let p = pocket(3.0);
+        // Its file alone is simulated with the wood above the start gone
+        // over the shapes.
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        let cuts = cuts(&preview.built);
+        let lowest = cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min);
+        assert!((lowest + 5.0).abs() < 1e-9, "{lowest}");
+        // Nothing is cut above the start but the way down to it.
+        let highest = cuts.iter().map(|q| q[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert!(highest < -3.0 + 2.0 + 1e-9, "{highest}");
+        let length = |p: &Project| build(p, "j", Part::Pocket).unwrap().stats.cutting_length;
+        assert!(length(&p) < length(&pocket(0.0)));
+
+        // It has to start above its floor.
+        let reasons = build(&pocket(5.0), "j", Part::Pocket)
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.contains("starts 5 mm deep"), "{reasons}");
+        assert!(pocket(5.0).validate().is_ok());
+        assert!(pocket(-1.0).validate().is_err());
+        use crate::project::project_to_file_json;
+        assert!(!project_to_file_json(&pocket(0.0)).contains("startDepth"));
+        assert!(project_to_file_json(&pocket(3.0)).contains("\"startDepth\": 3"));
+    }
+
+    #[test]
+    fn a_chamfer_can_shape_an_edge_below_the_surface() {
+        let chamfer = |start_depth: f64, side: Side| {
+            let mut p = op_project(Task::Chamfer {
+                side,
+                width: 1.5,
+                start_depth,
+                tip_clearance: DEFAULT_TIP_CLEARANCE,
+                tool_id: Some("t-vbit".into()),
+            });
+            p.base.thickness = 15.0;
+            p
+        };
+        let lowest = |p: &Project| {
+            cuts(&build(p, "j", Part::Pocket).unwrap())
+                .iter()
+                .map(|q| q[2])
+                .fold(f64::INFINITY, f64::min)
+        };
+        for side in [Side::Outside, Side::Inside] {
+            let p = chamfer(4.0, side);
+            // Its file alone is simulated with the wood above the edge gone
+            // on both sides of it.
+            let preview = preview(&p, "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, [], "{side:?}");
+            // The same bevel, as much lower as the edge is.
+            let at_top = lowest(&chamfer(0.0, side));
+            assert!((lowest(&p) - (at_top - 4.0)).abs() < 1e-9, "{side:?}");
+        }
+        // The tip must stay in the stock.
+        let reasons = build(&chamfer(14.5, Side::Outside), "j", Part::Pocket)
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.contains("stock is only 15 mm thick"), "{reasons}");
+        assert!(chamfer(-1.0, Side::Outside).validate().is_err());
+        use crate::project::project_to_file_json;
+        assert!(!project_to_file_json(&chamfer(0.0, Side::Outside)).contains("startDepth"));
+    }
+
+    #[test]
     fn a_contour_without_a_depth_goes_through_the_stock_and_can_leave_tabs() {
         let mut p = op_project(Task::Contour {
             side: Side::Outside,
@@ -5182,6 +5370,7 @@ pub(crate) mod tests {
             (6.0, Side::Outside),
         ] {
             let mut p = op_project(Task::Chamfer {
+                start_depth: 0.0,
                 side,
                 width,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5241,6 +5430,7 @@ pub(crate) mod tests {
         // wood beside the edge is gone, as the file expects.
         for side in [Side::Outside, Side::Inside] {
             let mut p = op_project(Task::Chamfer {
+                start_depth: 0.0,
                 side,
                 width: 2.0,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5298,6 +5488,7 @@ pub(crate) mod tests {
     /// A pocket in the rectangle, a contour round it and a chamfer on it.
     fn three_ops() -> Project {
         let mut p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.0,
@@ -5320,6 +5511,7 @@ pub(crate) mod tests {
         bevel.id = "v".into();
         bevel.name = "Bevel".into();
         bevel.task = Task::Chamfer {
+            start_depth: 0.0,
             side: Side::Inside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5414,6 +5606,7 @@ pub(crate) mod tests {
         // One step that cannot be built stops the file, and says which.
         let mut bad = p.clone();
         bad.steps[2].task = Task::Chamfer {
+            start_depth: 0.0,
             side: Side::Inside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5456,6 +5649,7 @@ pub(crate) mod tests {
         // The row's stepdown is 1 mm; the bevel widens as it deepens, so the
         // steps shrink to keep each pass within a 1 mm groove.
         let p = op_project(Task::Chamfer {
+            start_depth: 0.0,
             side: Side::Outside,
             width: 2.5,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5487,6 +5681,7 @@ pub(crate) mod tests {
         use crate::tools::fixtures::fillet_bit;
         for side in [Side::Outside, Side::Inside] {
             let mut p = op_project(Task::Chamfer {
+                start_depth: 0.0,
                 side,
                 // Ignored: the bit cuts its own radius.
                 width: 0.5,
@@ -5531,6 +5726,7 @@ pub(crate) mod tests {
         }
         // An end mill shapes no edges.
         let p = op_project(Task::Chamfer {
+            start_depth: 0.0,
             side: Side::Outside,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -5546,6 +5742,7 @@ pub(crate) mod tests {
     #[test]
     fn a_pocket_cut_side_to_side_matches_one_cut_in_rings() {
         let mut p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Offset,
             direction: PassDirection::Longer,
             depth: 2.5,
@@ -5585,6 +5782,7 @@ pub(crate) mod tests {
         // The test rectangle is wider than it is deep, so its longer side is X.
         let pocket = |direction| {
             let p = op_project(Task::Pocket {
+                start_depth: 0.0,
                 pattern: Pattern::Raster,
                 direction,
                 depth: 2.5,
@@ -5625,6 +5823,7 @@ pub(crate) mod tests {
 
         // A file without a direction means the longer side, and one with it keeps it.
         let mut p = op_project(Task::Pocket {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Y,
             depth: 2.5,
@@ -5646,6 +5845,7 @@ pub(crate) mod tests {
         let tan = 30f64.to_radians().tan();
         let chamfer = |tip_clearance: f64| {
             let p = op_project(Task::Chamfer {
+                start_depth: 0.0,
                 side: Side::Outside,
                 width: 1.5,
                 tip_clearance,

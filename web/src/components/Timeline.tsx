@@ -104,8 +104,8 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   const { project, timelineAt, panelPage, activeStepId } = useApp();
   const dispatch = useDispatch();
   const { busy, workOut } = useWorkOut();
-  // The steps are shown by the file that cuts them only while the panel is on the files.
-  const byFile = panelPage === "files" && activeStepId === null;
+  // While the panel is on what to export, it stays there to be looked through.
+  const stay = panelPage === "export" && activeStepId === null;
   // Names and colours are those of the project as it was when this was worked out.
   const made = timeline.project;
   const count = result.steps.length;
@@ -140,17 +140,9 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
     };
   }, [result, at, made]);
 
-  // The panel follows to the entry shown, unless it is on the files, which stay to be looked through.
-  const go = (to: number) => dispatch({ type: "setTimelineAt", at: to, open: !byFile });
+  // The panel follows to the entry shown, unless it stays.
+  const go = (to: number) => dispatch({ type: "setTimelineAt", at: to, open: !stay });
   const stale = made !== project;
-  const several = result.files.length > 1;
-  // The list as it is cut: the lines of one file together, a step done by hand on its own.
-  const groups: { file: number | null; steps: number[] }[] = [];
-  result.steps.forEach((s, index) => {
-    const last = groups[groups.length - 1];
-    if (s.file !== null && last && last.file === s.file) last.steps.push(index);
-    else groups.push({ file: s.file, steps: [index] });
-  });
   const chip = (index: number) => {
     const s = result.steps[index];
     const j = stepOf(s.stepId);
@@ -197,17 +189,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
           <button className="step" aria-pressed={at === 0} onClick={() => go(0)}>
             Fresh stock
           </button>
-          {groups.map((group) => {
-            const file = group.file === null ? undefined : result.files[group.file];
-            if (!file || !byFile) return group.steps.map(chip);
-            const title = several ? `File ${(group.file ?? 0) + 1}` : "File";
-            return (
-              <div className="file-group" role="group" aria-label={`${title} for the stock`} key={`file ${group.file}`}>
-                <span className="file-name">{title}</span>
-                {group.steps.map(chip)}
-              </div>
-            );
-          })}
+          {result.steps.map((_, index) => chip(index))}
         </div>
         {stale && (
           <p className="callout warn">
@@ -258,7 +240,6 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
     );
   }
   const seat = step.seat;
-  const file = step.file === null ? undefined : result.files[step.file];
   return (
     <>
       <p className="status-line" role="status">
@@ -269,8 +250,8 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
             }.`
           : step.byHand
             ? "Done by hand."
-            : file?.built
-            ? `${step.startsAbove !== null ? `Its first pass starts ${fmt(step.startsAbove)} mm above the surface, where the wood stands on the stock. ` : ""}Cut by ${file.built.fileName}${file.stepIds.length > 1 ? `, as part ${file.stepIds.indexOf(step.stepId) + 1} of ${file.stepIds.length}` : ""}, into the stock as the step before left it.`
+            : step.stats
+            ? `${step.startsAbove !== null ? `Its first pass starts ${fmt(step.startsAbove)} mm above the surface, where the wood stands on the stock. ` : ""}Cut into the stock as the step before left it.`
             : ""}
       </p>
       {(step.problems.length > 0 || step.warnings.length > 0) && (

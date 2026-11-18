@@ -356,6 +356,7 @@ have their defaults.
 |---|---|
 | `type` | `pocket` |
 | `depth` | Greater than 0, and less than the stock's thickness. |
+| `startDepth` | How deep the clearing starts: the wood above it, over the regions, is taken to be gone already, and the first pass goes down from there. 0 or more. A file is made only when it is less than `depth`. Default 0; may be missing, and is not written when it is 0. |
 | `pattern` | The shape of the tool's path. `offset` (default): rings that follow the outline, from the middle outwards. `raster`: straight passes side to side, then once round the edge of each area at each depth. |
 | `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of each area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
 | `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |
@@ -398,6 +399,7 @@ V-bit or rounded over with a corner-rounding bit.
 | `type` | `chamfer` |
 | `side` | `outside` (default): the wood outside the regions has been cut away, and the bit runs there. `inside`: the regions are pockets or openings, and the bit runs inside them. |
 | `width` | Width of the bevel seen from above. Greater than 0. Not used with a corner-rounding bit, which cuts its own radius. |
+| `startDepth` | How deep the edge lies below the surface, as the edge of an opening in a pocket's floor: the passes are those of an edge at the surface, that much lower. The wood above it is taken to be gone on both sides of the edge. 0 or more; the tip must stay above the bottom of the stock. Default 0; may be missing, and is not written when it is 0. |
 | `tipClearance` | How far beyond its tip flat a V-bit's axis is kept from the outline. 0 to 5. Default 0.2; may be missing, and is not written when it is 0.2. Not used with a corner-rounding bit. |
 | `toolId` | The V-bit or corner-rounding bit, or `null` when not chosen yet. Files written when a chamfer took a V-bit only have `vbitToolId` instead, which is read the same. |
 

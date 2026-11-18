@@ -54,6 +54,7 @@ const api: CoreApi = {
       timeline.free();
     }
   },
+  exportSteps: (project, stepIds) => JSON.parse(wasm.exportSteps(JSON.stringify(project), JSON.stringify(stepIds))),
   checkFit: (project, stepId) => {
     const check = wasm.checkFit(JSON.stringify(project), stepId);
     try {

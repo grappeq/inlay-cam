@@ -639,6 +639,10 @@ pub enum Task {
     #[serde(rename_all = "camelCase")]
     Pocket {
         depth: f64,
+        /// How deep the clearing starts: the wood above it, over the shapes,
+        /// is gone already. 0 to start at the surface.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// The shape of the tool's path. Rings by default.
         #[serde(default)]
         pattern: Pattern,
@@ -718,6 +722,11 @@ pub enum Task {
         /// Width of the bevel, seen from above, mm. A corner-rounding bit
         /// cuts its own radius, whatever this says.
         width: f64,
+        /// How deep the edge lies below the surface, as on the floor of a
+        /// pocket: the wood above it, beside the edge, is gone already. 0
+        /// for the top edge of the stock.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// How far beyond its tip flat a V-bit's axis is kept from the edge,
         /// mm. The tip, which hardly cuts, then runs in the air beside the
         /// edge instead of rubbing along the wall under the chamfer. Not
@@ -1105,10 +1114,20 @@ impl Task {
                     "allowance must be 0 or more",
                 )
             }
-            Task::Pocket { depth, .. } => check(
-                depth.is_finite() && depth > 0.0,
-                "depth must be greater than 0",
-            ),
+            Task::Pocket {
+                depth, start_depth, ..
+            } => {
+                check(
+                    depth.is_finite() && depth > 0.0,
+                    "depth must be greater than 0",
+                )?;
+                // A start at or below the floor is refused when the file is
+                // made, as a contour's is.
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth a pocket starts at must be 0 or more",
+                )
+            }
             Task::Facing {
                 above,
                 above_auto,
@@ -1149,12 +1168,17 @@ impl Task {
             Task::Chamfer {
                 width,
                 side,
+                start_depth,
                 tip_clearance,
                 ..
             } => {
                 check(
                     width.is_finite() && width > 0.0,
                     "chamfer width must be greater than 0",
+                )?;
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth a chamfer's edge lies at must be 0 or more",
                 )?;
                 check(
                     tip_clearance.is_finite() && (0.0..=MAX_TIP_CLEARANCE).contains(&tip_clearance),
@@ -1497,6 +1521,7 @@ mod tests {
         op(
             "pocket",
             Task::Pocket {
+                start_depth: 0.0,
                 pattern: Pattern::Offset,
                 direction: PassDirection::Longer,
                 depth: 2.0,
@@ -1529,6 +1554,7 @@ mod tests {
         op(
             "chamfer",
             Task::Chamfer {
+                start_depth: 0.0,
                 side: Side::Outside,
                 width: 1.0,
                 tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -1596,6 +1622,7 @@ mod tests {
         // A chamfer has no "on the line", and a colour is #rrggbb.
         let mut bad = p.clone();
         bad.steps[5].task = Task::Chamfer {
+            start_depth: 0.0,
             side: Side::On,
             width: 1.0,
             tip_clearance: DEFAULT_TIP_CLEARANCE,
@@ -1603,6 +1630,7 @@ mod tests {
         };
         assert!(bad.validate().unwrap_err().contains("outside or inside"));
         bad.steps[5].task = Task::Chamfer {
+            start_depth: 0.0,
             side: Side::Outside,
             width: 1.0,
             tip_clearance: -0.1,

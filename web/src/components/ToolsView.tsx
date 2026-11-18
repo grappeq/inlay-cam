@@ -202,6 +202,11 @@ type Mode = { kind: "read" } | { kind: "new"; tool: Tool };
 /** What the list was narrowed to and showed when it was last on screen, for as long as the page is open. */
 const left: { query: string; selected: string | null; closed: string[]; onlyAttention: boolean; category: Attention["kind"] | null } = { query: "", selected: null, closed: [], onlyAttention: false, category: null };
 
+/** Has the tool list show one tool when it is next opened, whatever it was narrowed to. */
+export function showInToolList(id: string): void {
+  Object.assign(left, { selected: id, query: "", onlyAttention: false, category: null });
+}
+
 export function ToolsArea() {
   const { tools, lists, project, home } = useApp();
   const dispatch = useDispatch();

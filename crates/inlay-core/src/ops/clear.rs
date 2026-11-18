@@ -19,6 +19,9 @@ pub struct ClearParams {
     pub tool_diameter: f64,
     /// Depth of the floor below Z0. Positive.
     pub depth: f64,
+    /// How deep the first pass starts: the wood above it, where the tool
+    /// runs, is gone already. 0 to start at the surface.
+    pub start: f64,
     /// Sideways distance between rings, mm.
     pub stepover: f64,
     /// Largest depth per pass, mm.
@@ -30,6 +33,19 @@ pub struct ClearParams {
     /// Depth gained per mm of travel when the tool goes down into wood along
     /// its path. 0 to plunge straight down.
     pub ramp: f64,
+}
+
+impl ClearParams {
+    /// How much is cut, from the start down to the floor, mm.
+    fn cut(&self) -> f64 {
+        self.depth - self.start
+    }
+
+    /// The height of the floor after `pass` of `passes` equal passes: the
+    /// start after none, the floor after all.
+    fn level(&self, pass: usize, passes: usize) -> f64 {
+        -(self.start + self.cut() * pass as f64 / passes as f64)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -211,11 +227,11 @@ pub(crate) fn ring_run(ring: &Ring, start: usize, length: f64) -> Vec<Point> {
 /// `tracks` down to `p.depth`, in steps no deeper than the tool is wide. For
 /// taking off the little that roughing left on the walls.
 pub fn finish_walls(path: &mut PathBuilder, tracks: &[Region], p: &ClearParams) {
-    let passes = (p.depth / p.tool_diameter).ceil().max(1.0) as usize;
+    let passes = (p.cut() / p.tool_diameter).ceil().max(1.0) as usize;
     for ring in tracks.iter().flat_map(|r| r.rings()) {
         for pass in 1..=passes {
-            let z = -p.depth * pass as f64 / passes as f64;
-            let above = -p.depth * (pass - 1) as f64 / passes as f64;
+            let z = p.level(pass, passes);
+            let above = p.level(pass - 1, passes);
             let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
             let run = ring_run(
                 ring,
@@ -272,10 +288,10 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
         rings.extend(levels[k].iter().flat_map(|r| r.rings().cloned()));
     }
 
-    let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
+    let passes = (p.cut() / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {
-        let z = -p.depth * pass as f64 / passes as f64;
-        let floor_above = -p.depth * (pass - 1) as f64 / passes as f64;
+        let z = p.level(pass, passes);
+        let floor_above = p.level(pass - 1, passes);
 
         for (index, ring) in rings.iter().enumerate() {
             let start = nearest_vertex(ring, path.position().map(|p| [p[0], p[1]]));
@@ -427,10 +443,10 @@ fn raster_one(
 
     // Links between passes run along the edge of the area, which counts as inside.
     let inside = offset(std::slice::from_ref(allowed), 0.01);
-    let passes = (p.depth / p.stepdown).ceil().max(1.0) as usize;
+    let passes = (p.cut() / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {
-        let z = -p.depth * pass as f64 / passes as f64;
-        let floor_above = -p.depth * (pass - 1) as f64 / passes as f64;
+        let z = p.level(pass, passes);
+        let floor_above = p.level(pass - 1, passes);
         // Gets the tool to `first` at this depth: across, when it is down and
         // the way is clear, else down along `run`, which ends at `first`.
         let reach = |path: &mut PathBuilder, first: Point, run: &[Point]| {
@@ -544,6 +560,7 @@ mod tests {
         ClearParams {
             tool_diameter: 4.0,
             depth: 3.0,
+            start: 0.0,
             stepover: 1.6,
             stepdown: 1.0,
             feed: 600.0,

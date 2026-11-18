@@ -156,6 +156,19 @@ const START = (
   </Frame>
 );
 
+/** In section: a pocket already cut, and the edge of a deeper opening in its floor bevelled. */
+const EDGE_START = (
+  <Frame>
+    <path className="help-wood" d="M0 16H30V46H74L84 56V90H110V56L120 46H130V16H160V90H0Z" />
+    <path className="help-steel" d="M64 0H84V36L74 50L64 36Z" />
+    <path className="help-level" d="M30 46H130" />
+    <path className="help-dim" d="M137 16H143M140 16V46M137 46H143" />
+    <text className="help-text" x="36" y="34">
+      gone already
+    </text>
+  </Frame>
+);
+
 export const HELP = {
   // Clearances and tabs: keyed as the setup's own fields are.
   safeHeight: { title: "Travel height", text: "How high above the board the tool moves between cuts. Raise it to clear clamps.", picture: TRAVEL },
@@ -194,6 +207,16 @@ export const HELP = {
     title: "Start depth",
     text: "Where the cut begins, below the surface: the first pass goes down from here, and nothing is cut above it. For a cut on the floor of a pocket, or one that goes on where another stopped. The wood above must be gone where the tool runs. 0 starts at the surface.",
     picture: START,
+  },
+  pocketStart: {
+    title: "Start depth",
+    text: "Where the clearing begins, below the surface: the first pass goes down from here, and nothing is cut above it. For a deeper pocket in the floor of another, or one that goes on where another stopped. The wood above must be gone over the shapes. 0 starts at the surface.",
+    picture: START,
+  },
+  chamferStart: {
+    title: "Edge depth",
+    text: "How deep the edge lies below the surface, as the edge of an opening in the floor of a pocket: the bevel is cut as it would be at the top, that much lower. The wood above it must be gone on both sides of the edge. 0 for the top edge of the stock.",
+    picture: EDGE_START,
   },
   facingDepth: { title: "Depth below the surface", text: "How far under the stock's surface the facing goes. Under 0, it stops that far above the surface and leaves the wood proud." },
   byHand: { title: "A step done by hand", text: "Its place in the list is what counts: the steps below it find the stock as this one leaves it. Drag it in the list to move it." },

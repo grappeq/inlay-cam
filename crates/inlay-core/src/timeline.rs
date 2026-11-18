@@ -238,6 +238,9 @@ pub struct StepRun {
     pub by_hand: bool,
     /// The file the step is cut by: an index into [`Timeline::files`].
     pub file: Option<usize>,
+    /// What the step cuts on its own, before it is joined with others into
+    /// a file, or why it cannot be made. `None` for a step done by hand.
+    pub part: Option<Rc<Result<Built, Vec<String>>>>,
     /// The step's stretch of that file, as it was run on the stock. Its
     /// lines and tool numbers are the file's.
     pub segments: Vec<Segment>,
@@ -261,6 +264,7 @@ impl StepRun {
             step_id: step.id.clone(),
             by_hand: step.task.is_by_hand(),
             file,
+            part: None,
             segments: Vec::new(),
             problems: Vec::new(),
             errors: Vec::new(),
@@ -419,7 +423,6 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
     let fresh = Workpiece::new(width, height, simulated_cell);
     let (nx, ny) = (fresh.map.nx, fresh.map.ny);
     let stride = nx.max(ny).div_ceil(DISPLAY_CELLS).max(1);
-    let several = file_numbers(project).iter().flatten().max() > Some(&1);
     let count = project.steps.len();
 
     // What a step's outcome hangs on: everything that is not a step, then
@@ -527,11 +530,7 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
             continue;
         }
         if !run.is_empty() {
-            let label = if several {
-                format!("stock {}", files.len() + 1)
-            } else {
-                "stock".to_string()
-            };
+            let label = stock_label(run[0]);
             let (file, cut) = pass.cut_run(&run, &label, files.len());
             files.push(file);
             for (went, snapshot) in cut {
@@ -560,12 +559,18 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
     let parts = project
         .steps
         .iter()
-        .filter_map(|step| {
+        .enumerate()
+        .filter_map(|(index, step)| {
             let part = plugs.get(step.id.as_str())?;
             Some(match part.as_ref() {
                 Ok(preview) => PartFile {
                     step_id: step.id.clone(),
-                    built: Some(preview.built.clone()),
+                    // Among the project's files it goes by its inlay's
+                    // place in the list, next to the pocket it fills.
+                    built: Some(Built {
+                        file_name: build::numbered_part_name(project, index + 1, Part::Plug, step),
+                        ..preview.built.clone()
+                    }),
                     errors: Vec::new(),
                     problems: preview.problems.clone(),
                 },
@@ -591,6 +596,80 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
         parts,
         snapshots,
     })
+}
+
+/// One file for the entries of the list that are picked, in the order of the
+/// list: what [`timeline_with`] joins from one step done by hand to the
+/// next, but of these entries only. They have to stand between the same two
+/// steps done by hand, since the machine stops there anyway. All the entries
+/// of such a stretch give the file the timeline has for it; fewer give a
+/// file named after the first of them.
+pub fn export(
+    project: &Project,
+    step_ids: &[String],
+    cache: &mut Cache,
+) -> Result<Built, Vec<String>> {
+    let timeline = timeline_with(project, cache)?;
+    let picked: Vec<&StepRun> = timeline
+        .steps
+        .iter()
+        .filter(|step| step_ids.contains(&step.step_id))
+        .collect();
+    let Some(first) = picked.first() else {
+        return Err(vec!["Nothing is picked.".to_string()]);
+    };
+    let Some(file) = first.file else {
+        return Err(vec![format!(
+            "\"{}\" is done by hand: there is no file for it.",
+            name_of(project, &first.step_id)
+        )]);
+    };
+    if picked.iter().any(|step| step.file != Some(file)) {
+        return Err(vec![
+            "A step done by hand stands between these: they cannot be one file.".to_string(),
+        ]);
+    }
+    let mut errors: Vec<String> = Vec::new();
+    let mut parts: Vec<(&str, &Built)> = Vec::new();
+    for step in &picked {
+        let name = name_of(project, &step.step_id);
+        match step.part.as_deref() {
+            Some(Ok(built)) => parts.push((name, built)),
+            Some(Err(reasons)) => errors.extend(reasons.iter().map(|e| format!("{name}: {e}"))),
+            None => {}
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    // Numbered by the place of its first entry, as every file of the project is.
+    let at = |id: &str| {
+        project
+            .steps
+            .iter()
+            .position(|step| step.id == id)
+            .unwrap_or(0)
+    };
+    let whole = picked.len() == timeline.files[file].step_ids.len();
+    let label = match (whole, picked.len()) {
+        (true, _) => stock_label(at(&timeline.files[file].step_ids[0])),
+        (false, 1) => format!("{:02} {}", at(&first.step_id) + 1, parts[0].0),
+        (false, n) => format!(
+            "{:02} {} and {} more",
+            at(&first.step_id) + 1,
+            parts[0].0,
+            n - 1
+        ),
+    };
+    build::join(project, &parts, &label).map(|joined| joined.built)
+}
+
+/// What a file for the stock is called after the project's name: the place
+/// in the list of its first entry, from 1, so that the files of a project
+/// stand in the machine's file list in the order they are cut, and a file
+/// keeps its number whatever else is made with it.
+fn stock_label(first: usize) -> String {
+    format!("{:02} stock", first + 1)
 }
 
 /// Which file for the stock each entry of the list goes into, counted from
@@ -912,6 +991,7 @@ impl Pass<'_> {
         for (k, &index) in run.iter().enumerate() {
             let step = &project.steps[index];
             let mut went = StepRun::of(step, Some(file));
+            went.part = Some(parts[k].clone());
             let stretch = match parts[k].as_ref() {
                 Ok(_) => stretches.next(),
                 Err(errors) => {
@@ -1378,6 +1458,7 @@ mod tests {
             ..step(
                 "extra",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 1.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
@@ -1401,6 +1482,7 @@ mod tests {
         assert_eq!(t.parts[0].step_id, "j");
         let plug = t.parts[0].built.as_ref().unwrap();
         assert!(plug.part == Part::Plug && t.parts[0].problems.is_empty());
+        assert_eq!(plug.file_name, "Test-board-01-plug-Flat-inlay-1.cnc");
         assert_eq!(
             t.files[0].step_ids,
             vec!["j".to_string(), "extra".to_string()]
@@ -1415,15 +1497,32 @@ mod tests {
         // The first file names its parts where they begin, and is run in two
         // stretches: the stock after the first has the first pocket only.
         let first = t.files[0].built.as_ref().unwrap();
-        assert_eq!(first.file_name, "Test-board-stock-1.cnc");
+        assert_eq!(first.file_name, "Test-board-01-stock.cnc");
         assert_eq!(
             t.files[1].built.as_ref().unwrap().file_name,
-            "Test-board-stock-2.cnc"
+            "Test-board-04-stock.cnc"
         );
         assert!(first.gcode.contains("\n(Step 1: Flat inlay 1)\n"));
         assert!(first.gcode.contains("\n(Step 2: extra)\n"));
         // One tool for both: it is loaded once.
         assert_eq!(first.stats.tool_changes, 1);
+
+        // Picked entries make a file of their own. All of a stretch is the
+        // file the timeline has; one alone is named after itself.
+        let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        let mut cache = Cache::default();
+        let whole = export(&p, &ids(&["extra", "j"]), &mut cache).unwrap();
+        assert_eq!(whole.gcode, first.gcode);
+        assert_eq!(whole.file_name, first.file_name);
+        let one = export(&p, &ids(&["extra"]), &mut cache).unwrap();
+        assert_eq!(one.file_name, "Test-board-02-extra.cnc");
+        assert!(one.gcode.contains("\n(Step 1: extra)\n"));
+        assert!(!one.gcode.contains("Flat inlay 1)"));
+        // Across the glue-up there is no one file, and none for the glue-up.
+        assert!(export(&p, &ids(&["j", "trim"]), &mut cache).unwrap_err()[0]
+            .contains("cannot be one file"));
+        assert!(export(&p, &ids(&["glue"]), &mut cache).is_err());
+        assert!(export(&p, &[], &mut cache).is_err());
         assert_eq!(at(&t, 1, 20.0, 15.0), (-2.0, 0));
         assert_eq!(at(&t, 1, 43.5, 30.0), (0.0, 0));
         assert_eq!(at(&t, 2, 43.5, 30.0), (-1.0, 0));
@@ -1438,13 +1537,13 @@ mod tests {
             first.interpreted.segments.len()
         );
 
-        // Without a glue-up there is one file, called after the stock alone.
+        // Without a glue-up there is one file, numbered all the same.
         p.steps.retain(|j| j.id != "glue" && j.id != "trim");
         let t = timeline(&p).unwrap();
         assert_eq!(t.files.len(), 1);
         assert_eq!(
             t.files[0].built.as_ref().unwrap().file_name,
-            "Test-board-stock.cnc"
+            "Test-board-01-stock.cnc"
         );
 
         // A line that cannot be made leaves its file incomplete; the rest is still shown.
@@ -1712,6 +1811,7 @@ mod tests {
             ..step(
                 "extra",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 1.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,
@@ -1748,6 +1848,7 @@ mod tests {
             ..step(
                 "deep",
                 Task::Pocket {
+                    start_depth: 0.0,
                     depth: 3.0,
                     pattern: Pattern::Offset,
                     direction: PassDirection::Longer,

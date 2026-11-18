@@ -2,13 +2,20 @@
 // card shows while the mark is pointed at or has the focus; a click keeps it
 // open until Escape, a click elsewhere or scrolling.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { HELP, type HelpEntry, type HelpTopic } from "./help";
 
 const EDGE = 8;
 
 export function HelpTip({ topic }: { topic: HelpTopic }) {
-  const entry: HelpEntry = HELP[topic];
+  return <Tip entry={HELP[topic]} />;
+}
+
+/**
+ * A mark with a card of its own, shown the same way. `mark` is what stands
+ * in place of the "?", `label` what it is called, `className` its look.
+ */
+export function Tip({ entry, mark: shown = "?", label, className = "help-mark" }: { entry: HelpEntry; mark?: ReactNode; label?: string; className?: string }) {
   const [open, setOpen] = useState<false | "shown" | "pinned">(false);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const mark = useRef<HTMLButtonElement>(null);
@@ -55,8 +62,8 @@ export function HelpTip({ topic }: { topic: HelpTopic }) {
       <button
         ref={mark}
         type="button"
-        className="help-mark"
-        aria-label={`About: ${entry.title}`}
+        className={className}
+        aria-label={label ?? `About: ${entry.title}`}
         aria-expanded={open !== false}
         aria-describedby={open ? id : undefined}
         onPointerEnter={(e) => e.pointerType === "mouse" && setOpen((now) => now || "shown")}
@@ -69,7 +76,7 @@ export function HelpTip({ topic }: { topic: HelpTopic }) {
           setOpen((now) => (now === "pinned" ? false : "pinned"));
         }}
       >
-        ?
+        {shown}
       </button>
       {open && (
         <span ref={card} id={id} role="tooltip" className={`help-card${entry.picture ? " with-picture" : ""}`} style={place ? place : { left: 0, top: 0, visibility: "hidden" }}>

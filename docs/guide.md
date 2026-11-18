@@ -520,7 +520,10 @@ click adds a shape to it or takes it away.
   dashed after generating. "The tool's path" chooses between rings that follow the outline
   (the usual way) and straight passes side to side, which end with a pass round the walls
   at each depth. For straight passes, "The passes run" chooses their direction as it does
-  for facing: along the longer side of each shape, along X, or along Y.
+  for facing: along the longer side of each shape, along X, or along Y. "Start depth"
+  begins the clearing below the surface, for a deeper pocket in the floor of another:
+  nothing is cut above it, and the wood there must be gone over the shapes. Its file alone
+  is simulated with that wood taken out.
 - **Contour**: takes an end mill along the outlines. *Outside the shapes* keeps the shapes:
   the tool runs round them, and inside their holes. To cut round the outside of a part
   only, add everything inside it to the operation too. *Inside the shapes* cuts them away,
@@ -537,10 +540,13 @@ click adds a shape to it or takes it away.
   tip runs beside the edge, where it expects air; in uncut wood it would leave a groove.
   The panel draws the edge in section with the bit against it, to scale: the bevel's width
   and height, the tip's depth, and the room the bit needs beside the edge, where the wood
-  must be gone (dashed). "Tip clear of the edge" is how far out a V-bit's tip runs, 0.2 mm
+  must be gone (dashed). "Tip clearance" is how far out a V-bit's tip runs, 0.2 mm
   unless changed. The
   bevel stays as wide; more clearance takes the bit deeper and cuts the bevel higher up
   its flutes, where it cuts better, and needs that much more room beside the edge.
+  "Edge depth" is for an edge below the surface, such as that of an opening in a pocket's
+  floor: the same bevel, that much lower. The wood above the edge must be gone on both
+  sides of it.
 
   The edge is cut in passes, each a band of its own in the drawing. No pass goes deeper
   than the cutting row's stepdown, or takes more wood than a full groove that deep, which
@@ -622,8 +628,8 @@ glue-up. Its one number is how far above the surface the saw leaves the plug sta
 which starts at the inlay's saw gap: the most the saw can leave. From that step on the
 backer is gone, with all of the blank around the shapes, and the plug stands that high.
 
-A glue-up is also where the machine stops, so it splits the list into files: once the list
-has one, every line shows the file for the stock it is cut by, "file 1", "file 2".
+A glue-up is also where the machine stops, so no file goes across one: what is cut before
+it and what is cut after it are always separate files.
 
 ### The stock, step by step
 
@@ -632,36 +638,48 @@ select the grip and press the up or down arrow.
 
 Each inlay and operation can make a file of its own, simulated on a fresh board. The tab
 **Stock, step by step**, beside "Drawing" above the drawing, takes one board through the
-whole list instead, from top to bottom, and makes the files to cut it with. It is there as
+whole list instead, from top to bottom: each line is cut into the board as the line before
+left it, and a glue-up puts the plug or the inserts on it, in their wood. It is there as
 soon as the list has a line, and works the stock out the first time it is opened. The
-panel on the right has a tab of its own for the files themselves, **Files**, beside
-"Operations":
+panel on the right has a tab of its own for getting the files, **Export**, beside
+"Operations".
 
-- The lines from one glue-up to the next are **one file**: each inlay's pocket and each
-  operation, in the order of the list. Tools go by their numbers in the project (the
-  **Tools** tab, below), and a tool that the next line also starts with stays in the
-  spindle. A comment in the file,
-  "Step 2:" and the line's name, stands where each line begins. Without a glue-up the
-  whole list is one file.
-- Each file is run on the board as the file before left it, and a glue-up puts the plug or
-  the inserts on it, in their wood.
+**Export** lists everything there is to cut, each line with a tick, its tools by their
+numbers and its time. Under "The stock" are every inlay's pocket and every operation, in
+the order of the list. The lines from one step done by hand to the next stand in a frame,
+and the steps done by hand stand between the frames. Under "Plugs and inserts" each
+inlay's plug or inserts has a frame of its own, since it is cut from another board. "3D"
+at the end of a line, or the name of a step done by hand, goes to the stock in 3D as it
+is after it. A line that cannot be made says why and cannot be ticked; one the simulation
+found problems in says so.
 
-**Files** is a list numbered in the order to do things: each file for the stock with
-the lines it cuts, each inlay's plug or insert file before the glue-up that needs it, and
-the glue-ups, which are done by hand. Every file has its time, its tool changes, whether
-it was simulated without problems, what to do before cutting, notes on what it cuts, and
-its **Download**. The
-name of a file for the stock, or of a glue-up, goes to the stock in 3D as it is after it.
-A file with a line that cannot be made says why in place of its download. The files are
-made the first time the tab is opened; **Generate again**, at its foot, makes everything
-anew after a change. While an inlay or operation is open, the panel shows that one; its
-back link returns to the tabs.
+Tick what you want to cut now; everything is ticked to start with, and **All** and
+**None** are at the top. Each frame comes to **one file**, shown at its foot with its
+name and its time: the frame's ticked lines, in the order of the list. What there is to
+do before cutting stands beside "Before cutting" as small marks, one for each kind of
+thing (a spoilboard, tape, clamps, the size of the board); point at a mark, or click it,
+for a picture and a line on it. Notes on what a line cuts are in its own panel. Tools go by their numbers in the project (the **Tools**
+tab, below), and a tool that the next line also starts with stays in the spindle. A
+comment in the file, "Step 2:" and the line's name, stands where each line begins. A
+frame with nothing ticked makes no file.
+
+A file's name is the project's name, then a two-digit number, then what it is:
+"Coaster-01-stock", "Coaster-01-plug-Leaf", "Coaster-03-stock". The number is the place in
+the list of the file's first line, and a plug or insert has the number of its inlay, so
+the machine's file list shows the files in the order they are cut. A file keeps its number
+whatever else is ticked. The files made in an inlay's or operation's own panel are named
+without a number.
+
+**Download**, which stays at the foot of the tab, saves every file. After a change to
+the project the tab says so, and works the list out again when asked. While an inlay or
+operation is open, the panel shows that one; its back link returns to the tabs.
 
 **Tools**, between the two, is the list of the project's tools, each drawn under the
 number it goes by. A tool gets the lowest free number when an inlay or operation first
 uses it, and keeps it: every file of the project, for the stock or for a plug, calls for
-the tool by that number, so the machine is loaded once. Each file's card shows the tools
-it needs. Choose another number for a tool to move it; if the number is taken, the two
+the tool by that number, so the machine is loaded once. A tool's name goes to it in your
+tool list, where its sizes and cutting settings are. Each line of **Export** shows the
+tools it needs. Choose another number for a tool to move it; if the number is taken, the two
 tools change places. Files made before that are out of date. A tool that nothing uses
 any more keeps its number until it is taken off the list. The numbers are saved with the
 project.
@@ -671,9 +689,7 @@ view and its fit are in the inlay's own panel.
 
 In **Stock, step by step**, above the 3D view is the list again, as a row of buttons with
 a slider: pick a line to see the stock after it, or step through with the arrows. Under
-the buttons is what happened at the line that is shown. While the panel is on **Files**,
-the lines of one file stand together in a frame, "File 1", and a step done by hand stands
-between the frames. The view keeps its angle while you
+the buttons is what happened at the line that is shown. The view keeps its angle while you
 step. "Show tool path" draws the path of the line that is shown, with the line numbers of
 its file.
 
