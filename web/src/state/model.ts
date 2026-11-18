@@ -517,6 +517,29 @@ export function mergeTools(current: Tool[], incoming: Tool[]): MergeResult {
   return { tools, added, updated };
 }
 
+/** Said on every tool of the starter set, until its owner says otherwise. */
+export const STARTER_NOTE = "From the starter set: its cutting settings are a starting point, untested here.";
+
+/**
+ * Adds the starter set to a tool list without touching what is there: a tool
+ * is added only when the list has none of its name or id, and a material or
+ * group only when the list has none of its key. Its profiles are left out:
+ * no starter tool has a row on one.
+ */
+export function addStarter(current: Tool[], lists: ToolLists, starter: { tools: Tool[] } & ToolLists): { tools: Tool[]; lists: ToolLists; added: number } {
+  const fresh = starter.tools.filter((tool) => !current.some((t) => t.id === tool.id || t.name === tool.name));
+  const missing = <T,>(have: T[] = [], offered: T[] = [], key: (item: T) => string) => offered.filter((item) => !have.some((h) => key(h) === key(item)));
+  return {
+    tools: [...current, ...fresh.map((tool) => ({ ...tool, note: tool.note ?? STARTER_NOTE }))],
+    lists: {
+      ...lists,
+      materials: [...(lists.materials ?? []), ...missing(lists.materials, starter.materials, (m) => m.key)],
+      groups: [...(lists.groups ?? []), ...missing(lists.groups, starter.groups, (g) => g.path)],
+    },
+    added: fresh.length,
+  };
+}
+
 export function blankTool(kind: ToolKind): Tool {
   const base = { id: newId(), name: "", kind, cutting: [] };
   switch (kind) {

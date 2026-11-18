@@ -193,6 +193,7 @@ function LibraryMenu() {
         label="Import and export"
         up
         items={[
+          { label: "Add the starter set", hint: "50 bits with cutting settings. Tools you have are left alone.", run: actions.addStarterSet },
           { label: "Import a tool file…", hint: "A file this app exported.", run: async () => actions.importToolLibrary(await pickTextFile(".json,application/json")) },
           { label: "Import a tools.yaml…", hint: "From the tooling library.", run: async () => actions.importToolsYaml(await pickTextFile(".yaml,.yml")) },
           { label: "Take values from a Makera export…", hint: "Sizes and cutting values changed in Makera CAM or Studio.", disabled: none, run: takeValues },
@@ -612,10 +613,11 @@ export function ToolsArea() {
             <h2>Start with the tools you own</h2>
             <p>
               Every cut is made with one of your tools, at the speeds you give it for the material. A flat inlay needs an end mill; a V-carve inlay needs a V-bit, and an end
-              mill saves it time.
+              mill saves it time. The starter set is 50 bits for a 1/8" collet, with cutting settings to start from: keep the ones you own.
             </p>
             <div className="row center">
               {addMenu(true)}
+              <button onClick={actions.addStarterSet}>Add the starter set</button>
               <button onClick={async () => actions.importToolsYaml(await pickTextFile(".yaml,.yml"))}>Import a tools.yaml…</button>
               <button onClick={async () => actions.importToolLibrary(await pickTextFile(".json,application/json"))}>Import a tool file…</button>
             </div>

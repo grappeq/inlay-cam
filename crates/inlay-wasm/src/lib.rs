@@ -75,6 +75,13 @@ pub fn project_to_file(project_json: &str) -> Result<String, JsError> {
     Ok(project::project_to_file_json(&project))
 }
 
+/// The starter set: tools with their cutting rows, and the materials those
+/// rows are for. Returns `ToolLibrary` as JSON.
+#[wasm_bindgen(js_name = starterLibrary)]
+pub fn starter_library() -> String {
+    to_json(&inlay_core::starter::library())
+}
+
 /// Reads a tool-library file of any supported version. Returns
 /// `ToolLibrary` as JSON.
 #[wasm_bindgen(js_name = libraryFromFile)]

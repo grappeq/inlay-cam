@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Step } from "../core/types";
-import { DEFAULT_SETUP, addDrawing, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
+import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -180,5 +180,35 @@ describe("steps", () => {
     expect(fileNumbers([inlay, pocket])).toEqual([1, 1]);
     // A trim that takes its height from the list is still found as the inlay's.
     expect(trimOf(inlay, [inlay, { ...trim, task: { ...trim.task, above: 0 } as Step["task"] }])).toBeDefined();
+  });
+});
+
+describe("the starter set", () => {
+  const tool = (id: string, name: string) => ({ id, name, kind: "flat_end" as const, diameter: 3, shankDiameter: 3, cutting: [] });
+  const starter = {
+    tools: [tool("s1", "Ø3 one"), tool("s2", "Ø3 two"), { ...tool("s3", "Ø3 three"), note: "its own" }],
+    materials: [{ key: "brass" }, { key: "oak" }],
+    groups: [{ path: "End mills" }],
+    profiles: [{ key: "clearing", label: "Clearing" }],
+  };
+
+  it("adds what the list lacks and changes nothing that is there", () => {
+    const mine = { ...tool("mine", "Ø3 one"), diameter: 9 };
+    const taken = tool("s2", "Renamed");
+    const result = addStarter([mine, taken], { materials: [{ key: "oak", label: "My oak" }] }, starter);
+    expect(result.added).toBe(1);
+    expect(result.tools.slice(0, 2)).toEqual([mine, taken]);
+    expect(result.tools[2]).toMatchObject({ id: "s3", note: "its own" });
+    expect(result.lists.materials).toEqual([{ key: "oak", label: "My oak" }, { key: "brass" }]);
+    expect(result.lists.groups).toEqual([{ path: "End mills" }]);
+    // No starter tool has a row on a profile, so none comes with it.
+    expect(result.lists.profiles).toBeUndefined();
+  });
+
+  it("marks its tools, and adds nothing a second time", () => {
+    const first = addStarter([], {}, starter);
+    expect(first.added).toBe(3);
+    expect(first.tools[0].note).toBe(STARTER_NOTE);
+    expect(addStarter(first.tools, first.lists, starter).added).toBe(0);
   });
 });

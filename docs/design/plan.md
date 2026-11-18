@@ -1146,3 +1146,20 @@ The rest of it, the same day.
 - Checked in the app with made-up tools: every picture card, the Profiles headings, a
   chamfer with a corner-rounding bit, the facing drawing, the glue-up and sawing panels,
   and both lists on generated files, in an operation's panel and in the list of files.
+
+### The starter set, offered (2026-11-18)
+
+- "Add the starter set" on the empty Tools tab and under "Import and export"
+  (`starterLibrary` in the wrapper, `addStarter` in `model.ts`). It adds a tool only
+  when the list has none of its id or name, and a material or group only when the list
+  has none of its key: nothing that is there is changed, and a second click adds nothing.
+- Each added tool carries a line saying its cutting settings are a starting point,
+  untested here, unless it had a line of its own.
+- The two profiles are left out: no starter tool has a row on one.
+- The app does not name the maker of the bits in what it says about the set. Ten
+  remarks in `starter-tools.json` that did were reworded; the product pages the tools
+  link to are as they were.
+- Filling an empty list by itself was weighed and not done: the list would then claim
+  tools its owner may not have.
+- Checked: 2 UI tests of `addStarter`; in the app, 50 tools added to an empty list and
+  none on a second click.

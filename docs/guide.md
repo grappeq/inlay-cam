@@ -46,6 +46,12 @@ right.
 with, and a ball end mill, a drill and a thread mill, which it keeps and writes for other
 programs and cuts nothing with.
 
+**Add the starter set**, on an empty list and under "Import and export", adds 50 bits for a
+1/8" collet with cutting settings to start from, and the materials those are for. It adds
+only tools the list does not have, and changes none that it has. The settings are a
+starting point and untested here: check them before you cut, and delete the bits you do
+not own.
+
 **Import and export**, at the foot of the list, brings in and saves whole tool lists. A
 tool file is this app's own: your tools, materials and profiles, to keep or to move to
 another browser. A `tools.yaml` is the tooling library's list; its layout, and what is and

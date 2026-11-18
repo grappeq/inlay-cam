@@ -13,6 +13,8 @@ export interface CoreApi {
   projectFromFile(text: string): Project;
   /** Validates the project and returns the file text. */
   projectToFile(project: Project): string;
+  /** The tools, materials and profiles the app can start a tool list with. */
+  starterLibrary(): ToolLibrary;
   /** Reads a tool-library file of any supported format version. */
   libraryFromFile(text: string): ToolLibrary;
   /** Validates the tools and what they refer to, and returns the file text. */

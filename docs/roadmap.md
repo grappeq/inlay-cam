@@ -37,16 +37,19 @@ libraries for other programs.
   tooling library holds, the ones the Makera apps have built in, with the sizes, lengths,
   coatings and flute counts checked there; the seven materials beside the two woods; and
   two profiles, Clearing and Facing. The cutting rows are Makera's presets wherever
-  Makera has one. Still to do: offer it in the app. To decide: whether an empty list is
-  filled by itself or on a click, and how the set merges with tools already there.
+  Makera has one. It is offered in the app: "Add the starter set", on the empty Tools tab
+  and under "Import and export", adds the tools the list does not have and changes none
+  that it has. Still to do: a way to pick which of the 50 to take, by group, in place of
+  all of them.
 - Makera's presets are not sized for a full-width slot on a Carvera Air, which the app
   takes a plain row to be safe for. The feeds model has no warning for any wood row of
   the set, and one for 19 of its 246 rows, all in aluminium, brass or copper on the
   small end mills and engravers: the chip is over what the model allows. To decide:
   whether a starter row says it is Makera's and untested here.
 - No tool of the set has a row on Clearing or Facing: Makera has one preset for each
-  tool and material. To decide: whether those rows come from the feeds model, which
-  would in places be slower than Makera's plain row.
+  tool and material. So the two profiles are not added with the set. To decide: whether
+  those rows come from the feeds model, which would in places be slower than Makera's
+  plain row.
 - The set's engraving bits are as wide as their shank, 3.175 mm, so the 60° one reaches
   about 2.6 mm deep: less than a new V-carve inlay's 3 mm engagement plus glue gap. To
   decide: a wider V-bit in the set, or a shallower engagement for a new inlay.
