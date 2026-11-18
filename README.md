@@ -88,6 +88,10 @@ or, without Docker, after `npm run build` in `web`:
 cargo run --release -p inlay-server -- --web web/dist --data data
 ```
 
+Each version is also published as an image, `ghcr.io/grappeq/inlay-cam:<version>`, by
+`.github/workflows/image.yml` when its tag is pushed. To run that instead of building, put
+it in `compose.yaml` as the `image:` and take out `build: .`.
+
 - The tool list is `tools.json` in the data folder (the volume `inlay-data`, `/data` in the
   container): a tool file as "Export a tool file" writes it. A new folder starts with an
   empty list; add the starter set or import your own in the app.
