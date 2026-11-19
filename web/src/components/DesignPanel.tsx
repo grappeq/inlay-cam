@@ -31,7 +31,6 @@ import {
   stepColor,
   stepSetup,
   newStep,
-  numberedName,
   regionOwners,
   resolveTool,
   sameSetup,
@@ -52,6 +51,8 @@ import { Grip, useSortable } from "./sortable";
 import { ArrangePanel } from "./ArrangePanel";
 import { NumberField } from "./NumberField";
 import { BitCut } from "./BitCut";
+import { ToolSelect } from "./ToolSelect";
+import { ToolShape } from "./ToolShape";
 import { HelpTip } from "./HelpTip";
 import type { HelpTopic } from "./help";
 import { ProjectTools } from "./ProjectTools";
@@ -1416,7 +1417,6 @@ function StepEditor({ step }: { step: InlayStep }) {
  */
 function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string | undefined) => void }) {
   const { tools, project } = useApp();
-  const dispatch = useDispatch();
   const choices = toolChoices("flat_end", tools, project);
   const usual = usualCutOutTool(step, tools, project);
   const depth = cutOutDepth(step, project);
@@ -1425,28 +1425,19 @@ function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string
   const hasEndMills = step.task.clearingToolIds.length > 0;
 
   return (
-    <label className="field cut-out-tool">
+    <div className="field cut-out-tool" role="group" aria-label="End mill for the cut-out">
       <span className="field-label">End mill for the cut-out</span>
-      <select value={picked ?? ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}>
-        <option value="">
-          {usual ? `The inlay's own: ${usual.name}` : hasEndMills ? "None of the inlay's end mills is long enough" : "Choose an end mill…"}
-        </option>
-        {picked !== undefined && !chosen && <option value={picked}>Missing tool</option>}
-        {choices.map((tool) => (
-          <option key={tool.id} value={tool.id}>
-            {numberedName(tool, project)}
-            {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
-          </option>
-        ))}
-      </select>
-      {choices.length === 0 && (
-        <span className="hint">
-          No flat end mills in your tool list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
-            Add tools
-          </button>
-        </span>
-      )}
+      <ToolSelect
+        label="End mill for the cut-out"
+        kind="flat_end"
+        noun="flat end mills"
+        value={picked ?? null}
+        placeholder={picked !== undefined ? "Missing tool" : usual ? `The inlay's own: ${usual.name}` : hasEndMills ? "None of the inlay's end mills is long enough" : "Choose an end mill…"}
+        placeholderTool={picked === undefined ? usual : undefined}
+        none={picked !== undefined ? (usual ? `The inlay's own: ${usual.name}` : "The inlay's own") : undefined}
+        depth={depth}
+        onPick={(id) => onChange(id ?? undefined)}
+      />
       {picked !== undefined && !chosen && <span className="hint warn">This tool is no longer in the tool list or the project. Choose another.</span>}
       {!chosen && picked === undefined && choices.length > 0 && (
         <span className="hint warn">
@@ -1472,7 +1463,7 @@ function CutOutTool({ step, onChange }: { step: InlayStep; onChange: (id: string
       {chosen && !chosen.cutting.some((c) => c.material === step.material) && (
         <span className="hint warn">This tool has no cutting settings for {step.material}. Add them in the tool list.</span>
       )}
-    </label>
+    </div>
   );
 }
 
@@ -1510,6 +1501,7 @@ function ClearingTools(props: { label: string; ids: string[]; use: CutUse; onCha
           {chosen.map(({ id, tool }, i) => (
             <li key={id} {...(chosen.length > 1 ? sortable.row(i) : {})}>
               {chosen.length > 1 && <Grip {...sortable.grip(i, tool?.name ?? "tool")} />}
+              {tool && <ToolShape tool={tool} size={26} />}
               <span className="tool-order-name">
                 {tool ? tool.name : "Missing tool"}
                 <span className="muted"> {tool ? `Ø${fmt(tool.diameter)} mm` : "no longer in the tool list or the project"}</span>
@@ -1522,28 +1514,16 @@ function ClearingTools(props: { label: string; ids: string[]; use: CutUse; onCha
           ))}
         </ol>
       )}
-      {free.length > 0 && (
-        <select
-          value=""
-          aria-label={chosen.length === 0 ? "Choose an end mill" : "Add another end mill"}
-          onChange={(e) => e.target.value !== "" && add(e.target.value)}
-        >
-          <option value="">{chosen.length === 0 ? "Choose an end mill…" : "Add another end mill…"}</option>
-          {free.map((tool) => (
-            <option key={tool.id} value={tool.id}>
-              {numberedName(tool, project)}
-              {tools.some((t) => t.id === tool.id) ? "" : " (from this project)"}
-            </option>
-          ))}
-        </select>
-      )}
-      {choices.length === 0 && (
-        <span className="hint">
-          No flat end mills in your tool list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
-            Add tools
-          </button>
-        </span>
+      {(free.length > 0 || choices.length === 0) && (
+        <ToolSelect
+          label={props.label}
+          kind="flat_end"
+          noun="flat end mills"
+          value={null}
+          exclude={ids}
+          placeholder={chosen.length === 0 ? "Choose an end mill…" : "Add another end mill…"}
+          onPick={(id) => id !== null && add(id)}
+        />
       )}
       {!largestFirst && (
         <span className="hint warn">
@@ -1565,34 +1545,24 @@ function ToolPicker(props: { label: string; kind: ToolKind | ToolKind[]; value: 
     props.onChange(id);
     if (id !== null && activeStepId !== null) dispatch({ type: "updateStep", id: activeStepId, update: (j) => withDefaultProfile(j, id, props.use, tools, lists, project) });
   };
-  const choices = toolChoices(props.kind, tools, project);
   const chosen: Tool | undefined = resolveTool(props.value, tools, project);
-  const inList = (tool: Tool) => tools.some((t) => t.id === tool.id);
 
   return (
     <>
-    <label className="field">
+    <div className="field" role="group" aria-label={props.label}>
       <span className="field-label">{props.label}</span>
-      <select value={chosen ? chosen.id : ""} onChange={(e) => pick(e.target.value === "" ? null : e.target.value)}>
-        <option value="">Choose…</option>
-        {choices.map((tool) => (
-          <option key={tool.id} value={tool.id}>
-            {numberedName(tool, project)}
-            {inList(tool) ? "" : " (from this project)"}
-          </option>
-        ))}
-      </select>
-      {choices.length === 0 && (
-        <span className="hint">
-          No {Array.isArray(props.kind) ? "V-bits or corner-rounding bits" : props.kind === "v_bit" ? "V-bits" : "flat end mills"} in your tool list.{" "}
-          <button type="button" className="link" onClick={() => dispatch({ type: "setView", view: "settings", page: "tools" })}>
-            Add tools
-          </button>
-        </span>
-      )}
+      <ToolSelect
+        label={props.label}
+        kind={props.kind}
+        noun={Array.isArray(props.kind) ? "V-bits or corner-rounding bits" : props.kind === "v_bit" ? "V-bits" : "flat end mills"}
+        value={chosen ? chosen.id : null}
+        placeholder="Choose…"
+        none={chosen ? "None" : undefined}
+        onPick={pick}
+      />
       {chosen && <span className="hint">{describeTool(chosen)}</span>}
       {props.hint && <span className="hint">{props.hint}</span>}
-    </label>
+    </div>
     {chosen && <BitCut tool={chosen} />}
     </>
   );

@@ -676,6 +676,18 @@ export function toolChoices(kind: ToolKind | ToolKind[], tools: Tool[], project:
     .sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind) || a.diameter - b.diameter || a.name.localeCompare(b.name));
 }
 
+/** Whether a tool is one the words typed ask for: each word is somewhere in its name, kind, group, measures or note. */
+export function toolMatches(tool: Tool, name: string, query: string): boolean {
+  const facts = [name, TOOL_KIND_LABELS[tool.kind], tool.group ?? "", fmt(tool.diameter), `ø${fmt(tool.diameter)}`, tool.tipAngle !== undefined ? `${fmt(tool.tipAngle)}°` : "", tool.note ?? ""];
+  const hay = facts.join(" ").toLowerCase().replace(/,/g, ".");
+  return query
+    .toLowerCase()
+    .replace(/,/g, ".")
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => hay.includes(word));
+}
+
 /**
  * Which inlay, if any, each region belongs to. A shape is one wood, so it
  * belongs to one inlay at most; plain operations use any shapes, also those
