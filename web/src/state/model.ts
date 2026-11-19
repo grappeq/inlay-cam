@@ -86,6 +86,20 @@ export function newProject(name = "Untitled inlay"): Project {
   return { id: newId(), name, design: null, steps: [], tools: [], base: { thickness: 18, material: "hardwood" }, machine: DEFAULT_MACHINE, setup: DEFAULT_SETUP };
 }
 
+/** The name a copy of a project gets: the first of "X copy", "X copy 2", … that no project in `taken` has. */
+export function copyName(name: string, taken: string[]): string {
+  const base = `${name.replace(/ copy( \d+)?$/, "") || "Untitled"} copy`;
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? base : `${base} ${n}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
+}
+
+/** A copy of a project under an id of its own, to be kept beside the one it was made from. */
+export function duplicateProject(project: Project, taken: string[]): Project {
+  return { ...project, id: newId(), name: copyName(project.name, taken) };
+}
+
 export function defaultInlay(type: StepType): Task {
   switch (type) {
     case "vcarve":

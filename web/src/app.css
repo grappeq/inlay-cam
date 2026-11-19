@@ -1285,14 +1285,66 @@ legend .check {
 }
 .project-list li {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  gap: 4px;
+  padding: 2px 0;
   border-bottom: 1px solid var(--line);
 }
+/* A project's name and date: a button that opens it, unless it is the open one. */
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+}
+button.project-row {
+  cursor: pointer;
+}
+button.project-row:hover {
+  background: var(--accent-soft);
+}
 .project-title {
+  flex: 1;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.project-date {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.project-open-tag {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+.project-list .menu > summary {
+  border: 0;
+  padding: 4px 9px;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.project-list .menu > summary::after {
+  content: none;
+}
+.project-list .menu > summary:hover,
+.project-list .menu[open] > summary {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.project-list .menu-items {
+  min-width: 140px;
+}
+.project-list .menu-items button.danger:hover {
+  background: var(--danger-soft);
 }
 
 @media (max-width: 800px) {

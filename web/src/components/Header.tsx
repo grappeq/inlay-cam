@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { core } from "../core/client";
 import * as db from "../storage/home";
 import { useFileActions } from "../state/files";
-import { newProject } from "../state/model";
+import { duplicateProject, newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch, type SettingsPage } from "../state/store";
 import { mayLeave } from "../state/unsaved";
 import { downloadText, fileStem, pickTextFile, useEscape } from "../util/files";
@@ -78,11 +78,26 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
   const { projects, project } = useApp();
   useEscape(onClose);
   const dispatch = useDispatch();
+  // The project whose menu of further actions is showing.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const open = async (id: string) => {
     try {
       dispatch({ type: "openProject", project: await loadStoredProject(id) });
       onClose();
+    } catch (e) {
+      dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
+    }
+  };
+
+  const duplicate = async (id: string) => {
+    try {
+      // The open project is copied as it is on screen, which may be ahead of what is kept.
+      const source = id === project.id ? project : await loadStoredProject(id);
+      const copy = duplicateProject(source, projects.map((p) => p.name));
+      const text = await core.call("projectToFile", copy);
+      await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text });
+      dispatch({ type: "setProjects", projects: await db.listProjects() });
     } catch (e) {
       dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
     }
@@ -100,25 +115,65 @@ function ProjectsDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="backdrop" onClick={onClose}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={db.home() === "server" ? "Projects on this server" : "Projects in this browser"} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={db.home() === "server" ? "Projects on this server" : "Projects in this browser"}
+        onClick={(e) => {
+          e.stopPropagation();
+          // A click anywhere else in the dialog, or on one of its items, shuts a row's menu.
+          setMenuFor(null);
+        }}
+      >
         <h2>{db.home() === "server" ? "Projects on this server" : "Projects in this browser"}</h2>
         {projects.length === 0 && <p className="muted">Nothing stored yet. A project is stored here as soon as it has a drawing.</p>}
         <ul className="project-list">
-          {projects.map((p) => (
-            <li key={p.id}>
-              <span className="project-title">
-                {p.name || "Untitled"}
-                {p.id === project.id && <span className="muted"> (open)</span>}
-              </span>
-              <span className="muted">{new Date(p.modified).toLocaleString()}</span>
-              <button disabled={p.id === project.id} onClick={() => open(p.id)}>
-                Open
-              </button>
-              <button className="danger" disabled={p.id === project.id} onClick={() => remove(p.id, p.name)}>
-                Delete
-              </button>
-            </li>
-          ))}
+          {projects.map((p) => {
+            const isOpen = p.id === project.id;
+            const name = p.name || "Untitled";
+            const facts = (
+              <>
+                <span className="project-title">{name}</span>
+                {isOpen && <span className="project-open-tag">Open</span>}
+                <span className="muted project-date">{new Date(p.modified).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+              </>
+            );
+            return (
+              <li key={p.id}>
+                {isOpen ? (
+                  <div className="project-row">{facts}</div>
+                ) : (
+                  <button className="project-row" onClick={() => open(p.id)} title="Open this project">
+                    {facts}
+                  </button>
+                )}
+                <details className="menu" open={menuFor === p.id}>
+                  <summary
+                    aria-label={`More for ${name}`}
+                    title="Duplicate or delete"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setMenuFor(menuFor === p.id ? null : p.id);
+                    }}
+                  >
+                    ⋯
+                  </summary>
+                  <div className="menu-items" role="menu">
+                    <button type="button" role="menuitem" onClick={() => duplicate(p.id)}>
+                      Duplicate
+                    </button>
+                    {!isOpen && (
+                      <button type="button" role="menuitem" className="danger" onClick={() => remove(p.id, p.name)}>
+                        Delete…
+                      </button>
+                    )}
+                  </div>
+                </details>
+              </li>
+            );
+          })}
         </ul>
         <div className="row end">
           <button onClick={onClose}>Close</button>

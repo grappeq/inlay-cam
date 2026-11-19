@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
+import { copyName, duplicateProject, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -14,6 +14,23 @@ const square = (id: number, x: number, y: number, size: number) => ({
 });
 
 const design = (regions: Design["regions"], width = 100, height = 80): Design => ({ sourceName: "a.svg", width, height, scale: 1, mirror: false, regions });
+
+describe("duplicateProject", () => {
+  it("names a copy after its project, with a number when that name is taken", () => {
+    expect(copyName("Coaster", ["Coaster"])).toBe("Coaster copy");
+    expect(copyName("Coaster", ["Coaster", "Coaster copy"])).toBe("Coaster copy 2");
+    expect(copyName("Coaster copy", ["Coaster", "Coaster copy"])).toBe("Coaster copy 2");
+    expect(copyName("Coaster copy 2", ["Coaster copy", "Coaster copy 2"])).toBe("Coaster copy 3");
+    expect(copyName("", [])).toBe("Untitled copy");
+  });
+
+  it("gives the copy an id of its own and leaves the rest as it was", () => {
+    const original = newProject("Coaster");
+    const copy = duplicateProject(original, ["Coaster"]);
+    expect(copy.id).not.toBe(original.id);
+    expect(copy).toEqual({ ...original, id: copy.id, name: "Coaster copy" });
+  });
+});
 
 describe("normaliseDesign", () => {
   it("leaves a drawing that is neither scaled nor mirrored alone", () => {
