@@ -769,6 +769,10 @@ Tick **Show tool path**, above the 3D view, to see where the tool goes:
 - The "Path shown" slider draws the path up to any point of the file. A cone marks where
   the tool is, and the line of the file and the tool are named beside the slider. With
   the slider selected, the arrow keys step one move at a time.
+- With **Show dimensions** ticked as well, a line runs from each edge of the board to
+  where the moves drawn cut closest to it, as "cut … to edge". It measures to the tool's
+  edge at the top of the board, so a V-bit counts as wide as it is at its depth. An edge
+  the cut reaches has none.
 
 ### Fit
 

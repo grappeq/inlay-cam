@@ -506,7 +506,19 @@ export interface BuildStats {
   /** What the tool changes add, minutes, by the machine's time for one. 0 when it gives none. */
   toolChangeMinutes: number;
   /** What each tool does, in the order they are loaded. */
-  perTool: { number: number; name: string; cuttingLength: number; minutes: number }[];
+  perTool: { number: number; name: string; cuttingLength: number; minutes: number; profile: ToolProfile }[];
+}
+
+/**
+ * A tool's shape, turned around its axis: its underside is flat out to
+ * `tipRadius`, then rises at `slope` (height per mm of radius) out to `radius`.
+ * With `round` above 0 it rises along a quarter circle of that radius instead.
+ */
+export interface ToolProfile {
+  radius: number;
+  tipRadius: number;
+  slope: number;
+  round: number;
 }
 
 /** The two halves of an inlay; each has its own board and file. */

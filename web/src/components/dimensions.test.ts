@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Built } from "../core/types";
-import { dimensionMarks, surfaceHit } from "./dimensions";
+import { dimensionMarks, edgeMarks, pathReach, radiusAt, surfaceHit } from "./dimensions";
 
 function built(change: Partial<Built>): Built {
   return {
@@ -39,6 +39,11 @@ describe("dimensionMarks", () => {
     expect(marks.slice(3).map((m) => m.text)).toEqual(["10 to edge", "20 to edge", "30 to edge", "5 to edge"]);
   });
 
+  it("says when the shapes of a base board lie over its edge", () => {
+    const { marks } = dimensionMarks(built({ part: "pocket", shapes: [-10, -10, 70, 75] }));
+    expect(marks.slice(3).map((m) => m.text)).toEqual(["10 over edge", "10 over edge", "30 to edge", "5 to edge"]);
+  });
+
   it("measures a cut-out plug's border, cut and margin from the plug", () => {
     const { marks, outlines } = dimensionMarks(built({ piece: [9, 9, 91, 71], cutWidth: 3.175, shapes: [15, 15, 85, 65] }));
     expect(marks.slice(3).map((m) => m.text)).toEqual(["border 9", "margin 6", "cut 3.175"]);
@@ -46,6 +51,66 @@ describe("dimensionMarks", () => {
     // The cut lies just outside the plug, below the middle of the shapes.
     expect(marks[5].a).toEqual([50, 9 - 3.175, 0]);
     expect(marks[5].b).toEqual([50, 9, 0]);
+  });
+});
+
+describe("pathReach and edgeMarks", () => {
+  // x0 y0 z0 x1 y1 z1 rapid tool line: a rapid from the corner, a plunge, two cuts, and a rapid away.
+  const path = new Float32Array([
+    0, 0, 5, 20, 30, 5, 1, 1, 1,
+    20, 30, 5, 20, 30, -2, 0, 1, 2,
+    20, 30, -2, 70, 30, -2, 0, 1, 3,
+    70, 30, -2, 70, 55, -2, 0, 1, 4,
+    70, 55, 5, 100, 80, 5, 1, 1, 5,
+  ]);
+  const stock = { width: 100, height: 80 };
+
+  it("measures from each edge to the closest cutting move, where it is", () => {
+    const marks = edgeMarks(stock, pathReach(path));
+    expect(marks.map((m) => m.text)).toEqual(["cut 20 to edge", "cut 30 to edge", "cut 30 to edge", "cut 25 to edge"]);
+    expect([marks[0].a, marks[0].b]).toEqual([[0, 30, 0], [20, 30, 0]]);
+    expect([marks[2].a, marks[2].b]).toEqual([[70, 30, 0], [100, 30, 0]]);
+    expect([marks[3].a, marks[3].b]).toEqual([[70, 55, 0], [70, 80, 0]]);
+  });
+
+  it("counts only the moves it is given, and no moves in the air", () => {
+    expect(pathReach(path, [], 1)).toBeNull();
+    expect(edgeMarks(stock, pathReach(path, [], 1))).toEqual([]);
+    // Up to the first cut: the tool has not gone up the board yet.
+    expect(edgeMarks(stock, pathReach(path, [], 3)).map((m) => m.text)).toEqual(["cut 20 to edge", "cut 30 to edge", "cut 30 to edge", "cut 50 to edge"]);
+  });
+
+  it("measures to the tools' edges, as wide as each is at the board's top", () => {
+    const flat = { radius: 1.5, tipRadius: 1.5, slope: 0, round: 0 };
+    // A 90° V-bit of 10 mm with a point: 2 mm deep it is 2 mm wide each way.
+    const vee = { radius: 5, tipRadius: 0, slope: 1, round: 0 };
+    expect(edgeMarks(stock, pathReach(path, [{ number: 1, profile: flat }])).map((m) => m.text)).toEqual([
+      "cut 18.5 to edge",
+      "cut 28.5 to edge",
+      "cut 28.5 to edge",
+      "cut 23.5 to edge",
+    ]);
+    const marks = edgeMarks(stock, pathReach(path, [{ number: 1, profile: vee }]));
+    expect(marks.map((m) => m.text)).toEqual(["cut 18 to edge", "cut 28 to edge", "cut 28 to edge", "cut 23 to edge"]);
+    expect([marks[0].a, marks[0].b]).toEqual([[0, 30, 0], [18, 30, 0]]);
+  });
+
+  it("knows how wide each kind of tool is at a depth", () => {
+    const vee = { radius: 3, tipRadius: 0.1, slope: 1, round: 0 };
+    expect(radiusAt(vee, 0)).toBeCloseTo(0.1);
+    expect(radiusAt(vee, 1)).toBeCloseTo(1.1);
+    expect(radiusAt(vee, 9)).toBe(3);
+    expect(radiusAt(vee, -2)).toBeCloseTo(0.1);
+    // A corner-rounding bit: a 1 mm tip and a 2 mm quarter circle.
+    const round = { radius: 3, tipRadius: 1, slope: 0, round: 2 };
+    expect(radiusAt(round, 0)).toBeCloseTo(1);
+    expect(radiusAt(round, 2)).toBeCloseTo(3);
+    expect(radiusAt(round, 5)).toBe(3);
+  });
+
+  it("says nothing of an edge the cut reaches or crosses", () => {
+    const over = new Float32Array([-3, 40, -1, 100, 40, -1, 0, 1, 1]);
+    expect(edgeMarks(stock, pathReach(over)).map((m) => m.text)).toEqual(["cut 40 to edge", "cut 40 to edge"]);
   });
 });
 

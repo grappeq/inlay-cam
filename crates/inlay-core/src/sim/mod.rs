@@ -173,7 +173,8 @@ impl HeightMap {
 /// mm of radius) out to `radius`. A corner-rounding bit has `round` instead
 /// of a slope: beyond the tip its underside rises along a quarter circle of
 /// that radius, steep at the tip and level at the top, and is flat from there.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolProfile {
     pub radius: f64,
     pub tip_radius: f64,

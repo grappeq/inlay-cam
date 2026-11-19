@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PocketPreview } from "../core/types";
-import { dimensionMarks, surfaceHit, type Vec3 } from "./dimensions";
+import { dimensionMarks, edgeMarks, pathReach, surfaceHit, type Mark, type Vec3 } from "./dimensions";
 
 /** Most vertices per side of the displayed surface; finer height maps are thinned for display only. */
 const MAX_DISPLAY = 600;
@@ -70,6 +70,8 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
   const stockGroup = useRef<THREE.Group | null>(null);
   const redraw = useRef<() => void>(() => {});
   const dimensions = useRef<{ group: THREE.Group; labels: HTMLElement } | null>(null);
+  // Draws the lines from the edges to the tool path; none for an empty list.
+  const edges = useRef<(marks: Mark[]) => void>(() => {});
   const [showDimensions, setShowDimensions] = useState(false);
   // Read by the pointer handler, which outlives a change of the tick box.
   const dimensionsOn = useRef(false);
@@ -161,13 +163,41 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
     overlay.className = "dim-labels";
     overlay.style.display = dimensionsOn.current ? "" : "none";
     el.appendChild(overlay);
-    const tags = dims.labels.map((label) => {
+    const tags: { tag: HTMLElement; at: THREE.Vector3; off?: boolean }[] = dims.labels.map((label) => {
       const tag = document.createElement("span");
       tag.className = `dim-label${label.tone ? ` ${label.tone}` : ""}`;
       tag.textContent = label.text;
       overlay.appendChild(tag);
       return { tag, at: label.at };
     });
+
+    // From the edges to the tool path: lines and labels of their own, set as the path shown changes.
+    const edgeLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: getComputedStyle(el).color, depthTest: false, transparent: true }));
+    edgeLines.renderOrder = 5;
+    edgeLines.visible = false;
+    scene.add(edgeLines);
+    const edgeTags = [0, 1, 2, 3].map(() => {
+      const tag = document.createElement("span");
+      tag.className = "dim-label";
+      overlay.appendChild(tag);
+      const entry = { tag, at: new THREE.Vector3(), off: true };
+      tags.push(entry);
+      return entry;
+    });
+    edges.current = (marks) => {
+      const points: number[] = [];
+      edgeTags.forEach((entry, i) => {
+        const mark = marks[i];
+        entry.off = !mark;
+        if (!mark) return;
+        entry.tag.textContent = mark.text;
+        entry.at.copy(surfaceLine(points, mark, reach * 0.07, i % 2 ? -1 : 1));
+      });
+      edgeLines.geometry.dispose();
+      edgeLines.geometry = new THREE.BufferGeometry();
+      edgeLines.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(points), 3));
+      edgeLines.visible = points.length > 0;
+    };
     const readout = document.createElement("span");
     readout.className = "dim-label readout";
     readout.style.display = "none";
@@ -178,9 +208,9 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
     const placeLabels = () => {
       if (!dimensionsOn.current) return;
       const { clientWidth: w, clientHeight: h } = el;
-      for (const { tag, at } of tags) {
+      for (const { tag, at, off } of tags) {
         seen.copy(at).project(camera);
-        const inFront = seen.z > -1 && seen.z < 1;
+        const inFront = !off && seen.z > -1 && seen.z < 1;
         tag.style.display = inFront ? "" : "none";
         if (inFront) tag.style.transform = `translate(${((seen.x + 1) / 2) * w}px, ${((1 - seen.y) / 2) * h}px) translate(-50%, -50%)`;
       }
@@ -237,6 +267,7 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
       el.removeEventListener("pointerleave", onLeave);
       overlay.remove();
       dimensions.current = null;
+      edges.current = () => {};
       controls.dispose();
       scene.traverse((object) => {
         const item = object as THREE.Mesh | THREE.LineSegments;
@@ -271,8 +302,10 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
       }
     }
     if (stockGroup.current) stockGroup.current.visible = !(showPath && hideBoard);
+    // With the path and the dimensions both shown: how close the moves drawn cut to each edge.
+    edges.current(showPath && showDimensions ? edgeMarks(preview.built.stock, pathReach(preview.path, preview.built.stats.perTool, shownMoves)) : []);
     redraw.current();
-  }, [showPath, hideBoard, showRapids, shownMoves, count, preview]);
+  }, [showPath, showDimensions, hideBoard, showRapids, shownMoves, count, preview, thickness, color, owners, below, colors, keepCamera]);
 
   useEffect(() => {
     dimensionsOn.current = showDimensions;
@@ -356,7 +389,26 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
   );
 }
 
-const AXIS_COLORS = { x: "#c0392b", y: "#1d8a4c", z: "#2f5fd0" } as const;
+/**
+ * Adds a dimension line on the board's surface to `points`: the line, with a
+ * short stroke across each end. Returns where its label stands, on the given
+ * side of it (1 or -1).
+ */
+function surfaceLine(points: number[], mark: Mark, gap: number, side: number): THREE.Vector3 {
+  const [a, b] = [new THREE.Vector3(...mark.a), new THREE.Vector3(...mark.b)];
+  const along = b.clone().sub(a).normalize();
+  const across = new THREE.Vector3(-along.y, along.x, 0).multiplyScalar(gap * 0.18);
+  for (const [from, to] of [
+    [a, b],
+    [a.clone().add(across), a.clone().sub(across)],
+    [b.clone().add(across), b.clone().sub(across)],
+  ]) {
+    points.push(from.x, from.y, from.z, to.x, to.y, to.z);
+  }
+  return a.clone().add(b).multiplyScalar(0.5).addScaledVector(across, side * 3.2);
+}
+
+const AXIS_COLORS ={ x: "#c0392b", y: "#1d8a4c", z: "#2f5fd0" } as const;
 
 /**
  * The dimension lines of the part and the axes at the work origin. Drawn over
@@ -381,12 +433,7 @@ function buildDimensions(preview: PocketPreview, reach: number, ink: string): Di
       for (const end of [a, b]) segment(end.clone().addScaledVector(out, gap * 0.2), end.clone().addScaledVector(out, gap * 1.2));
       labels.push({ at: from.clone().add(to).multiplyScalar(0.5).addScaledVector(out, gap * 0.45), text: mark.text });
     } else {
-      // On the surface: a line with a short stroke across each end.
-      segment(a, b);
-      const along = b.clone().sub(a).normalize();
-      const across = new THREE.Vector3(-along.y, along.x, 0).multiplyScalar(gap * 0.18);
-      for (const end of [a, b]) segment(end.clone().add(across), end.clone().sub(across));
-      labels.push({ at: a.clone().add(b).multiplyScalar(0.5).addScaledVector(across, side * 3.2), text: mark.text });
+      labels.push({ at: surfaceLine(points, mark, gap, side), text: mark.text });
       side = -side;
     }
   }

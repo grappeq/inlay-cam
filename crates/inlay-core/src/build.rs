@@ -258,6 +258,8 @@ pub struct ToolStats {
     pub cutting_length: f64,
     /// Its share of the running time, minutes.
     pub minutes: f64,
+    /// Its shape, as the simulation has it: how wide it cuts at any depth.
+    pub profile: crate::sim::ToolProfile,
 }
 
 /// Builds the pocket file for a step.
@@ -826,6 +828,7 @@ fn finish(
                     minutes: mine()
                         .map(|s| s.length() / if s.rapid { machine.rapid_rate } else { s.feed })
                         .sum(),
+                    profile: crate::sim::ToolProfile::of(&t.tool),
                 }
             })
             .collect(),

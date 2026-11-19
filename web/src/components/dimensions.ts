@@ -1,7 +1,7 @@
 // What the 3D view can measure: the dimension lines of a built part, and the
 // point of the simulated surface under the cursor. No drawing here.
 
-import type { Built, PocketPreview } from "../core/types";
+import type { Built, PocketPreview, ToolProfile } from "../core/types";
 
 export type Vec3 = [number, number, number];
 
@@ -66,17 +66,91 @@ export function dimensionMarks(built: Built): { marks: Mark[]; outlines: Outline
   if (shapes) {
     outlines.push({ rect: shapes, text: `shapes ${mm(shapes[2] - shapes[0])} × ${mm(shapes[3] - shapes[1])}`, labelInside: true });
     // On a plug the space around the shapes is its margin; on the base board it is the distance to the edge.
-    const name = built.part === "plug" ? (d: number) => `margin ${mm(d)}` : (d: number) => `${mm(d)} to edge`;
     const [left, bottom, right, top] = [shapes[0] - frame[0], shapes[1] - frame[1], frame[2] - shapes[2], frame[3] - shapes[3]];
-    along([frame[0], midY, 0], [shapes[0], midY, 0], name);
+    // Shapes may lie over the board's edge: the distance is then how far beyond it they go, and is said so.
+    const name = (signed: number) =>
+      built.part === "plug" ? (d: number) => `margin ${mm(d)}` : (d: number) => (signed < 0 ? `${mm(d)} over edge` : `${mm(d)} to edge`);
+    along([frame[0], midY, 0], [shapes[0], midY, 0], name(left));
     cut();
     // A plug that is cut out has its cut measured below the shapes; the margin there is the one on the left.
-    if (!piece || Math.abs(bottom - left) > 0.05) along([midX, frame[1], 0], [midX, shapes[1], 0], name);
-    if (Math.abs(right - left) > 0.05) along([shapes[2], midY, 0], [frame[2], midY, 0], name);
-    if (Math.abs(top - bottom) > 0.05) along([midX, shapes[3], 0], [midX, frame[3], 0], name);
+    if (!piece || Math.abs(bottom - left) > 0.05) along([midX, frame[1], 0], [midX, shapes[1], 0], name(bottom));
+    if (Math.abs(right - left) > 0.05) along([shapes[2], midY, 0], [frame[2], midY, 0], name(right));
+    if (Math.abs(top - bottom) > 0.05) along([midX, shapes[3], 0], [midX, frame[3], 0], name(top));
   }
   if (!shapes) cut();
   return { marks, outlines };
+}
+
+/** Numbers per straight piece of a tool path: x0 y0 z0 x1 y1 z1 rapid tool line. */
+const PIECE = 9;
+
+/** The points the tools cut closest to each edge of the board, as X and Y. */
+export interface Reach {
+  left: [number, number];
+  bottom: [number, number];
+  right: [number, number];
+  top: [number, number];
+}
+
+/** How far from its axis a tool cuts at the board's top, with its tip `depth` below it. */
+export function radiusAt(tool: ToolProfile, depth: number): number {
+  const d = Math.max(0, depth);
+  if (tool.round > 0) {
+    const short = Math.sqrt(Math.max(0, tool.round * tool.round - d * d));
+    return Math.min(tool.radius, tool.tipRadius + tool.round - short);
+  }
+  if (tool.slope > 0) return Math.min(tool.radius, tool.tipRadius + d / tool.slope);
+  return tool.radius;
+}
+
+/**
+ * How far the cutting moves among the first `moves` pieces of a tool path
+ * reach towards each edge, at the board's top. Each tool cuts as far from
+ * the path as it is wide there; one that `tools` does not have is taken as
+ * its centre line. Null when none of those pieces cuts.
+ */
+export function pathReach(path: Float32Array, tools: { number: number; profile: ToolProfile }[] = [], moves = Infinity): Reach | null {
+  let reach: Reach | null = null;
+  const profiles = new Map(tools.map((t) => [t.number, t.profile]));
+  const end = Math.min(path.length, moves * PIECE);
+  for (let i = 0; i + PIECE <= end; i += PIECE) {
+    if (path[i + 6] === 1) continue;
+    const tool = profiles.get(path[i + 7]);
+    // The tool's width at the top changes evenly along a straight piece, so its ends reach furthest.
+    for (const at of [i, i + 3]) {
+      const [x, y] = [path[at], path[at + 1]];
+      const r = tool ? radiusAt(tool, -path[at + 2]) : 0;
+      if (!reach) reach = { left: [x - r, y], bottom: [x, y - r], right: [x + r, y], top: [x, y + r] };
+      if (x - r < reach.left[0]) reach.left = [x - r, y];
+      if (y - r < reach.bottom[1]) reach.bottom = [x, y - r];
+      if (x + r > reach.right[0]) reach.right = [x + r, y];
+      if (y + r > reach.top[1]) reach.top = [x, y + r];
+    }
+  }
+  return reach;
+}
+
+/**
+ * From each edge of the board to where the tools cut closest to it,
+ * each line drawn at that place. An edge the cut reaches or crosses has none.
+ */
+export function edgeMarks(stock: { width: number; height: number }, reach: Reach | null): Mark[] {
+  if (!reach) return [];
+  const { width, height } = stock;
+  const marks: Mark[] = [];
+  const within = (v: number, size: number) => Math.min(size, Math.max(0, v));
+  const add = (a: Vec3, b: Vec3, distance: number) => {
+    if (distance > 0.005) marks.push({ a, b, out: [0, 0, 0], text: `cut ${mm(distance)} to edge` });
+  };
+  const [lx, ly] = [reach.left[0], within(reach.left[1], height)];
+  add([0, ly, 0], [lx, ly, 0], lx);
+  const [bx, by] = [within(reach.bottom[0], width), reach.bottom[1]];
+  add([bx, 0, 0], [bx, by, 0], by);
+  const [rx, ry] = [reach.right[0], within(reach.right[1], height)];
+  add([rx, ry, 0], [width, ry, 0], width - rx);
+  const [tx, ty] = [within(reach.top[0], width), reach.top[1]];
+  add([tx, ty, 0], [tx, height, 0], height - ty);
+  return marks;
 }
 
 /**
