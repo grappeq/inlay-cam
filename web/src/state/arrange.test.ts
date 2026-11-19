@@ -12,7 +12,6 @@ import {
   rotateShapes,
   scaleShapes,
   shapesInBox,
-  stretchLimits,
   stretchShapes,
   trimBoard,
   withInside,
@@ -150,12 +149,13 @@ describe("moving", () => {
     expect(sorted(partOf(e, 1))).toEqual([0, 1]);
   });
 
-  it("stops at the board's left and bottom edges and grows it to the right and top", () => {
+  it("goes past any edge of the board, which stays the size it was", () => {
     const left = moveShapes(design(), [0], -500, -500);
-    expect(boxOf([shape(left, 0)])).toEqual([0, 0, 60, 40]);
+    expect(boxOf([shape(left, 0)])).toEqual([-490, -490, -430, -450]);
     expect([left.width, left.height]).toEqual([130, 60]);
     const right = moveShapes(design(), [3], 100, 30);
-    expect([right.width, right.height]).toEqual([220, 80]);
+    expect(boxOf([shape(right, 3)])).toEqual([180, 40, 220, 80]);
+    expect([right.width, right.height]).toEqual([130, 60]);
   });
 });
 
@@ -196,16 +196,10 @@ describe("resizing, mirroring and turning", () => {
     expect(sorted(partOf(plate, 2))).toEqual([0, 1, 2]);
   });
 
-  it("know how far a box can grow before it leaves the board", () => {
-    // 20 wide, its right edge 30 from the board's left: growing leftwards, 1.5 times at most.
-    expect(stretchLimits({ x: 10, y: 5, width: 20, height: 10 }, [1, 0])).toEqual([1.5, Infinity]);
-    expect(stretchLimits({ x: 10, y: 5, width: 20, height: 10 }, [0.5, 0.5])).toEqual([2, 2]);
-  });
-
   it("scale from the corner that stays put", () => {
     const d = scaleShapes(design(), [3], 2, "left");
     expect(boxOf([shape(d, 3)])).toEqual([80, 10, 160, 90]);
-    expect([d.width, d.height]).toEqual([160, 90]);
+    expect([d.width, d.height]).toEqual([130, 60]);
   });
 });
 

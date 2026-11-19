@@ -566,6 +566,10 @@ input[aria-invalid="true"] {
   cursor: pointer;
   outline: none;
 }
+/* Beside the stock a shape's line is told from the background, not from the wood. */
+.off-stock {
+  --shape-edge: var(--text);
+}
 .region:hover {
   stroke-width: 2.5;
 }
@@ -3541,11 +3545,6 @@ tfoot.sug td.fill {
   border-radius: 3px;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
 }
-.tool-row.numbers .hint.held {
-  flex-basis: 100%;
-  margin: 0;
-}
-
 /* The cutting table fits its sheet: a thread mill's has a column more, and a narrow sheet drops the scale while it is edited. */
 .card.editing .cut-table td .num-in {
   min-width: 50px;

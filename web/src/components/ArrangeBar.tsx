@@ -10,7 +10,6 @@ import {
   placedBox,
   removeShapes,
   rotateOnBoard,
-  stretchLimits,
   stretchOnBoard,
 } from "../state/arrange";
 import { DRAW_LIMITS, type DrawTool } from "../state/shapes";
@@ -92,8 +91,6 @@ export function ArrangeBar({ design }: { design: Design }) {
   const [percent, setPercent] = useState(50);
   const [anchor, setAnchor] = useState(6);
   const [proportional, setProportional] = useState(true);
-  // The last resize was held back by the stock's edges.
-  const [held, setHeld] = useState(false);
 
   const edit = (update: (d: Design) => Design, tag?: string) =>
     dispatch({ type: "editDrawing", tag, at: Date.now(), update: (p) => (p.design ? { ...p, design: update(p.design) } : p) });
@@ -102,14 +99,9 @@ export function ArrangeBar({ design }: { design: Design }) {
 
   const box = placedBox(design, selection);
   const at = ANCHORS[anchor].at;
-  /** Resizes the selection about the chosen point, no further than the stock's left and bottom edges allow. */
+  /** Resizes the selection about the chosen point. */
   const resize = (fx: number, fy: number) => {
-    if (!box) return;
-    const [maxX, maxY] = stretchLimits(box, at);
-    const kept = fx === fy ? Math.min(fx, maxX, maxY) : null;
-    const [ax, ay] = kept !== null ? [kept, kept] : [Math.min(fx, maxX), Math.min(fy, maxY)];
-    setHeld(ax < fx || ay < fy);
-    edit((d) => stretchOnBoard(d, selection, ax, ay, at));
+    if (box) edit((d) => stretchOnBoard(d, selection, fx, fy, at));
   };
   const none = selection.length === 0;
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
@@ -291,6 +283,7 @@ export function ArrangeBar({ design }: { design: Design }) {
               disabled={!box}
               label="X"
               unit="mm"
+              min={-Infinity}
               value={box ? mm(box.x + at[0] * box.width) : undefined}
               onChange={(v) => v !== undefined && box && edit((d) => moveOnBoard(d, selection, v - (box.x + at[0] * box.width), 0))}
             />
@@ -299,6 +292,7 @@ export function ArrangeBar({ design }: { design: Design }) {
               disabled={!box}
               label="Y"
               unit="mm"
+              min={-Infinity}
               value={box ? mm(box.y + at[1] * box.height) : undefined}
               onChange={(v) => v !== undefined && box && edit((d) => moveOnBoard(d, selection, 0, v - (box.y + at[1] * box.height)))}
             />
@@ -332,11 +326,6 @@ export function ArrangeBar({ design }: { design: Design }) {
               Scale
             </button>
           </span>
-          {held && box && (
-            <span className="hint warn held" role="status">
-              ▲ Made as large as fits: it stops at the stock's left and bottom edges. Move it first, or resize from another reference point.
-            </span>
-          )}
         </div>
       </div>
     </div>

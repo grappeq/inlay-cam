@@ -225,20 +225,13 @@ function openHoles(design: Design, moved: number[], chosen: Set<number>): Design
   return regions === design.regions ? design : { ...design, regions };
 }
 
-/** Grows the page to the right and upwards so that every shape lies on it. Never shrinks it. */
-function grow(design: Design): Design {
-  const box = boxOf(design.regions);
-  if (!box || (box[2] <= design.width && box[3] <= design.height)) return design;
-  return { ...design, width: Math.max(design.width, box[2]), height: Math.max(design.height, box[3]) };
-}
-
 function chosenBox(design: Design, chosen: Set<number>): Box | null {
   return boxOf(design.regions.filter((r) => chosen.has(r.id)));
 }
 
 /**
- * Applies `f` to the chosen outlines. `flips` says that `f` mirrors. Shapes
- * pushed past the page's left or bottom edge are brought back onto it.
+ * Applies `f` to the chosen outlines. `flips` says that `f` mirrors. The
+ * shapes may end up anywhere, on the stock or outside it.
  */
 function transform(design: Design, ids: number[], f: (p: Point) => Point, flips: boolean): Design {
   const chosen = pick(design, ids);
@@ -257,15 +250,8 @@ function transform(design: Design, ids: number[], f: (p: Point) => Point, flips:
       };
       return { ...r, outer: ring(r.outer), holes: r.holes.map(ring) };
     });
-  let regions = mapped(f, closed.regions);
-  const box = boxOf(regions.filter((r) => chosen.has(r.id)));
-  if (box && (box[0] < 0 || box[1] < 0)) {
-    const dx = Math.max(0, -box[0]);
-    const dy = Math.max(0, -box[1]);
-    flips = false;
-    regions = mapped(([x, y]) => [x + dx, y + dy], regions);
-  }
-  return grow(settle(openHoles({ ...closed, regions }, moved, chosen), freed.left));
+  const regions = mapped(f, closed.regions);
+  return settle(openHoles({ ...closed, regions }, moved, chosen), freed.left);
 }
 
 export function moveShapes(design: Design, ids: number[], dx: number, dy: number): Design {
@@ -387,7 +373,7 @@ export function duplicateShapes(design: Design, ids: number[], gap: number): { d
   const copies = release(design, chosen).design.regions.filter((r) => chosen.has(r.id)).map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
   const copied = new Set(copies.map((c) => c.id));
   const added = { ...design, regions: [...design.regions, ...copies] };
-  return { design: grow(openHoles(added, tops(added, copied), copied)), ids: [...copied] };
+  return { design: openHoles(added, tops(added, copied), copied), ids: [...copied] };
 }
 
 /**
@@ -413,7 +399,7 @@ export function addShape(design: Design, outline: Ring): { design: Design; id: n
     .map((r) => [...r.outer].reverse());
   const chosen = new Set([id]);
   const added = { ...design, regions: [...design.regions, { id, outer, holes }] };
-  return { design: grow(openHoles(added, [id], chosen)), id };
+  return { design: openHoles(added, [id], chosen), id };
 }
 
 /** Makes the page the extent of the shapes plus `margin` on every side. */
@@ -474,15 +460,6 @@ export function scaleOnBoard(design: Design, ids: number[], factor: number): Des
 /** Stretches the shapes as seen on the board; `anchor` is counted from the left and bottom of their box there. */
 export function stretchOnBoard(design: Design, ids: number[], fx: number, fy: number, anchor: [number, number]): Design {
   return stretchShapes(design, ids, fx, fy, [design.mirror ? 1 - anchor[0] : anchor[0], anchor[1]]);
-}
-
-/**
- * The largest factors by which a box on the board can grow from `anchor`
- * before it passes the board's left or bottom edge.
- */
-export function stretchLimits(box: Placed, anchor: [number, number]): [number, number] {
-  const limit = (start: number, size: number, part: number) => (part > 0 && size > 0 ? (start + part * size) / (part * size) : Infinity);
-  return [limit(box.x, box.width, anchor[0]), limit(box.y, box.height, anchor[1])];
 }
 
 /** Turns the shapes as seen on the board, counter-clockwise. */

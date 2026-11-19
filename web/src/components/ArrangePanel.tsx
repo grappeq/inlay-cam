@@ -56,7 +56,7 @@ export function ArrangePanel({ design }: { design: Design }) {
             <NumberField deferred label="Width (X)" unit="mm" min={1} value={mm(design.width * design.scale)} onChange={(v) => v !== undefined && edit((d) => ({ ...d, width: v / d.scale }))} />
             <NumberField deferred label="Height (Y)" unit="mm" min={1} value={mm(design.height * design.scale)} onChange={(v) => v !== undefined && edit((d) => ({ ...d, height: v / d.scale }))} />
           </div>
-          <p className="hint">It grows when shapes are moved past its right or top edge. Shapes stop at its left and bottom edges, where the work origin is.</p>
+          <p className="hint">Shapes may lie beside it or run over its edges. The work origin stays at its bottom-left corner.</p>
           <div className="row tools">
             <NumberField label="Margin" unit="mm" value={margin} onChange={(v) => v !== undefined && setMargin(v)} />
             <button onClick={() => edit((d) => trimBoard(d, margin / d.scale))}>Fit stock to shapes</button>

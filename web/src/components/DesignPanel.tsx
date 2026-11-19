@@ -195,11 +195,15 @@ function StockSection({ design, report }: { design: Design; report: ImportReport
       <p className="hint">The work origin is its bottom-left corner, on its top face.</p>
       {outside && (
         <p className="status-line warn" role="status">
-          Some shapes lie outside the stock. Move them, or{" "}
-          <button type="button" className="link" onClick={() => box && setDesign({ width: Math.max(design.width, Math.ceil(box[2])), height: Math.max(design.height, Math.ceil(box[3])) })}>
-            make the stock large enough
-          </button>
-          .
+          Some shapes lie outside the stock. A step that uses them cuts there too.
+          {box && box[0] >= -1e-6 && box[1] >= -1e-6 && (
+            <>
+              {" "}
+              <button type="button" className="link" onClick={() => setDesign({ width: Math.max(design.width, Math.ceil(box[2])), height: Math.max(design.height, Math.ceil(box[3])) })}>
+                Make the stock large enough
+              </button>
+            </>
+          )}
         </p>
       )}
       {tooLarge && (

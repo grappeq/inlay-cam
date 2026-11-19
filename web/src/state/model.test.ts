@@ -65,12 +65,13 @@ describe("addDrawing", () => {
     expect(out.regions[2].outer[0]).toEqual([45, 35]);
   });
 
-  it("grows the stock for shapes larger than it, and takes a scaled drawing at its true size", () => {
+  it("leaves the stock its size for shapes larger than it, and takes a scaled drawing at its true size", () => {
     const base = design([square(0, 10, 10, 20)]);
     const more = { ...design([square(0, 0, 0, 100)], 100, 100), scale: 1.5 };
     const { design: out } = addDrawing(base, more);
-    expect([out.width, out.height]).toEqual([150, 150]);
-    expect(out.regions[1].outer[0]).toEqual([0, 0]);
+    expect([out.width, out.height]).toEqual([100, 80]);
+    // 150 across, centred on the stock: it reaches 25 over the sides and 35 over the top and bottom.
+    expect(out.regions[1].outer[0]).toEqual([-25, -35]);
     expect(out.sourceName).toBe("a.svg");
   });
 });

@@ -264,7 +264,11 @@ side.
 
 Under **Stock and drawings** you set the stock's width, height and thickness, its material, and the
 colour of its wood. Changing the size leaves the shapes where they are and as large as they
-are; the app says so when shapes end up outside the stock. "Fit the stock to the shapes",
+are. Shapes may lie outside the stock or run over its edges: a mark for a positioning pin
+beside the board, say, or a pocket that runs off its edge. The app says so when there are
+such shapes, and a step that uses one cuts outside the stock as well: keep clamps, stops
+and pins out of the tool's way, and mind that left of the stock and below it X and Y are
+negative. A shape no step uses is never cut. "Fit the stock to the shapes",
 under "More", makes it the shapes' extent plus 5 mm.
 
 The stock applies to this board only. A plug or an insert is cut from a board of its own,
@@ -273,7 +277,7 @@ whose size follows from the shapes and the inlay's settings.
 **Add drawing**, in the bar above the drawing, puts the shapes of further files on the
 same stock; so does dropping files on the window. The shapes come in at their own size, in
 the middle of the stock, selected and with "Edit" switched on: drag them to their
-place. The stock grows when they do not fit. "Replace the drawing",
+place. The stock keeps its size: shapes too large for it reach over its edges. "Replace the drawing",
 under "More", starts over with one file; what was made from the old drawing is removed.
 
 "Start with an empty stock", on the start screen, gives a stock of 200 x 150 mm without a
@@ -334,8 +338,8 @@ redoes, up to 50 steps, also after editing.
 
 The board and the view:
 
-- The work origin stays at the board's bottom-left corner, so shapes stop at its left and
-  bottom edges. The board grows when shapes are moved past its right or top edge. "Fit
+- The work origin stays at the board's bottom-left corner. Shapes can be moved, resized
+  and drawn past any of its edges, and the board keeps its size; the view shows them. "Fit
   board to shapes" makes it the shapes' extent plus a margin.
 - The mouse wheel zooms, also outside editing. Drag with the middle button to move the
   view; double-click empty board, or press "Whole board", to see all of it.
@@ -371,8 +375,7 @@ a circle is not kept as a circle, and its curve is made of straight runs that st
 inside another shape it is a hole in that shape and the piece that fills it, and drawn
 around other parts it gets a hole for each. It stays a shape of its own either way: a
 click selects it without what is inside it. Drawn partly over another shape, both
-stay whole. Nothing is drawn past the stock's left or
-bottom edge; the stock grows to the right and upwards when a shape reaches past it.
+stay whole. A shape can be drawn over the stock's edges or beside it.
 
 ## 3. Make an inlay
 

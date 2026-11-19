@@ -494,8 +494,7 @@ export function normaliseDesign(design: Design): Design {
 
 /**
  * Puts the shapes of another drawing on the stock, beside what is there: in
- * the middle of the stock where they fit, else from its bottom-left corner,
- * with the stock grown to hold them. Returns the new shapes' ids.
+ * the middle of the stock, which keeps its size. Returns the new shapes' ids.
  */
 export function addDrawing(design: Design, incoming: Design): { design: Design; ids: number[] } {
   const added = normaliseDesign(incoming);
@@ -503,8 +502,9 @@ export function addDrawing(design: Design, incoming: Design): { design: Design; 
   for (const r of added.regions) for (const [x, y] of r.outer) box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
   if (added.regions.length === 0) return { design, ids: [] };
   const [w, h] = [box[2] - box[0], box[3] - box[1]];
-  const dx = Math.max(0, (design.width - w) / 2) - box[0];
-  const dy = Math.max(0, (design.height - h) / 2) - box[1];
+  // In the middle of the stock, which keeps its size: shapes too large for it reach over its edges.
+  const dx = (design.width - w) / 2 - box[0];
+  const dy = (design.height - h) / 2 - box[1];
   let next = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
   const shift = (ring: Ring): Ring => ring.map(([x, y]) => [x + dx, y + dy]);
   const regions = added.regions.map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
@@ -514,8 +514,6 @@ export function addDrawing(design: Design, incoming: Design): { design: Design; 
     design: {
       ...design,
       sourceName: names.join(", "),
-      width: Math.max(design.width, w),
-      height: Math.max(design.height, h),
       regions: [...design.regions, ...regions],
     },
     ids: regions.map((r) => r.id),

@@ -671,7 +671,7 @@ pub fn build_with(
             .any(|p| p[0] < 0.0 || p[1] < 0.0 || p[0] > width || p[1] > height)
     {
         warnings.push(
-            "Some of the shapes lie outside the stock. Move them, or make the stock larger.".into(),
+            "Some of the shapes lie outside the stock, and the tool cuts there too. Keep clamps, stops and pins out of its way.".into(),
         );
     }
 

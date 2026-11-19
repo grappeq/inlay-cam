@@ -114,18 +114,14 @@ export function polygonRing(cx: number, cy: number, radius: number, sides: numbe
  * (Shift) makes it a square or a circle, and `centred` (Ctrl) draws it about
  * `from`. A polygon has its middle at `from` and its first corner at `to`;
  * `even` turns it in steps of 15°.
- *
- * Nothing is drawn past the stock's left or bottom edge, where the work
- * origin is.
  */
 export function drawnRing(tool: DrawTool, options: DrawOptions, from: Point, to: Point, even: boolean, centred: boolean): Ring | null {
-  const ax = Math.max(0, from[0]);
-  const ay = Math.max(0, from[1]);
+  const [ax, ay] = from;
   const dx = to[0] - ax;
   const dy = to[1] - ay;
 
   if (tool === "polygon") {
-    const radius = Math.min(Math.hypot(dx, dy), ax, ay);
+    const radius = Math.hypot(dx, dy);
     if (radius < SMALLEST_DRAWN / 2) return null;
     let angle = Math.atan2(dy, dx);
     if (even) {
@@ -135,12 +131,10 @@ export function drawnRing(tool: DrawTool, options: DrawOptions, from: Point, to:
     return polygonRing(ax, ay, radius, options.sides, angle);
   }
 
-  // How far the shape reaches from `from`, across and up, and how far it may.
-  const roomX = centred || dx < 0 ? ax : Infinity;
-  const roomY = centred || dy < 0 ? ay : Infinity;
-  let w = Math.min(Math.abs(dx), roomX);
-  let h = Math.min(Math.abs(dy), roomY);
-  if (even) w = h = Math.min(Math.max(w, h), roomX, roomY);
+  // How far the shape reaches from `from`, across and up.
+  let w = Math.abs(dx);
+  let h = Math.abs(dy);
+  if (even) w = h = Math.max(w, h);
   const x0 = centred || dx < 0 ? ax - w : ax;
   const y0 = centred || dy < 0 ? ay - h : ay;
   const x1 = centred || dx >= 0 ? ax + w : ax;

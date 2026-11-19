@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
-import { addShape, moveOnBoard, placedBox, shapesInBox, stretchLimits, stretchOnBoard, type Placed } from "../state/arrange";
+import { addShape, boxOf, moveOnBoard, placedBox, shapesInBox, stretchOnBoard, type Placed } from "../state/arrange";
 import { drawnRing } from "../state/shapes";
 import { fmt, isInlay, stepColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
@@ -104,6 +104,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   const { project, selection, activeStepId, arranging, drawTool, drawOptions } = useApp();
   const dispatch = useDispatch();
   const svg = useRef<SVGSVGElement>(null);
+  const clip = useId();
   const press = useRef<Press | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [zoomed, setZoomed] = useState<View | null>(null);
@@ -126,8 +127,17 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
 
   const width = design.width * design.scale;
   const height = design.height * design.scale;
-  const pad = Math.max(width, height) * 0.04;
-  const whole: View = useMemo(() => ({ x: -pad, y: -pad, w: width + 2 * pad, h: height + 2 * pad }), [pad, width, height]);
+  // The stock and every shape, on it or beside it, in the picture's own millimetres (Y down).
+  const whole: View = useMemo(() => {
+    const s = design.scale;
+    const box = boxOf(design.regions);
+    const xs = box ? [box[0], box[2]].map((x) => (design.mirror ? design.width - x : x) * s) : [];
+    const ys = box ? [box[1], box[3]].map((y) => height - y * s) : [];
+    const [left, right] = [Math.min(0, ...xs), Math.max(width, ...xs)];
+    const [top, bottom] = [Math.min(0, ...ys), Math.max(height, ...ys)];
+    const pad = Math.max(right - left, bottom - top) * 0.04;
+    return { x: left - pad, y: top - pad, w: right - left + 2 * pad, h: bottom - top + 2 * pad };
+  }, [design, width, height]);
   const view = zoomed ?? whole;
   const viewNow = useRef(view);
   viewNow.current = view;
@@ -265,15 +275,8 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
       const factor = (h: number, a: number, d: number, size: number) => (h === 0.5 || size <= 0 ? 1 : Math.max(SMALLEST / size, 1 + d / ((h - a) * size)));
       let fx = factor(hx, anchor[0], dx, start.width);
       let fy = factor(hy, anchor[1], dy, start.height);
-      const [maxX, maxY] = stretchLimits(start, anchor);
-      const corner = hx !== 0.5 && hy !== 0.5;
-      if (corner && !e.shiftKey) {
-        // A corner keeps the proportions; Shift lets width and height go their own ways.
-        fx = fy = Math.min(Math.max(fx, fy), maxX, maxY);
-      } else {
-        fx = Math.min(fx, maxX);
-        fy = Math.min(fy, maxY);
-      }
+      // A corner keeps the proportions; Shift lets width and height go their own ways.
+      if (hx !== 0.5 && hy !== 0.5 && !e.shiftKey) fx = fy = Math.max(fx, fy);
       setGesture({ kind: "resize", fx, fy, anchor, box: start });
       return;
     }
@@ -285,11 +288,6 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
       if (e.shiftKey && !from.add) {
         if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
         else dx = 0;
-      }
-      // Not past the board's left or bottom edge: the work origin stays where it is.
-      if (box) {
-        dx = Math.max(dx, -box.x);
-        dy = Math.max(dy, -box.y);
       }
       setGesture({ kind: "move", dx, dy });
     } else {
@@ -403,7 +401,36 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
           if (!(e.target as Element).closest("[data-region], [data-handle]")) setZoomed(null);
         }}
       >
+        <defs>
+          <clipPath id={`${clip}-on`}>
+            <rect x={0} y={0} width={width} height={height} />
+          </clipPath>
+          <clipPath id={`${clip}-off`}>
+            <path clipRule="evenodd" d={`M-1e6 -1e6H1e6V1e6H-1e6ZM0 0H${width}V${height}H0Z`} />
+          </clipPath>
+        </defs>
         <rect className="page" x={0} y={0} width={width} height={height} style={{ fill: wood }} />
+        {/* What lies beside the stock is drawn for the background there, not for the wood. */}
+        <g className="off-stock" clipPath={`url(#${clip}-off)`} aria-hidden="true">
+          {paths.map(({ id, d }) => {
+            const owner = owners.get(id);
+            const selected = selection.includes(id);
+            const inActive = (owner !== undefined && owner.id === activeStepId) || used.has(id);
+            return (
+              <path
+                key={id}
+                data-region={id}
+                d={d}
+                fillRule="evenodd"
+                className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}`}
+                style={owner && !selected ? { fill: stepColor(owner, project.steps) } : undefined}
+                transform={selected ? shift : undefined}
+                onClick={arranging ? undefined : (e) => dispatch({ type: "clickRegion", id, add: e.shiftKey })}
+              />
+            );
+          })}
+        </g>
+        <g clipPath={`url(#${clip}-on)`}>
         {paths.map(({ id, d }) => {
           const owner = owners.get(id);
           const selected = selection.includes(id);
@@ -438,6 +465,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
             </path>
           );
         })}
+        </g>
         {cuttable.length > 0 && (
           <g className="cuttable" aria-label="The outline that will be cut">
             {cuttable.map((ring, i) => (

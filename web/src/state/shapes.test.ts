@@ -90,15 +90,14 @@ describe("a drag with a drawing tool", () => {
     expect(box(draw("ellipse", [50, 50], [60, 55], true, true)!)).toEqual([40, 40, 60, 60]);
   });
 
-  it("stops at the stock's left and bottom edges", () => {
-    expect(box(draw("rectangle", [10, 10], [-20, -5])!)).toEqual([0, 0, 10, 10]);
-    expect(box(draw("rectangle", [-3, -3], [20, 10])!)).toEqual([0, 0, 20, 10]);
-    // A square stays a square, and a shape drawn from its middle stays about it.
-    expect(box(draw("rectangle", [10, 30], [-20, 0], true)!)).toEqual([0, 20, 10, 30]);
-    expect(box(draw("ellipse", [10, 30], [60, 80], false, true)!)).toEqual([0, 0, 20, 60]);
+  it("goes past the stock's left and bottom edges", () => {
+    expect(box(draw("rectangle", [10, 10], [-20, -5])!)).toEqual([-20, -5, 10, 10]);
+    expect(box(draw("rectangle", [-3, -3], [20, 10])!)).toEqual([-3, -3, 20, 10]);
+    expect(box(draw("rectangle", [10, 30], [-20, 0], true)!)).toEqual([-20, 0, 10, 30]);
+    expect(box(draw("ellipse", [10, 30], [60, 80], false, true)!)).toEqual([-40, -20, 60, 80]);
     const hexagon = box(draw("polygon", [8, 30], [80, 30])!);
-    expect(hexagon[0]).toBeCloseTo(0, 9);
-    expect(hexagon[2]).toBeCloseTo(16, 9);
+    expect(hexagon[0]).toBeCloseTo(-64, 9);
+    expect(hexagon[2]).toBeCloseTo(80, 9);
   });
 
   it("puts a polygon's first corner under the pointer", () => {
@@ -116,7 +115,6 @@ describe("a drag with a drawing tool", () => {
     expect(draw("rectangle", [10, 10], [10.2, 40])).toBeNull();
     expect(draw("ellipse", [10, 10], [10, 10])).toBeNull();
     expect(draw("polygon", [10, 10], [10.1, 10.1])).toBeNull();
-    expect(draw("rectangle", [0, 10], [-5, 40])).toBeNull();
   });
 });
 
@@ -175,8 +173,8 @@ describe("a drawn shape joins the drawing", () => {
     expect(shape(d, 0).holes).toEqual([]);
   });
 
-  it("and makes the stock grow to hold it", () => {
+  it("and leaves the stock the size it was when it reaches past it", () => {
     const { design: d } = addShape(design(), square(90, 70, 120, 95));
-    expect([d.width, d.height]).toEqual([120, 95]);
+    expect([d.width, d.height]).toEqual([100, 80]);
   });
 });
