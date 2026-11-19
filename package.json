@@ -1,0 +1,24 @@
+{
+  "name": "inlay-cam-mcp",
+  "version": "0.1.0",
+  "description": "Drive inlay-cam, the CNC toolpath app for wooden inlays, from an AI agent: a local MCP server that reaches the inlay-cam page open in your browser.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://grappeq.github.io/inlay-cam/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/grappeq/inlay-cam.git"
+  },
+  "keywords": ["mcp", "model-context-protocol", "cnc", "cam", "inlay"],
+  "bin": {
+    "inlay-cam-mcp": "mcp/bin/inlay-cam-mcp.js"
+  },
+  "files": ["mcp/bin", "mcp/src", "mcp/README.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node mcp/bin/inlay-cam-mcp.js",
+    "test": "node --test \"mcp/tests/*.test.js\""
+  }
+}

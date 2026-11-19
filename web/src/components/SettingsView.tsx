@@ -3,7 +3,8 @@
 // refer to, the machine, and what a new inlay starts with: a list of the four
 // on the left, the one picked on the right, as the tools are shown.
 
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { DEFAULT_PORT, STATUS_TEXT, getLink, setPrefs, subscribeLink, validPort, validToken } from "../agent/link";
 import type { Machine, Setup } from "../core/types";
 import { DEFAULT_SETUP, FEED_MATERIALS, MACHINE_PRESETS, MAX_TOOL_CHANGE_SECONDS, SETUP_LIMITS, allMaterials, fmt, sameSetup } from "../state/model";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
@@ -16,6 +17,7 @@ import { ToolsArea } from "./ToolsView";
 export function SettingsView() {
   const { settingsPage, lists, machine, defaults, home } = useApp();
   const dispatch = useDispatch();
+  const agent = useSyncExternalStore(subscribeLink, getLink);
   if (settingsPage === "tools") return <ToolsArea />;
 
   const materials = allMaterials(lists);
@@ -27,6 +29,7 @@ export function SettingsView() {
     { id: "profiles", label: "Profiles", summary: profiles.length === 0 ? "none: plain settings only" : profiles.map((p) => p.label).join(", ") },
     { id: "machine", label: "Machine", summary: `${machine.name}, ${fmt(machine.travel[0])} × ${fmt(machine.travel[1])} mm` },
     { id: "defaults", label: "New inlays", summary: changed === 0 ? "the app's values" : `${changed} of your own` },
+    { id: "agent", label: "Agent", summary: STATUS_TEXT[agent.status].toLowerCase() },
   ];
   return (
     <div className="settings-split">
@@ -42,7 +45,7 @@ export function SettingsView() {
         </p>
       </nav>
       <main className="tool-pane">
-        <div className="card set-card">{settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "profiles" ? <ProfilesPage /> : settingsPage === "machine" ? <MachinePage /> : <DefaultsPage />}</div>
+        <div className="card set-card">{settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "profiles" ? <ProfilesPage /> : settingsPage === "machine" ? <MachinePage /> : settingsPage === "agent" ? <AgentPage /> : <DefaultsPage />}</div>
       </main>
     </div>
   );
@@ -70,6 +73,72 @@ function Rows(props: { title: string; children: ReactNode }) {
         <tbody>{props.children}</tbody>
       </table>
     </section>
+  );
+}
+
+/** The link to an AI agent on this computer: whether it is on, and what pairs this browser with the agent's relay. */
+function AgentPage() {
+  const { prefs, status, detail } = useSyncExternalStore(subscribeLink, getLink);
+  const [port, setPort] = useState(String(prefs.port));
+  const [token, setToken] = useState(prefs.token);
+  const install = "claude mcp add inlay-cam -- npx -y github:grappeq/inlay-cam";
+  return (
+    <>
+      <PageHead title="Agent">An AI agent on this computer, such as Claude Code, can work in this app: it reads the project and changes it in front of you.</PageHead>
+      <Rows title="Connection">
+        <Row label="Local agent connection" what={detail ?? "Reaches this computer only. What the agent reads goes to the agent and its model provider."}>
+          <label className="agent-switch">
+            <input
+              type="checkbox"
+              checked={prefs.on}
+              onChange={(e) => {
+                if (e.target.checked && !prefs.accepted && !confirm("Let an AI agent on this computer read and change what this app holds? What it reads goes to the agent and its model provider.")) return;
+                setPrefs({ on: e.target.checked, ...(e.target.checked ? { accepted: true } : {}) });
+              }}
+            />
+            <span className={`agent-state ${status}`}>{STATUS_TEXT[status]}</span>
+          </label>
+        </Row>
+      </Rows>
+      <Rows title="Pairing">
+        <Row label="Port" what={`Where inlay-cam-mcp listens on this computer. ${DEFAULT_PORT} unless it was started with another.`}>
+          <input
+            className="cell-in"
+            type="text"
+            inputMode="numeric"
+            aria-label="Port"
+            value={port}
+            aria-invalid={!validPort(Number(port))}
+            onChange={(e) => {
+              setPort(e.target.value);
+              if (validPort(Number(e.target.value))) setPrefs({ port: Number(e.target.value) });
+            }}
+          />
+        </Row>
+        <Row label="Token" what="Filled in when the agent opens the app. By hand: inlay-cam-mcp --pair prints it.">
+          <input
+            className="cell-in"
+            type="password"
+            autoComplete="off"
+            aria-label="Pairing token"
+            value={token}
+            aria-invalid={token !== "" && !validToken(token)}
+            onChange={(e) => {
+              setToken(e.target.value);
+              if (validToken(e.target.value)) setPrefs({ token: e.target.value });
+            }}
+          />
+        </Row>
+      </Rows>
+      <Rows title="Set up the agent">
+        <Row label="Claude Code" what={<code className="agent-command">{install}</code>}>
+          Run once in a terminal
+        </Row>
+        <Row label="Then" what="It opens this app paired with it, and the connection above switches on.">
+          Ask the agent to open inlay-cam
+        </Row>
+      </Rows>
+    </>
   );
 }
 

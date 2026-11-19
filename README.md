@@ -25,6 +25,8 @@ inlay's two parts will fit before any wood is cut.
   on your computer.
 - It can be [served with one](#with-a-server), which keeps tools, projects and settings on
   the server for every browser that opens it, with an HTTP API for scripts and agents.
+- An AI agent such as Claude Code can [work in the page open in your browser](mcp/README.md):
+  it draws, sets up inlays, builds and exports through the app, in front of you.
 
 Try it at <https://grappeq.github.io/inlay-cam/>, and read the
 [user guide](docs/guide.md).
@@ -65,6 +67,7 @@ responsibility.
 | `crates/inlay-wasm` | WebAssembly wrapper around the core |
 | `crates/inlay-server` | Optional server: the built app, with tools, projects and settings kept in one data folder and an [HTTP API](docs/api.md) over them |
 | `web` | TypeScript + React UI; runs the core in a Web Worker |
+| `mcp` | [inlay-cam-mcp](mcp/README.md): the local server an AI agent starts to drive the open page. Node.js, no dependencies; the `package.json` at the root is its own, so that `npx` can run it from GitHub |
 | `machine-tests` | G-code files to run on the real machine, with checklists |
 | `docs` | [User guide](docs/guide.md) and [file formats](docs/formats.md); [how the server works](docs/server.md) and its [API](docs/api.md); what is still to do is in the [roadmap](docs/roadmap.md); `docs/design` holds the original [requirements](docs/design/requirements.md) and the [build plan](docs/design/plan.md), with what was done and why |
 | `tools` | The script that writes the test drawings |

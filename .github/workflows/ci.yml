@@ -23,6 +23,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: cargo test --workspace
+      - run: npm test
       - run: npm ci
         working-directory: web
       - run: npm run wasm

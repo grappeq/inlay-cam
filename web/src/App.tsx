@@ -1,4 +1,5 @@
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type DragEvent } from "react";
+import { answerPairing, getLink, startLink, subscribeLink } from "./agent/link";
 import { ArrangeBar, StageBar } from "./components/ArrangeBar";
 import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel } from "./components/DesignPanel";
@@ -50,6 +51,7 @@ function Shell() {
     >
       <Header />
       <NoticeBar />
+      <AgentPairing />
       {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
       {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, or tools.yaml</div>}
     </div>
@@ -121,6 +123,42 @@ function DesignView() {
         )}
       </main>
       <DesignPanel design={project.design} />
+    </div>
+  );
+}
+
+/** Starts the link to an AI agent, and asks before a pairing link switches it on for the first time. */
+function AgentPairing() {
+  const { asking } = useSyncExternalStore(subscribeLink, getLink);
+  useEffect(() => startLink(), []);
+  if (!asking) return null;
+  return (
+    <div className="backdrop">
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="Let an AI agent work in this app?">
+        <h2>Let an AI agent work in this app?</h2>
+        <table className="set-table">
+          <tbody>
+            <tr>
+              <th scope="row">Reads</th>
+              <td>The open project, your projects and your tools</td>
+            </tr>
+            <tr>
+              <th scope="row">Changes</th>
+              <td>The project, in front of you</td>
+            </tr>
+            <tr>
+              <th scope="row">Goes to</th>
+              <td>The agent on this computer and its model provider</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="row end">
+          <button onClick={() => answerPairing(false)}>Not now</button>
+          <button className="primary" onClick={() => answerPairing(true)}>
+            Allow
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

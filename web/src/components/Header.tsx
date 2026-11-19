@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import { core } from "../core/client";
 import * as db from "../storage/home";
 import { useFileActions } from "../state/files";
@@ -16,6 +17,7 @@ export function Header() {
   const dispatch = useDispatch();
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
+  const agent = useSyncExternalStore(subscribeLink, getLink);
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
 
   const exportProject = async () => {
@@ -57,6 +59,15 @@ export function Header() {
       <span className={`save-state${saveError ? " error" : ""}`} role="status">
         {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
       </span>
+      {agent.status !== "off" && (
+        <button
+          className={`agent-chip ${agent.status}`}
+          title={agent.detail ?? "An AI agent on this computer can work in this app. Open the connection's settings."}
+          onClick={() => mayLeave() && dispatch({ type: "setView", view: "settings", page: "agent" })}
+        >
+          Agent: {STATUS_TEXT[agent.status].toLowerCase()}
+        </button>
+      )}
       <div className="actions">
         <button onClick={() => mayLeave() && dispatch({ type: "openProject", project: newProject() })}>New project</button>
         <button onClick={() => setShowProjects(true)} title={home === "server" ? "Projects kept on this server" : "Projects stored in this browser"}>

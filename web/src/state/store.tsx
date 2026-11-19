@@ -9,11 +9,12 @@ import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
+import { bindHost } from "../agent/host";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolNumbers, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
-export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults";
+export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults" | "agent";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
@@ -162,7 +163,7 @@ function withSnapshots(state: AppState): AppState {
   return { ...state, project: { ...state.project, tools, toolNumbers: numbers, profiles: profiles.length > 0 ? profiles : undefined, machine: state.machine } };
 }
 
-function reducer(state: AppState, action: Action): AppState {
+export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "loaded":
       return withSnapshots({
@@ -595,6 +596,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } }),
     );
   }, [state.ready, state.defaults]);
+
+  // For an agent's commands (agent/host.ts), which run outside the screens:
+  // the state as last drawn, and a dispatch that answers once it is drawn.
+  const live = useRef(state);
+  const drawn = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    live.current = state;
+    for (const done of drawn.current.splice(0)) done();
+  }, [state]);
+  useEffect(
+    () =>
+      bindHost({
+        state: () => live.current,
+        preview: (action) => reducer(live.current, action),
+        apply: (action) =>
+          reducer(live.current, action) === live.current
+            ? Promise.resolve(live.current)
+            : new Promise((resolve) => {
+                drawn.current.push(() => resolve(live.current));
+                dispatch(action);
+              }),
+      }),
+    [],
+  );
 
   const value = useMemo(() => state, [state]);
   return (

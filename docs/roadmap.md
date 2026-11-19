@@ -79,6 +79,22 @@ are checked by a token, and backups ([api.md](api.md)). Still to do:
 - A warning when a corner-rounding bit's radius is not what its body and tip diameters
   give, since a `tools.yaml` keeps the diameters only.
 
+## Agents in the open page
+
+An agent can drive the page open in a browser through `inlay-cam-mcp`
+([mcp/README.md](../mcp/README.md)); the commands are `web/src/agent/commands.ts`. It was
+checked against a page on this computer. Still to do:
+
+- Check it from the hosted page in Chrome, Edge and Firefox, where the browser asks
+  whether the site may reach this computer.
+- A release tag, so that the install line can name a version.
+- Changes to steps are not in the undo history, which is the drawing's. To decide: one
+  history for both.
+- The tool list is read only. Logging a cut and changing a row from the page, with the
+  care the server's API takes.
+- A picture of a part in 3D, and of the fit. The pictures are from above.
+- A list of the commands in the server for the first start, before any page has connected.
+
 ## Operations and cutting settings
 
 - **Which profile a bit starts on is read from the profile's name.** A bit chosen for an

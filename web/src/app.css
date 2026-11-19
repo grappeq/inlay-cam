@@ -4612,3 +4612,33 @@ button.export-show:focus-visible {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* The link to an AI agent: its chip in the top bar, and its page in the settings. */
+.agent-chip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.agent-chip.connected {
+  color: inherit;
+}
+.agent-chip.refused {
+  color: var(--danger);
+}
+.agent-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-state.refused {
+  color: var(--danger);
+}
+.agent-state.off,
+.agent-state.waiting {
+  color: var(--muted);
+}
+.agent-command {
+  user-select: all;
+  word-break: break-all;
+}
