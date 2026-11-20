@@ -45,6 +45,7 @@ export function useFileActions() {
             unsupported: [...new Set([...merged.unsupported, ...report.unsupported])],
             unitNote: merged.unitNote ?? report.unitNote,
             openOutlines: merged.openOutlines + report.openOutlines,
+            hiddenLayers: [...merged.hiddenLayers, ...report.hiddenLayers],
             hasText: merged.hasText || report.hasText,
             images: merged.images + report.images,
             specks: merged.specks + report.specks,

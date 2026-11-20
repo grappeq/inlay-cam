@@ -11,12 +11,18 @@
 // is closed when the outline is deleted or leaves. What lies inside an
 // outline and is not given with it stays where it is, and gets its hole in
 // whatever is around it afterwards. Outlines given together move together.
+//
+// All of this holds within a layer. Shapes on different layers lie on top of
+// each other whole: neither is a hole in the other, whatever lies inside what.
 
 import type { Design, DesignRegion, Project, Ring } from "../core/types";
 
 type Point = [number, number];
 /** Left, bottom, right, top. */
 export type Box = [number, number, number, number];
+
+/** The id of the layer a shape is on. */
+const on = (region: DesignRegion): number => region.layer ?? 0;
 
 function ringBox(ring: Ring): Box {
   let box: Box = [Infinity, Infinity, -Infinity, -Infinity];
@@ -106,7 +112,7 @@ function links(design: Design): Links {
     around.holes.forEach((hole, h) => {
       const hb = ringBox(hole);
       design.regions.forEach((inner, k) => {
-        if (k === i || parent.has(inner.id)) return;
+        if (k === i || parent.has(inner.id) || on(inner) !== on(around)) return;
         if (Math.abs(boxes[k][0] - hb[0]) > MATCH || Math.abs(boxes[k][2] - hb[2]) > MATCH) return;
         if (!fills(inner.outer, hole)) return;
         parent.set(inner.id, { id: around.id, hole: h });
@@ -195,11 +201,12 @@ function closeHoles(design: Design, chosen: Set<number>): Design {
 }
 
 /**
- * Cuts a hole for each of the given shapes into the shape it now lies
- * wholly inside, if there is one. A shape that only partly covers another
- * is left as it is: shapes may lie on top of each other.
+ * Cuts a hole for each of the given shapes into the shape of its layer it
+ * now lies wholly inside, if there is one. A shape that only partly covers
+ * another is left as it is: shapes may lie on top of each other. With
+ * `into`, only those shapes are looked at for the one around.
  */
-function openHoles(design: Design, moved: number[], chosen: Set<number>): Design {
+function openHoles(design: Design, moved: number[], chosen: Set<number>, into?: Set<number>): Design {
   let regions = design.regions;
   for (const id of moved) {
     const shape = regions.find((r) => r.id === id);
@@ -207,7 +214,7 @@ function openHoles(design: Design, moved: number[], chosen: Set<number>): Design
     const box = ringBox(shape.outer);
     let best: DesignRegion | null = null;
     for (const around of regions) {
-      if (chosen.has(around.id)) continue;
+      if (chosen.has(around.id) || on(around) !== on(shape) || (into && !into.has(around.id))) continue;
       const b = ringBox(around.outer);
       if (box[0] < b[0] || box[1] < b[1] || box[2] > b[2] || box[3] > b[3]) continue;
       // Every point of the outline in the other's wood, and none of the
@@ -380,26 +387,50 @@ export function duplicateShapes(design: Design, ids: number[], gap: number): { d
  * Adds an outline drawn in the app as a new shape, and returns its id.
  *
  * It joins the drawing as an outline does anywhere here: lying wholly inside
- * another shape it becomes a hole in that shape, and a part that lies wholly
- * inside it becomes a hole in it. An outline that only partly covers another
- * is left as it is: shapes may lie on top of each other.
+ * another shape of its layer it becomes a hole in that shape, and a part of
+ * its layer that lies wholly inside it becomes a hole in it. An outline that
+ * only partly covers another is left as it is: shapes may lie on top of each
+ * other. `layer` is the id of the layer it goes on.
  */
-export function addShape(design: Design, outline: Ring): { design: Design; id: number } {
+export function addShape(design: Design, outline: Ring, layer = 0): { design: Design; id: number } {
   const id = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
   const outer = signedArea(outline) < 0 ? [...outline].reverse() : outline;
   const box = ringBox(outer);
   const { parent } = links(design);
   const holes = design.regions
     .filter((r) => {
-      if (parent.has(r.id)) return false;
+      if (parent.has(r.id) || on(r) !== layer) return false;
       const b = ringBox(r.outer);
       if (b[0] < box[0] || b[1] < box[1] || b[2] > box[2] || b[3] > box[3]) return false;
       return r.outer.every((p) => inRing(p as Point, outer) && distanceToRing(p as Point, outer) >= INSIDE);
     })
     .map((r) => [...r.outer].reverse());
   const chosen = new Set([id]);
-  const added = { ...design, regions: [...design.regions, { id, outer, holes }] };
+  const added = { ...design, regions: [...design.regions, { id, ...(layer !== 0 ? { layer } : {}), outer, holes }] };
   return { design: openHoles(added, [id], chosen), id };
+}
+
+/**
+ * Puts the shapes on another layer, where they lie. The holes they filled on
+ * their old layers are closed. On the new one each becomes a hole in the
+ * shape it lies wholly inside, and what lies wholly inside it there becomes a
+ * hole in it. What was inside one and is not moved with it stays on its
+ * layer, as a hole in whatever is around it there.
+ */
+export function moveToLayer(design: Design, ids: number[], layer: number): Design {
+  const all = pick(design, ids);
+  const chosen = new Set(design.regions.filter((r) => all.has(r.id) && on(r) !== layer).map((r) => r.id));
+  if (chosen.size === 0) return design;
+  const freed = release(design, chosen);
+  const closed = closeHoles(freed.design, chosen);
+  let out: Design = { ...closed, regions: closed.regions.map((r) => (chosen.has(r.id) ? { ...r, layer } : r)) };
+  // Shapes of the layer that fill no hole yet.
+  const loose = (d: Design, of: (r: DesignRegion) => boolean) => d.regions.filter((r) => on(r) === layer && of(r) && !links(d).parent.has(r.id)).map((r) => r.id);
+  // The moved ones, into whatever of the layer is around them, moved or not.
+  out = openHoles(out, loose(out, (r) => chosen.has(r.id)), new Set());
+  // What was on the layer already, into the moved shapes it lies inside.
+  out = openHoles(out, loose(out, (r) => !chosen.has(r.id)), new Set(), chosen);
+  return settle(out, freed.left);
 }
 
 /** Makes the page the extent of the shapes plus `margin` on every side. */

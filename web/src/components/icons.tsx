@@ -189,6 +189,52 @@ const ARRANGE_ICONS = {
   ellipse: <ellipse cx="10" cy="10" rx="7.5" ry="5.5" fill="currentColor" fillOpacity="0.16" />,
   polygon: <path d="M10 2.5l6.5 3.75v7.5L10 17.5l-6.5-3.75v-7.5z" fill="currentColor" fillOpacity="0.16" />,
   pick: <path d="M5 3l9.5 7.5-4.2.6 2.6 5-1.8.9-2.5-5L5 15z" />,
+  // Layers of the drawing: a stack of sheets, and what is done to one.
+  layers: (
+    <>
+      <path d="M10 3l7.5 4-7.5 4-7.5-4z" fill="currentColor" fillOpacity="0.16" />
+      <path d="M2.5 10.5l7.5 4 7.5-4M2.5 14l7.5 4 7.5-4" />
+    </>
+  ),
+  toLayer: (
+    <>
+      <path d="M10 2v8.5M6.5 7L10 10.5 13.5 7" />
+      <path d="M2.5 13.5l7.5 4 7.5-4" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M1.5 10s3.2-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3.2 5.5-8.5 5.5S1.5 10 1.5 10z" />
+      <circle cx="10" cy="10" r="2.4" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M1.5 10s3.2-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3.2 5.5-8.5 5.5S1.5 10 1.5 10z" strokeOpacity="0.45" />
+      <path d="M3.5 3.5l13 13" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4.5" y="9" width="11" height="8" rx="1.5" fill="currentColor" fillOpacity="0.16" />
+      <path d="M7 9V6.5a3 3 0 0 1 6 0V9" />
+    </>
+  ),
+  unlock: (
+    <>
+      <rect x="4.5" y="9" width="11" height="8" rx="1.5" />
+      <path d="M7 9V6.5a3 3 0 0 1 5.7-1.3" />
+    </>
+  ),
+  close: <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />,
+  plus: <path d="M10 4v12M4 10h12" />,
+  more: (
+    <>
+      <circle cx="4.5" cy="10" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="10" r="1.3" fill="currentColor" stroke="none" />
+    </>
+  ),
   grip: (
     <>
       <circle cx="7.5" cy="5" r="1.2" fill="currentColor" stroke="none" />

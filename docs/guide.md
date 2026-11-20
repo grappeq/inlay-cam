@@ -345,11 +345,14 @@ The board and the view:
   view; double-click empty board, or press "Whole board", to see all of it.
 
 Shapes keep their inlays when they are moved, resized or turned. A shape dropped wholly
-inside another becomes a hole in it, as if it had been drawn there. Shapes may lie
+inside another on its layer becomes a hole in it, as if it had been drawn there. Shapes may lie
 partly on top of each other, and filled shapes of an imported drawing stay whole where
 one covers another: the app does not cut one around the other. Shapes of one inlay are
 merged; two inlays over the same wood only work cut one after the other, the second into
 the first once it is glued in. There is no snapping or aligning of one part to another.
+
+In a narrow window the toolbar is shorter: turning by a typed angle and scaling by a
+percentage are behind its **⋯** button, and the "mm" after the number boxes is left out.
 
 ### Drawing shapes
 
@@ -376,6 +379,52 @@ inside another shape it is a hole in that shape and the piece that fills it, and
 around other parts it gets a hole for each. It stays a shape of its own either way: a
 click selects it without what is inside it. Drawn partly over another shape, both
 stay whole. A shape can be drawn over the stock's edges or beside it.
+
+### Layers
+
+A drawing can be kept in layers: shapes that are named, shown, locked and coloured
+together. **Layers**, at the top left of the drawing, opens their list, the top layer
+first. A drawing starts with one. With more than one, each layer's shapes are outlined
+in its colour.
+
+- The number on a layer's line is how many shapes it holds, and is blue when some of the
+  selection is on it. Click it to select them all: the quick way to make an inlay or an
+  operation from a whole layer.
+- The eye hides a layer. A hidden layer's shapes cannot be picked, but the inlays and
+  operations that use them cut them all the same, and say how many of their shapes are
+  hidden.
+- Drag the list by its heading to where it is not in the way; a double click on the
+  heading puts it back in the corner. The cross folds it away.
+
+The rest is there while the drawing is edited:
+
+- **+** adds a layer above the one that is drawn on. Click a layer's name to draw on it:
+  new shapes go there. Double-click the name, or press F2 on it, to rename it.
+- Drag a layer by its grip, or press the up or down arrow on the grip, to put it higher
+  or lower.
+- The lock keeps a layer's shapes from being selected, moved or deleted while editing.
+  They can still be picked for inlays and operations.
+- The square before the name sets the colour of the layer's lines.
+- The bin, which shows when a line is pointed at, deletes the layer with its shapes.
+
+To put the selected shapes on another layer, right-click one of them and choose the
+layer under **Move to layer**, or use the toolbar's button of that name, or the arrow on
+the layer's line in the list. "New layer" there makes one for them. A hidden or locked
+layer takes none. The same right-click menu selects everything on the shape's layer,
+copies and deletes.
+
+**Holes are a matter of one layer.** A shape wholly inside another on the same layer is a
+hole in it; on different layers both stay whole, whatever lies inside what. So a recess
+on one layer and an inlay inside it on another are two whole shapes: the recess is
+pocketed right across, and the inlay is cut into its floor with a *start depth*. Moving a
+shape to another layer closes the hole it filled and opens one where it now lies inside
+a shape. One case is left as it is, here as when a shape is drawn or dragged: a shape
+that comes between another and what is already a hole in that one lies on top, and cuts
+no holes.
+
+A drawing brought in with **Add drawing…** comes onto a layer of its own, named after
+its file, or onto the layers it has. The layers of a DXF file and of an Inkscape SVG are
+kept; a layer hidden in Inkscape is left out, and the import says so.
 
 ## 3. Make an inlay
 

@@ -121,6 +121,9 @@ Second round, the same day:
 - Each kind of inlay and operation has a symbol.
 - Arranging the drawing no longer fills the side panel with fields: its tools are in a
   toolbar above the drawing, where arranging is also switched on and drawings are added.
+- The drawing has layers: shapes are named, hidden, locked and coloured by layer, a
+  right click moves the selection to another layer, and an outline is a hole in another
+  only on its own layer. The layers of DXF and Inkscape drawings are kept.
 
 ## Out of scope for v1 (future)
 

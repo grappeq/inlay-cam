@@ -43,6 +43,7 @@ import {
   withoutStep,
 } from "../state/model";
 import { useFileActions } from "../state/files";
+import { pickable } from "../state/layers";
 import { useApp, useDispatch, type PanelPage } from "../state/store";
 import { pickTextFile, pickTextFiles } from "../util/files";
 import { FilletIcon, StepIcon } from "./icons";
@@ -116,6 +117,16 @@ export function DesignPanel({ design }: { design: Design }) {
   );
 }
 
+/** Says how many of a step's shapes are not to be seen, being on a hidden layer. They are cut all the same. */
+function OnHiddenLayers({ ids }: { ids: number[] }) {
+  const { project } = useApp();
+  if (!project.design) return null;
+  const shown = pickable(project.design, false);
+  const hidden = ids.filter((id) => !shown(id)).length;
+  if (hidden === 0) return null;
+  return <span className="warn"> {hidden === ids.length && hidden > 1 ? "All" : hidden} of them {hidden === 1 ? "is" : "are"} on a hidden layer.</span>;
+}
+
 export function ReportNotes({ report }: { report: ImportReport }) {
   const notes: string[] = [];
   if (report.openOutlines > 0) {
@@ -127,6 +138,10 @@ export function ReportNotes({ report }: { report: ImportReport }) {
   if (report.unitNote) notes.push(`The drawing's unit: ${report.unitNote}. Check the size below.`);
   if (report.unsupported.length > 0) {
     notes.push(`Left out, because the app does not read ${report.unsupported.length === 1 ? "it" : "them"}: ${report.unsupported.join(", ")}.`);
+  }
+  if (report.hiddenLayers?.length > 0) {
+    const one = report.hiddenLayers.length === 1;
+    notes.push(`Hidden in the drawing, and left out: the layer${one ? "" : "s"} ${report.hiddenLayers.map((n) => `"${n}"`).join(", ")}. Show ${one ? "it" : "them"} in the drawing program to bring ${one ? "it" : "them"} in.`);
   }
   if (report.hasText) notes.push("The drawing contains text, which was left out. Convert it to outlines first.");
   if (report.images > 0) notes.push(`${report.images} embedded image${report.images === 1 ? " was" : "s were"} left out.`);
@@ -293,7 +308,9 @@ function StepsSection({ design }: { design: Design }) {
   const { project, selection, tools, defaults } = useApp();
   const dispatch = useDispatch();
   const owners = regionOwners(project.steps);
-  const free = design.regions.filter((r) => !owners.has(r.id)).map((r) => r.id);
+  // Those that can be picked: not the ones on a hidden layer.
+  const shown = pickable(design, false);
+  const free = design.regions.filter((r) => !owners.has(r.id) && shown(r.id)).map((r) => r.id);
   const owned = selection.filter((id) => owners.has(id)).length;
 
   const create = (type: StepType) => {
@@ -571,6 +588,7 @@ function OpEditor({ step }: { step: Step }) {
             {inlay.type === "facing" && step.regionIds.length === 0
               ? "No shapes: the whole stock is faced. Click shapes in the drawing to face over them only."
               : `${step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.`}
+            <OnHiddenLayers ids={step.regionIds} />
           </p>
         </section>
 
@@ -1226,6 +1244,7 @@ function StepEditor({ step }: { step: InlayStep }) {
           </label>
           <p className={`status-line${step.regionIds.length === 0 ? " warn" : ""}`}>
             {step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.
+            <OnHiddenLayers ids={step.regionIds} />
           </p>
         </section>
 

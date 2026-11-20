@@ -277,6 +277,21 @@ Clearances and tabs. Every field has the default given, so any may be left out.
 | `scale` | Uniform scale applied when the regions are used. Default 1. The app now writes 1: on opening a project it works any other scale into the regions and the page size. |
 | `mirror` | Flip the whole design left to right. Default false. The app now writes false: on opening a project it works a mirrored design into the regions. |
 | `regions` | The filled areas of the drawing. |
+| `layers` | The drawing's layers, the top one first. May be missing: a drawing without layers is one layer, with the id 0, and is written without them. |
+
+### Layer
+
+Shapes that are named, shown, locked and coloured together. An outline that lies wholly
+inside another is a hole in it only when both are on the same layer: shapes on different
+layers lie on top of each other whole.
+
+| Field | Meaning |
+|---|---|
+| `id` | Whole number, unique within the design. |
+| `name` | Its name. Not blank. |
+| `hidden` | `true`: not drawn on the screens. Its shapes are cut all the same by the steps that use them. Default false; not written when false. |
+| `locked` | `true`: its shapes are not moved, resized or deleted on the screens. Default false; not written when false. |
+| `color` | The colour of its shapes' lines on the screens, as `#rrggbb`. May be missing: the screens then choose one by the layer's id. |
 
 ### Region
 
@@ -286,6 +301,7 @@ One filled area: the unit the user selects.
 |---|---|
 | `id` | Whole number, unique within the design. |
 | `color` | Fill colour in the drawing as `#rrggbb`, when it was a plain colour. |
+| `layer` | The id of the layer it is on, which must be in the design's `layers`. Default 0; not written when 0. Without `layers` it must be 0. |
 | `outer` | Outer boundary: a list of `[x, y]` points, counter-clockwise. The closing segment is implied. |
 | `holes` | Holes, each a list of points, clockwise. |
 
@@ -468,6 +484,14 @@ Read by `crates/inlay-core/src/import/svg.rs`.
   that has not been converted to outlines, embedded images, and filled areas under
   0.01 mm².
 - Clip paths and masks are ignored: the full shape is imported.
+- The layers of an Inkscape drawing (groups with `inkscape:groupmode="layer"`) are kept,
+  under their labels, the last drawn on top; a hidden layer is not imported, and is
+  named after the import. What is
+  drawn outside every layer is on a layer called "No layer". Outlines are joined, and cut
+  out of each other, within a layer only. A layer that ends up without shapes is left
+  out, and a drawing whose shapes are all on one layer comes in without layers. Of two
+  layers with one name the later gets a number after it. Groups of other programs are
+  not taken for layers.
 
 ## DXF import
 
@@ -487,7 +511,12 @@ Read by `crates/inlay-core/src/import/dxf.rs`. Only the text (ASCII) form is rea
   made of outlines. Chains that do not close are left out and counted.
 - A DXF file has no page. The base board is the extent of the shapes plus 5 mm on every
   side, with the work origin at its bottom-left corner.
-- Layers, colours and line types are ignored.
+- Layers are kept, under their names, in the order their first entities appear, the last
+  on top; an entity that names no layer is on layer `0`. Lines are joined, and outlines
+  cut out of each other, within a layer only. Layers without shapes are left out, and a
+  drawing whose shapes are all on one layer comes in without layers. Names are taken
+  without the spaces around them; a layer without a name is called by its number.
+- Colours and line types are ignored, also a layer's own.
 
 ## Test drawings
 

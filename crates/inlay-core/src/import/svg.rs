@@ -7,16 +7,21 @@
 //! areas between the lines, as the drawing reads. Outlines that cross or touch
 //! stay whole. Regions from different paths
 //! are kept apart so they can be selected separately.
+//!
+//! The layers of an Inkscape drawing are kept: its shapes are on the layers
+//! they were drawn on, and outlines are joined, and cut out of each other,
+//! within a layer only.
 
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::float::simplify::SimplifyShape;
 use serde::Serialize;
+use std::collections::HashMap;
 use usvg::tiny_skia_path::{PathSegment, Point as SkPoint};
 
 use super::join::{join, JOIN_GAP};
 use crate::geom::boolean::difference;
 use crate::geom::{distance, ring_area, Point, Region, Ring};
-use crate::project::{Design, DesignRegion};
+use crate::project::{Design, DesignRegion, Layer};
 
 /// SVG user units are CSS pixels: 96 per inch.
 const MM_PER_PX: f64 = 25.4 / 96.0;
@@ -52,6 +57,94 @@ pub struct ImportReport {
     pub unsupported: Vec<String>,
     /// DXF: the unit the drawing was in, when it was not millimetres.
     pub unit_note: Option<String>,
+    /// SVG: the names of the layers that were hidden in the drawing, and so
+    /// were not read.
+    pub hidden_layers: Vec<String>,
+}
+
+/// The layers of an imported drawing from their names, in the order their
+/// first shapes were drawn: a layer's place in `names` is its id. The last
+/// drawn is the top one. A drawing on one layer has none. A layer without
+/// a name is called by its number, and one whose name is taken gets a number
+/// after it.
+pub(crate) fn layers_named(names: Vec<String>) -> Vec<Layer> {
+    if names.len() < 2 {
+        return Vec::new();
+    }
+    let mut taken: Vec<String> = Vec::new();
+    let mut layers: Vec<Layer> = Vec::new();
+    for (id, name) in names.into_iter().enumerate() {
+        let wanted = if name.trim().is_empty() {
+            format!("Layer {}", id + 1)
+        } else {
+            name.trim().to_string()
+        };
+        let mut name = wanted.clone();
+        let mut n = 2;
+        while taken.contains(&name) {
+            name = format!("{wanted} {n}");
+            n += 1;
+        }
+        taken.push(name.clone());
+        layers.push(Layer {
+            id: id as u32,
+            name,
+            hidden: false,
+            locked: false,
+            color: None,
+        });
+    }
+    layers.reverse();
+    layers
+}
+
+/// Leaves out the layers that have no shapes, such as one whose only lines
+/// did not close, and numbers the rest from 0 in their order.
+pub(crate) fn only_used_layers(regions: &mut [DesignRegion], names: Vec<String>) -> Vec<String> {
+    let used: Vec<u32> = (0..names.len() as u32)
+        .filter(|id| regions.iter().any(|r| r.layer == *id))
+        .collect();
+    for region in regions.iter_mut() {
+        region.layer = used.iter().position(|l| *l == region.layer).unwrap_or(0) as u32;
+    }
+    used.iter().map(|l| names[*l as usize].clone()).collect()
+}
+
+const SVG: &str = "http://www.w3.org/2000/svg";
+const INKSCAPE: &str = "http://www.inkscape.org/namespaces/inkscape";
+
+/// The groups an Inkscape drawing marks as layers, by id, with their names;
+/// and the names of those that are hidden, which the reader leaves out.
+fn inkscape_layers(text: &str) -> (HashMap<String, String>, Vec<String>) {
+    let options = usvg::roxmltree::ParsingOptions {
+        allow_dtd: true,
+        ..Default::default()
+    };
+    let Ok(document) = usvg::roxmltree::Document::parse_with_options(text, options) else {
+        return (HashMap::new(), Vec::new());
+    };
+    let mut layers = HashMap::new();
+    let mut hidden = Vec::new();
+    let groups = document
+        .descendants()
+        .filter(|node| node.has_tag_name((SVG, "g")))
+        .filter(|node| node.attribute((INKSCAPE, "groupmode")) == Some("layer"));
+    for node in groups {
+        let id = node.attribute("id").unwrap_or_default();
+        let name = node.attribute((INKSCAPE, "label")).unwrap_or(id);
+        let style: String = node
+            .attribute("style")
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        if node.attribute("display") == Some("none") || style.contains("display:none") {
+            hidden.push(name.to_string());
+        }
+        if !id.is_empty() {
+            layers.insert(id.to_string(), name.to_string());
+        }
+    }
+    (layers, hidden)
 }
 
 /// The areas between outlines that carry no fill: every outline that lies
@@ -63,6 +156,10 @@ pub(crate) fn regions_between_outlines(regions: Vec<DesignRegion>) -> Vec<Design
         regions,
         open: Vec::new(),
         report: ImportReport::default(),
+        layer_groups: HashMap::new(),
+        layer_names: Vec::new(),
+        layer_ids: HashMap::new(),
+        within: None,
     };
     importer.split_nested_outlines();
     importer.regions
@@ -73,18 +170,25 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
         .map_err(|e| format!("The file could not be read as an SVG drawing: {e}"))?;
 
     let height_px = tree.size().height() as f64;
+    let (layer_groups, hidden_layers) = inkscape_layers(text);
     let mut importer = Importer {
         height_px,
         regions: Vec::new(),
         outlines: Vec::new(),
         open: Vec::new(),
         report: ImportReport::default(),
+        layer_groups,
+        layer_names: Vec::new(),
+        layer_ids: HashMap::new(),
+        within: None,
     };
     // Without font support the parser drops text silently, so look for it in the source.
     importer.report.has_text = text.contains("<text");
+    importer.report.hidden_layers = hidden_layers;
     importer.group(tree.root());
     importer.join_open_outlines();
     importer.split_nested_outlines();
+    let names = only_used_layers(&mut importer.regions, importer.layer_names);
 
     Ok(SvgImport {
         design: Design {
@@ -94,6 +198,7 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
             scale: 1.0,
             mirror: false,
             regions: importer.regions,
+            layers: layers_named(names),
         },
         report: importer.report,
     })
@@ -106,20 +211,51 @@ struct Importer {
     outlines: Vec<bool>,
     /// Outlines without a fill that do not close on their own. CAD exports
     /// often draw each line and arc of a shape as a path of its own.
-    open: Vec<Ring>,
+    open: Vec<(Ring, u32)>,
     report: ImportReport,
+    /// The groups that are layers, by id, with their names.
+    layer_groups: HashMap<String, String>,
+    /// The names of the layers that have shapes: a layer's place is its id.
+    layer_names: Vec<String>,
+    /// The id of each such layer, by its group's id; "" for what is on no layer.
+    layer_ids: HashMap<String, u32>,
+    /// The id of the layer group being read, if any.
+    within: Option<String>,
 }
 
 impl Importer {
     fn group(&mut self, group: &usvg::Group) {
         for node in group.children() {
             match node {
-                usvg::Node::Group(inner) => self.group(inner),
+                usvg::Node::Group(inner) => {
+                    if self.layer_groups.contains_key(inner.id()) {
+                        let outside = self.within.replace(inner.id().to_string());
+                        self.group(inner);
+                        self.within = outside;
+                    } else {
+                        self.group(inner);
+                    }
+                }
                 usvg::Node::Path(path) => self.path(path),
                 usvg::Node::Image(_) => self.report.images += 1,
                 usvg::Node::Text(_) => self.report.has_text = true,
             }
         }
+    }
+
+    /// The id of the layer being read. It is counted among the drawing's
+    /// layers from its first shape on.
+    fn layer(&mut self) -> u32 {
+        let key = self.within.clone().unwrap_or_default();
+        if let Some(&id) = self.layer_ids.get(&key) {
+            return id;
+        }
+        let id = self.layer_names.len() as u32;
+        let name = self.layer_groups.get(&key).cloned();
+        self.layer_names
+            .push(name.unwrap_or_else(|| "No layer".into()));
+        self.layer_ids.insert(key, id);
+        id
     }
 
     fn path(&mut self, path: &usvg::Path) {
@@ -147,22 +283,41 @@ impl Importer {
                 .rings(path)
                 .into_iter()
                 .partition(|(_, closed)| *closed);
-            self.open.extend(open.into_iter().map(|(ring, _)| ring));
+            if !open.is_empty() {
+                let layer = self.layer();
+                self.open
+                    .extend(open.into_iter().map(|(ring, _)| (ring, layer)));
+            }
             let rings = closed.into_iter().map(|(ring, _)| ring);
             (rings.collect(), color(stroke.paint()), FillRule::EvenOdd)
         } else {
             return;
         };
-        self.add_shapes(rings, color, rule, outline);
+        if rings.is_empty() {
+            return;
+        }
+        let layer = self.layer();
+        self.add_shapes(rings, color, rule, outline, layer);
     }
 
     /// Joins the outlines that do not close on their own end to end. Those
     /// that close that way become shapes; the rest are reported.
     fn join_open_outlines(&mut self) {
-        let joined = join(std::mem::take(&mut self.open), JOIN_GAP);
-        self.report.open_outlines += joined.open;
-        for ring in joined.closed {
-            self.add_shapes(vec![ring], None, FillRule::EvenOdd, true);
+        let open = std::mem::take(&mut self.open);
+        let mut layers: Vec<u32> = open.iter().map(|(_, layer)| *layer).collect();
+        layers.sort_unstable();
+        layers.dedup();
+        for layer in layers {
+            let pieces = open
+                .iter()
+                .filter(|(_, on)| *on == layer)
+                .map(|(ring, _)| ring.clone())
+                .collect();
+            let joined = join(pieces, JOIN_GAP);
+            self.report.open_outlines += joined.open;
+            for ring in joined.closed {
+                self.add_shapes(vec![ring], None, FillRule::EvenOdd, true, layer);
+            }
         }
     }
 
@@ -172,6 +327,7 @@ impl Importer {
         color: Option<String>,
         rule: FillRule,
         outline: bool,
+        layer: u32,
     ) {
         if rings.is_empty() {
             return;
@@ -192,6 +348,7 @@ impl Importer {
             self.regions.push(DesignRegion {
                 id: self.regions.len() as u32,
                 color: color.clone(),
+                layer,
                 outer,
                 holes: shape,
             });
@@ -204,11 +361,14 @@ impl Importer {
     /// lies wholly inside another is cut out of it. A circle around six
     /// shapes becomes the web between them, not a disc underneath. An outline
     /// that crosses or touches another is not inside it, and both stay whole:
-    /// shapes may lie on top of each other.
+    /// shapes may lie on top of each other. So do outlines on different
+    /// layers, whatever lies inside what.
     fn split_nested_outlines(&mut self) {
         if self.outlines.iter().filter(|&&o| o).count() < 2 {
             return;
         }
+        let on: Vec<u32> = self.regions.iter().map(|r| r.layer).collect();
+        let on = &on;
         let shapes: Vec<Option<Outline>> = self
             .regions
             .iter()
@@ -235,7 +395,7 @@ impl Importer {
                     .iter()
                     .enumerate()
                     .filter_map(move |(j, other)| Some((j, other.as_ref()?)))
-                    .filter(move |&(j, _)| j != i)
+                    .filter(move |&(j, _)| j != i && on[j] == on[i])
             };
             // The same outline drawn twice is one shape: the later one.
             if others().any(|(j, other)| j > i && around.same_as(other)) {
@@ -254,6 +414,7 @@ impl Importer {
                     out.push(DesignRegion {
                         id: 0,
                         color: region.color.clone(),
+                        layer: region.layer,
                         outer: piece.outer,
                         holes: piece.holes,
                     });
@@ -489,6 +650,93 @@ mod tests {
         );
         assert_close(out.design.width, 25.4, 1e-3);
         assert_close(area(&out.design.regions[0]), 25.4 * 25.4, 1e-2);
+    }
+
+    /// A square on one Inkscape layer, and on another a circle inside it and a small square beside it.
+    const LAYERED: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="100mm" height="100mm" viewBox="0 0 100 100">
+        <g inkscape:groupmode="layer" id="layer1" inkscape:label="Outline" fill="none" stroke="black">
+            <rect x="10" y="10" width="60" height="60"/>
+        </g>
+        <g inkscape:groupmode="layer" id="layer2" inkscape:label="Leaves" fill="none" stroke="black">
+            <circle cx="40" cy="40" r="10"/>
+            <rect x="80" y="80" width="10" height="10"/>
+        </g></svg>"#;
+
+    #[test]
+    fn inkscape_layers_are_kept_and_outlines_nest_within_one_only() {
+        let out = import(LAYERED);
+        // The last drawn layer is the top one.
+        let names: Vec<&str> = out.design.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Leaves", "Outline"]);
+        assert_eq!(out.design.regions.len(), 3);
+        let outline = out.design.layers[1].id;
+        let square = out
+            .design
+            .regions
+            .iter()
+            .find(|r| r.layer == outline)
+            .unwrap();
+        // The circle is on another layer: it cuts no hole in the square.
+        assert!(square.holes.is_empty());
+        assert_close(area(square), 3600.0, 1e-2);
+        assert_eq!(
+            out.design
+                .regions
+                .iter()
+                .filter(|r| r.layer != outline)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_layer_without_shapes_is_left_out_and_names_are_told_apart() {
+        // The first layer holds only a line that does not close: the drawing is on one layer.
+        let open = LAYERED.replace(
+            r#"<rect x="10" y="10" width="60" height="60"/>"#,
+            r#"<path d="M10 10 L50 10 L50 50"/>"#,
+        );
+        let out = import(&open);
+        assert_eq!(out.report.open_outlines, 1);
+        assert!(out.design.layers.is_empty());
+        assert_eq!(out.design.regions.len(), 2);
+        assert!(out.design.regions.iter().all(|r| r.layer == 0));
+
+        let twice = LAYERED.replace("Outline", "Leaves");
+        let names: Vec<String> = import(&twice)
+            .design
+            .layers
+            .into_iter()
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(names, ["Leaves 2", "Leaves"]);
+    }
+
+    #[test]
+    fn a_hidden_layer_is_left_out_and_said_so() {
+        let hidden = LAYERED.replace(
+            r#"inkscape:label="Leaves""#,
+            r#"inkscape:label="Leaves" style="display: none""#,
+        );
+        let out = import(&hidden);
+        assert_eq!(out.report.hidden_layers, ["Leaves"]);
+        assert_eq!(out.design.regions.len(), 1);
+        assert!(out.design.layers.is_empty());
+        assert!(import(LAYERED).report.hidden_layers.is_empty());
+    }
+
+    #[test]
+    fn a_drawing_on_one_layer_has_no_layers() {
+        let one = LAYERED.replace(
+            r#"</g>
+        <g inkscape:groupmode="layer" id="layer2" inkscape:label="Leaves" fill="none" stroke="black">"#,
+            "",
+        );
+        let out = import(&one);
+        assert!(out.design.layers.is_empty());
+        assert!(out.design.regions.iter().all(|r| r.layer == 0));
+        // On one layer the circle is cut out of the square.
+        assert!(out.design.regions.iter().any(|r| r.holes.len() == 1));
     }
 
     #[test]

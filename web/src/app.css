@@ -1560,6 +1560,7 @@ button.project-row:hover {
   min-height: 0;
   position: relative;
   display: flex;
+  container-type: inline-size;
 }
 .canvas {
   touch-action: none;
@@ -4641,4 +4642,346 @@ button.export-show:focus-visible {
 .agent-command {
   user-select: all;
   word-break: break-all;
+}
+
+/* Layers of the drawing */
+/* A layer's colour: on the stock the page works out the shade that stands out from the wood (--layer-edge on the shape); beside the stock it goes by the theme. */
+.region.layered {
+  --layer-edge: color-mix(in srgb, var(--lc) 78%, #000);
+  stroke: var(--layer-edge);
+  stroke-width: 1.5;
+}
+.canvas .off-stock .region.layered {
+  --layer-edge: light-dark(color-mix(in srgb, var(--lc) 78%, #000), color-mix(in srgb, var(--lc) 50%, #fff));
+}
+.region.layered:hover {
+  stroke-width: 3;
+}
+.region.layered.selected,
+.region.layered.active {
+  stroke: var(--layer-edge);
+}
+.region.layered.selected {
+  stroke-width: 2.5;
+}
+.region.layered.active {
+  stroke-width: 3.5;
+}
+.region.layered:focus-visible {
+  stroke: var(--focus);
+}
+.region.layered.used {
+  stroke: var(--select);
+}
+/* On a locked layer, while the drawing is edited: seen, and clicked through. */
+.region.locked {
+  pointer-events: none;
+  stroke-dasharray: 2 3;
+}
+
+.layers,
+.layers-fold {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+}
+.layers-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+}
+.layers-fold .count,
+.layer-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.layers {
+  width: 304px;
+  max-width: calc(100% - 8px);
+  max-height: calc(100% - 34px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(26 31 37 / 0.1);
+}
+.layers > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.layers > header:active {
+  cursor: grabbing;
+}
+.layers > header h3 {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+}
+.layers ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.layers li {
+  border-radius: 6px;
+}
+.layers li.active {
+  background: var(--accent-soft);
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 2px 0 4px;
+}
+.layers button.tool {
+  border-color: transparent;
+  background: none;
+  padding: 3px;
+  color: var(--muted);
+}
+.layers button.tool:hover:not(:disabled),
+.layers button.tool[aria-pressed="true"] {
+  color: var(--text);
+}
+.layers button.tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.layers button.tool.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+.layers .icon {
+  width: 18px;
+  height: 18px;
+}
+/* Deleting waits out of sight until its line is pointed at or holds the focus. */
+.layers button.quiet {
+  opacity: 0;
+}
+.layers li:hover button.quiet,
+.layers li:focus-within button.quiet {
+  opacity: 1;
+}
+.layers li.hidden .layer-name,
+.layers li.hidden .layer-swatch {
+  opacity: 0.5;
+}
+.layer-swatch {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  --shade: light-dark(var(--lc), color-mix(in srgb, var(--lc) 55%, #fff));
+  border: 2.5px solid var(--shade);
+  background: color-mix(in srgb, var(--shade) 18%, transparent);
+}
+.layers.single .layer-swatch {
+  border-color: var(--muted);
+  background: none;
+}
+.layers .swatch-button {
+  display: inline-flex;
+  padding: 4px;
+  border-color: transparent;
+  background: none;
+}
+.layers .swatch-button:hover {
+  border-color: var(--line-strong);
+}
+.layers .layer-row > .layer-swatch {
+  margin: 0 5px;
+}
+.layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
+button.layer-name {
+  border-color: transparent;
+  background: none;
+}
+button.layer-name[aria-pressed="true"] {
+  font-weight: 600;
+}
+input.layer-name {
+  border: 1px solid var(--accent);
+  background: var(--surface);
+}
+button.layer-count {
+  margin: 0 2px;
+  line-height: 18px;
+}
+button.layer-count:disabled {
+  opacity: 1;
+  color: var(--muted);
+}
+button.layer-count.holds {
+  background: var(--select);
+  border-color: var(--select);
+  color: var(--accent-text);
+}
+.layer-colors {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px 8px 30px;
+}
+.layer-colors button {
+  width: 20px;
+  height: 20px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--lc);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.layer-colors button[aria-checked="true"] {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+/* Menus that put shapes on a layer: under the toolbar's button, and where the drawing was right-clicked. */
+.tool-menu {
+  position: relative;
+  display: inline-flex;
+}
+.tool-menu .menu-items {
+  left: 0;
+  right: auto;
+}
+.context-menu {
+  position: fixed;
+  right: auto;
+  z-index: 40;
+}
+.layer-menu {
+  min-width: 200px;
+  max-width: 280px;
+}
+.layer-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.layer-menu button .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer-menu button[aria-checked="true"] {
+  opacity: 1;
+  font-weight: 600;
+}
+.layer-menu button[aria-checked="true"]::after {
+  content: "✓";
+}
+.layer-menu .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.layer-menu .menu-group {
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.menu-heading {
+  padding: 5px 10px 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.layer-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+/* The toolbar's first row holds one more button since layers came: its groups stand a little closer, so that it stays one row. */
+.arrange-tools > .tool-row {
+  column-gap: 9px;
+}
+.arrange-tools > .tool-row .tool-group + .tool-group {
+  padding-left: 9px;
+}
+/* Where the drawing is too narrow for the layers and the zoom buttons side by side, the layers go under them. */
+@container (max-width: 520px) {
+  .layers,
+  .layers-fold {
+    top: 34px;
+  }
+  .layers {
+    max-height: calc(100% - 68px);
+  }
+}
+
+/* The editing toolbar in a narrow window. Beside the drawing the panel gives way while the drawing is edited: it
+   holds little then. The toolbar puts turning by an angle and scaling by a percentage behind a button, and, narrower
+   still, drops the "mm" and makes its number boxes smaller, so that it takes three rows where it took five. */
+@media (min-width: 801px) and (max-width: 1150px) {
+  .panel.arrange-panel {
+    flex-basis: clamp(260px, 30vw, 372px);
+  }
+}
+.arrange-tools {
+  container-type: inline-size;
+}
+.arrange-tools .more-toggle {
+  display: none;
+}
+@container (max-width: 840px) {
+  .arrange-tools .more-toggle {
+    display: inline-flex;
+  }
+  .arrange-tools:not(.more) .tool-number {
+    display: none;
+  }
+  .arrange-tools .tool-number {
+    margin-left: 0;
+  }
+  .arrange-tools > .tool-row {
+    column-gap: 6px;
+  }
+  .arrange-tools > .tool-row .tool-group + .tool-group {
+    padding-left: 6px;
+  }
+}
+@container (max-width: 620px) {
+  .arrange-tools .tool-row.numbers {
+    column-gap: 8px;
+  }
+  .arrange-tools .tool-row.numbers .unit {
+    display: none;
+  }
+  .arrange-tools .tool-row.numbers .field-input input {
+    width: 4em;
+  }
+  .arrange-tools .number-pair {
+    gap: 4px;
+    padding-left: 8px;
+  }
 }

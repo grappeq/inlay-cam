@@ -387,6 +387,33 @@ pub struct Design {
     #[serde(default)]
     pub mirror: bool,
     pub regions: Vec<DesignRegion>,
+    /// The drawing's layers, the top one first. A drawing without any is one
+    /// layer, with the id 0, and is written without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<Layer>,
+}
+
+/// A layer of the drawing: shapes that are named, shown, locked and coloured
+/// together. An outline that lies wholly inside another is a hole in it only
+/// when both are on the same layer; shapes on different layers lie on top of
+/// each other whole.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layer {
+    /// Unique within the design.
+    pub id: u32,
+    pub name: String,
+    /// Not drawn on the screens. Its shapes are cut all the same by the
+    /// steps that use them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    /// Its shapes are not moved, resized or deleted on the screens.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub locked: bool,
+    /// The colour of its shapes' lines on the screens, as `#rrggbb`. Without
+    /// one the screens choose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn one() -> f64 {
@@ -402,12 +429,19 @@ pub struct DesignRegion {
     /// Fill colour in the drawing as `#rrggbb`, when it was a plain colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// The id of the layer it is on. 0 is not written.
+    #[serde(default, skip_serializing_if = "is_layer_zero")]
+    pub layer: u32,
     /// Outer boundary, counter-clockwise, mm, Y up, origin at the page's
     /// bottom-left corner.
     pub outer: Ring,
     /// Holes, clockwise.
     #[serde(default)]
     pub holes: Vec<Ring>,
+}
+
+fn is_layer_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 impl Design {
@@ -1283,7 +1317,33 @@ impl Project {
                     return Err(format!("two design regions share the id {id}"));
                 }
             }
+            for (i, layer) in design.layers.iter().enumerate() {
+                if design.layers[..i].iter().any(|other| other.id == layer.id) {
+                    return Err(format!("two layers share the id {}", layer.id));
+                }
+                if layer.name.trim().is_empty() {
+                    return Err(format!("layer {} has no name", layer.id));
+                }
+                if layer.color.as_deref().is_some_and(|c| !is_color(c)) {
+                    return Err(format!(
+                        "the colour of layer \"{}\" must be written as #rrggbb",
+                        layer.name
+                    ));
+                }
+            }
             for region in &design.regions {
+                // A drawing without layers is one layer, with the id 0.
+                let known = if design.layers.is_empty() {
+                    region.layer == 0
+                } else {
+                    design.layers.iter().any(|l| l.id == region.layer)
+                };
+                if !known {
+                    return Err(format!(
+                        "design region {} is on layer {}, which is not in the design",
+                        region.id, region.layer
+                    ));
+                }
                 if region.outer.len() < 3 || region.holes.iter().any(|h| h.len() < 3) {
                     return Err(format!(
                         "design region {} has a boundary with fewer than 3 points",
@@ -1373,16 +1433,19 @@ mod tests {
                 height: 100.0,
                 scale: 1.0,
                 mirror: false,
+                layers: Vec::new(),
                 regions: vec![
                     DesignRegion {
                         id: 0,
                         color: Some("#000000".into()),
+                        layer: 0,
                         outer: vec![[10.0, 10.0], [40.0, 10.0], [40.0, 40.0], [10.0, 40.0]],
                         holes: vec![vec![[20.0, 20.0], [20.0, 30.0], [30.0, 30.0], [30.0, 20.0]]],
                     },
                     DesignRegion {
                         id: 1,
                         color: None,
+                        layer: 0,
                         outer: vec![[60.0, 60.0], [90.0, 60.0], [75.0, 90.0]],
                         holes: vec![],
                     },
@@ -1461,6 +1524,48 @@ mod tests {
         let read = project_from_file_json(&value.to_string()).unwrap();
         assert_eq!(read.machine, Machine::default());
         assert_eq!(read.setup, Setup::default());
+    }
+
+    #[test]
+    fn a_drawing_without_layers_is_written_without_them() {
+        let text = project_to_file_json(&sample());
+        assert!(!text.contains("layer"), "{text}");
+    }
+
+    #[test]
+    fn layers_round_trip_and_are_checked() {
+        let layer = |id: u32, name: &str| Layer {
+            id,
+            name: name.into(),
+            hidden: false,
+            locked: false,
+            color: None,
+        };
+        let mut p = sample();
+        let design = p.design.as_mut().unwrap();
+        design.layers = vec![layer(1, "Leaves"), layer(0, "Outline")];
+        design.layers[0].color = Some("#0f8a7a".into());
+        design.layers[1].locked = true;
+        design.regions[1].layer = 1;
+        let text = project_to_file_json(&p);
+        assert_eq!(project_from_file_json(&text).unwrap(), p);
+
+        let mut bad = p.clone();
+        bad.design.as_mut().unwrap().regions[0].layer = 7;
+        assert!(bad.validate().unwrap_err().contains("layer 7"));
+        let mut bad = p.clone();
+        bad.design.as_mut().unwrap().layers[1].id = 1;
+        assert!(bad.validate().unwrap_err().contains("share the id"));
+        let mut bad = p.clone();
+        bad.design.as_mut().unwrap().layers[0].name = " ".into();
+        assert!(bad.validate().unwrap_err().contains("no name"));
+        let mut bad = p.clone();
+        bad.design.as_mut().unwrap().layers[0].color = Some("teal".into());
+        assert!(bad.validate().unwrap_err().contains("#rrggbb"));
+        // Without layers, every shape is on layer 0.
+        let mut bad = sample();
+        bad.design.as_mut().unwrap().regions[0].layer = 1;
+        assert!(bad.validate().unwrap_err().contains("layer 1"));
     }
 
     #[test]

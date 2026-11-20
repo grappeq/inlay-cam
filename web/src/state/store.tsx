@@ -8,6 +8,7 @@ import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview
 import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
+import { pickable } from "./layers";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { bindHost } from "../agent/host";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolNumbers, toolSnapshots, withoutOrphans } from "./model";
@@ -58,6 +59,8 @@ export interface AppState {
   drawTool: DrawTool | null;
   /** What the drawing tools take besides the drag: corner radius, sides. */
   drawOptions: DrawOptions;
+  /** The id of the layer that newly drawn shapes go on. Without one, or when it is gone, the top layer. */
+  activeLayer: number | null;
   /** Projects as they were before each change to the drawing, oldest first. */
   undo: Project[];
   /** Projects as they were before each undo, oldest first. */
@@ -115,7 +118,9 @@ export type Action =
   | { type: "setArranging"; on: boolean }
   | { type: "setDrawTool"; tool: DrawTool | null }
   | { type: "setDrawOptions"; options: DrawOptions }
-  | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[] }
+  /** Changes the drawing, as one step to undo. `select` are the shapes selected afterwards; `layer` becomes the active layer. */
+  | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[]; layer?: number }
+  | { type: "setActiveLayer"; id: number }
   | { type: "undoDrawing" }
   | { type: "redoDrawing" };
 
@@ -143,6 +148,7 @@ const initial: AppState = {
   arranging: false,
   drawTool: null,
   drawOptions: DEFAULT_DRAW_OPTIONS,
+  activeLayer: null,
   undo: [],
   redo: [],
   lastEdit: null,
@@ -192,6 +198,7 @@ export function reducer(state: AppState, action: Action): AppState {
         view: "design",
         arranging: false,
         drawTool: null,
+        activeLayer: null,
         undo: [],
         redo: [],
         lastEdit: null,
@@ -216,8 +223,13 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, view: action.view, settingsPage: action.page ?? state.settingsPage };
     case "clickRegion":
       return clickRegion(state, action.id, action.add ?? false);
-    case "setSelection":
-      return { ...state, selection: action.ids };
+    case "setSelection": {
+      // Shapes on a hidden layer are not picked, nor those on a locked one while the drawing is edited.
+      const can = state.project.design ? pickable(state.project.design, state.arranging) : () => true;
+      return { ...state, selection: action.ids.filter(can) };
+    }
+    case "setActiveLayer":
+      return { ...state, activeLayer: action.id };
     case "setActiveStep":
       // Going back to the list from the stock step by step leaves the stock on the stage.
       return { ...state, activeStepId: action.id, selection: [], stage: action.id === null && state.stage === "timeline" ? "timeline" : "drawing" };
@@ -258,6 +270,7 @@ export function reducer(state: AppState, action: Action): AppState {
           view: "design",
           arranging: false,
           drawTool: null,
+          activeLayer: null,
           undo: [],
           redo: [],
           lastEdit: null,
@@ -294,13 +307,16 @@ export function reducer(state: AppState, action: Action): AppState {
       const folds =
         action.tag !== undefined && state.lastEdit?.tag === action.tag && at - state.lastEdit.at < 1000 && state.undo.length > 0;
       const left = new Set(project.design?.regions.map((r) => r.id));
+      // A layer that is hidden or locked lets go of its shapes.
+      const can = project.design ? pickable(project.design, state.arranging) : () => true;
       return withSnapshots({
         ...state,
         project,
         undo: folds ? state.undo : [...state.undo.slice(-49), state.project],
         redo: [],
         lastEdit: action.tag !== undefined ? { tag: action.tag, at } : null,
-        selection: (action.select ?? state.selection).filter((id) => left.has(id)),
+        selection: (action.select ?? state.selection).filter((id) => left.has(id) && can(id)),
+        activeLayer: action.layer ?? state.activeLayer,
       });
     }
     case "undoDrawing":
@@ -329,7 +345,7 @@ export function reducer(state: AppState, action: Action): AppState {
         redo: action.type === "undoDrawing" ? kept : rest,
         lastEdit: null,
         activeStepId: state.activeStepId,
-        selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id)),
+        selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id) && (!other.design || pickable(other.design, state.arranging)(id))),
       });
     }
   }

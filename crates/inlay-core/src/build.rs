@@ -3457,16 +3457,19 @@ pub(crate) mod tests {
                 height: 40.0,
                 scale: 1.0,
                 mirror: false,
+                layers: Vec::new(),
                 regions: vec![
                     DesignRegion {
                         id: 0,
                         color: None,
+                        layer: 0,
                         outer: vec![[5.0, 5.0], [35.0, 5.0], [35.0, 25.0], [5.0, 25.0]],
                         holes: vec![],
                     },
                     DesignRegion {
                         id: 1,
                         color: None,
+                        layer: 0,
                         outer: vec![
                             [40.0, 5.0],
                             [55.0, 5.0],

@@ -1418,3 +1418,52 @@ and last a button for each profile.
   pocket and plug share one set of changes; changes for a bit no longer in a step stay
   in the file; a changed number is not put to the feeds model; a pocket cut into a
   glued-in plug takes the stock's material.
+
+### Layers of the drawing (2026-11-20)
+
+- **The model**: `Design.layers` (top first: id, name, `hidden`, `locked`, `color`) and
+  `DesignRegion.layer`. Both have defaults and are left out of a file when they say
+  nothing, so a drawing without layers is one layer with the id 0, old files read as
+  they are, and opening one does not change it. No new file version.
+- **Holes are within a layer** (asked for). In the page, `links` and `openHoles` of
+  `arrange.ts` only pair shapes of one layer, and `addShape` takes the layer drawn on. In
+  the core, both importers join and nest outlines layer by layer. The build goes by
+  region ids and needed nothing.
+- **`moveToLayer`** closes the holes the shapes filled, then opens holes on the new
+  layer both ways: the moved shapes into what is around them, and what was there into
+  the moved shapes. A shape that comes between another and its hole is left lying on
+  top, as `addShape` and a drag leave it.
+- **The screens**: `Layers.tsx` holds the list over the drawing's corner, the menu a
+  right click opens (the canvas's first), and the toolbar's "Move to layer".
+  `shapeActions.ts` holds what the toolbar, the keys and the menu all do. Layer changes
+  go through `editDrawing`, so undo covers them, hiding and locking included. The store
+  drops from the selection what is on a hidden layer, or on a locked one while editing.
+- **Colours**: seven, by the layer's id unless one is chosen; the line is the colour
+  darkened on light wood and lightened on dark wood, by the theme beside the stock. With
+  one layer the lines stay the ink they were. The blue dashes of a shape an open
+  operation uses stay blue.
+- **Importing**: DXF layers by name; Inkscape layers by label, found with a second parse
+  since the SVG reader keeps a group's id only. "Add drawing…" puts a file without layers
+  on a layer named after it.
+- Two things done otherwise than first said: the menu lists the layers themselves under
+  a heading, not in a submenu, and the toolbar's groups stand 5 px closer so that the
+  first row still fits with one more button.
+- Checked by test: in the core, layers in the project file and their validation, and
+  both importers; in the page, 18 tests of holes, moving, the list and "Add drawing".
+  In the browser, on the sample drawing: a new layer named, a shape moved by right
+  click, the colours on maple and on walnut, selecting a layer, hiding one, and the
+  project saved. Not tried in the browser: a file with layers imported, dragging the
+  list into another order, lock, the colour choice, the toolbar's menu, delete.
+- **Tried by four testers** in the browser, each on a part: the list, moving, importing,
+  and layers with inlays. Found and mended: the arrow keys in an open menu also nudged
+  the selection; an SVG layer whose lines did not close came in empty; lines too faint
+  on woods of middling lightness, for which the shade is now worked out against the wood
+  itself (`edgeOn`, 3.5 to 1 at least on the eight woods); the list over the zoom buttons
+  in a narrow window. Then the smaller things: the list is dragged by its heading, the
+  focus stays where it was after a rename, a move or a menu, the colours close on
+  Escape, a name another layer has gets a number, a step says how many of its shapes are
+  hidden, and an Inkscape layer that is hidden is named after the import. Last, the
+  editing toolbar in a narrow window, which took five rows at 820 px wide before layers
+  too: the panel beside the drawing gives way while the drawing is edited, turning by an
+  angle and scaling by a percentage wait behind a "more" button, and the number boxes
+  shrink. Three rows at 820 px, two at 1000 px, and at 1280 px it is as it was.

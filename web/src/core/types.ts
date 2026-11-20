@@ -235,8 +235,26 @@ export type Ring = Point[];
 export interface DesignRegion {
   id: number;
   color?: string;
+  /** The id of the layer it is on. Missing for layer 0. */
+  layer?: number;
   outer: Ring;
   holes: Ring[];
+}
+
+/**
+ * A layer of the drawing: shapes that are named, shown, locked and coloured
+ * together. An outline that lies wholly inside another is a hole in it only
+ * when both are on the same layer.
+ */
+export interface Layer {
+  id: number;
+  name: string;
+  /** Not drawn. Its shapes are cut all the same by the steps that use them. */
+  hidden?: boolean;
+  /** Its shapes are not moved, resized or deleted. */
+  locked?: boolean;
+  /** The colour of its shapes' lines, as `#rrggbb`. Without one it is chosen by the layer's id. */
+  color?: string;
 }
 
 export interface Design {
@@ -246,6 +264,8 @@ export interface Design {
   scale: number;
   mirror: boolean;
   regions: DesignRegion[];
+  /** The layers, the top one first. A drawing without any is one layer, with the id 0. */
+  layers?: Layer[];
 }
 
 export interface VcarveInlay {
@@ -473,6 +493,8 @@ export interface ImportReport {
   /** DXF: the unit the drawing was in, when it was not millimetres. */
   unitNote: string | null;
   openOutlines: number;
+  /** SVG: the names of the layers that were hidden in the drawing, and so were not read. */
+  hiddenLayers: string[];
   hasText: boolean;
   images: number;
   specks: number;

@@ -177,6 +177,11 @@ From the original requirements' list of what version 1 would not do.
   core's `geom/boolean.rs` is there. Also to decide then: whether a drawn shape keeps
   what it was drawn as, so that a circle's radius or a rectangle's corners can be changed
   later, which needs a new version of the project file.
+- Layers, further. Built: the list, colours, moving shapes between layers, and the
+  layers of DXF and Inkscape files. Not built: a shape that comes between another and its
+  hole lies on top instead of taking the hole over (also when drawn or dragged); layers
+  from the top-level groups of Illustrator and other SVGs; a DXF layer's own colour; an
+  inlay or operation that follows a layer, so that shapes added to it later are cut too.
 - Text (fonts to outlines).
 - Snapping and aligning one shape to another. A drawn shape is placed by eye or by typed
   position, like a second drawing.

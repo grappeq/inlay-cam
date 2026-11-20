@@ -1,6 +1,7 @@
 // Pure helpers over the data model: no React, no storage.
 
-import type { CutOverride, CutResult, CuttingSettings, Design, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import { freeName, layersOf } from "./layers";
+import type { CutOverride, CutResult, CuttingSettings, Design, Layer, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -507,14 +508,38 @@ export function addDrawing(design: Design, incoming: Design): { design: Design; 
   const dy = (design.height - h) / 2 - box[1];
   let next = design.regions.reduce((max, r) => Math.max(max, r.id), -1) + 1;
   const shift = (ring: Ring): Ring => ring.map(([x, y]) => [x + dx, y + dy]);
-  const regions = added.regions.map((r) => ({ ...r, id: next++, outer: shift(r.outer), holes: r.holes.map(shift) }));
   const names = design.sourceName.split(", ").filter((n) => n !== "");
   if (!names.includes(added.sourceName)) names.push(added.sourceName);
+
+  // The drawing keeps its layers, which go on top of those there are; one
+  // without layers comes in on a layer of its own, named after its file. On
+  // a stock with nothing drawn yet it comes in as it is.
+  const blank = design.regions.length === 0 && !design.layers?.length;
+  const there = blank ? [] : layersOf(design);
+  let nextLayer = there.reduce((max, l) => Math.max(max, l.id), -1) + 1;
+  const taken = there.map((l) => l.name);
+  const stem = added.sourceName.replace(/\.[^.]+$/, "") || "Drawing";
+  const theirs: Layer[] = added.layers?.length ? added.layers : blank ? [] : [{ id: 0, name: stem }];
+  const layerIds = new Map<number, number>();
+  const layers = theirs.map((layer) => {
+    const id = blank ? layer.id : nextLayer++;
+    layerIds.set(layer.id, id);
+    const name = blank ? layer.name : freeName(layer.name, taken);
+    taken.push(name);
+    return { ...layer, id, name };
+  });
+  const regions = added.regions.map((r) => {
+    const { layer: was, ...rest } = r;
+    const layer = layerIds.get(was ?? 0) ?? 0;
+    return { ...rest, id: next++, ...(layer !== 0 ? { layer } : {}), outer: shift(r.outer), holes: r.holes.map(shift) };
+  });
+  const all = [...layers, ...there];
   return {
     design: {
       ...design,
       sourceName: names.join(", "),
       regions: [...design.regions, ...regions],
+      ...(all.length > 0 ? { layers: all } : {}),
     },
     ids: regions.map((r) => r.id),
   };

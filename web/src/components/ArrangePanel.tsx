@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Design } from "../core/types";
 import { trimBoard } from "../state/arrange";
+import { pickable } from "../state/layers";
 import { useApp, useDispatch } from "../state/store";
 import { NumberField } from "./NumberField";
 
@@ -19,10 +20,11 @@ export function ArrangePanel({ design }: { design: Design }) {
   const none = selection.length === 0;
   const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
   const shapes = design.regions.length;
-  const everything = selection.length === design.regions.length;
+  const can = pickable(design, true);
+  const everything = selection.length === design.regions.filter((r) => can(r.id)).length;
 
   return (
-    <aside className="panel" aria-label="Edit the drawing">
+    <aside className="panel arrange-panel" aria-label="Edit the drawing">
       <div className="panel-scroll">
         <section>
           <h2>Editing the drawing</h2>
@@ -75,6 +77,7 @@ export function ArrangePanel({ design }: { design: Design }) {
             <li>Drag a square on its frame to resize it. Corners keep the proportions unless Shift is held; Ctrl resizes about the middle.</li>
             <li>Arrow keys move it by 1 mm, or by 0.1 mm with Shift.</li>
             <li>Delete removes it. Ctrl+D copies it. Ctrl+A selects everything. Escape clears the selection.</li>
+            <li>Right-click a shape to move the selection to another layer, select its layer, copy or delete it.</li>
             <li>Ctrl+Z undoes, Ctrl+Y redoes, also after editing.</li>
             <li>The wheel zooms. Drag with the middle button to move the view; double-click empty stock to see it whole.</li>
           </ul>

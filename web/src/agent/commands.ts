@@ -12,6 +12,7 @@ import { core } from "../core/client";
 import type { Built, BuildStats, DesignRegion, PocketPreview, Project, Ring, Step, StepType, StockTimeline, Task, Tool, ToolKind } from "../core/types";
 import { partName, partsOf } from "../components/OutputPanel";
 import { addShape, duplicateShapes, emptiedSteps, mirrorOnBoard, moveOnBoard, removeShapes, rotateOnBoard, scaleOnBoard, trimBoard } from "../state/arrange";
+import { activeLayerOf } from "../state/layers";
 import {
   STEP_LABELS,
   TOOL_KIND_LABELS,
@@ -601,7 +602,7 @@ export const COMMANDS: Command[] = [
         host,
         editDrawing((p) => {
           if (!p.design) return p;
-          const added = addShape(p.design, ring);
+          const added = addShape(p.design, ring, activeLayerOf(p.design, null).id);
           id = added.id;
           return { ...p, design: added.design };
         }),

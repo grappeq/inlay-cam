@@ -4,6 +4,9 @@
 //! meet end to end are joined into closed outlines, and the shapes are the
 //! areas between those outlines, exactly as for an SVG drawing made of
 //! outlines. Only the text (ASCII) form of DXF is read.
+//!
+//! The drawing's layers are kept: what is drawn on one layer is joined, and
+//! cut out of each other, among itself only.
 
 use std::f64::consts::{PI, TAU};
 
@@ -11,7 +14,10 @@ use i_overlay::core::fill_rule::FillRule;
 use i_overlay::float::simplify::SimplifyShape;
 
 use super::join::{join, thin, JOIN_GAP};
-use super::svg::{regions_between_outlines, ImportReport, SvgImport, FLATTEN_TOLERANCE};
+use super::svg::{
+    layers_named, only_used_layers, regions_between_outlines, ImportReport, SvgImport,
+    FLATTEN_TOLERANCE,
+};
 use crate::geom::{distance, ring_area, Point, Ring};
 use crate::project::{Design, DesignRegion};
 
@@ -29,6 +35,9 @@ struct Curve {
 
 /// Group codes and values of one entity, in file order.
 type Groups<'a> = [(i32, &'a str)];
+
+/// An old-style POLYLINE being read: its vertices with their bulges, whether it closes, and its own groups.
+type Heavy<'a> = (Vec<(Point, f64)>, bool, &'a Groups<'a>);
 
 fn number(groups: &Groups, code: i32) -> Option<f64> {
     groups
@@ -364,9 +373,20 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
 
     let mut report = ImportReport::default();
     let mut unit_code: Option<i32> = None;
-    let mut curves: Vec<Curve> = Vec::new();
+    // Each with the id of the layer it is on: the layer's place in `names`.
+    let mut curves: Vec<(Curve, u32)> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    let mut layer_of = |body: &Groups| -> u32 {
+        // An entity that names no layer is on layer "0", as in a CAD program.
+        let name = body.iter().find(|(c, _)| *c == 8).map_or("0", |(_, v)| *v);
+        if let Some(id) = names.iter().position(|n| n == name) {
+            return id as u32;
+        }
+        names.push(name.to_string());
+        names.len() as u32 - 1
+    };
     // An old-style POLYLINE is spread over entities: its vertices follow it.
-    let mut heavy: Option<(Vec<(Point, f64)>, bool)> = None;
+    let mut heavy: Option<Heavy> = None;
 
     let mut section = "";
     let mut i = 0;
@@ -402,20 +422,26 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
                 if flags & (8 | 16 | 64) != 0 {
                     report.unsupported.push("POLYLINE (3D)".into());
                 } else {
-                    heavy = Some((Vec::new(), flags & 1 != 0));
+                    heavy = Some((Vec::new(), flags & 1 != 0, body));
                 }
             }
             "VERTEX" => {
-                if let (Some((vertices, _)), Some(p)) = (&mut heavy, point(body, 10, 20)) {
+                if let (Some((vertices, _, _)), Some(p)) = (&mut heavy, point(body, 10, 20)) {
                     vertices.push((p, number(body, 42).unwrap_or(0.0)));
                 }
             }
             "SEQEND" => {
-                if let Some((vertices, closed)) = heavy.take() {
-                    curves.extend(polyline(&vertices, closed));
+                if let Some((vertices, closed, of)) = heavy.take() {
+                    if let Some(curve) = polyline(&vertices, closed) {
+                        curves.push((curve, layer_of(of)));
+                    }
                 }
             }
-            kind => curves.extend(entity(kind, body, &mut report)),
+            kind => {
+                if let Some(curve) = entity(kind, body, &mut report) {
+                    curves.push((curve, layer_of(body)));
+                }
+            }
         }
         i = end;
     }
@@ -424,19 +450,19 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
 
     let (scale, unit_note) = units(unit_code);
     report.unit_note = unit_note;
-    let mut rings: Vec<Ring> = Vec::new();
-    let mut pieces: Vec<Vec<Point>> = Vec::new();
-    for mut curve in curves {
+    let mut rings: Vec<(Ring, u32)> = Vec::new();
+    let mut pieces: Vec<(Vec<Point>, u32)> = Vec::new();
+    for (mut curve, layer) in curves {
         for p in &mut curve.points {
             *p = [p[0] * scale, p[1] * scale];
         }
         curve.points.dedup_by(|a, b| distance(*a, *b) < 1e-9);
         if curve.closed {
             if curve.points.len() >= 3 {
-                rings.push(curve.points);
+                rings.push((curve.points, layer));
             }
         } else {
-            pieces.push(curve.points);
+            pieces.push((curve.points, layer));
         }
     }
     if rings.is_empty() && pieces.is_empty() {
@@ -444,34 +470,55 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
             "No lines, arcs, circles, polylines or splines were found in the DXF file.".into(),
         );
     }
-    let joined = join(pieces, JOIN_GAP);
-    report.open_outlines = joined.open;
-    rings.extend(joined.closed);
 
-    // Every outline is a shape of its own; where one crosses itself, its
-    // loops are.
+    // Layer by layer: lines are joined, and outlines cut out of each other,
+    // within a layer only.
     let mut regions: Vec<DesignRegion> = Vec::new();
-    for ring in rings {
-        for mut shape in vec![ring].simplify_shape(FillRule::NonZero) {
-            if shape.is_empty() {
-                continue;
+    for layer in 0..names.len() as u32 {
+        let mut closed: Vec<Ring> = rings
+            .iter()
+            .filter(|(_, on)| *on == layer)
+            .map(|(ring, _)| ring.clone())
+            .collect();
+        let open = pieces
+            .iter()
+            .filter(|(_, on)| *on == layer)
+            .map(|(piece, _)| piece.clone())
+            .collect();
+        let joined = join(open, JOIN_GAP);
+        report.open_outlines += joined.open;
+        closed.extend(joined.closed);
+
+        // Every outline is a shape of its own; where one crosses itself, its
+        // loops are.
+        let mut shapes: Vec<DesignRegion> = Vec::new();
+        for ring in closed {
+            for mut shape in vec![ring].simplify_shape(FillRule::NonZero) {
+                if shape.is_empty() {
+                    continue;
+                }
+                let outer = shape.remove(0);
+                let area =
+                    ring_area(&outer).abs() - shape.iter().map(|h| ring_area(h).abs()).sum::<f64>();
+                if area < MIN_REGION_AREA {
+                    report.specks += 1;
+                    continue;
+                }
+                shapes.push(DesignRegion {
+                    id: shapes.len() as u32,
+                    color: None,
+                    layer,
+                    outer,
+                    holes: shape,
+                });
             }
-            let outer = shape.remove(0);
-            let area =
-                ring_area(&outer).abs() - shape.iter().map(|h| ring_area(h).abs()).sum::<f64>();
-            if area < MIN_REGION_AREA {
-                report.specks += 1;
-                continue;
-            }
-            regions.push(DesignRegion {
-                id: regions.len() as u32,
-                color: None,
-                outer,
-                holes: shape,
-            });
         }
+        regions.extend(regions_between_outlines(shapes));
     }
-    let mut regions = regions_between_outlines(regions);
+    for (id, region) in regions.iter_mut().enumerate() {
+        region.id = id as u32;
+    }
+    let layers = layers_named(only_used_layers(&mut regions, names));
 
     // The page is the drawing's extent plus a margin, with its bottom-left
     // corner at the origin.
@@ -510,7 +557,63 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
             scale: 1.0,
             mirror: false,
             regions,
+            layers,
         },
         report,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn circle(layer: Option<&str>, x: f64, radius: f64) -> String {
+        let on = layer.map_or(String::new(), |name| format!("8\n{name}\n"));
+        format!("0\nCIRCLE\n{on}10\n{x}\n20\n0\n40\n{radius}\n")
+    }
+
+    fn drawing(entities: &[String]) -> SvgImport {
+        let text = format!(
+            "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{}0\nENDSEC\n0\nEOF\n",
+            entities.concat()
+        );
+        import_dxf(&text, "test.dxf").unwrap()
+    }
+
+    #[test]
+    fn layers_are_kept_and_outlines_nest_within_one_only() {
+        let out = drawing(&[
+            circle(Some("PLATE"), 0.0, 30.0),
+            circle(Some("HOLES"), 0.0, 5.0),
+            circle(Some("PLATE"), 0.0, 10.0),
+        ]);
+        // The last drawn layer is the top one.
+        let names: Vec<&str> = out.design.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["HOLES", "PLATE"]);
+        let plate = out.design.layers[1].id;
+        let on = |layer: u32| -> Vec<&DesignRegion> {
+            out.design
+                .regions
+                .iter()
+                .filter(|r| r.layer == layer)
+                .collect()
+        };
+        // The plate's own inner circle is cut out of it; the one on the other layer is not.
+        assert_eq!(on(plate).len(), 2);
+        assert_eq!(on(plate).iter().map(|r| r.holes.len()).sum::<usize>(), 1);
+        assert_eq!(on(out.design.layers[0].id).len(), 1);
+        let mut ids: Vec<u32> = out.design.regions.iter().map(|r| r.id).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_drawing_on_one_layer_has_no_layers() {
+        for layer in [None, Some("0"), Some("CUT")] {
+            let out = drawing(&[circle(layer, 0.0, 30.0), circle(layer, 0.0, 5.0)]);
+            assert!(out.design.layers.is_empty());
+            assert!(out.design.regions.iter().all(|r| r.layer == 0));
+            assert_eq!(out.design.regions.len(), 2);
+        }
+    }
 }

@@ -1,9 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Design, DesignRegion, Ring } from "../core/types";
 import { addShape, boxOf, moveOnBoard, placedBox, shapesInBox, stretchOnBoard, type Placed } from "../state/arrange";
+import { activeLayerOf, edgeOn, layerColor, layerOf, layersOf } from "../state/layers";
 import { drawnRing } from "../state/shapes";
 import { fmt, isInlay, stepColor, regionOwners, stockColor } from "../state/model";
 import { useApp, useDispatch } from "../state/store";
+import { LayersPanel, ShapeMenu } from "./Layers";
 
 /** An ink that shows on a wood of this colour: dark on light woods, light on dark ones. */
 function inkOn(color: string): string {
@@ -101,7 +103,7 @@ function handleName(hx: number, hy: number): string {
 const mm = (v: number) => fmt(Math.round(v * 100) / 100);
 
 export function DesignCanvas({ design, narrow, cuttable }: Props) {
-  const { project, selection, activeStepId, arranging, drawTool, drawOptions } = useApp();
+  const { project, selection, activeStepId, arranging, drawTool, drawOptions, activeLayer } = useApp();
   const dispatch = useDispatch();
   const svg = useRef<SVGSVGElement>(null);
   const clip = useId();
@@ -110,20 +112,30 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   const [zoomed, setZoomed] = useState<View | null>(null);
   // How many millimetres of the picture one pixel of the screen shows.
   const [pixel, setPixel] = useState(0);
+  // The menu a right click opened: where in the window, and on which shape.
+  const [menu, setMenu] = useState<{ x: number; y: number; region: number } | null>(null);
 
-  const paths = useMemo(
-    () =>
+  const layers = layersOf(design);
+  // With one layer the lines are drawn in the ink of the wood, as ever; with more, each layer has its colour.
+  const layered = layers.length > 1;
+  const paths = useMemo(() => {
+    const list = layersOf(design);
+    const place = new Map(list.map((layer, i) => [layer.id, { layer, depth: i }]));
+    return (
       design.regions
-        .map((region) => ({ id: region.id, d: regionPath(region, design), area: ringArea(region.outer) }))
-        // Largest first, so a shape drawn inside another stays on top and can be clicked.
-        .sort((a, b) => b.area - a.area),
-    [design],
-  );
+        .map((region) => ({ id: region.id, d: regionPath(region, design), area: ringArea(region.outer), ...(place.get(layerOf(region)) ?? { layer: list[0], depth: 0 }) }))
+        .filter((shape) => !shape.layer.hidden)
+        // The bottom layer first. Within a layer the largest first, so a shape drawn inside another stays on top and can be clicked.
+        .sort((a, b) => b.depth - a.depth || b.area - a.area)
+    );
+  }, [design]);
   const owners = useMemo(() => regionOwners(project.steps), [project.steps]);
   const active = project.steps.find((j) => j.id === activeStepId);
   // A plain operation uses shapes without owning them; they are marked while it is open.
   const used = useMemo(() => new Set(active && !isInlay(active.task) ? active.regionIds : []), [active]);
   const wood = stockColor(project);
+  // Each layer's line colour on this wood.
+  const edges = useMemo(() => new Map(layersOf(design).map((layer) => [layer.id, edgeOn(layerColor(layer), wood)])), [design, wood]);
 
   const width = design.width * design.scale;
   const height = design.height * design.scale;
@@ -221,6 +233,11 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     } else if (arranging && e.button === 0 && drawTool) {
       const from = toDesign(e.clientX, e.clientY);
       if (!from) return;
+      const onto = activeLayerOf(design, activeLayer);
+      if (onto.hidden || onto.locked) {
+        dispatch({ type: "notice", notice: { kind: "info", text: `The layer "${onto.name}" is ${onto.hidden ? "hidden" : "locked"}. Choose another layer to draw on, or ${onto.hidden ? "show" : "unlock"} it.` } });
+        return;
+      }
       press.current = { kind: "draw", x: e.clientX, y: e.clientY, moved: false, from };
     } else if (arranging && e.button === 0 && handle && box) {
       const [hx, hy] = HANDLES[Number(handle.dataset.handle)];
@@ -307,11 +324,12 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
       const ring = done?.kind === "draw" ? done.ring : null;
       if (!from.moved || !ring) return;
       // The new shape comes in selected, with the tool put away: it can be moved, or its size typed, at once.
-      const added = addShape(design, ring);
+      const onto = activeLayerOf(design, activeLayer).id;
+      const added = addShape(design, ring, onto);
       dispatch({ type: "setDrawTool", tool: null });
       dispatch({
         type: "editDrawing",
-        update: (p) => (p.design ? { ...p, design: addShape(p.design, ring).design } : p),
+        update: (p) => (p.design ? { ...p, design: addShape(p.design, ring, onto).design } : p),
         select: [added.id],
       });
       return;
@@ -347,6 +365,19 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
     }
   };
 
+  // A right click on a shape opens its menu. While the drawing is edited the
+  // menu is for the selection, so a shape that is not selected is picked first.
+  const onContextMenu = (e: React.MouseEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const hit = (e.target as Element).closest<SVGElement>("[data-region]");
+    if (!hit || drawTool || gesture) return setMenu(null);
+    const id = Number(hit.dataset.region);
+    if (arranging && !selection.includes(id)) dispatch({ type: "clickRegion", id });
+    // Outside editing it only selects a layer's shapes, which is not done while an inlay or operation is open.
+    if (!arranging && activeStepId !== null) return;
+    setMenu({ x: e.clientX, y: e.clientY, region: id });
+  };
+
   const moving = gesture?.kind === "move" ? gesture : null;
   const resizing = gesture?.kind === "resize" ? gesture : null;
   // The selection's box as it is shown right now, part-way through a drag.
@@ -372,10 +403,13 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
   }
   const drawn = gesture?.kind === "draw" ? gesture.ring : null;
   const drawnSize = drawn && [0, 1].map((k) => (Math.max(...drawn.map((p) => p[k])) - Math.min(...drawn.map((p) => p[k]))) * design.scale);
+  const chosen = new Set(selection);
+  const selectedOn = [...new Set(design.regions.filter((r) => chosen.has(r.id)).map(layerOf))];
+  const where = !layered ? "" : selectedOn.length === 1 ? ` on ${layers.find((l) => l.id === selectedOn[0])?.name ?? "a layer"}` : ` on ${selectedOn.length} layers`;
   const readout = drawnSize
     ? `${mm(drawnSize[0])} × ${mm(drawnSize[1])} mm`
     : shown &&
-      `${selection.length} shape${selection.length === 1 ? "" : "s"}, ${mm(shown.width)} × ${mm(shown.height)} mm, its bottom-left corner ${mm(shown.x)} mm from the left and ${mm(
+      `${selection.length} shape${selection.length === 1 ? "" : "s"}${where}, ${mm(shown.width)} × ${mm(shown.height)} mm, its bottom-left corner ${mm(shown.x)} mm from the left and ${mm(
       shown.y,
     )} mm from the bottom`;
 
@@ -397,6 +431,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
           press.current = null;
           setGesture(null);
         }}
+        onContextMenu={onContextMenu}
         onDoubleClick={(e) => {
           if (!(e.target as Element).closest("[data-region], [data-handle]")) setZoomed(null);
         }}
@@ -412,7 +447,7 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
         <rect className="page" x={0} y={0} width={width} height={height} style={{ fill: wood }} />
         {/* What lies beside the stock is drawn for the background there, not for the wood. */}
         <g className="off-stock" clipPath={`url(#${clip}-off)`} aria-hidden="true">
-          {paths.map(({ id, d }) => {
+          {paths.map(({ id, d, layer }) => {
             const owner = owners.get(id);
             const selected = selection.includes(id);
             const inActive = (owner !== undefined && owner.id === activeStepId) || used.has(id);
@@ -422,21 +457,22 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
                 data-region={id}
                 d={d}
                 fillRule="evenodd"
-                className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}`}
-                style={owner && !selected ? { fill: stepColor(owner, project.steps) } : undefined}
+                className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${layered ? " layered" : ""}${arranging && layer.locked ? " locked" : ""}`}
+                style={{ ...(owner && !selected ? { fill: stepColor(owner, project.steps) } : {}), ...(layered ? { "--lc": layerColor(layer) } : {}) } as React.CSSProperties}
                 transform={selected ? shift : undefined}
                 onClick={arranging ? undefined : (e) => dispatch({ type: "clickRegion", id, add: e.shiftKey })}
               />
             );
           })}
         </g>
-        <g clipPath={`url(#${clip}-on)`}>
-        {paths.map(({ id, d }) => {
+        <g className="on-stock" clipPath={`url(#${clip}-on)`}>
+        {paths.map(({ id, d, layer }) => {
           const owner = owners.get(id);
           const selected = selection.includes(id);
           const inActive = (owner !== undefined && owner.id === activeStepId) || used.has(id);
           const dimmed = !arranging && activeStepId !== null && owner !== undefined && !inActive;
-          const label = `Shape ${id + 1}${owner ? `, in ${owner.name}` : ""}${used.has(id) && active ? `, used by ${active.name}` : ""}${selected ? ", selected" : ""}`;
+          const fixed = arranging && !!layer.locked;
+          const label = `Shape ${id + 1}${layered ? `, on ${layer.name}` : ""}${fixed ? ", locked" : ""}${owner ? `, in ${owner.name}` : ""}${used.has(id) && active ? `, used by ${active.name}` : ""}${selected ? ", selected" : ""}`;
           const click = (add: boolean) => dispatch({ type: "clickRegion", id, add });
           return (
             <path
@@ -444,11 +480,11 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
               data-region={id}
               d={d}
               fillRule="evenodd"
-              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}`}
+              className={`region${selected ? " selected" : ""}${owner ? " owned" : ""}${inActive ? " active" : ""}${used.has(id) ? " used" : ""}${dimmed ? " dimmed" : ""}${layered ? " layered" : ""}${fixed ? " locked" : ""}`}
               // The selection colour wins over the inlay's.
-              style={owner && !selected ? { fill: stepColor(owner, project.steps) } : undefined}
+              style={{ ...(owner && !selected ? { fill: stepColor(owner, project.steps) } : {}), ...(layered ? { "--lc": layerColor(layer), "--layer-edge": edges.get(layer.id) } : {}) } as React.CSSProperties}
               transform={selected ? shift : undefined}
-              tabIndex={0}
+              tabIndex={fixed ? -1 : 0}
               role="button"
               aria-label={label}
               aria-pressed={selected || inActive}
@@ -515,6 +551,8 @@ export function DesignCanvas({ design, narrow, cuttable }: Props) {
           />
         )}
       </svg>
+      <LayersPanel design={design} />
+      {menu && design.regions.some((r) => r.id === menu.region) && <ShapeMenu design={design} x={menu.x} y={menu.y} region={menu.region} close={() => setMenu(null)} />}
       <div className="canvas-zoom" role="group" aria-label="Zoom">
         <button onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom in" title="Zoom in">
           +

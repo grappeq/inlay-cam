@@ -1,22 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { Design, Project } from "../core/types";
-import {
-  centreOnBoard,
-  duplicateShapes,
-  emptiedSteps,
-  keepOnly,
-  mirrorOnBoard,
-  moveOnBoard,
-  placedBox,
-  removeShapes,
-  rotateOnBoard,
-  stretchOnBoard,
-} from "../state/arrange";
+import type { Design } from "../core/types";
+import { centreOnBoard, mirrorOnBoard, moveOnBoard, placedBox, rotateOnBoard, stretchOnBoard } from "../state/arrange";
 import { DRAW_LIMITS, type DrawTool } from "../state/shapes";
 import { useApp, useDispatch } from "../state/store";
 import { ToolIcon, type ToolIconName } from "./icons";
 import { NumberField } from "./NumberField";
 import { useImportSvg } from "./DesignPanel";
+import { MoveToLayerButton } from "./Layers";
+import { useShapeActions } from "./shapeActions";
 
 const mm = (v: number) => Math.round(v * 100) / 100;
 
@@ -43,9 +34,6 @@ const DRAW_TOOLS: { tool: DrawTool; label: string; how: string }[] = [
   { tool: "ellipse", label: "Ellipse or circle", how: "Drag on the stock. Shift: a circle. Ctrl: from the middle." },
   { tool: "polygon", label: "Polygon", how: "Drag from the middle to a corner. Shift: steps of 15°." },
 ];
-
-/** Board left around the shapes that are kept by "Keep only", mm. */
-const KEEP_MARGIN = 5;
 
 /**
  * The bar above the drawing: what a click on the drawing does (pick shapes
@@ -85,17 +73,17 @@ export function StageBar() {
  * clicked.
  */
 export function ArrangeBar({ design }: { design: Design }) {
-  const { project, selection, undo, redo, drawTool, drawOptions } = useApp();
+  const { selection, undo, redo, drawTool, drawOptions } = useApp();
   const dispatch = useDispatch();
   const [angle, setAngle] = useState(45);
   const [percent, setPercent] = useState(50);
   const [anchor, setAnchor] = useState(6);
   const [proportional, setProportional] = useState(true);
+  // Where the bar is narrow, turning by an angle and scaling by a percentage wait behind a button.
+  const [more, setMore] = useState(false);
 
   const edit = (update: (d: Design) => Design, tag?: string) =>
     dispatch({ type: "editDrawing", tag, at: Date.now(), update: (p) => (p.design ? { ...p, design: update(p.design) } : p) });
-  const editProject = (update: (p: Project) => Project, select?: number[]) => dispatch({ type: "editDrawing", update, select });
-  const say = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
 
   const box = placedBox(design, selection);
   const at = ANCHORS[anchor].at;
@@ -103,40 +91,7 @@ export function ArrangeBar({ design }: { design: Design }) {
   const resize = (fx: number, fy: number) => {
     if (box) edit((d) => stretchOnBoard(d, selection, fx, fy, at));
   };
-  const none = selection.length === 0;
-  const count = `${selection.length} shape${selection.length === 1 ? "" : "s"}`;
-  const everything = selection.length === design.regions.length;
-
-  const remove = () => {
-    if (none) return;
-    if (everything) return say("This would leave the stock without shapes. To start over, replace the drawing.");
-    const inUse = new Set(project.steps.flatMap((j) => j.regionIds));
-    const used = selection.filter((id) => inUse.has(id)).length;
-    const emptied = emptiedSteps(project, selection);
-    const consequence =
-      emptied.length > 0
-        ? `${emptied.map((n) => `"${n}"`).join(" and ")} will have no shapes left and will be removed too.`
-        : `${used === 1 ? "It" : "They"} will be taken out of ${used === 1 ? "it" : "them"}.`;
-    if (used > 0 && !confirm(`${used} of these shapes ${used === 1 ? "is" : "are"} used by an inlay or operation. ${consequence} Delete?`)) return;
-    editProject((p) => removeShapes(p, selection));
-  };
-  const duplicate = () => {
-    if (none) return;
-    const copy = duplicateShapes(design, selection, 5 / design.scale);
-    editProject((p) => ({ ...p, design: copy.design }), copy.ids);
-  };
-  const keep = () => {
-    if (none || everything) return;
-    const kept = selection;
-    const others = design.regions.length - kept.length;
-    const emptied = emptiedSteps(
-      project,
-      design.regions.map((r) => r.id).filter((id) => !kept.includes(id)),
-    );
-    const gone = emptied.length > 0 ? ` ${emptied.map((n) => `"${n}"`).join(" and ")} will be removed with them.` : "";
-    if (!confirm(`Delete the other ${others} shape${others === 1 ? "" : "s"} and fit the stock to what is left?${gone}`)) return;
-    editProject((p) => keepOnly(p, selection, KEEP_MARGIN / design.scale));
-  };
+  const { none, count, everything, remove, duplicate, keep } = useShapeActions(design);
 
   // The keyboard works wherever the focus is, except while typing in a field.
   const actions = useRef({ remove, duplicate });
@@ -169,7 +124,8 @@ export function ArrangeBar({ design }: { design: Design }) {
         dispatch({ type: "redoDrawing" });
         return;
       }
-      if (typing || document.querySelector("dialog[open]")) return;
+      // A menu that is open takes the arrows and the other keys for itself.
+      if (typing || document.querySelector("dialog[open]") || target?.closest('[role="menu"]')) return;
       const step = e.shiftKey ? 0.1 : 1;
       const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
       if (moves[e.key]) {
@@ -190,6 +146,7 @@ export function ArrangeBar({ design }: { design: Design }) {
         else dispatch({ type: "setSelection", ids: [] });
       } else if (command && key === "a") {
         e.preventDefault();
+        // Those that can be picked: the store leaves out hidden and locked layers.
         dispatch({ type: "setSelection", ids: designNow.current.regions.map((r) => r.id) });
       } else if (command && key === "d") {
         e.preventDefault();
@@ -210,7 +167,7 @@ export function ArrangeBar({ design }: { design: Design }) {
   const option = (change: Partial<typeof drawOptions>) => dispatch({ type: "setDrawOptions", options: { ...drawOptions, ...change } });
 
   return (
-    <div className="arrange-tools" role="toolbar" aria-label="Draw shapes and change the selected ones">
+    <div className={`arrange-tools${more ? " more" : ""}`} role="toolbar" aria-label="Draw shapes and change the selected ones">
       <div className="tool-row">
         <span className="tool-group">
           {tool("undo", "Undo (Ctrl+Z)", () => dispatch({ type: "undoDrawing" }), undo.length === 0)}
@@ -250,10 +207,14 @@ export function ArrangeBar({ design }: { design: Design }) {
           {tool("centreY", "Centre up and down the stock", () => edit((d) => centreOnBoard(d, selection, "y")))}
         </span>
         <span className="tool-group">
+          <MoveToLayerButton design={design} />
           {tool("copy", "Copy beside (Ctrl+D)", duplicate)}
           {tool("keep", `Keep only ${selection.length === 1 ? "this" : "these"}: delete every other shape and fit the stock to what is left`, keep, none || everything)}
           {tool("remove", `Delete ${count} (Delete)`, remove, none || everything, " danger")}
         </span>
+        <button type="button" className="tool more-toggle" aria-pressed={more} aria-label="More: turn by an angle, scale by a percentage" title="More: turn by an angle, scale by a percentage" onClick={() => setMore(!more)}>
+          <ToolIcon name="more" />
+        </button>
       </div>
 
       <div className="tool-stack">
