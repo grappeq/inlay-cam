@@ -28,6 +28,7 @@ import {
   sawOf,
   sawStep,
   isInlay,
+  isSuppressed,
   stepColor,
   stepSetup,
   newStep,
@@ -38,6 +39,7 @@ import {
   stockColor,
   toolChoices,
   usualCutOutTool,
+  withSuppressed,
   withoutStep,
 } from "../state/model";
 import { useFileActions } from "../state/files";
@@ -415,7 +417,7 @@ function StepsSection({ design }: { design: Design }) {
           {project.steps.map((step, index) => (
             <li
               key={step.id}
-              className={`job-row${several ? " ordered" : ""}${isByHand(step.task) ? " by-hand" : ""}`}
+              className={`job-row${several ? " ordered" : ""}${isByHand(step.task) ? " by-hand" : ""}${isSuppressed(step, project.steps) ? " suppressed" : ""}`}
               data-step={step.id}
               data-menu={menu?.id === step.id ? true : undefined}
               onContextMenu={(e) => {
@@ -433,7 +435,7 @@ function StepsSection({ design }: { design: Design }) {
                   <StepSymbol step={step} />
                 </span>
                 <span className="job-name">{step.name}</span>
-                <span className="muted">{describeStep(step)}</span>
+                <span className="muted">{isSuppressed(step, project.steps) ? `Suppressed · ${describeStep(step)}` : describeStep(step)}</span>
                 <span className="job-open" aria-hidden="true">
                   ›
                 </span>
@@ -565,6 +567,30 @@ function StepsSection({ design }: { design: Design }) {
 }
 
 /** The wood and the clearances of a plain operation, and its result: the parts every operation's panel shares. */
+/** Said in a step's panel while it is suppressed, with the way back. */
+function SuppressedNote({ step }: { step: Step }) {
+  const { project } = useApp();
+  const dispatch = useDispatch();
+  if (!isSuppressed(step, project.steps)) return null;
+  const task = step.task;
+  const inlay = !step.suppressed && isByHand(task) ? project.steps.find((j) => j.id === task.inlayId) : undefined;
+  if (inlay) {
+    return (
+      <p className="callout">
+        Left out with "{inlay.name}", which is suppressed: there is nothing to {task.type === "saw" ? "saw off" : "glue in"}. It comes back with it.
+      </p>
+    );
+  }
+  return (
+    <p className="callout">
+      Suppressed: it is left out of the files and of the stock{isInlay(task) ? ", with its plug or inserts and what is done by hand with them" : ""}.{" "}
+      <button className="link" onClick={() => dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withSuppressed(p.steps, step.id, false) }) })}>
+        Unsuppress
+      </button>
+    </p>
+  );
+}
+
 function OpEditor({ step }: { step: Step }) {
   const { project, defaults } = useApp();
   const dispatch = useDispatch();
@@ -602,6 +628,7 @@ function OpEditor({ step }: { step: Step }) {
             <span className="field-label">Name</span>
             <input type="text" value={step.name} onChange={(e) => update({ name: e.target.value })} />
           </label>
+          <SuppressedNote step={step} />
           <p className={`status-line${step.regionIds.length === 0 && inlay.type !== "facing" ? " warn" : ""}`}>
             {inlay.type === "facing" && step.regionIds.length === 0
               ? "No shapes: the whole stock is faced. Click shapes in the drawing to face over them only."
@@ -916,6 +943,7 @@ function HandEditor({ step }: { step: Step }) {
             <span className="field-label">Name</span>
             <input type="text" value={step.name} onChange={(e) => dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, name: e.target.value }) })} />
           </label>
+          <SuppressedNote step={step} />
           {inlay && (
             <p className="derived">
               <span className="swatch" style={{ background: stepColor(inlay, project.steps) }} /> {sawing ? `Saws the backer off the plug of` : `Glues in the ${what} of`} "
@@ -1231,6 +1259,7 @@ function StepEditor({ step }: { step: InlayStep }) {
             <span className="field-label">Name</span>
             <input type="text" value={step.name} onChange={(e) => update({ name: e.target.value })} />
           </label>
+          <SuppressedNote step={step} />
           <p className={`status-line${step.regionIds.length === 0 ? " warn" : ""}`}>
             {step.regionIds.length === 0 ? "No shapes yet." : `${shapes}.`} Click shapes in the drawing to add or remove them.
             <OnHiddenLayers ids={step.regionIds} />

@@ -204,14 +204,36 @@ export function withoutOrphans(steps: Step[]): Step[] {
 }
 
 /**
+ * Whether a step is left out of the list as it is cut: it is suppressed, or
+ * it is done by hand for an inlay that is, which leaves nothing to glue in
+ * or saw off. As the core has it.
+ */
+export function isSuppressed(step: Step, steps: Step[]): boolean {
+  if (step.suppressed) return true;
+  const task = step.task;
+  return isByHand(task) && steps.some((j) => j.id === task.inlayId && j.suppressed === true);
+}
+
+/** The list with a step suppressed, or no longer. */
+export function withSuppressed(steps: Step[], id: string, suppressed: boolean): Step[] {
+  return steps.map((j) => {
+    if (j.id !== id) return j;
+    const { suppressed: _, ...rest } = j;
+    return suppressed ? { ...rest, suppressed: true } : rest;
+  });
+}
+
+/**
  * Which file for the stock each line of the list goes into, counted from 1:
  * the lines from one step done by hand to the next share a file. Null for a
- * step done by hand. As the core numbers them.
+ * step done by hand, and for one that is suppressed, which does not end a
+ * file either. As the core numbers them.
  */
 export function fileNumbers(steps: Step[]): (number | null)[] {
   let number = 0;
   let open = false;
   return steps.map((step) => {
+    if (isSuppressed(step, steps)) return null;
     if (isByHand(step.task)) {
       open = false;
       return null;

@@ -24,6 +24,8 @@ import {
   glueStep,
   insertAfter,
   isByHand,
+  isSuppressed,
+  withSuppressed,
   isInlay,
   missingFor,
   missingSettings,
@@ -150,6 +152,8 @@ function describeStep(step: Step, state: AppState) {
     ...(step.rowProfiles ? { rowProfiles: step.rowProfiles } : {}),
     ...(step.cutOverrides ? { cutOverrides: step.cutOverrides } : {}),
     ...(step.cutOutToolId ? { cutOutToolId: step.cutOutToolId } : {}),
+    /** Left out of the files and of the stock: it is, or it is done by hand for an inlay that is. */
+    ...(isSuppressed(step, project.steps) ? { suppressed: true, ...(step.suppressed ? {} : { suppressedWithInlay: true }) } : {}),
     tools: stepToolIds(step).map((id) => ({ id, name: shown(resolveTool(id, state.tools, project)), numberInFiles: project.toolNumbers?.[id] ?? null })),
     /** What has to be chosen before its files can be made, or null. */
     missing: missingFor(step) ?? missingSettings(step, everyTool(state), state.lists, project),
@@ -363,6 +367,7 @@ function describeTimeline(result: StockTimeline, project: Project) {
       stepId: step.stepId,
       name: name(step.stepId),
       byHand: step.byHand,
+      ...(step.suppressed ? { suppressed: true } : {}),
       file: step.file === null ? null : step.file + 1,
       errors: step.errors,
       warnings: step.warnings,
@@ -838,7 +843,7 @@ export const COMMANDS: Command[] = [
     name: "step_update",
     title: "Change an inlay or operation",
     description:
-      "Changes a step: only what is named changes. `task` sets settings of its type (an optional one given as null is taken away); tools are named by id (clearingToolIds, vbitToolId, toolId). rowProfiles names, by tool id, the toolpath profile whose cutting row the tool runs here; cutOverrides changes, by tool id, numbers of that row for this step only (rpm, feed, plunge, stepover, stepdown). Give either as null to clear it. A step's type cannot change. The files made before are out of date after this: build again.",
+      "Changes a step: only what is named changes. `task` sets settings of its type (an optional one given as null is taken away); tools are named by id (clearingToolIds, vbitToolId, toolId). rowProfiles names, by tool id, the toolpath profile whose cutting row the tool runs here; cutOverrides changes, by tool id, numbers of that row for this step only (rpm, feed, plunge, stepover, stepdown). Give either as null to clear it. `suppressed` true leaves the step out of the files and of the stock while it keeps its place and settings; an inlay's plug, glue-up and sawing are left out with it. A step's type cannot change. The files made before are out of date after this: build again.",
     inputSchema: object(
       {
         id: { type: "string" },
@@ -850,6 +855,7 @@ export const COMMANDS: Command[] = [
         rowProfiles: { type: "object", nullable: true },
         cutOverrides: { type: "object", nullable: true },
         cutOutToolId: { type: "string", nullable: true, description: "The end mill that cuts a plug out of its board; null for the usual one." },
+        suppressed: { type: "boolean", description: "Left out of the files and of the stock, or back in." },
       },
       ["id"],
     ),
@@ -976,6 +982,8 @@ export const COMMANDS: Command[] = [
         files.push({ name: built.fileName, text: built.gcode });
         made.push({ steps, ...describeBuilt(built), ...firstProblems(problems) });
       };
+      // Left out of the list: there is no file to give.
+      for (const s of result.steps) if (s.suppressed && wanted?.has(s.stepId)) notMade.push({ step: name(s.stepId), errors: ["It is suppressed: there is no file for it."] });
       for (const file of result.files) {
         const entries = file.stepIds.map((id) => result.steps.find((s) => s.stepId === id)).filter((s) => s !== undefined);
         const asked = entries.filter((s) => !wanted || wanted.has(s.stepId));
@@ -1136,6 +1144,7 @@ function applyStepInput(step: Step, input: Input, state: AppState): Step {
   for (const id of Object.keys({ ...out.rowProfiles, ...out.cutOverrides })) {
     if (!resolveTool(id, state.tools, state.project)) throw new CommandError("not_found", `There is no tool "${id}". tools_list gives the tools and their ids.`);
   }
+  if (input.suppressed !== undefined) out = withSuppressed([out], out.id, input.suppressed === true)[0];
   checkTools(out, state);
   checkOwners(out, state);
   return out;

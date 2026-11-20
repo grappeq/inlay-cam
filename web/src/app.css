@@ -4989,3 +4989,16 @@ button.layer-count.holds {
 .job-row[data-menu] .job {
   border-color: var(--accent);
 }
+/* A line that is left out of the files and of the stock: there, but faint. */
+.job-row.suppressed .job .job-icon,
+.job-row.suppressed .job .job-name {
+  opacity: 0.5;
+}
+.job-row.suppressed .job .job-name,
+.timeline-steps button.step.suppressed {
+  text-decoration: line-through;
+}
+.timeline-steps button.step.suppressed {
+  color: var(--muted);
+  border-style: dotted;
+}

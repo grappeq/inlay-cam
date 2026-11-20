@@ -428,6 +428,8 @@ export interface Step {
   rowProfiles?: Record<string, string>;
   /** By tool id: the numbers of the tool's cutting row that this step changes. Cutting a plug out of its board runs the plain row as it is. */
   cutOverrides?: Record<string, CutOverride>;
+  /** Left out of the stock's files and of taking the stock through the list, while it keeps its place and its settings. An inlay's plug or inserts are not made either, and its steps done by hand are left out with it. */
+  suppressed?: boolean;
   task: Task;
 }
 
@@ -692,6 +694,8 @@ export interface TimelineStep {
   seat: { height: number; proud: number; above: number } | null;
   /** A facing that takes the wood above the surface from the list: the height its file was given, as measured on the stock, mm. */
   startsAbove: number | null;
+  /** Left out: it has no file and leaves the stock as it was. */
+  suppressed: boolean;
   /** What the step comes to when cut on its own: its time and its tools. Null when it is done by hand or cannot be made. */
   stats: BuildStats | null;
   /** The step's stretch of its file as a tool path, as in a preview, with the file's lines and tool numbers. Empty without a file. */

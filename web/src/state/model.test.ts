@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -214,6 +214,29 @@ describe("steps", () => {
     expect(fileNumbers([inlay, pocket])).toEqual([1, 1]);
     // A trim that takes its height from the list is still found as the inlay's.
     expect(trimOf(inlay, [inlay, { ...trim, task: { ...trim.task, above: 0 } as Step["task"] }])).toBeDefined();
+  });
+
+  it("leaves a suppressed step out of the files, and an inlay's glue-up and sawing with it", () => {
+    const inlay = step("vcarve", [1]);
+    const pocket = step("pocket", [2]);
+    const glue = glueStep(inlay, [inlay])!;
+    const saw = sawStep(inlay, [inlay])!;
+    const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
+    const list = [inlay, pocket, glue, saw, trim];
+    expect(list.some((j) => isSuppressed(j, list))).toBe(false);
+
+    const off = withSuppressed(list, pocket.id, true);
+    expect(off[1]).toEqual({ ...pocket, suppressed: true });
+    expect(off[0]).toBe(inlay);
+    expect(fileNumbers(off)).toEqual([1, null, null, null, 2]);
+    // Back again, nothing of it is left over.
+    expect(withSuppressed(off, pocket.id, false)[1]).toEqual(pocket);
+    expect("suppressed" in withSuppressed(off, pocket.id, false)[1]).toBe(false);
+
+    // Without its inlay there is nothing to glue in or to saw off: the pocket and the trim share a file.
+    const noInlay = withSuppressed(list, inlay.id, true);
+    expect(noInlay.map((j) => isSuppressed(j, noInlay))).toEqual([true, false, true, true, false]);
+    expect(fileNumbers(noInlay)).toEqual([null, 1, null, null, 1]);
   });
 });
 

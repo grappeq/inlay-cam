@@ -474,6 +474,7 @@ impl StockTimeline {
                     "warnings": step.warnings,
                     "seat": step.seat,
                     "startsAbove": step.starts_above,
+                    "suppressed": step.suppressed,
                     "stats": step
                         .part
                         .as_deref()

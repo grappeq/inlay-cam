@@ -256,6 +256,8 @@ pub struct StepRun {
     /// A facing that takes the wood above the surface from the list: the
     /// height it was given, as measured on the stock, mm.
     pub starts_above: Option<f64>,
+    /// Left out: it has no file and leaves the stock as it was.
+    pub suppressed: bool,
 }
 
 impl StepRun {
@@ -271,6 +273,7 @@ impl StepRun {
             warnings: Vec::new(),
             seat: None,
             starts_above: None,
+            suppressed: false,
         }
     }
 }
@@ -470,7 +473,7 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
     let mut used_plugs: HashSet<u64> = HashSet::new();
     let mut plugs: HashMap<&str, Rc<Result<Preview, Vec<String>>>> = HashMap::new();
     for (index, step) in project.steps.iter().enumerate() {
-        if !step.task.is_inlay() {
+        if !step.task.is_inlay() || project.is_suppressed(step) {
             continue;
         }
         let key = hash_of(base, &[texts[index].as_str()]);
@@ -521,17 +524,18 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
         unders: vec![f32::NAN; flat],
         floors: vec![f32::NAN; flat],
     })];
-    // The entries since the last step done by hand.
+    // The entries since the last step done by hand. One that is suppressed
+    // is among them wherever it stands, the machine does not stop for it.
     let mut run: Vec<usize> = Vec::new();
     for index in 0..=count {
         let step = project.steps.get(index);
-        if step.is_some_and(|s| !s.task.is_by_hand()) {
+        if step.is_some_and(|s| !s.task.is_by_hand() || project.is_suppressed(s)) {
             run.push(index);
             continue;
         }
         if !run.is_empty() {
             let (file, cut) = pass.cut_run(&run, files.len());
-            files.push(file);
+            files.extend(file);
             for (went, snapshot) in cut {
                 steps.push(went);
                 snapshots.push(snapshot);
@@ -613,13 +617,19 @@ pub fn export(
     cache: &mut Cache,
 ) -> Result<Built, Vec<String>> {
     let timeline = timeline_with(project, cache)?;
-    let picked: Vec<&StepRun> = timeline
+    let (left_out, picked): (Vec<&StepRun>, Vec<&StepRun>) = timeline
         .steps
         .iter()
         .filter(|step| step_ids.contains(&step.step_id))
-        .collect();
+        .partition(|step| step.suppressed);
     let Some(first) = picked.first() else {
-        return Err(vec!["Nothing is picked.".to_string()]);
+        return Err(vec![match left_out.first() {
+            Some(step) => format!(
+                "\"{}\" is suppressed: there is no file for it.",
+                name_of(project, &step.step_id)
+            ),
+            None => "Nothing is picked.".to_string(),
+        }]);
     };
     let Some(file) = first.file else {
         return Err(vec![format!(
@@ -654,13 +664,17 @@ pub fn export(
 
 /// Which file for the stock each entry of the list goes into, counted from
 /// 1: the entries from one step done by hand to the next share a file.
-/// `None` for a step done by hand.
+/// `None` for a step done by hand, and for one that is suppressed.
 pub fn file_numbers(project: &Project) -> Vec<Option<usize>> {
     let (mut number, mut open) = (0, false);
     project
         .steps
         .iter()
         .map(|step| {
+            // Left out, it neither has a file nor ends one.
+            if project.is_suppressed(step) {
+                return None;
+            }
             if step.task.is_by_hand() {
                 open = false;
                 return None;
@@ -856,8 +870,20 @@ impl Pass<'_> {
     /// Makes the one file of a run of entries and cuts the stock with it,
     /// entry by entry. Returns the file, and each entry as it went with the
     /// stock after it.
-    fn cut_run(&mut self, run: &[usize], file: usize) -> (StockFile, Vec<(StepRun, Rc<Snapshot>)>) {
+    /// The file of the entries of `run`, and how each of them went. There
+    /// is no file when every one of them is suppressed.
+    fn cut_run(
+        &mut self,
+        run: &[usize],
+        file: usize,
+    ) -> (Option<StockFile>, Vec<(StepRun, Rc<Snapshot>)>) {
         let project = self.project;
+        // What is suppressed keeps its place in the list, but not in the file.
+        let cutting: Vec<usize> = run
+            .iter()
+            .copied()
+            .filter(|&index| !project.is_suppressed(&project.steps[index]))
+            .collect();
         let tools_of = |built: &Built| -> HashMap<u32, Tool> {
             built
                 .program
@@ -883,9 +909,9 @@ impl Pass<'_> {
         let mut ahead: Option<Workpiece> = None;
         let mut parts: Vec<Rc<Result<Built, Vec<String>>>> = Vec::new();
         let mut starts_above: Vec<Option<f64>> = Vec::new();
-        for (k, &index) in run.iter().enumerate() {
+        for (k, &index) in cutting.iter().enumerate() {
             let (part, standing) = self.part(index, ahead.as_ref());
-            let more = run[k + 1..]
+            let more = cutting[k + 1..]
                 .iter()
                 .any(|&later| later >= self.resume && listed(later));
             if let (true, true, Ok(built)) = (more, index >= self.resume, part.as_ref()) {
@@ -903,7 +929,7 @@ impl Pass<'_> {
         }
         drop(ahead);
 
-        let good: Vec<(&str, &Built)> = run
+        let good: Vec<(&str, &Built)> = cutting
             .iter()
             .zip(&parts)
             .filter_map(|(&index, part)| {
@@ -914,7 +940,7 @@ impl Pass<'_> {
             })
             .collect();
         let mut record = StockFile {
-            step_ids: run
+            step_ids: cutting
                 .iter()
                 .map(|&index| project.steps[index].id.clone())
                 .collect(),
@@ -929,7 +955,10 @@ impl Pass<'_> {
         // own file when they could not be joined.
         let mut stretches: Vec<Stretch> = Vec::new();
         match (!good.is_empty()).then(|| {
-            let ids: Vec<&str> = run.iter().map(|&i| project.steps[i].id.as_str()).collect();
+            let ids: Vec<&str> = cutting
+                .iter()
+                .map(|&i| project.steps[i].id.as_str())
+                .collect();
             let (at, what) = build::stock_file_label(project, &ids, true);
             build::join(project, &good, at, &what)
         }) {
@@ -967,8 +996,20 @@ impl Pass<'_> {
 
         let mut stretches = stretches.into_iter();
         let mut cut: Vec<(StepRun, Rc<Snapshot>)> = Vec::new();
-        for (k, &index) in run.iter().enumerate() {
+        let mut k = 0;
+        for &index in run {
             let step = &project.steps[index];
+            if project.is_suppressed(step) {
+                let mut went = StepRun::of(step, None);
+                went.suppressed = true;
+                let snapshot = if index < self.resume {
+                    self.known(index, &mut went, 0)
+                } else {
+                    self.keep(index, &went, 0)
+                };
+                cut.push((went, snapshot));
+                continue;
+            }
             let mut went = StepRun::of(step, Some(file));
             went.part = Some(parts[k].clone());
             let stretch = match parts[k].as_ref() {
@@ -1001,8 +1042,9 @@ impl Pass<'_> {
             };
             record.problems.extend(went.problems.iter().cloned());
             cut.push((went, snapshot));
+            k += 1;
         }
-        (record, cut)
+        ((!cutting.is_empty()).then_some(record), cut)
     }
 }
 
@@ -1259,6 +1301,7 @@ mod tests {
             cut_out_tool_id: None,
             row_profiles: Default::default(),
             cut_overrides: Default::default(),
+            suppressed: false,
             task,
         }
     }
@@ -1563,6 +1606,84 @@ mod tests {
         assert!(!t.files[0].complete && t.files[0].built.is_some());
         assert!(!t.steps[1].errors.is_empty());
         assert_eq!(at(&t, 2, 20.0, 15.0), (-2.0, 0));
+    }
+
+    #[test]
+    fn a_suppressed_step_keeps_its_place_but_cuts_nothing() {
+        let mut p = backer_project();
+        p.steps.push(Step {
+            region_ids: vec![1],
+            ..step(
+                "extra",
+                Task::Pocket {
+                    start_depth: 0.0,
+                    depth: 1.0,
+                    pattern: Pattern::Offset,
+                    direction: PassDirection::Longer,
+                    clearing_tool_ids: vec!["t-endmill".into()],
+                },
+            )
+        });
+        if let Task::Flat { .. } = &p.steps[0].task {
+            p.steps[0].region_ids = vec![0];
+        }
+        p.steps.push(glue_up());
+        p.steps.push(Step {
+            region_ids: vec![0],
+            ..trim(2.0, 8.0)
+        });
+        let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+
+        // A plain pocket left out: it has no file, the stock is as the inlay
+        // left it, and the files keep the names they had.
+        p.steps[1].suppressed = true;
+        assert_eq!(file_numbers(&p), vec![Some(1), None, None, Some(2)]);
+        let t = timeline(&p).unwrap();
+        assert_eq!(t.steps.len(), 4);
+        assert_eq!(t.snapshots.len(), 5);
+        assert!(t.steps[1].suppressed && t.steps[1].file.is_none());
+        assert!(t.steps[1].segments.is_empty() && t.steps[1].part.is_none());
+        assert_eq!(t.snapshots[2], t.snapshots[1]);
+        assert_eq!(at(&t, 2, 43.5, 30.0), (0.0, 0));
+        assert_eq!(t.files.len(), 2);
+        assert_eq!(t.files[0].step_ids, ids(&["j"]));
+        assert!(t.files[0].complete);
+        assert_eq!(
+            t.files[1].built.as_ref().unwrap().file_name,
+            "Test-board-04-trim.cnc"
+        );
+        let mut cache = Cache::default();
+        assert!(export(&p, &ids(&["extra"]), &mut cache).unwrap_err()[0].contains("suppressed"));
+        // Picked with the rest of its stretch, it is left out of the file,
+        // which has the inlay's pocket alone and its name.
+        let rest = export(&p, &ids(&["j", "extra"]), &mut cache).unwrap();
+        assert_eq!(rest.file_name, "Test-board-01-Flat-inlay-1-pocket.cnc");
+        assert_eq!(rest.file_name, t.files[0].built.as_ref().unwrap().file_name);
+        assert!(!rest.gcode.contains("extra)"));
+
+        // The inlay left out: no pocket, no plug, and its glue-up goes with
+        // it, so the facing is in the same file as the pocket before it.
+        p.steps[1].suppressed = false;
+        p.steps[0].suppressed = true;
+        assert!(p.is_suppressed(&p.steps[2]) && !p.steps[2].suppressed);
+        assert_eq!(file_numbers(&p), vec![None, Some(1), None, Some(1)]);
+        let t = timeline(&p).unwrap();
+        assert!(t.parts.is_empty() && t.glued.is_empty());
+        assert!(t.steps[2].suppressed && t.steps[2].errors.is_empty());
+        assert_eq!(t.files.len(), 1);
+        assert_eq!(t.files[0].step_ids, ids(&["extra", "trim"]));
+        assert_eq!(at(&t, 1, 20.0, 15.0), (0.0, 0));
+
+        // Everything that was there comes back as it was.
+        p.steps[0].suppressed = false;
+        let mut cache = Cache::default();
+        let before = timeline_with(&p, &mut cache).unwrap();
+        p.steps[3].suppressed = true;
+        let without = timeline_with(&p, &mut cache).unwrap();
+        assert_eq!(cache.redone, 1);
+        assert_eq!(without.files.len(), 1);
+        p.steps[3].suppressed = false;
+        assert_eq!(timeline_with(&p, &mut cache).unwrap(), before);
     }
 
     #[test]

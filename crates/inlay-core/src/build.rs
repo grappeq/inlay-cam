@@ -3519,6 +3519,7 @@ pub(crate) mod tests {
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
                 cut_overrides: Default::default(),
+                suppressed: false,
                 task: Task::Flat {
                     pocket_depth: 2.0,
                     allowance: 0.1,

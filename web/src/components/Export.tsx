@@ -57,7 +57,8 @@ function rowsOf(result: StockTimeline, steps: Step[]): Row[] {
   };
   result.steps.forEach((step, index) => {
     const listed = steps.find((j) => j.id === step.stepId);
-    if (!listed) return;
+    // Left out: there is nothing to cut or to do.
+    if (!listed || step.suppressed) return;
     if (step.byHand) {
       const inlay = isByHand(listed.task) ? steps.find((j) => j.id === (listed.task as { inlayId: string }).inlayId) : undefined;
       if (inlay) part(inlay.id);

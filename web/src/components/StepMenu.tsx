@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, Step } from "../core/types";
-import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, sawOf, sawStep, standingPart, trimFacing, trimOf, withoutStep } from "../state/model";
+import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, isSuppressed, sawOf, sawStep, standingPart, trimFacing, trimOf, withSuppressed, withoutStep } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { downloadText } from "../util/files";
 import { focusSoon, useDismiss, walkMenu } from "./Layers";
@@ -183,6 +183,9 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
   };
   const byHand = isByHand(step.task);
   const working = files.busy !== null;
+  const suppressed = isSuppressed(step, project.steps);
+  // A step done by hand is left out with its inlay, and comes back with it.
+  const inlay = byHand && !step.suppressed && suppressed ? project.steps.find((j) => isByHand(step.task) && j.id === step.task.inlayId) : undefined;
 
   const duplicate = () => {
     const copy = duplicateStep(step, project.steps);
@@ -192,6 +195,9 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
     const last = [after.glue, after.saw, after.trim].reduce((most, j) => Math.max(most, j ? project.steps.indexOf(j) : -1), at);
     dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, project.steps[last].id, copy) }) });
     focusSoon(() => lineOf(copy.id));
+  };
+  const suppress = () => {
+    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withSuppressed(p.steps, step.id, !step.suppressed) }) });
   };
   const remove = () => {
     if (!byHand && !confirm(deleteQuestion(step, project.steps))) return;
@@ -229,12 +235,27 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
           <button type="button" role="menuitem" onClick={then(duplicate)}>
             Duplicate
           </button>
-          <button type="button" role="menuitem" disabled={working} onClick={then(() => void files.exportGcode(step))}>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={working || suppressed}
+            title={suppressed ? "It is suppressed: there is no file for it." : undefined}
+            onClick={then(() => void files.exportGcode(step))}
+          >
             Export its G-code
           </button>
         </>
       )}
       <hr />
+      <button
+        type="button"
+        role="menuitem"
+        disabled={inlay !== undefined}
+        title={inlay ? `Left out with "${inlay.name}": it comes back with it.` : step.suppressed ? undefined : "Left out of the files and of the stock, it keeps its place and its settings."}
+        onClick={then(suppress)}
+      >
+        {suppressed ? "Unsuppress" : "Suppress"}
+      </button>
       <button type="button" role="menuitem" className="danger" onClick={then(remove)}>
         Delete
       </button>

@@ -518,6 +518,11 @@ pub struct Step {
     /// out of its board runs the plain row as it is.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub cut_overrides: BTreeMap<String, CutOverride>,
+    /// Left out of the stock's files and of taking the stock through the
+    /// list, while it keeps its place and its settings in it. An inlay's
+    /// plug or inserts are not made either. See [`Project::is_suppressed`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub suppressed: bool,
     pub task: Task,
 }
 
@@ -1242,6 +1247,20 @@ impl Project {
         })
     }
 
+    /// True for a step that is left out of the list as it is cut: one that
+    /// is suppressed, and a step done by hand for an inlay that is, since
+    /// there is nothing to glue in or saw off.
+    pub fn is_suppressed(&self, step: &Step) -> bool {
+        step.suppressed
+            || match &step.task {
+                Task::Glue { inlay_id } | Task::Saw { inlay_id, .. } => self
+                    .steps
+                    .iter()
+                    .any(|other| &other.id == inlay_id && other.suppressed),
+                _ => false,
+            }
+    }
+
     /// What a step cuts, which chooses the cutting settings of its tools.
     /// The plug or insert of an inlay (`plug`) is in the inlay's own wood.
     /// So is a facing that starts above the surface over an inlay's shapes:
@@ -1462,6 +1481,7 @@ mod tests {
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
                     cut_overrides: Default::default(),
+                    suppressed: false,
                     task: Task::Vcarve {
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
@@ -1486,6 +1506,7 @@ mod tests {
                     cut_out_tool_id: None,
                     row_profiles: Default::default(),
                     cut_overrides: Default::default(),
+                    suppressed: false,
                     task: Task::Flat {
                         pocket_depth: 2.5,
                         allowance: 0.1,
@@ -1620,6 +1641,7 @@ mod tests {
                 cut_out_tool_id: None,
                 row_profiles: Default::default(),
                 cut_overrides: Default::default(),
+                suppressed: false,
                 task,
             })
         };
@@ -1760,6 +1782,7 @@ mod tests {
             cut_out_tool_id: None,
             row_profiles: Default::default(),
             cut_overrides: Default::default(),
+            suppressed: false,
             task: Task::Glue {
                 inlay_id: of.into(),
             },

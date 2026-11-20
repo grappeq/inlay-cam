@@ -148,7 +148,13 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
     const j = stepOf(s.stepId);
     const glued = j && isByHand(j.task) ? stepOf(j.task.inlayId) : undefined;
     return (
-      <button key={s.stepId} className={s.byHand ? "step by-hand" : "step"} aria-pressed={at === index + 1} onClick={() => go(index + 1)}>
+      <button
+        key={s.stepId}
+        className={`step${s.byHand ? " by-hand" : ""}${s.suppressed ? " suppressed" : ""}`}
+        title={s.suppressed ? "Suppressed: it leaves the stock as it was." : undefined}
+        aria-pressed={at === index + 1}
+        onClick={() => go(index + 1)}
+      >
         <span className="job-icon" style={glued ? { color: stepColor(glued, made.steps) } : undefined}>
           {j && <StepIcon type={j.task.type} />}
         </span>
@@ -225,6 +231,13 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
     );
   }
   const name = made.steps.find((j) => j.id === step.stepId)?.name ?? "?";
+  if (step.suppressed) {
+    return (
+      <p className="status-line" role="status">
+        Step {at} of {result.steps.length}: "{name}" is suppressed, so the stock is as the step before left it.
+      </p>
+    );
+  }
   if (step.errors.length > 0) {
     return (
       <div className="callout error" role="status">
