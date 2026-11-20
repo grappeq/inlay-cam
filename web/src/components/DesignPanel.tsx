@@ -37,8 +37,6 @@ import {
   standingPart,
   stockColor,
   toolChoices,
-  trimFacing,
-  trimOf,
   usualCutOutTool,
   withoutStep,
 } from "../state/model";
@@ -63,6 +61,7 @@ import { CHAMFER_PICTURES, CONTOUR_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURE
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { ExportList } from "./Export";
+import { StepMenu, deleteQuestion, useAfterCut, useStepFiles } from "./StepMenu";
 
 /** A step that is an inlay proper, with a pocket and a plug or insert. */
 type InlayStep = Step & { task: TrueInlay };
@@ -376,6 +375,10 @@ function StepsSection({ design }: { design: Design }) {
   const none = selection.length === 0;
   const several = project.steps.length > 1;
   const sortable = useSortable(project.steps.length, move);
+  // The line a right click opened the menu of, and where in the window.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const menuStep = project.steps.find((j) => j.id === menu?.id);
+  const files = useStepFiles();
   // The step done by hand that is being added, while there are several inlays it could be for and one is still to be picked.
   const [picking, setPicking] = useState<"glue" | "saw" | null>(null);
   const byHand = (kind: "glue" | "saw") => {
@@ -413,6 +416,15 @@ function StepsSection({ design }: { design: Design }) {
             <li
               key={step.id}
               className={`job-row${several ? " ordered" : ""}${isByHand(step.task) ? " by-hand" : ""}`}
+              data-step={step.id}
+              data-menu={menu?.id === step.id ? true : undefined}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                // Asked for with the keyboard, it opens on the line.
+                const box = e.currentTarget.getBoundingClientRect();
+                const byKey = e.clientX === 0 && e.clientY === 0;
+                setMenu({ id: step.id, x: byKey ? box.left + 24 : e.clientX, y: byKey ? box.bottom - 4 : e.clientY });
+              }}
               {...(several ? sortable.row(index) : {})}
             >
               {several && <Grip {...sortable.grip(index, step.name)} />}
@@ -429,6 +441,12 @@ function StepsSection({ design }: { design: Design }) {
             </li>
           ))}
         </ul>
+      )}
+      {menuStep && menu && <StepMenu key={`${menu.id} ${menu.x} ${menu.y}`} step={menuStep} x={menu.x} y={menu.y} files={files} close={() => setMenu(null)} />}
+      {files.busy && (
+        <p className="status-line" role="status">
+          {files.busy}
+        </p>
       )}
 
       <div className="new-job">
@@ -808,37 +826,9 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
  * of its backer and the facing that trims it flush.
  */
 function TrimOffer({ step }: { step: Step }) {
-  const { project, tools, defaults } = useApp();
   const dispatch = useDispatch();
-  const part = standingPart(step);
-  if (!part || step.regionIds.length === 0) return null;
-  const trims = part.what === "plug" && part.above > 0;
-  const made = trimOf(step, project.steps);
-  const glue = glueOf(step, project.steps);
-  const saw = sawOf(step, project.steps);
-  const addSaw = () => {
-    const added = sawStep(step, project.steps);
-    if (!added) return;
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, glueOf(step, p.steps)?.id ?? step.id, added) }) });
-  };
-
-  const addGlue = () => {
-    const added = glueStep(step, project.steps);
-    if (!added) return;
-    // Right after the inlay, whose place in the list is where its pocket is cut.
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, step.id, added) }) });
-  };
-
-  const add = () => {
-    const trim = trimFacing(step, project.steps, defaults);
-    if (!trim || trim.task.type !== "facing") return;
-    // Where the tool list leaves no choice of end mill, make it.
-    const endMills = tools.filter((t) => t.kind === "flat_end");
-    if (endMills.length === 1) trim.task.toolId = endMills[0].id;
-    // After the glue-up, and the sawing, when the list has them: the facing cuts what they leave.
-    dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: insertAfter(p.steps, (sawOf(step, p.steps) ?? glueOf(step, p.steps))?.id, trim) }) });
-    dispatch({ type: "setActiveStep", id: trim.id });
-  };
+  const { part, trims, glue, saw, trim: made, addGlue, addSaw, addTrim: add } = useAfterCut(step);
+  if (!part) return null;
 
   const open = (id: string) => dispatch({ type: "setActiveStep", id });
   const height = (mm: number) => `${fmt(round2(mm))} mm`;
@@ -1214,8 +1204,7 @@ function StepEditor({ step }: { step: InlayStep }) {
   const back = () => dispatch({ type: "setActiveStep", id: null });
 
   const remove = () => {
-    const glue = glueOf(step, project.steps);
-    if (!confirm(`Delete "${step.name}"? Its shapes become free again.${glue ? ` "${glue.name}" goes with it.` : ""}`)) return;
+    if (!confirm(deleteQuestion(step, project.steps))) return;
     dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
     dispatch({ type: "setActiveStep", id: null });
   };

@@ -4985,3 +4985,7 @@ button.layer-count.holds {
     padding-left: 8px;
   }
 }
+/* The line of the list whose menu is open. */
+.job-row[data-menu] .job {
+  border-color: var(--accent);
+}

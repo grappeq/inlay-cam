@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { copyName, duplicateProject, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -140,6 +140,19 @@ describe("steps", () => {
     expect(trimOf(inlay, [inlay, step("facing", [1, 2])])).toBeUndefined();
     // A second one gets a name of its own.
     expect(trimFacing(inlay, [inlay, trim], DEFAULT_SETUP)!.name).toBe("Trim Walnut star 2");
+  });
+
+  it("copies an inlay without its shapes, an operation with them, and no step done by hand", () => {
+    const inlay = { ...step("vcarve", [1, 2]), name: "Walnut star" };
+    const copy = duplicateStep(inlay, [inlay])!;
+    expect(copy).toEqual({ ...inlay, id: copy.id, name: "Walnut star copy", regionIds: [] });
+    expect(copy.id).not.toBe(inlay.id);
+    // Nothing of the copy is the original's own.
+    expect(copy.task).not.toBe(inlay.task);
+    expect(duplicateStep(inlay, [inlay, copy])!.name).toBe("Walnut star copy 2");
+    const pocket = step("pocket", [3]);
+    expect(duplicateStep(pocket, [pocket])!.regionIds).toEqual([3]);
+    expect(duplicateStep(glueStep(inlay, [inlay])!, [inlay])).toBeNull();
   });
 
   it("offers the trim for a plug on a backer only", () => {

@@ -228,6 +228,17 @@ export function insertAfter(steps: Step[], afterId: string | undefined, step: St
   return at < 0 ? [...steps, step] : [...steps.slice(0, at + 1), step, ...steps.slice(at + 1)];
 }
 
+/**
+ * A copy of an inlay or operation, with every setting of the one it is made
+ * from. A copied inlay has no shapes, since a shape can be in one inlay only.
+ * Null for a step done by hand, of which an inlay has one.
+ */
+export function duplicateStep(step: Step, existing: Step[]): Step | null {
+  if (isByHand(step.task)) return null;
+  const copy = structuredClone(step);
+  return { ...copy, id: newId(), name: copyName(step.name, existing.map((j) => j.name)), regionIds: isInlay(step.task) ? [] : copy.regionIds };
+}
+
 /** Woods to colour an inlay or the stock with, light to dark. */
 export const WOODS: { name: string; color: string }[] = [
   { name: "Maple", color: "#e3cfa4" },

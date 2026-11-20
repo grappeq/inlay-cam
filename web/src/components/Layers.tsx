@@ -16,7 +16,7 @@ import { Grip, useSortable } from "./sortable";
  * it, after which the focus is put back where it came from. A press on an
  * element that matches `also` counts as inside.
  */
-function useDismiss(inside: RefObject<HTMLElement | null>, open: boolean, close: (byKey: boolean) => void, also?: string) {
+export function useDismiss(inside: RefObject<HTMLElement | null>, open: boolean, close: (byKey: boolean) => void, also?: string) {
   const closeNow = useRef(close);
   closeNow.current = close;
   useEffect(() => {
@@ -45,12 +45,12 @@ function useDismiss(inside: RefObject<HTMLElement | null>, open: boolean, close:
 }
 
 /** Puts the keyboard's focus on an element once the page has been drawn again. */
-function focusSoon(find: () => HTMLElement | SVGElement | null | undefined) {
+export function focusSoon(find: () => HTMLElement | SVGElement | null | undefined) {
   requestAnimationFrame(() => find()?.focus());
 }
 
 /** The up and down arrows walk the entries of a menu. */
-function walkMenu(e: React.KeyboardEvent<HTMLElement>) {
+export function walkMenu(e: React.KeyboardEvent<HTMLElement>) {
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   e.preventDefault();
   const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
