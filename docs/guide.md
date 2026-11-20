@@ -727,11 +727,12 @@ comment in the file, "Step 2:" and the line's name, stands where each line begin
 frame with nothing ticked makes no file.
 
 A file's name is the project's name, then a two-digit number, then what it is:
-"Coaster-01-stock", "Coaster-01-plug-Leaf", "Coaster-03-stock". The number is the place in
+"Coaster-01-stock", "Coaster-01-Leaf-plug", "Coaster-03-stock". The number is the place in
 the list of the file's first line, and a plug or insert has the number of its inlay, so
 the machine's file list shows the files in the order they are cut. A file keeps its number
-whatever else is ticked. The files made in an inlay's or operation's own panel are named
-without a number.
+whatever else is ticked. A file that cuts one line only is named after that line, as
+"Coaster-02-Trim" or "Coaster-01-Leaf-pocket", the same name the file has when it is made
+in that inlay's or operation's own panel.
 
 **Download**, which stays at the foot of the tab, saves every file. After a change to
 the project the tab says so, and works the list out again when asked. While an inlay or

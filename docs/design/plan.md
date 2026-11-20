@@ -974,7 +974,12 @@ Files from the order of the list, and a facing that takes its height from it
   next. The comment is also what someone reading the file at the machine wants. A run
   with a line that cannot be built is joined from the rest, to show them, and marked not
   complete, so that it is not offered for download.
-- **Names.** `<project> stock.cnc` for one file, `stock 1`, `stock 2` for several.
+- **Names.** Every file is named by `build::project_file_name`: `<project>-NN-<what>.cnc`,
+  where NN is the place in the list of the file's first entry and `what`
+  (`build::stock_file_label`) is `build::cut_label` of the entry when the file cuts one
+  (its name, and for an inlay its part), "stock" for a whole stretch of several, and
+  "<first> and N more" for some of a stretch.
+  So a file has one name whether it is made in its step's panel, the Files tab or by an agent.
 - **A facing's height from the list** (`aboveAuto`, `build::facing_start`). The trim held
   a copy of the inlay's numbers and offered to set them again. Now it can take the height
   from the jobs before it: by the inlays' own numbers, not from the simulated stock.

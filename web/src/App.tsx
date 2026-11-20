@@ -26,6 +26,15 @@ function Shell() {
   const { ready, view } = useApp();
   const { importAll } = useFileActions();
   const [dragging, setDragging] = useState(false);
+  const [dragTick, setDragTick] = useState(0);
+
+  // A drag over the window sends dragover again and again; when they stop (the drag left the window, was cancelled
+  // or ended somewhere that does not say so), the hint goes.
+  useEffect(() => {
+    if (!dragging) return;
+    const timer = setTimeout(() => setDragging(false), 400);
+    return () => clearTimeout(timer);
+  }, [dragging, dragTick]);
 
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
   const onDrop = async (e: DragEvent) => {
@@ -43,9 +52,12 @@ function Shell() {
         if (!hasFiles(e)) return;
         e.preventDefault();
         setDragging(true);
+        setDragTick((n) => n + 1);
       }}
       onDragLeave={(e) => {
-        if (e.currentTarget === e.target) setDragging(false);
+        // Leaving the window or pressing Escape leaves to nothing; moving onto another element of the app does not.
+        const to = e.relatedTarget as Node | null;
+        if (!to || !e.currentTarget.contains(to)) setDragging(false);
       }}
       onDrop={onDrop}
     >

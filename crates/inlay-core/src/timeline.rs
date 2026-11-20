@@ -530,8 +530,7 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
             continue;
         }
         if !run.is_empty() {
-            let label = stock_label(run[0]);
-            let (file, cut) = pass.cut_run(&run, &label, files.len());
+            let (file, cut) = pass.cut_run(&run, files.len());
             files.push(file);
             for (went, snapshot) in cut {
                 steps.push(went);
@@ -559,16 +558,20 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
     let parts = project
         .steps
         .iter()
-        .enumerate()
-        .filter_map(|(index, step)| {
+        .filter_map(|step| {
             let part = plugs.get(step.id.as_str())?;
             Some(match part.as_ref() {
                 Ok(preview) => PartFile {
                     step_id: step.id.clone(),
-                    // Among the project's files it goes by its inlay's
-                    // place in the list, next to the pocket it fills.
+                    // Named as every file is, by its inlay's place in the
+                    // list now, next to the pocket it fills: the plug kept
+                    // from an earlier working out may have stood elsewhere.
                     built: Some(Built {
-                        file_name: build::numbered_part_name(project, index + 1, Part::Plug, step),
+                        file_name: build::project_file_name(
+                            project,
+                            build::place_of(project, &step.id),
+                            &build::cut_label(step, Part::Plug),
+                        ),
                         ..preview.built.clone()
                     }),
                     errors: Vec::new(),
@@ -642,34 +645,11 @@ pub fn export(
     if !errors.is_empty() {
         return Err(errors);
     }
-    // Numbered by the place of its first entry, as every file of the project is.
-    let at = |id: &str| {
-        project
-            .steps
-            .iter()
-            .position(|step| step.id == id)
-            .unwrap_or(0)
-    };
+    // Named as every file of the project is, by the place of its first entry.
     let whole = picked.len() == timeline.files[file].step_ids.len();
-    let label = match (whole, picked.len()) {
-        (true, _) => stock_label(at(&timeline.files[file].step_ids[0])),
-        (false, 1) => format!("{:02} {}", at(&first.step_id) + 1, parts[0].0),
-        (false, n) => format!(
-            "{:02} {} and {} more",
-            at(&first.step_id) + 1,
-            parts[0].0,
-            n - 1
-        ),
-    };
-    build::join(project, &parts, &label).map(|joined| joined.built)
-}
-
-/// What a file for the stock is called after the project's name: the place
-/// in the list of its first entry, from 1, so that the files of a project
-/// stand in the machine's file list in the order they are cut, and a file
-/// keeps its number whatever else is made with it.
-fn stock_label(first: usize) -> String {
-    format!("{:02} stock", first + 1)
+    let ids: Vec<&str> = picked.iter().map(|step| step.step_id.as_str()).collect();
+    let (at, what) = build::stock_file_label(project, &ids, whole);
+    build::join(project, &parts, at, &what).map(|joined| joined.built)
 }
 
 /// Which file for the stock each entry of the list goes into, counted from
@@ -876,12 +856,7 @@ impl Pass<'_> {
     /// Makes the one file of a run of entries and cuts the stock with it,
     /// entry by entry. Returns the file, and each entry as it went with the
     /// stock after it.
-    fn cut_run(
-        &mut self,
-        run: &[usize],
-        label: &str,
-        file: usize,
-    ) -> (StockFile, Vec<(StepRun, Rc<Snapshot>)>) {
+    fn cut_run(&mut self, run: &[usize], file: usize) -> (StockFile, Vec<(StepRun, Rc<Snapshot>)>) {
         let project = self.project;
         let tools_of = |built: &Built| -> HashMap<u32, Tool> {
             built
@@ -953,7 +928,11 @@ impl Pass<'_> {
         // stretch of the joined file and the line that begins on, or its
         // own file when they could not be joined.
         let mut stretches: Vec<Stretch> = Vec::new();
-        match (!good.is_empty()).then(|| build::join(project, &good, label)) {
+        match (!good.is_empty()).then(|| {
+            let ids: Vec<&str> = run.iter().map(|&i| project.steps[i].id.as_str()).collect();
+            let (at, what) = build::stock_file_label(project, &ids, true);
+            build::join(project, &good, at, &what)
+        }) {
             Some(Ok(joined)) => {
                 let tools = tools_of(&joined.built);
                 let thickness = joined.built.stock.thickness + joined.built.stock.through;
@@ -1482,7 +1461,25 @@ mod tests {
         assert_eq!(t.parts[0].step_id, "j");
         let plug = t.parts[0].built.as_ref().unwrap();
         assert!(plug.part == Part::Plug && t.parts[0].problems.is_empty());
-        assert_eq!(plug.file_name, "Test-board-01-plug-Flat-inlay-1.cnc");
+        assert_eq!(plug.file_name, "Test-board-01-Flat-inlay-1-plug.cnc");
+        // Every file is named the same from the Files tab as from its own step.
+        let own = |id: &str, part: Part| build::build(&p, id, part).unwrap().file_name;
+        assert_eq!(plug.file_name, own("j", Part::Plug));
+        // Moved down the list, the inlay's plug kept from before takes its new number.
+        {
+            let mut cache = Cache::default();
+            timeline_with(&p, &mut cache).unwrap();
+            let mut moved = p.clone();
+            let j = moved.steps.remove(0);
+            moved.steps.insert(1, j);
+            let again = timeline_with(&moved, &mut cache).unwrap();
+            let plug = again.parts[0].built.as_ref().unwrap();
+            assert_eq!(plug.file_name, "Test-board-02-Flat-inlay-1-plug.cnc");
+            assert_eq!(
+                plug.file_name,
+                build::build(&moved, "j", Part::Plug).unwrap().file_name
+            );
+        }
         assert_eq!(
             t.files[0].step_ids,
             vec!["j".to_string(), "extra".to_string()]
@@ -1500,7 +1497,12 @@ mod tests {
         assert_eq!(first.file_name, "Test-board-01-stock.cnc");
         assert_eq!(
             t.files[1].built.as_ref().unwrap().file_name,
-            "Test-board-04-stock.cnc"
+            "Test-board-04-trim.cnc"
+        );
+        // A stretch of one entry is that entry's file, named as in its own panel.
+        assert_eq!(
+            t.files[1].built.as_ref().unwrap().file_name,
+            build::build(&p, "trim", Part::Pocket).unwrap().file_name
         );
         assert!(first.gcode.contains("\n(Step 1: Flat inlay 1)\n"));
         assert!(first.gcode.contains("\n(Step 2: extra)\n"));
@@ -1516,6 +1518,10 @@ mod tests {
         assert_eq!(whole.file_name, first.file_name);
         let one = export(&p, &ids(&["extra"]), &mut cache).unwrap();
         assert_eq!(one.file_name, "Test-board-02-extra.cnc");
+        assert_eq!(one.file_name, own("extra", Part::Pocket));
+        let pocket = export(&p, &ids(&["j"]), &mut cache).unwrap();
+        assert_eq!(pocket.file_name, "Test-board-01-Flat-inlay-1-pocket.cnc");
+        assert_eq!(pocket.file_name, own("j", Part::Pocket));
         assert!(one.gcode.contains("\n(Step 1: extra)\n"));
         assert!(!one.gcode.contains("Flat inlay 1)"));
         // Across the glue-up there is no one file, and none for the glue-up.

@@ -708,11 +708,7 @@ pub fn build_with(
         piece,
         cut_width,
         shapes,
-        file_name: format!(
-            "{}.{}",
-            file_stem(&title.replace(" - ", " ")),
-            carvera::FILE_EXTENSION
-        ),
+        file_name: project_file_name(project, place_of(project, &step.id), &cut_label(step, part)),
         stats,
         gcode,
         before,
@@ -2991,7 +2987,9 @@ pub fn build_combined(project: &Project, step_ids: &[String]) -> Result<Built, V
         return Err(errors);
     }
     let borrowed: Vec<(&str, &Built)> = parts.iter().map(|(name, b)| (*name, b)).collect();
-    let mut built = join(project, &borrowed, "stock")?.built;
+    let ids: Vec<&str> = step_ids.iter().map(String::as_str).collect();
+    let (first, what) = stock_file_label(project, &ids, true);
+    let mut built = join(project, &borrowed, first, &what)?.built;
 
     let mut before: Vec<String> = Vec::new();
     // Wood standing above the surface is only allowed for by the step that faces it off.
@@ -3030,13 +3028,16 @@ pub struct Joined {
 /// Joins the files of several parts cut from the stock into one, in the
 /// order given; each comes with the name of its step. A tool that the next
 /// part also starts with stays in the spindle, and tools keep one number
-/// each through the whole file. `label` is what the file is called after
-/// the project's name: "stock", or "stock 2".
+/// each through the whole file. The file is named by [`project_file_name`]
+/// from `first`, the place in the list of the first entry it cuts, and
+/// `what` it cuts: "stock", or the entries picked.
 pub fn join(
     project: &Project,
     parts: &[(&str, &Built)],
-    label: &str,
+    first: usize,
+    what: &str,
 ) -> Result<Joined, Vec<String>> {
+    let label = format!("{:02} {what}", first + 1);
     let design = project
         .design
         .as_ref()
@@ -3187,11 +3188,7 @@ pub fn join(
         piece: None,
         cut_width: None,
         shapes: extent(&pocket),
-        file_name: format!(
-            "{}.{}",
-            file_stem(&format!("{} {label}", project.name)),
-            carvera::FILE_EXTENSION
-        ),
+        file_name: project_file_name(project, first, what),
         stats,
         gcode,
         before,
@@ -3396,28 +3393,58 @@ fn num(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// The name of a part's file among the files of a whole project, which
-/// are numbered so that the machine's file list shows them in the order
-/// they are cut: the project's name, `number` (the place in the list of
-/// the entry the part belongs to, from 1), what the part is, and the
-/// entry's name.
-pub(crate) fn numbered_part_name(
-    project: &Project,
-    number: usize,
-    part: Part,
-    step: &Step,
-) -> String {
-    file_name(&format!(
-        "{} {number:02} {} {}",
-        project.name,
-        part_name(part, &step.task),
-        step.name
-    ))
+/// The name of every file the project makes, wherever it is made (an
+/// operation's own file, the Files tab, an agent's export): the project's
+/// name, the place in the list of the first entry the file cuts, from 1, so
+/// that the machine's file list shows the files in the order they are cut,
+/// and `what` the file cuts, in words.
+pub(crate) fn project_file_name(project: &Project, first: usize, what: &str) -> String {
+    let called = format!("{} {:02} {what}", project.name, first + 1);
+    format!("{}.{}", file_stem(&called), carvera::FILE_EXTENSION)
 }
 
-/// A file's name from what it is called in words.
-fn file_name(called: &str) -> String {
-    format!("{}.{}", file_stem(called), carvera::FILE_EXTENSION)
+/// What one entry's file cuts, in words, for [`project_file_name`]: an
+/// operation by its name; an inlay's file also says which part it is.
+pub(crate) fn cut_label(step: &Step, part: Part) -> String {
+    if step.task.is_inlay() {
+        format!("{} {}", step.name, part_name(part, &step.task))
+    } else {
+        step.name.clone()
+    }
+}
+
+/// Where a file cut from the stock begins in the list and what it cuts, for
+/// [`project_file_name`], from the ids of the entries it cuts in their order:
+/// one entry is named after itself, so its file has the name it has in its
+/// own panel; a whole stretch between two steps done by hand is "stock"; a
+/// few of a stretch are named after the first of them.
+pub(crate) fn stock_file_label(
+    project: &Project,
+    step_ids: &[&str],
+    whole: bool,
+) -> (usize, String) {
+    let first = step_ids.first().map_or(0, |id| place_of(project, id));
+    let one = || {
+        project
+            .steps
+            .get(first)
+            .map_or_else(|| "stock".to_string(), |step| cut_label(step, Part::Pocket))
+    };
+    let what = match step_ids.len() {
+        0 | 1 => one(),
+        _ if whole => "stock".to_string(),
+        n => format!("{} and {} more", one(), n - 1),
+    };
+    (first, what)
+}
+
+/// The place of an entry in the project's list, from 0.
+pub(crate) fn place_of(project: &Project, step_id: &str) -> usize {
+    project
+        .steps
+        .iter()
+        .position(|step| step.id == step_id)
+        .unwrap_or(0)
 }
 
 /// Letters, digits, dashes and underscores only, so the name is safe on the
@@ -3522,7 +3549,7 @@ pub(crate) mod tests {
     #[test]
     fn builds_a_file_that_obeys_the_firmware_rules_and_reads_back() {
         let built = build_pocket(&project(), "j").unwrap();
-        assert_eq!(built.file_name, "Test-board-Flat-inlay-1-pocket.cnc");
+        assert_eq!(built.file_name, "Test-board-01-Flat-inlay-1-pocket.cnc");
         assert!(built.gcode.starts_with("(Test board - Flat inlay 1 - pocket)\n(T1  D3.175x22 1F Downcut  D=3.175 CR=0 SD=3.175 FL=22 - flat end mill)\nG90 G94\nG17\nG21\nM6 T1\nS12000 M3\nG54\n"));
         assert!(built.gcode.ends_with("M5\nG28\nM30\n"));
         assert_eq!(carvera::lint(&built.gcode), Vec::<String>::new());
@@ -3669,7 +3696,7 @@ pub(crate) mod tests {
     fn insert_is_cut_out_of_its_own_board_and_fits_the_pocket() {
         let project = project();
         let built = build(&project, "j", Part::Plug).unwrap();
-        assert_eq!(built.file_name, "Test-board-Flat-inlay-1-insert.cnc");
+        assert_eq!(built.file_name, "Test-board-01-Flat-inlay-1-insert.cnc");
         // Shapes span X 5..55 and Y 5..35, less 0.05 allowance each side,
         // plus an 8 mm margin all round.
         assert!((built.stock.width - 65.9).abs() < 0.01, "{:?}", built.stock);
@@ -4032,7 +4059,7 @@ pub(crate) mod tests {
     #[test]
     fn plug_is_mirrored_in_a_blank_sized_from_the_shapes() {
         let built = build(&vcarve_project(true), "j", Part::Plug).unwrap();
-        assert_eq!(built.file_name, "Test-board-Flat-inlay-1-plug.cnc");
+        assert_eq!(built.file_name, "Test-board-01-Flat-inlay-1-plug.cnc");
         assert_eq!(built.part, Part::Plug);
         // Shapes span X 5..55 and Y 5..35; 6 mm margin all round.
         assert_eq!(
@@ -5038,7 +5065,7 @@ pub(crate) mod tests {
         });
         let preview = preview(&p, "j", Part::Pocket).unwrap();
         assert_eq!(preview.problems, []);
-        assert_eq!(preview.built.file_name, "Test-board-Op.cnc");
+        assert_eq!(preview.built.file_name, "Test-board-01-Op.cnc");
         let map = &preview.map;
         let shape = rectangle();
         for iy in 0..map.ny {
@@ -5538,7 +5565,7 @@ pub(crate) mod tests {
         assert_eq!(two.problems, []);
         assert_eq!(two.built.interpreted.tool_changes, [1]);
         assert_eq!(two.built.gcode.matches("M6").count(), 1);
-        assert_eq!(two.built.file_name, "Test-board-stock.cnc");
+        assert_eq!(two.built.file_name, "Test-board-01-stock.cnc");
         assert_eq!(two.built.stock.through, 0.2);
         assert!(two
             .built

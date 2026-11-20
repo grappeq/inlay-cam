@@ -75,7 +75,7 @@ export function Viewer3D({ preview, thickness, color = WOOD, owners, below, colo
   const [showDimensions, setShowDimensions] = useState(false);
   // Read by the pointer handler, which outlives a change of the tick box.
   const dimensionsOn = useRef(false);
-  const [showPath, setShowPath] = useState(false);
+  const [showPath, setShowPath] = useState(true);
   const [hideBoard, setHideBoard] = useState(false);
   const [showRapids, setShowRapids] = useState(true);
   // How many moves of the file are drawn; null for all of them.
