@@ -495,20 +495,29 @@ Read by `crates/inlay-core/src/import/svg.rs`.
 
 ## DXF import
 
-Read by `crates/inlay-core/src/import/dxf.rs`. Only the text (ASCII) form is read.
+Read by `crates/inlay-core/src/import/dxf.rs`. Both forms are read: text (ASCII) and
+binary (`dxf_binary.rs`), which starts with `AutoCAD Binary DXF` and is told apart by
+that. A binary file's group codes are one byte up to R12 (`AC1009`) and two after; its
+text is Windows-1252 before AutoCAD 2007 (`AC1021`) and UTF-8 from it.
 
 - Entities read: `LINE`, `ARC`, `CIRCLE`, `ELLIPSE`, `LWPOLYLINE` and old-style
   `POLYLINE` with their bulges, and `SPLINE` (any degree, with weights; a spline given
   only by fit points is read as straight runs between them). Arcs and polylines drawn in a
   mirrored plane (extrusion direction pointing down) are turned the right way.
-- Only the `ENTITIES` section is read. Blocks are not: an `INSERT` is left out and
-  reported, as are `HATCH`, dimensions and anything else not listed above. Text is
-  reported as text.
+- The `ENTITIES` section is read, and the blocks its `INSERT`s place, from the `BLOCKS`
+  section: moved, scaled (also mirrored), turned and in rows and columns as the `INSERT`
+  says, and blocks in blocks to 16 deep. What is drawn on layer `0` in a block takes the
+  `INSERT`'s layer; the rest keeps its own. An `INSERT` of a block the file does not
+  hold is left out and reported by the block's name. `HATCH`, dimensions and anything
+  else not listed above are reported; text is reported as text.
 - Units come from `$INSUNITS`: inches, feet, millimetres, centimetres and metres. Without
   it the numbers are taken as millimetres and the import says so.
 - Lines, arcs and curves are joined end to end where their ends are within 0.01 mm, and
   the shapes are the areas between the closed outlines, exactly as for an SVG drawing
-  made of outlines. Chains that do not close are left out and counted.
+  made of outlines. Chains that do not close are left out and counted. When some were,
+  the import tries larger gaps, 0.02 mm to 2 mm, and offers the smallest that closes
+  them all, or failing that the one that closes most, with how many it closes; taken,
+  the drawing is brought in again with that gap. This holds for SVG drawings too.
 - A DXF file has no page. The base board is the extent of the shapes plus 5 mm on every
   side, with the work origin at its bottom-left corner.
 - Layers are kept, under their names, in the order their first entities appear, the last

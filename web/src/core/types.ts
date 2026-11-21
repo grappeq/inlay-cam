@@ -500,6 +500,10 @@ export interface ImportReport {
   hasText: boolean;
   images: number;
   specks: number;
+  /** With open outlines: a larger gap, mm, that ends would be joined across to close more of them. */
+  joinable: { gap: number; closes: number } | null;
+  /** Ends were joined across gaps up to this, mm, when it was more than the usual 0.01 mm. */
+  joinedAt: number | null;
 }
 
 export interface SvgImport {

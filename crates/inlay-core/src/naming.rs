@@ -174,6 +174,40 @@ pub fn suggest(tool: &Tool, named: &str, taken: &[String]) -> Option<NameSuggest
     Some(NameSuggestion { name, accepted })
 }
 
+/// Why Makera CAM could not read a tool's shown name, for a tool that goes
+/// there: the letters it would stop at. `None` when it can.
+pub fn cam_name_problem(tool: &Tool) -> Option<String> {
+    let cam = tool
+        .apps
+        .as_ref()
+        .is_none_or(|apps| apps.contains(&MakeraApp::Cam));
+    let shown = display_name(&tool.name, tool.coating.as_deref());
+    if !cam || !cam_unreadable(&shown) {
+        return None;
+    }
+    let mut letters: Vec<char> = shown
+        .chars()
+        .filter(|c| {
+            c.encode_utf16(&mut [0; 2])
+                .iter()
+                .any(|u| u.to_be_bytes().contains(&13))
+        })
+        .collect();
+    letters.dedup();
+    Some(if letters.is_empty() {
+        format!(
+            "Makera CAM cannot read the name \"{shown}\": at its length it would stop short. A letter more or less mends it."
+        )
+    } else {
+        let listed: Vec<String> = letters.iter().map(|c| format!("\"{c}\"")).collect();
+        format!(
+            "Makera CAM cannot read {} in \"{shown}\", and stops reading the name there. Write {} otherwise, or keep the tool from Makera CAM.",
+            listed.join(", "),
+            if letters.len() == 1 { "it" } else { "them" }
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +283,23 @@ mod tests {
             template(&point, "Fillet").as_deref(),
             Some("90° Chamfer Ø4")
         );
+    }
+
+    #[test]
+    fn a_name_makera_cam_cannot_read_is_said_with_its_letters() {
+        let mut flat = tool(ToolKind::FlatEnd, 6.0, Some(15.0), 6.0, 2);
+        flat.name = "Ø6×15 2F".into();
+        assert_eq!(cam_name_problem(&flat), None);
+        flat.name = "Frez čelní".into();
+        let problem = cam_name_problem(&flat).unwrap();
+        assert!(problem.contains("\"č\""), "{problem}");
+        // A tool kept from Makera CAM may have any name.
+        flat.apps = Some(vec![MakeraApp::Studio]);
+        assert_eq!(cam_name_problem(&flat), None);
+        // A name whose length alone stops it: 1664 letters are 0x0D00 bytes.
+        flat.apps = None;
+        flat.name = "a".repeat(1664);
+        assert!(cam_name_problem(&flat).unwrap().contains("length"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { core } from "../core/client";
 import type { Attention, CuttingSettings, Material, Tool, ToolKind, ToolLists } from "../core/types";
 import { rowStatus, type CutValues, type Pick } from "../state/feedsView";
-import { COATINGS, CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, displayName, fmt, goesTo, stepToolIds, makeraWarnings, materialLabel, rowLabel, today } from "../state/model";
+import { COATINGS, CUTTING_KINDS, TOOL_KIND_LABELS, allMaterials, displayName, fmt, goesTo, stepToolIds, makeraWarnings, materialLabel, radiusMismatch, rowLabel, today } from "../state/model";
 import { message, useApp } from "../state/store";
 import { LogList, LogResult, ResultMark, RowFacts, Ruler, StatusTag, SuggestionSlot, entryFor, percentOf, round6, rowKey, startPick, useEntry, valuesOf } from "./RowInsight";
 import { Num, Text } from "./Cells";
@@ -120,6 +120,16 @@ export function ToolCard(props: {
   const inspected: CuttingSettings | undefined = tool.cutting[inspectAt];
   const pick = inspected ? (picked?.at === inspectAt && picked.row === rowKey(inspected) ? picked.pick : startPick(inspected, lists)) : null;
 
+  // While reading: the suggestion is for the row that is opened.
+  const readRow: CuttingSettings | undefined = !editing && open !== null ? tool.cutting[open] : undefined;
+  const readPick = readRow ? (picked?.at === open && picked.row === rowKey(readRow) ? picked.pick : startPick(readRow, lists)) : null;
+  /** Starts editing with a suggestion taken into a row, which is then the one the suggestion is shown for. */
+  const editWith = (index: number, change: Partial<CutValues>) => {
+    setDraft({ ...props.tool, cutting: props.tool.cutting.map((row, i) => (i === index ? { ...row, ...change } : row)) });
+    setInspect(index);
+    setOpen(null);
+  };
+
   /** Starts editing, with the suggestion on the first plain row that holds none of the model's: the one most worth a look. */
   const startEdit = () => {
     setDraft(props.tool);
@@ -220,6 +230,7 @@ export function ToolCard(props: {
           )}
         </div>
         {draft && <NameHint draft={draft} saved={props.tool} isNew={props.isNew} taken={props.taken} onUse={(name) => set({ name })} />}
+        <CamName tool={tool} />
         {!cuts && <p className="muted">Kept here and written for other programs. No operation of this app cuts with a {TOOL_KIND_LABELS[tool.kind].toLowerCase()}.</p>}
         {editing ? (
           <input className="note-input" type="text" aria-label="Note" placeholder="A line about the whole tool" value={tool.note ?? ""} onChange={(e) => set({ note: e.target.value.trim() === "" ? undefined : e.target.value })} />
@@ -315,6 +326,7 @@ export function ToolCard(props: {
           {(editing || tool.style) && <Fact label="Style" value={tool.style} edit={editing && <Text label="Style" placeholder="Downcut, Alu" value={tool.style} onChange={(style) => set({ style })} />} />}
           {!editing && tool.coating && <Fact label="Coating" value={tool.coating} />}
         </dl>
+        {radiusMismatch(tool) && <p className="warn">▲ {radiusMismatch(tool)}</p>}
         {(editing || (tool.recommendedFor?.length ?? 0) > 0) && (
           <p className="suits">
             <span className="muted">Suits</span>
@@ -386,6 +398,18 @@ export function ToolCard(props: {
                   />
                 ))}
               </tbody>
+              {!editing && readRow && readPick && (
+                <SuggestionSlot
+                  key={`read-${rowKey(readRow)}`}
+                  tool={tool}
+                  row={readRow}
+                  lists={lists}
+                  passes={passes}
+                  pick={readPick}
+                  onPick={(next) => setPicked({ at: open!, row: rowKey(readRow), pick: next })}
+                  onUse={(change: Partial<CutValues>) => editWith(open!, change)}
+                />
+              )}
               {editing && inspected && pick && (
                 <SuggestionSlot
                   key={rowKey(inspected)}
@@ -907,6 +931,29 @@ function CutLine(props: {
       )}
     </>
   );
+}
+
+/**
+ * Says when Makera CAM could not read the tool's shown name: it stops at
+ * some letters. Shown while the name is typed, and while the tool is read,
+ * since a library for Makera CAM is not written with such a name.
+ */
+function CamName({ tool }: { tool: Tool }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    let gone = false;
+    const timer = setTimeout(() => {
+      core
+        .call("camNameProblem", tool)
+        .then((p) => !gone && setProblem(p))
+        .catch(() => !gone && setProblem(null));
+    }, 150);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [tool]);
+  return problem ? <p className="warn">▲ {problem}</p> : null;
 }
 
 /** Notes a cutter that broke or wore out, and takes it off the count. */

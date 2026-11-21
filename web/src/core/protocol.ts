@@ -5,9 +5,10 @@ import type { Attention, Built, EdgePlan, FusionExport, MakeraExport, Machine, M
 
 export interface CoreApi {
   coreVersion(): string;
-  importSvg(text: string, sourceName: string): SvgImport;
-  /** Reads a DXF drawing in its text form. */
-  importDxf(text: string, sourceName: string): SvgImport;
+  /** `gap`: the ends of open outlines are joined across gaps up to this, mm, when it is more than the usual 0.01 mm. */
+  importSvg(text: string, sourceName: string, gap?: number): SvgImport;
+  /** Reads a DXF drawing, text or binary, from its bytes. `gap` as for an SVG. */
+  importDxf(bytes: Uint8Array, sourceName: string, gap?: number): SvgImport;
   importToolsYaml(text: string): ToolsYamlImport;
   /** Reads a project file of any supported format version. */
   projectFromFile(text: string): Project;
@@ -42,6 +43,8 @@ export interface CoreApi {
   needsAttention(tools: Tool[]): Attention[];
   /** The problem with the tool as text, or null when it is valid. */
   validateTool(tool: Tool): string | null;
+  /** Why Makera CAM could not read the tool's shown name, or null when it can or the tool does not go there. */
+  camNameProblem(tool: Tool): string | null;
   /**
    * Builds the G-code for one part of a step and simulates it. Fails with
    * every reason the part cannot be built, one per line of the error message.

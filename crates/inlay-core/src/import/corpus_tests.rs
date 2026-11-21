@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use super::dxf::import_dxf;
+use super::dxf::import_dxf_bytes;
+use super::join::JOIN_GAP;
 use super::svg::{import_svg, SvgImport};
 use crate::build::{build, check_fit, preview, Part};
 use crate::geom::ring_area;
@@ -47,6 +48,9 @@ struct Case {
     build: Option<String>,
     #[serde(default)]
     simulate: bool,
+    /// The names of the drawing's layers, in any order.
+    #[serde(default)]
+    layers: Vec<String>,
 }
 
 fn directory() -> PathBuf {
@@ -59,11 +63,12 @@ fn cases() -> Vec<Case> {
 }
 
 fn import(case: &Case) -> Result<SvgImport, String> {
-    let text = std::fs::read_to_string(directory().join(&case.file)).unwrap();
+    let path = directory().join(&case.file);
     if case.file.ends_with(".dxf") {
-        import_dxf(&text, &case.file)
+        // As bytes, as the page reads a DXF: it may be binary.
+        import_dxf_bytes(&std::fs::read(path).unwrap(), &case.file, JOIN_GAP)
     } else {
-        import_svg(&text, &case.file)
+        import_svg(&std::fs::read_to_string(path).unwrap(), &case.file)
     }
 }
 
@@ -125,6 +130,13 @@ fn every_drawing_imports_as_its_manifest_entry_says() {
                     design.width, design.height
                 ));
             }
+        }
+        let mut layers: Vec<&str> = design.layers.iter().map(|l| l.name.as_str()).collect();
+        let mut wanted: Vec<&str> = case.layers.iter().map(String::as_str).collect();
+        layers.sort_unstable();
+        wanted.sort_unstable();
+        if layers != wanted {
+            fail(format!("layers {layers:?}, expected {wanted:?}"));
         }
         match (&case.unit, &report.unit_note) {
             (Some(wanted), Some(note)) if note.contains(wanted.as_str()) => {}

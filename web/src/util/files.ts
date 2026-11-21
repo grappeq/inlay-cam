@@ -44,8 +44,24 @@ export function pickBinaryFile(accept: string): Promise<{ name: string; bytes: U
   });
 }
 
+/** A file brought into the app. `bytes` are there for the kinds that may not be text: a DXF, which may be binary, and a Makera library. */
+export interface InFile {
+  name: string;
+  text: string;
+  bytes?: Uint8Array;
+}
+
+const BINARY = /\.(dxf|tlslibrary)$/i;
+
+/** Reads a picked or dropped file, as text, and as bytes for the kinds that may not be text. */
+export async function readFile(file: File): Promise<InFile> {
+  if (!BINARY.test(file.name)) return { name: file.name, text: await file.text() };
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return { name: file.name, text: new TextDecoder().decode(bytes), bytes };
+}
+
 /** Opens the file picker. Resolves to null when the user cancels. */
-export function pickTextFile(accept: string): Promise<{ name: string; text: string } | null> {
+export function pickTextFile(accept: string): Promise<InFile | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -54,7 +70,7 @@ export function pickTextFile(accept: string): Promise<{ name: string; text: stri
       const file = input.files?.[0];
       if (!file) return resolve(null);
       try {
-        resolve({ name: file.name, text: await file.text() });
+        resolve(await readFile(file));
       } catch (e) {
         reject(e);
       }
@@ -65,7 +81,7 @@ export function pickTextFile(accept: string): Promise<{ name: string; text: stri
 }
 
 /** Opens the file picker for any number of files. Resolves to an empty list when the user cancels. */
-export function pickTextFiles(accept: string): Promise<{ name: string; text: string }[]> {
+export function pickTextFiles(accept: string): Promise<InFile[]> {
   return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -73,7 +89,7 @@ export function pickTextFiles(accept: string): Promise<{ name: string; text: str
     input.multiple = true;
     input.onchange = async () => {
       try {
-        resolve(await Promise.all([...(input.files ?? [])].map(async (file) => ({ name: file.name, text: await file.text() }))));
+        resolve(await Promise.all([...(input.files ?? [])].map(readFile)));
       } catch (e) {
         reject(e);
       }

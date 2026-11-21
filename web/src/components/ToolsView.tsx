@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Attention, MakeraImportPlan, Tool, ToolKind } from "../core/types";
+import type { Attention, Tool, ToolKind } from "../core/types";
 import { useFileActions } from "../state/files";
 import { allMaterials, blankTool, currentResult, stepToolIds, materialLabel, projectOnlyTools } from "../state/model";
 import { hasUnsaved, mayLeave, setUnsaved } from "../state/unsaved";
@@ -34,9 +34,12 @@ import {
   type Row,
   type SortKey,
 } from "../state/toolFind";
-import { downloadBytes, downloadText, pickBinaryFile, pickTextFile } from "../util/files";
-import { ExportReportDialog, MakeraImportDialog, type ExportReport } from "./LibraryDialogs";
+import { downloadBytes, downloadText, pickTextFile } from "../util/files";
+import { ExportReportDialog, type ExportReport } from "./LibraryDialogs";
 import { ToolCard } from "./ToolCard";
+import { foldedNames, zipFiles } from "../util/zip";
+
+const ZIP_NAME = "tools-fusion-360-by-group.zip";
 import { recall, remember } from "../storage/view";
 
 /** What a group of tools is called when the tools name none of their own. */
@@ -124,7 +127,6 @@ function LibraryMenu() {
   const dispatch = useDispatch();
   const actions = useFileActions();
   const [report, setReport] = useState<ExportReport | null>(null);
-  const [incoming, setIncoming] = useState<{ plan: MakeraImportPlan; fileName: string } | null>(null);
   const library = { ...lists, tools };
   const guard = (action: () => Promise<void>) => async () => {
     try {
@@ -153,23 +155,27 @@ function LibraryMenu() {
   const fusion = (split: boolean) =>
     guard(async () => {
       const out = await core.call("exportFusion", library);
-      const files = split ? out.sections.map((s) => ({ name: s.name, text: s.text })) : [{ name: "tools-fusion-360.json", text: out.library }];
-      for (const file of files) downloadText(file.name, file.text);
+      let files: string[];
+      if (split) {
+        // One download: the libraries, a file each, in a .zip.
+        const names = foldedNames(out.sections.map((section) => section.name));
+        downloadBytes(ZIP_NAME, zipFiles(out.sections.map((section, i) => ({ name: names[i], text: section.text }))), "application/zip");
+        files = names.map((name) => `${ZIP_NAME}: ${name}`);
+      } else {
+        downloadText("tools-fusion-360.json", out.library);
+        files = ["tools-fusion-360.json"];
+      }
       setReport({
         what: "Fusion 360 library",
-        files: files.map((f) => f.name),
+        files,
         counts: `${count(out.tools, "tool")}, ${count(out.presets, "preset")}`,
         warnings: out.warnings,
         next: split
-          ? "In Fusion 360's tool library, import each file: a library is named after its file, and libraries are the only folders it has."
+          ? "Unpack the .zip, then in Fusion 360's tool library import each file: a library is named after its file, and libraries are the only folders it has."
           : "In Fusion 360's tool library, import the file. Every cutting row is a preset of its tool.",
       });
     });
-  const takeValues = guard(async () => {
-    const file = await pickBinaryFile(".tlslibrary");
-    if (!file) return;
-    setIncoming({ plan: await core.call("planMakeraImport", library, file.bytes), fileName: file.name });
-  });
+  const takeValues = async () => actions.takeMakeraValues(await pickTextFile(".tlslibrary"));
   const none = tools.length === 0;
   const groups = new Set(tools.map((t) => (t.group ?? KIND_GROUPS[t.kind]).split("/")[0].trim())).size;
 
@@ -188,11 +194,10 @@ function LibraryMenu() {
           { label: "Export for Makera CAM", hint: "A .tlslibrary to import there.", disabled: none, run: makera("cam") },
           { label: "Export for Makera Studio", hint: "A .tlslibrary to import there.", disabled: none, run: makera("studio") },
           { label: "Export for Fusion 360", hint: "One .json library with every tool.", disabled: none, run: fusion(false) },
-          ...(groups > 1 ? [{ label: "Export for Fusion 360, by group", hint: `${groups} libraries, one per top group.`, disabled: none, run: fusion(true) }] : []),
+          ...(groups > 1 ? [{ label: "Export for Fusion 360, by group", hint: `${groups} libraries, one per top group, in a .zip.`, disabled: none, run: fusion(true) }] : []),
         ]}
       />
       {report && <ExportReportDialog report={report} onClose={() => setReport(null)} />}
-      {incoming && <MakeraImportDialog plan={incoming.plan} fileName={incoming.fileName} onClose={() => setIncoming(null)} />}
     </>
   );
 }

@@ -159,7 +159,7 @@
  {
   "name": "drawing_import",
   "title": "Bring in a drawing",
-  "description": "Reads an SVG or DXF drawing from disk and puts its closed shapes on the stock. The first drawing of a project sets the stock to its page; a later one is added in the middle of the stock, beside what is there, and shapes_move then puts it in place. With replace, it takes the place of the whole drawing, and every step made from the old one goes. Answers the new shapes and what of the file was not read.",
+  "description": "Reads an SVG or DXF drawing (text or binary DXF) from disk and puts its closed shapes on the stock. The first drawing of a project sets the stock to its page; a later one is added in the middle of the stock, beside what is there, and shapes_move then puts it in place. With replace, it takes the place of the whole drawing, and every step made from the old one goes. Answers the new shapes and what of the file was not read. Ends of lines are joined where they meet within 0.01 mm; when outlines were left open, notRead.joinable names a larger gap that would close them: call again with joinGap and replace to bring the drawing in that way, after telling the user.",
   "inputSchema": {
    "type": "object",
    "properties": {
@@ -171,16 +171,25 @@
       },
       "text": {
        "type": "string"
+      },
+      "base64": {
+       "type": "string",
+       "description": "The file's bytes, for a binary DXF."
       }
      },
      "required": [
-      "name",
-      "text"
+      "name"
      ],
      "additionalProperties": false
     },
     "replace": {
      "type": "boolean"
+    },
+    "joinGap": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "maximum": 2,
+     "description": "Join ends of open outlines across gaps up to this, mm."
     }
    },
    "required": [

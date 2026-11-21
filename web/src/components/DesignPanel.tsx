@@ -129,13 +129,20 @@ function OnHiddenLayers({ ids }: { ids: number[] }) {
 }
 
 export function ReportNotes({ report }: { report: ImportReport }) {
+  const { importAgain } = useApp();
+  const { joinGaps } = useFileActions();
   const notes: string[] = [];
+  const within = report.joinedAt ?? 0.01;
   if (report.openOutlines > 0) {
     const one = report.openOutlines === 1;
     notes.push(
-      `${report.openOutlines} outline${one ? " does" : "s do"} not close and ${one ? "was" : "were"} left out. Lines are joined where their ends meet within 0.01 mm; close the gaps in the drawing program.`,
+      `${report.openOutlines} outline${one ? " does" : "s do"} not close and ${one ? "was" : "were"} left out. Lines are joined where their ends meet within ${within} mm; close the gaps in the drawing program${report.joinable && importAgain ? ", or join wider gaps here" : ""}.`,
     );
   }
+  if (report.joinedAt !== null && report.joinedAt !== undefined) {
+    notes.push(`Ends were joined across gaps up to ${report.joinedAt} mm. Check that the outlines are as the drawing meant them.`);
+  }
+  const offer = report.joinable && importAgain ? report.joinable : null;
   if (report.unitNote) notes.push(`The drawing's unit: ${report.unitNote}. Check the size below.`);
   if (report.unsupported.length > 0) {
     notes.push(`Left out, because the app does not read ${report.unsupported.length === 1 ? "it" : "them"}: ${report.unsupported.join(", ")}.`);
@@ -153,6 +160,21 @@ export function ReportNotes({ report }: { report: ImportReport }) {
       {notes.map((note) => (
         <li key={note}>{note}</li>
       ))}
+      {offer && importAgain && (
+        <li>
+          <button
+            type="button"
+            className="small"
+            onClick={() => joinGaps(importAgain, offer.gap)}
+            title={`Brings ${importAgain.file.name} in again, with ends that are up to ${offer.gap} mm apart joined${importAgain.replace ? ", in place of the drawing it gave" : ""}.`}
+          >
+            Join gaps up to {offer.gap} mm
+          </button>{" "}
+          <span className="muted">
+            closes {offer.closes === report.openOutlines ? (offer.closes === 1 ? "it" : `all ${offer.closes}`) : `${offer.closes} of ${report.openOutlines}`}
+          </span>
+        </li>
+      )}
     </ul>
   );
 }

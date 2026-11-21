@@ -5,11 +5,10 @@ import * as db from "../storage/home";
 import type { ImportReport } from "../core/types";
 import { addStarter, mergeLists, mergeTools, newId } from "./model";
 import { message, useApp, useDispatch } from "./store";
+import type { InFile } from "../util/files";
 
-export interface TextFile {
-  name: string;
-  text: string;
-}
+/** A file as it is brought in: text, and bytes for a DXF or a Makera library. */
+export type TextFile = InFile;
 
 export function useFileActions() {
   const { project, tools, lists } = useApp();
@@ -24,7 +23,7 @@ export function useFileActions() {
    * With `replace`, the first one takes the place of the drawing instead,
    * and the inlays and operations made from it go.
    */
-  async function importDrawings(files: TextFile[], replace = false) {
+  async function importDrawings(files: TextFile[], replace = false, gap?: number) {
     let had = project.design !== null;
     let shapes = 0;
     const read: string[] = [];
@@ -34,7 +33,9 @@ export function useFileActions() {
       const dxf = file.name.toLowerCase().endsWith(".dxf");
       let result;
       try {
-        result = await core.call(dxf ? "importDxf" : "importSvg", file.text, file.name);
+        result = dxf
+          ? await core.call("importDxf", file.bytes ?? new TextEncoder().encode(file.text), file.name, gap)
+          : await core.call("importSvg", file.text, file.name, gap);
       } catch (e) {
         failed.push(`${file.name}: ${message(e)}`);
         continue;
@@ -49,6 +50,9 @@ export function useFileActions() {
             hasText: merged.hasText || report.hasText,
             images: merged.images + report.images,
             specks: merged.specks + report.specks,
+            // Offered for one file at a time only: see `again` below.
+            joinable: null,
+            joinedAt: merged.joinedAt ?? report.joinedAt,
           }
         : report;
       if (design.regions.length === 0) {
@@ -60,7 +64,14 @@ export function useFileActions() {
       read.push(file.name);
     }
     dispatch({ type: "setView", view: "design" });
-    dispatch({ type: "setImportReport", report: merged });
+    // One file can be brought in again with its gaps joined: in place of
+    // the drawing it set or replaced, or, when it gave no shapes, as it was
+    // brought in. Shapes it added beside others are not taken back.
+    const again =
+      files.length === 1 && (read.length === 0 || replace || !had)
+        ? { file: files[0], replace: read.length === 0 ? replace : true }
+        : undefined;
+    dispatch({ type: "setImportReport", report: again || !merged ? merged : { ...merged, joinable: null }, again });
     if (read.length > 0) {
       const count = `${shapes} shape${shapes === 1 ? "" : "s"}`;
       const added = had && !replace;
@@ -77,6 +88,22 @@ export function useFileActions() {
   }
 
   const importSvg = (file: TextFile) => importDrawings([file]);
+
+  /** Brings the drawing that was last brought in again, with the ends of its outlines joined across gaps up to `gap`, mm, in place of what it gave. */
+  async function joinGaps({ file, replace }: { file: TextFile; replace: boolean }, gap: number) {
+    const made = project.steps.length;
+    if (replace && made > 0 && !confirm(`Bring the drawing in again with gaps up to ${gap} mm joined? The ${made === 1 ? "inlay or operation" : `${made} inlays and operations`} made from it will be removed.`)) return;
+    await importDrawings([file], replace, gap);
+  }
+
+  /** Takes values changed in Makera CAM or Studio from one of their exports: the dialog shows what would change. */
+  async function takeMakeraValues(file: TextFile) {
+    if (!file.bytes) throw new Error(`${file.name} could not be read as a file of bytes.`);
+    if (tools.length === 0) throw new Error(`${file.name} holds values for tools, but your tool list is empty. Add the tools first, then take the values.`);
+    const plan = await core.call("planMakeraImport", { ...lists, tools }, file.bytes);
+    dispatch({ type: "setView", view: "settings", page: "tools" });
+    dispatch({ type: "setMakeraImport", incoming: { plan, fileName: file.name } });
+  }
 
   async function openProject(file: TextFile) {
     const imported = await core.call("projectFromFile", file.text);
@@ -138,6 +165,7 @@ export function useFileActions() {
     const name = file.name.toLowerCase();
     if (isDrawing(file)) return importSvg(file);
     if (name.endsWith(".yaml") || name.endsWith(".yml")) return importToolsYaml(file);
+    if (name.endsWith(".tlslibrary")) return takeMakeraValues(file);
     if (name.endsWith(".json")) {
       let kind: unknown;
       try {
@@ -147,7 +175,7 @@ export function useFileActions() {
       }
       return kind === "tool-library" ? importToolLibrary(file) : openProject(file);
     }
-    throw new Error(`${file.name} is not a file this app reads. It takes SVG and DXF drawings, project and tool files (.json) and tools.yaml.`);
+    throw new Error(`${file.name} is not a file this app reads. It takes SVG and DXF drawings, project and tool files (.json), tools.yaml, and Makera exports (.tlslibrary) to take values from.`);
   }
 
   /** Wraps an action so that a failure is shown to the user. */
@@ -182,5 +210,7 @@ export function useFileActions() {
     /** The same, staying on the view it is asked from. */
     addStarterSetHere: () => addStarterSet(false).catch(fail),
     importAny: guarded(importAny),
+    takeMakeraValues: guarded(takeMakeraValues),
+    joinGaps: async (again: { file: TextFile; replace: boolean }, gap: number) => joinGaps(again, gap).catch(fail),
   };
 }

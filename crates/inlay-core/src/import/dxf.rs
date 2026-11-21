@@ -3,7 +3,9 @@
 //! A DXF file has no filled shapes, only lines. Lines, arcs and curves that
 //! meet end to end are joined into closed outlines, and the shapes are the
 //! areas between those outlines, exactly as for an SVG drawing made of
-//! outlines. Only the text (ASCII) form of DXF is read.
+//! outlines. Both the text (ASCII) and the binary form are read
+//! (`dxf_binary.rs`), and blocks placed with INSERT are drawn where they
+//! are placed.
 //!
 //! The drawing's layers are kept: what is drawn on one layer is joined, and
 //! cut out of each other, among itself only.
@@ -13,7 +15,8 @@ use std::f64::consts::{PI, TAU};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::float::simplify::SimplifyShape;
 
-use super::join::{join, thin, JOIN_GAP};
+use super::dxf_binary;
+use super::join::{join, joinable, thin, JOIN_GAP};
 use super::svg::{
     layers_named, only_used_layers, regions_between_outlines, ImportReport, SvgImport,
     FLATTEN_TOLERANCE,
@@ -352,10 +355,25 @@ fn units(code: Option<i32>) -> (f64, Option<String>) {
     }
 }
 
+/// Reads a DXF file in either form: binary, or text.
+pub fn import_dxf_bytes(bytes: &[u8], source_name: &str, gap: f64) -> Result<SvgImport, String> {
+    if bytes.starts_with(dxf_binary::SENTINEL) {
+        let owned = dxf_binary::groups(bytes)?;
+        let groups: Vec<(i32, &str)> = owned.iter().map(|(c, v)| (*c, v.as_str())).collect();
+        return from_groups(&groups, source_name, gap);
+    }
+    import_dxf_joined(&String::from_utf8_lossy(bytes), source_name, gap)
+}
+
 pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
+    import_dxf_joined(text, source_name, JOIN_GAP)
+}
+
+/// Reads a text DXF, with the ends of lines joined across gaps up to `gap`, mm.
+pub fn import_dxf_joined(text: &str, source_name: &str, gap: f64) -> Result<SvgImport, String> {
     if text.starts_with("AutoCAD Binary DXF") {
         return Err(
-            "This is a binary DXF file. Save it as a text (ASCII) DXF and try again.".into(),
+            "This is a binary DXF file, which has to be read as bytes, not as text.".into(),
         );
     }
     // The file is pairs of lines: a group code, then its value.
@@ -367,48 +385,83 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
         };
         groups.push((code, value.trim()));
     }
-    if !groups.contains(&(0, "SECTION")) {
-        return Err("The file could not be read as a DXF drawing.".into());
-    }
+    from_groups(&groups, source_name, gap)
+}
 
-    let mut report = ImportReport::default();
-    let mut unit_code: Option<i32> = None;
-    // Each with the id of the layer it is on: the layer's place in `names`.
-    let mut curves: Vec<(Curve, u32)> = Vec::new();
-    let mut names: Vec<String> = Vec::new();
-    let mut layer_of = |body: &Groups| -> u32 {
+/// What a run of entities draws: curves, each on the layer it names, and
+/// blocks placed by INSERT.
+enum Item<'a> {
+    Curve(Curve, &'a str),
+    Insert(Insert<'a>),
+}
+
+/// A block placed: where, how large, turned how far, and in how many copies.
+struct Insert<'a> {
+    block: &'a str,
+    layer: &'a str,
+    at: Point,
+    scale: [f64; 2],
+    /// Radians.
+    rotation: f64,
+    mirrored: bool,
+    columns: u32,
+    rows: u32,
+    spacing: [f64; 2],
+}
+
+/// An affine map of the plane: `[a, b, c, d, e, f]` takes (x, y) to
+/// (a x + b y + e, c x + d y + f).
+type Affine = [f64; 6];
+const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+/// `outer` after `inner`.
+fn compose(outer: &Affine, inner: &Affine) -> Affine {
+    let [a, b, c, d, e, f] = *outer;
+    let [p, q, r, s, t, u] = *inner;
+    [
+        a * p + b * r,
+        a * q + b * s,
+        c * p + d * r,
+        c * q + d * s,
+        a * t + b * u + e,
+        c * t + d * u + f,
+    ]
+}
+
+fn apply(m: &Affine, p: Point) -> Point {
+    [
+        m[0] * p[0] + m[1] * p[1] + m[4],
+        m[2] * p[0] + m[3] * p[1] + m[5],
+    ]
+}
+
+/// A block defined in the BLOCKS section: its base point and what it draws.
+struct Block<'a> {
+    base: Point,
+    items: Vec<Item<'a>>,
+}
+
+/// Blocks placed inside blocks, at most this deep: deeper is taken to be a
+/// block that places itself.
+const MOST_NESTED: usize = 16;
+
+/// Reads the entities of a section or a block, `groups` starting at the
+/// first entity's group 0.
+fn read_items<'a>(groups: &'a Groups<'a>, report: &mut ImportReport) -> Vec<Item<'a>> {
+    let layer = |body: &'a Groups<'a>| -> &'a str {
         // An entity that names no layer is on layer "0", as in a CAD program.
-        let name = body.iter().find(|(c, _)| *c == 8).map_or("0", |(_, v)| *v);
-        if let Some(id) = names.iter().position(|n| n == name) {
-            return id as u32;
-        }
-        names.push(name.to_string());
-        names.len() as u32 - 1
+        body.iter().find(|(c, _)| *c == 8).map_or("0", |(_, v)| *v)
     };
+    let mut items = Vec::new();
     // An old-style POLYLINE is spread over entities: its vertices follow it.
     let mut heavy: Option<Heavy> = None;
-
-    let mut section = "";
     let mut i = 0;
     while i < groups.len() {
-        let (code, value) = groups[i];
-        if code == 0 && value == "SECTION" {
-            section = groups.get(i + 1).map_or("", |g| g.1);
-            i += 2;
-            continue;
-        }
-        if code == 0 && value == "ENDSEC" {
-            section = "";
+        if groups[i].0 != 0 {
             i += 1;
             continue;
         }
-        if section == "HEADER" && code == 9 && value == "$INSUNITS" {
-            unit_code = groups.get(i + 1).and_then(|g| g.1.parse().ok());
-        }
-        if section != "ENTITIES" || code != 0 {
-            i += 1;
-            continue;
-        }
+        let value = groups[i].1;
         // One entity: everything up to the next group 0.
         let end = groups[i + 1..]
             .iter()
@@ -433,18 +486,206 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
             "SEQEND" => {
                 if let Some((vertices, closed, of)) = heavy.take() {
                     if let Some(curve) = polyline(&vertices, closed) {
-                        curves.push((curve, layer_of(of)));
+                        items.push(Item::Curve(curve, layer(of)));
                     }
                 }
             }
+            "INSERT" => {
+                let text = |code: i32| body.iter().find(|(c, _)| *c == code).map(|(_, v)| *v);
+                if let Some(block) = text(2) {
+                    let count = |code: i32| {
+                        (number(body, code).unwrap_or(1.0) as i64).clamp(1, 1000) as u32
+                    };
+                    items.push(Item::Insert(Insert {
+                        block,
+                        layer: layer(body),
+                        at: point(body, 10, 20).unwrap_or([0.0, 0.0]),
+                        scale: [
+                            number(body, 41).unwrap_or(1.0),
+                            number(body, 42).unwrap_or(1.0),
+                        ],
+                        rotation: number(body, 50).unwrap_or(0.0).to_radians(),
+                        mirrored: number(body, 230).is_some_and(|z| z < 0.0),
+                        columns: count(70),
+                        rows: count(71),
+                        spacing: [
+                            number(body, 44).unwrap_or(0.0),
+                            number(body, 45).unwrap_or(0.0),
+                        ],
+                    }));
+                }
+            }
             kind => {
-                if let Some(curve) = entity(kind, body, &mut report) {
-                    curves.push((curve, layer_of(body)));
+                if let Some(curve) = entity(kind, body, report) {
+                    items.push(Item::Curve(curve, layer(body)));
                 }
             }
         }
         i = end;
     }
+    items
+}
+
+/// The blocks of the BLOCKS section, by name.
+fn read_blocks<'a>(
+    groups: &'a Groups<'a>,
+    report: &mut ImportReport,
+) -> std::collections::HashMap<&'a str, Block<'a>> {
+    let mut blocks = std::collections::HashMap::new();
+    let mut i = 0;
+    while i < groups.len() {
+        if groups[i] != (0, "BLOCK") {
+            i += 1;
+            continue;
+        }
+        let head_end = groups[i + 1..]
+            .iter()
+            .position(|g| g.0 == 0)
+            .map_or(groups.len(), |n| i + 1 + n);
+        let head = &groups[i + 1..head_end];
+        let end = groups[head_end..]
+            .iter()
+            .position(|g| *g == (0, "ENDBLK"))
+            .map_or(groups.len(), |n| head_end + n);
+        if let Some((_, name)) = head.iter().find(|(c, _)| *c == 2) {
+            blocks.insert(
+                *name,
+                Block {
+                    base: point(head, 10, 20).unwrap_or([0.0, 0.0]),
+                    items: read_items(&groups[head_end..end], report),
+                },
+            );
+        }
+        i = end + 1;
+    }
+    blocks
+}
+
+/// Every curve that `items` draw, with blocks placed where their INSERTs
+/// say, in the drawing's coordinates, each with its layer's name. What a
+/// block draws on layer "0" is on the layer of the INSERT that places it.
+fn place<'a>(
+    items: &'a [Item<'a>],
+    blocks: &'a std::collections::HashMap<&'a str, Block<'a>>,
+    map: &Affine,
+    layer_0: &'a str,
+    depth: usize,
+    report: &mut ImportReport,
+    out: &mut Vec<(Curve, &'a str)>,
+) {
+    for item in items {
+        match item {
+            Item::Curve(curve, layer) => out.push((
+                Curve {
+                    points: curve.points.iter().map(|p| apply(map, *p)).collect(),
+                    closed: curve.closed,
+                },
+                if *layer == "0" { layer_0 } else { layer },
+            )),
+            Item::Insert(insert) => {
+                let Some(block) = blocks.get(insert.block) else {
+                    let note = format!("INSERT of a block not in the file ({})", insert.block);
+                    if !report.unsupported.contains(&note) {
+                        report.unsupported.push(note);
+                    }
+                    continue;
+                };
+                if depth >= MOST_NESTED {
+                    let note = "INSERT nested too deep".to_string();
+                    if !report.unsupported.contains(&note) {
+                        report.unsupported.push(note);
+                    }
+                    continue;
+                }
+                let layer = if insert.layer == "0" {
+                    layer_0
+                } else {
+                    insert.layer
+                };
+                let (sin, cos) = insert.rotation.sin_cos();
+                let mirror = if insert.mirrored { -1.0 } else { 1.0 };
+                for row in 0..insert.rows {
+                    for column in 0..insert.columns {
+                        // Copies of an array step along the block's own turned axes.
+                        let step = [
+                            column as f64 * insert.spacing[0],
+                            row as f64 * insert.spacing[1],
+                        ];
+                        let local: Affine = compose(
+                            &[mirror, 0.0, 0.0, 1.0, 0.0, 0.0],
+                            &compose(
+                                &[cos, -sin, sin, cos, insert.at[0], insert.at[1]],
+                                &[
+                                    insert.scale[0],
+                                    0.0,
+                                    0.0,
+                                    insert.scale[1],
+                                    step[0] - insert.scale[0] * block.base[0],
+                                    step[1] - insert.scale[1] * block.base[1],
+                                ],
+                            ),
+                        );
+                        place(
+                            &block.items,
+                            blocks,
+                            &compose(map, &local),
+                            layer,
+                            depth + 1,
+                            report,
+                            out,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The groups of one section: from its first entity to its ENDSEC.
+fn section<'a>(groups: &'a Groups<'a>, name: &str) -> &'a Groups<'a> {
+    let Some(start) = groups
+        .windows(2)
+        .position(|w| w[0] == (0, "SECTION") && w[1] == (2, name))
+    else {
+        return &[];
+    };
+    let end = groups[start..]
+        .iter()
+        .position(|g| *g == (0, "ENDSEC"))
+        .map_or(groups.len(), |n| start + n);
+    &groups[start + 2..end]
+}
+
+fn from_groups(groups: &Groups, source_name: &str, gap: f64) -> Result<SvgImport, String> {
+    let gap = gap.max(JOIN_GAP);
+    if !groups.contains(&(0, "SECTION")) {
+        return Err("The file could not be read as a DXF drawing.".into());
+    }
+
+    let mut report = ImportReport::default();
+    let header = section(groups, "HEADER");
+    let unit_code: Option<i32> = header
+        .iter()
+        .position(|g| *g == (9, "$INSUNITS"))
+        .and_then(|i| header.get(i + 1))
+        .and_then(|g| g.1.parse().ok());
+    let blocks = read_blocks(section(groups, "BLOCKS"), &mut report);
+    let items = read_items(section(groups, "ENTITIES"), &mut report);
+    let mut placed: Vec<(Curve, &str)> = Vec::new();
+    place(&items, &blocks, &IDENTITY, "0", 0, &mut report, &mut placed);
+
+    // Each with the id of the layer it is on: the layer's place in `names`.
+    let mut names: Vec<String> = Vec::new();
+    let curves: Vec<(Curve, u32)> = placed
+        .into_iter()
+        .map(|(curve, name)| {
+            let id = names.iter().position(|n| n == name).unwrap_or_else(|| {
+                names.push(name.to_string());
+                names.len() - 1
+            });
+            (curve, id as u32)
+        })
+        .collect();
     report.unsupported.sort();
     report.unsupported.dedup();
 
@@ -474,19 +715,23 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
     // Layer by layer: lines are joined, and outlines cut out of each other,
     // within a layer only.
     let mut regions: Vec<DesignRegion> = Vec::new();
+    let mut open_by_layer: Vec<Vec<Vec<Point>>> = Vec::new();
     for layer in 0..names.len() as u32 {
         let mut closed: Vec<Ring> = rings
             .iter()
             .filter(|(_, on)| *on == layer)
             .map(|(ring, _)| ring.clone())
             .collect();
-        let open = pieces
+        let open: Vec<Vec<Point>> = pieces
             .iter()
             .filter(|(_, on)| *on == layer)
             .map(|(piece, _)| piece.clone())
             .collect();
-        let joined = join(open, JOIN_GAP);
+        let joined = join(open.clone(), gap);
         report.open_outlines += joined.open;
+        if joined.open > 0 {
+            open_by_layer.push(open);
+        }
         closed.extend(joined.closed);
 
         // Every outline is a shape of its own; where one crosses itself, its
@@ -517,6 +762,10 @@ pub fn import_dxf(text: &str, source_name: &str) -> Result<SvgImport, String> {
     }
     for (id, region) in regions.iter_mut().enumerate() {
         region.id = id as u32;
+    }
+    report.joinable = joinable(&open_by_layer, gap, report.open_outlines);
+    if gap > JOIN_GAP {
+        report.joined_at = Some(gap);
     }
     let layers = layers_named(only_used_layers(&mut regions, names));
 
@@ -605,6 +854,45 @@ mod tests {
         let mut ids: Vec<u32> = out.design.regions.iter().map(|r| r.id).collect();
         ids.sort_unstable();
         assert_eq!(ids, [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_larger_gap_is_offered_and_closes_the_outline() {
+        let line = |a: [f64; 2], b: [f64; 2]| {
+            format!(
+                "0\nLINE\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n",
+                a[0], a[1], b[0], b[1]
+            )
+        };
+        let square = [
+            line([0.0, 0.0], [20.0, 0.0]),
+            line([20.0, 0.0], [20.0, 20.0]),
+            line([20.0, 20.0], [0.0, 20.0]),
+            line([0.0, 20.0], [0.0, 0.3]),
+        ];
+        let out = drawing(&square);
+        assert_eq!(out.report.open_outlines, 1);
+        assert!(out.design.regions.is_empty());
+        let offer = out.report.joinable.unwrap();
+        assert_eq!((offer.gap, offer.closes), (0.5, 1));
+        assert_eq!(out.report.joined_at, None);
+
+        let text = format!(
+            "0\nSECTION\n2\nENTITIES\n{}0\nENDSEC\n0\nEOF\n",
+            square.concat()
+        );
+        let again = import_dxf_joined(&text, "test.dxf", offer.gap).unwrap();
+        assert_eq!(again.report.open_outlines, 0);
+        assert_eq!(again.design.regions.len(), 1);
+        assert_eq!(again.report.joined_at, Some(0.5));
+        assert_eq!(again.report.joinable, None);
+    }
+
+    #[test]
+    fn a_binary_file_read_as_text_says_how_to_read_it() {
+        assert!(import_dxf("AutoCAD Binary DXF\r\n", "x.dxf")
+            .unwrap_err()
+            .contains("binary"));
     }
 
     #[test]

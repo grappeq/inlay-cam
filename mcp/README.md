@@ -91,7 +91,7 @@ has, it offers the list it was shipped with: the page's commands of the same ver
 | `projects_list`, `project_open`, `project_new`, `project_rename` | The kept projects |
 | `project_save`, `project_load` | A project as a file on disk |
 | `stock_set` | The stock's size, thickness, material and colour |
-| `drawing_import` | An SVG or DXF drawing from disk onto the stock |
+| `drawing_import` | An SVG or DXF drawing, text or binary, from disk onto the stock; `joinGap` joins wider gaps |
 | `shape_add` | A circle, rectangle, ellipse, polygon or outline |
 | `shapes_move`, `shapes_rotate`, `shapes_scale`, `shapes_mirror`, `shapes_duplicate`, `shapes_remove` | Shapes, by id |
 | `history_undo`, `history_redo` | The drawing's undo history |

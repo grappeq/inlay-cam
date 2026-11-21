@@ -1527,3 +1527,37 @@ retired. Its four known gaps were then closed.
 - Checked through the relay with a page on a running server: a dry run, a cut logged,
   a row and a key that do not exist, a speed over the machine's, a change declined and
   one allowed, which reached the server with the log entry.
+
+### The tool list's leftovers, and DXF blocks, binary DXF and wider gaps (2026-11-21)
+
+- **A tool's sheet while read.** The suggestion shows for the row whose numbers were
+  opened, as it does while editing; "Use suggestion" starts editing with the values in.
+  A name typed by hand is checked, a moment after typing stops, by the core's
+  `naming::cam_name_problem`, the check the suggested name had, and only for a tool that
+  goes to Makera CAM. A corner-rounding bit whose radius is not half its body less its
+  tip is warned about (`radiusMismatch` in `model.ts`), since a `tools.yaml` keeps the
+  diameters and would give the other radius back.
+- **Fusion 360 by group is one `.zip`** (`web/src/util/zip.ts`), stored without
+  compression, so no library is needed, with UTF-8 names. Names are folded with NFKC in
+  the page (`String.normalize`), which the core would need a crate for; what folding
+  makes unfit for a file name becomes `_`, and two names that are one whatever the case
+  get a number. Checked with Python's `zipfile`.
+- **A `.tlslibrary` dropped on the window** opens the same dialog as the menu; the
+  dialog moved into the store so that a drop on any tab can open it.
+- **DXF blocks** are placed by their `INSERT`s, with the full affine of position, scale,
+  rotation and rows and columns, nested to 16 deep, and the layer-0 rule of AutoCAD.
+  **Binary DXF** is read into the text form's pairs (`import/dxf_binary.rs`), the type of
+  each value from its group code as ezdxf's table gives it, so one reader serves both.
+  A DXF is now handed to the core as bytes. The test drawings gained one of blocks and
+  two binary files, R2000 and R12, written by `tools/make_test_drawings.py`. They were
+  not opened in another program: a check with ezdxf was not run.
+- **Wider gaps.** When outlines were left open, the import tries 0.02 to 2 mm, stopping at
+  the first that closes them all, on drawings of up to 4000 pieces, and the report offers
+  that gap with how many it closes. Taking it brings the one file in again with the gap,
+  in place of what it gave: offered only when the file set or replaced the drawing, or
+  gave no shapes, so that shapes added beside others are never taken back. An agent
+  passes `joinGap` to `drawing_import`, and the relay sends a file that is not UTF-8 as
+  base64.
+- Checked in a browser against a running server: a binary DXF with blocks, the gap offer
+  and its join, the `.zip`, a Makera CAM export dropped back, the suggestion while read
+  and the name check.

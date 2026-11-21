@@ -18,7 +18,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use usvg::tiny_skia_path::{PathSegment, Point as SkPoint};
 
-use super::join::{join, JOIN_GAP};
+use super::join::{join, joinable, Joinable, JOIN_GAP};
 use crate::geom::boolean::difference;
 use crate::geom::{distance, ring_area, Point, Region, Ring};
 use crate::project::{Design, DesignRegion, Layer};
@@ -60,6 +60,12 @@ pub struct ImportReport {
     /// SVG: the names of the layers that were hidden in the drawing, and so
     /// were not read.
     pub hidden_layers: Vec<String>,
+    /// With open outlines: a larger gap that ends would be joined across to
+    /// close more of them, to offer the user.
+    pub joinable: Option<Joinable>,
+    /// Ends were joined across gaps up to this, mm, when it was more than
+    /// the usual 0.01 mm.
+    pub joined_at: Option<f64>,
 }
 
 /// The layers of an imported drawing from their names, in the order their
@@ -166,6 +172,12 @@ pub(crate) fn regions_between_outlines(regions: Vec<DesignRegion>) -> Vec<Design
 }
 
 pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
+    import_svg_joined(text, source_name, JOIN_GAP)
+}
+
+/// As `import_svg`, with the ends of open outlines joined across gaps up to
+/// `gap`, mm.
+pub fn import_svg_joined(text: &str, source_name: &str, gap: f64) -> Result<SvgImport, String> {
     let tree = usvg::Tree::from_str(text, &usvg::Options::default())
         .map_err(|e| format!("The file could not be read as an SVG drawing: {e}"))?;
 
@@ -186,7 +198,7 @@ pub fn import_svg(text: &str, source_name: &str) -> Result<SvgImport, String> {
     importer.report.has_text = text.contains("<text");
     importer.report.hidden_layers = hidden_layers;
     importer.group(tree.root());
-    importer.join_open_outlines();
+    importer.join_open_outlines(gap.max(JOIN_GAP));
     importer.split_nested_outlines();
     let names = only_used_layers(&mut importer.regions, importer.layer_names);
 
@@ -302,22 +314,28 @@ impl Importer {
 
     /// Joins the outlines that do not close on their own end to end. Those
     /// that close that way become shapes; the rest are reported.
-    fn join_open_outlines(&mut self) {
+    fn join_open_outlines(&mut self, gap: f64) {
         let open = std::mem::take(&mut self.open);
         let mut layers: Vec<u32> = open.iter().map(|(_, layer)| *layer).collect();
         layers.sort_unstable();
         layers.dedup();
+        let mut by_layer = Vec::new();
         for layer in layers {
-            let pieces = open
+            let pieces: Vec<Vec<Point>> = open
                 .iter()
                 .filter(|(_, on)| *on == layer)
                 .map(|(ring, _)| ring.clone())
                 .collect();
-            let joined = join(pieces, JOIN_GAP);
+            let joined = join(pieces.clone(), gap);
             self.report.open_outlines += joined.open;
             for ring in joined.closed {
                 self.add_shapes(vec![ring], None, FillRule::EvenOdd, true, layer);
             }
+            by_layer.push(pieces);
+        }
+        self.report.joinable = joinable(&by_layer, gap, self.report.open_outlines);
+        if gap > JOIN_GAP {
+            self.report.joined_at = Some(gap);
         }
     }
 

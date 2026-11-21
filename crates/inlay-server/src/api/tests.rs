@@ -920,7 +920,10 @@ fn a_material_is_added_changed_and_deleted_one_at_a_time() {
         json!({"token": served.token(), "material": {"key": "oak", "lable": "Oak"}}),
     );
     assert_eq!((status, code(&answer)), (400, "bad_request"));
-    assert!(answer["error"]["message"].as_str().unwrap().contains("lable"));
+    assert!(answer["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("lable"));
 
     let (status, changed) = served.write(
         "PATCH",
@@ -1068,12 +1071,22 @@ fn a_project_saved_elsewhere_is_not_written_over() {
     // Saved from a second place, over the version it read.
     project.name = "Second".into();
     let second = inlay_core::project::project_to_file_json(&project);
-    let response = served.send("PUT", "/api/projects/p-1", &[("if-match", &etag)], second.as_bytes());
+    let response = served.send(
+        "PUT",
+        "/api/projects/p-1",
+        &[("if-match", &etag)],
+        second.as_bytes(),
+    );
     assert_eq!(response.status, 200);
     // The first place, still on the first version, is refused.
     project.name = "Third".into();
     let third = inlay_core::project::project_to_file_json(&project);
-    let response = served.send("PUT", "/api/projects/p-1", &[("if-match", &etag)], third.as_bytes());
+    let response = served.send(
+        "PUT",
+        "/api/projects/p-1",
+        &[("if-match", &etag)],
+        third.as_bytes(),
+    );
     assert_eq!(response.status, 409);
     let answer: Value = serde_json::from_slice(&response.body).unwrap();
     assert_eq!(code(&answer), "conflict");

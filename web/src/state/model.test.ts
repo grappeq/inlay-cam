@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -407,5 +407,17 @@ describe("what a step is cut in, and with which numbers", () => {
     const pocket = { ...step("pocket"), cutOverrides: { old: { feed: 900 } }, task: { type: "pocket", depth: 3, pattern: "offset", clearingToolIds: ["old"] } as Step["task"] };
     const linked = relinkTools({ ...project([pocket]), tools: [copy] }, [mill([])]);
     expect(linked.steps[0].cutOverrides).toEqual({ m: { feed: 900 } });
+  });
+});
+
+describe("radiusMismatch", () => {
+  const rounder = (diameter: number, tipDiameter: number, cornerRadius: number) =>
+    ({ id: "r", name: "R", kind: "corner_round", diameter, tipDiameter, cornerRadius, shankDiameter: 6, cutting: [] }) as unknown as Tool;
+  it("says nothing when the diameters give the radius", () => {
+    expect(radiusMismatch(rounder(10, 4, 3))).toBeNull();
+    expect(radiusMismatch({ ...rounder(10, 4, 1), kind: "flat_end" })).toBeNull();
+  });
+  it("says what the radius would come back as through a tools.yaml", () => {
+    expect(radiusMismatch(rounder(10, 4, 2))).toContain("would be 3 mm");
   });
 });
