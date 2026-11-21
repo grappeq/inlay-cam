@@ -1024,6 +1024,19 @@ export const OUTCOMES: Record<NonNullable<CutResult["outcome"]>, { mark: string;
   failed: { mark: "✕", text: "failed", tone: "danger" },
 };
 
+/**
+ * For a corner-rounding bit whose radius is not what its body and tip
+ * diameters give, what to know: a tools.yaml keeps the diameters only, so
+ * through one the radius comes back as they give it. Null otherwise.
+ */
+export function radiusMismatch(tool: Tool): string | null {
+  if (tool.kind !== "corner_round" || tool.cornerRadius === undefined) return null;
+  const tip = tool.tipDiameter ?? 0;
+  const given = Math.round(((tool.diameter - tip) / 2) * 1000) / 1000;
+  if (Math.abs(given - tool.cornerRadius) <= 0.005) return null;
+  return `The corner radius, ${fmt(tool.cornerRadius)} mm, is not what the body and tip diameters give: (${fmt(tool.diameter)} − ${fmt(tip)}) / 2 = ${fmt(given)} mm. A tools.yaml keeps the diameters only, so written to one and read back, the radius would be ${fmt(given)} mm.`;
+}
+
 /** Today as YYYY-MM-DD, by the clock of this computer. */
 export function today(): string {
   const now = new Date();

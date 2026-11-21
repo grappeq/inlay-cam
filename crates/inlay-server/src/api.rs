@@ -25,8 +25,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
 use crate::store::{is_project_id, iso, Loaded, Store};
-use lists::List;
 use inlay_core::project::project_from_file_json;
+use lists::List;
 
 /// The largest body of a write of the whole file, and of any other write.
 const MAX_FILE_BODY: usize = 8 * 1024 * 1024;

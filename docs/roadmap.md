@@ -51,16 +51,11 @@ the workbench's place ([server.md](server.md)).
 
 **Left over from the phases that are done**
 
-- Suggestions while reading a tool's sheet. They show only while it is edited.
-- A check, while a name is typed by hand, for letters Makera CAM cannot read. Only the
-  suggested name is checked.
 - Makera CAM's material thumbnails. A tool list holds none, so materials are written
   without them.
-- The Fusion 360 libraries by group as one `.zip`. They are saved as separate files.
-- File names for those libraries with look-alike letters folded, as Unicode's NFKC does.
-- A `.tlslibrary` dropped on the window. It can only be picked from the menu.
-- A warning when a corner-rounding bit's radius is not what its body and tip diameters
-  give, since a `tools.yaml` keeps the diameters only.
+- An export for a Makera app that no tool goes to writes an empty library and says only
+  "0 tools". The starter set's tools go to neither app. To decide: a warning, or the
+  menu item off, when no tool goes there.
 
 ## Agents in the open page
 
@@ -95,9 +90,6 @@ checked against a page on this computer. Still to do:
   simulation and in rendered drawings, not yet in the running app or on the machine.
   To watch for: a layered bevel's time, and how a corner-rounding bit's shallower last
   passes cut.
-- **Joining larger gaps on import.** Line ends are joined into closed outlines when they
-  meet within 0.01 mm. When outlines were left out, offer to join larger gaps, in place
-  of a setting for the distance.
 - **Numbers still kept in two places**, and those left fixed for now with the reason for
   each, are listed in [design/fixed-numbers.md](design/fixed-numbers.md).
 
@@ -138,7 +130,6 @@ Recorded as limits when version 1 was finished, and not looked at again since.
 
 - Holder collisions and Z travel are not checked: a tool's stick-out is not known.
 - Inserts are not packed to save wood.
-- DXF blocks and binary DXF are not read.
 - The simulation uses one grid of about 2 million cells. Tiles, and a finer pass over a
   chosen region, were planned and not built.
 - Tapered ball-nose bits for deep, steep-walled V inlays.

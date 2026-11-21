@@ -165,7 +165,16 @@ export class Mcp {
       const path = resolve(this.cwd, input.path);
       try {
         if (statSync(path).size > FILE_MAX) return failure(`${path} is larger than 32 MB.`);
-        input.file = { name: basename(path), text: readFileSync(path, "utf8") };
+        const bytes = readFileSync(path);
+        // A file that is not text, such as a binary DXF, goes as its bytes.
+        const text = new TextDecoder("utf-8", { fatal: true });
+        let decoded = null;
+        try {
+          decoded = text.decode(bytes);
+        } catch {
+          // Not UTF-8.
+        }
+        input.file = decoded !== null && !decoded.startsWith("AutoCAD Binary DXF") ? { name: basename(path), text: decoded } : { name: basename(path), base64: bytes.toString("base64") };
       } catch (e) {
         return failure(`${path} could not be read: ${e.message}`);
       }

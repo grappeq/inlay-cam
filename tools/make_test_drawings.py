@@ -285,21 +285,68 @@ case(
 # ---------------------------------------------------------------- DXF
 
 
-def dxf(entities, units=None, header_extra=()):
-    lines = []
+def dxf_groups(entities, units=None, header_extra=(), blocks=()):
+    """The group codes and values of a DXF file, in order. `blocks` are
+    (name, base point, entities)."""
+    groups = []
     if units is not None or header_extra:
-        lines += ["0", "SECTION", "2", "HEADER"]
+        groups += [(0, "SECTION"), (2, "HEADER")]
         if units is not None:
-            lines += ["9", "$INSUNITS", "70", str(units)]
-        lines += list(header_extra)
-        lines += ["0", "ENDSEC"]
-    lines += ["0", "SECTION", "2", "ENTITIES"]
-    for kind, groups in entities:
-        lines += ["0", kind]
-        for code, value in groups:
-            lines += [str(code), f"{value:.6f}" if isinstance(value, float) else str(value)]
-    lines += ["0", "ENDSEC", "0", "EOF"]
+            groups += [(9, "$INSUNITS"), (70, units)]
+        groups += list(header_extra)
+        groups += [(0, "ENDSEC")]
+    if blocks:
+        groups += [(0, "SECTION"), (2, "BLOCKS")]
+        for name, base, inside in blocks:
+            groups += [(0, "BLOCK"), (8, "0"), (2, name), (70, 0), (10, float(base[0])), (20, float(base[1])), (30, 0.0)]
+            for kind, body in inside:
+                groups += [(0, kind)] + list(body)
+            groups += [(0, "ENDBLK"), (8, "0")]
+        groups += [(0, "ENDSEC")]
+    groups += [(0, "SECTION"), (2, "ENTITIES")]
+    for kind, body in entities:
+        groups += [(0, kind)] + list(body)
+    groups += [(0, "ENDSEC"), (0, "EOF")]
+    return groups
+
+
+def dxf(entities, units=None, header_extra=(), blocks=()):
+    header_extra = [(int(header_extra[i]), header_extra[i + 1]) for i in range(0, len(header_extra), 2)]
+    lines = []
+    for code, value in dxf_groups(entities, units, header_extra, blocks):
+        lines += [str(code), f"{value:.6f}" if isinstance(value, float) else str(value)]
     return "\n".join(lines) + "\n"
+
+
+def binary_dxf(groups, r12=False):
+    """A binary DXF of the same groups. R12 and before give a group code in
+    one byte, later versions in two. The type of each value follows from its
+    code, as in the DXF reference."""
+    import struct
+
+    out = bytearray(b"AutoCAD Binary DXF\r\n\x1a\x00")
+    for code, value in groups:
+        if r12:
+            out += bytes([code]) if code < 255 else b"\xff" + struct.pack("<h", code)
+        else:
+            out += struct.pack("<h", code)
+        if 10 <= code < 60 or 110 <= code < 150 or 210 <= code < 240:
+            out += struct.pack("<d", float(value))
+        elif 60 <= code < 80 or 170 <= code < 180 or 270 <= code < 290:
+            out += struct.pack("<h", int(value))
+        elif 90 <= code < 100:
+            out += struct.pack("<i", int(value))
+        else:
+            out += str(value).encode("cp1252") + b"\x00"
+    return bytes(out)
+
+
+def binary_case(name, data, regions, area, **more):
+    with open(os.path.join(OUT, name), "wb") as f:
+        f.write(data)
+    entry = {"file": name, "regions": regions, "area": round(area, 3)}
+    entry.update(more)
+    manifest.append(entry)
 
 
 def line(a, b):
@@ -402,7 +449,7 @@ case(
     400,
     open=1,
     has_text=True,
-    unsupported=["HATCH", "INSERT"],
+    unsupported=["HATCH", "INSERT of a block not in the file (BLOCK1)"],
 )
 
 # The old POLYLINE with its vertices as entities of their own: a circle from
@@ -473,6 +520,57 @@ parts = (
 )
 random.Random(11).shuffle(parts)
 case("dxf-11-several-parts.dxf", dxf(parts, units=4), 12, 5600 + 1200 + 1800, page=[260, 100])
+
+
+# Blocks placed with INSERT: a 10 mm square on layer 0 with a 1 mm circle on
+# its own layer MARKS, placed as it is, stretched and turned, as an array of
+# 3 by 2, and inside another block at half size. What a block draws on layer
+# 0 goes on the layer of the INSERT that places it: here PARTS.
+def insert(block, at, layer="PARTS", scale=(1, 1), rotation=0, columns=1, rows=1, spacing=(0, 0)):
+    groups = [(8, layer), (2, block), (10, float(at[0])), (20, float(at[1])), (30, 0.0)]
+    if scale != (1, 1):
+        groups += [(41, float(scale[0])), (42, float(scale[1]))]
+    if rotation:
+        groups.append((50, float(rotation)))
+    if columns > 1 or rows > 1:
+        groups += [(70, columns), (71, rows), (44, float(spacing[0])), (45, float(spacing[1]))]
+    return ("INSERT", groups)
+
+
+square = ("LWPOLYLINE", [(8, "0"), (90, 4), (70, 1), (10, 0.0), (20, 0.0), (10, 10.0), (20, 0.0), (10, 10.0), (20, 10.0), (10, 0.0), (20, 10.0)])
+mark = ("CIRCLE", [(8, "MARKS"), (10, 5.0), (20, 5.0), (30, 0.0), (40, 1.0)])
+block_defs = [
+    ("SQ", (5, 5), [square, mark]),
+    ("PAIR", (0, 0), [insert("SQ", (0, 0), layer="0"), insert("SQ", (12, 0), layer="0")]),
+]
+placed = [
+    insert("SQ", (20, 20)),
+    insert("SQ", (50, 20), scale=(2, 1), rotation=90),
+    insert("SQ", (20, 60), columns=3, rows=2, spacing=(15, 15)),
+    insert("PAIR", (80, 60), scale=(0.5, 0.5)),
+]
+# Squares: 100, 200, 6 × 100, 2 × 25. Circles: π × (1 + 2 + 6 + 0.25 × 2).
+block_area = 100 + 200 + 600 + 50 + math.pi * (1 + 2 + 6 + 0.5)
+case("dxf-12-blocks.dxf", dxf(placed, units=4, blocks=block_defs), 20, block_area, layers=["PARTS", "MARKS"])
+
+# The same drawing as binary DXF, in the two forms: AutoCAD 2000's, with two
+# bytes to a group code, and R12's, with one.
+version = lambda v: [(9, "$ACADVER"), (1, v)]
+binary_case(
+    "dxf-13-binary.dxf",
+    binary_dxf(dxf_groups(placed, units=4, header_extra=version("AC1015"), blocks=block_defs)),
+    20,
+    block_area,
+    layers=["PARTS", "MARKS"],
+)
+binary_case(
+    "dxf-14-binary-r12.dxf",
+    binary_dxf(dxf_groups(slot, header_extra=version("AC1009")), r12=True),
+    2,
+    40 * 20 + math.pi * 100,
+    page=[70, 30],
+    unit="no unit",
+)
 
 with open(os.path.join(OUT, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
     json.dump(manifest, f, indent=2)

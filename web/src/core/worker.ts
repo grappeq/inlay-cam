@@ -8,8 +8,8 @@ const ready = init();
 
 const api: CoreApi = {
   coreVersion: () => wasm.coreVersion(),
-  importSvg: (text, sourceName) => JSON.parse(wasm.importSvg(text, sourceName)),
-  importDxf: (text, sourceName) => JSON.parse(wasm.importDxf(text, sourceName)),
+  importSvg: (text, sourceName, gap) => JSON.parse(wasm.importSvg(text, sourceName, gap)),
+  importDxf: (bytes, sourceName, gap) => JSON.parse(wasm.importDxf(bytes, sourceName, gap)),
   importToolsYaml: (text) => JSON.parse(wasm.importToolsYaml(text)),
   projectFromFile: (text) => JSON.parse(wasm.projectFromFile(text)),
   projectToFile: (project) => wasm.projectToFile(JSON.stringify(project)),
@@ -28,6 +28,7 @@ const api: CoreApi = {
   checkRow: (tool, material, values, machine) => JSON.parse(wasm.checkRow(JSON.stringify(tool), material, JSON.stringify(values), JSON.stringify(machine))),
   needsAttention: (tools) => JSON.parse(wasm.needsAttention(JSON.stringify(tools))),
   validateTool: (tool) => wasm.validateTool(JSON.stringify(tool)) ?? null,
+  camNameProblem: (tool) => wasm.camNameProblem(JSON.stringify(tool)) ?? null,
   previewPart: (project, stepId, part) => {
     const preview = wasm.previewPart(JSON.stringify(project), stepId, part);
     try {

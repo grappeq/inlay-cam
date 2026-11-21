@@ -1,6 +1,8 @@
 //! Joining separate lines and curves, as CAD programs export them, into
 //! closed outlines.
 
+use serde::Serialize;
+
 use crate::geom::{distance, Point, Ring};
 
 /// Ends closer together than this are the same point, mm.
@@ -86,6 +88,47 @@ pub fn join(pieces: Vec<Vec<Point>>, gap: f64) -> Joined {
     out
 }
 
+/// The gaps, mm, that a drawing with open outlines is offered to be joined
+/// at again, in place of a setting for the distance.
+pub const LARGER_GAPS: [f64; 7] = [0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0];
+
+/// More pieces than this are not tried at larger gaps: joining is quadratic.
+const MOST_PIECES_TRIED: usize = 4000;
+
+/// A larger gap that more of a drawing's open outlines would close at.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Joinable {
+    /// mm.
+    pub gap: f64,
+    /// How many of the outlines that are open now would close.
+    pub closes: u32,
+}
+
+/// The smallest of `LARGER_GAPS` above `gap` at which the most of the open
+/// chains close, trying the pieces of each layer by themselves as an import
+/// joins them. `open` is how many are open at `gap`. `None` when no larger
+/// gap closes any.
+pub fn joinable(layers: &[Vec<Vec<Point>>], gap: f64, open: u32) -> Option<Joinable> {
+    if open == 0 || layers.iter().map(Vec::len).sum::<usize>() > MOST_PIECES_TRIED {
+        return None;
+    }
+    let mut best: Option<Joinable> = None;
+    for wider in LARGER_GAPS.into_iter().filter(|g| *g > gap) {
+        let left: u32 = layers
+            .iter()
+            .map(|pieces| join(pieces.clone(), wider).open)
+            .sum();
+        let closes = open.saturating_sub(left);
+        if closes > best.map_or(0, |b| b.closes) {
+            best = Some(Joinable { gap: wider, closes });
+        }
+        if left == 0 {
+            break;
+        }
+    }
+    best
+}
+
 /// Removes points from an open run of points so that none removed was more
 /// than `tolerance` from the run that remains. The ends stay.
 pub fn thin(points: &[Point], tolerance: f64) -> Vec<Point> {
@@ -167,6 +210,31 @@ mod tests {
         pieces.push(vec![[50.0, 0.0], [60.0, 0.0]]);
         let out = join(pieces, JOIN_GAP);
         assert_eq!((out.closed.len(), out.open), (2, 1));
+    }
+
+    #[test]
+    fn a_larger_gap_that_closes_outlines_is_found() {
+        let open_square = |x: f64, gap: f64| {
+            vec![
+                vec![[x, 0.0], [x + 10.0, 0.0], [x + 10.0, 10.0]],
+                vec![[x + 10.0, 10.0], [x, 10.0], [x, gap]],
+            ]
+        };
+        // One square open by 0.15 mm, one by 0.4: 0.5 closes both.
+        let layers = vec![open_square(0.0, 0.15), open_square(20.0, 0.4)];
+        let open: u32 = layers.iter().map(|p| join(p.clone(), JOIN_GAP).open).sum();
+        assert_eq!(open, 2);
+        assert_eq!(
+            joinable(&layers, JOIN_GAP, open),
+            Some(Joinable {
+                gap: 0.5,
+                closes: 2
+            })
+        );
+        // Past the largest gap offered, nothing.
+        let far = vec![open_square(0.0, 3.0)];
+        assert_eq!(joinable(&far, JOIN_GAP, 1), None);
+        assert_eq!(joinable(&layers, JOIN_GAP, 0), None);
     }
 
     #[test]

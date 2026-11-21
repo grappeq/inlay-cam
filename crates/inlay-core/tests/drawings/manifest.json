@@ -152,7 +152,7 @@
     "has_text": true,
     "unsupported": [
       "HATCH",
-      "INSERT"
+      "INSERT of a block not in the file (BLOCK1)"
     ]
   },
   {
@@ -195,5 +195,33 @@
       260,
       100
     ]
+  },
+  {
+    "file": "dxf-12-blocks.dxf",
+    "regions": 20,
+    "area": 979.845,
+    "layers": [
+      "PARTS",
+      "MARKS"
+    ]
+  },
+  {
+    "file": "dxf-13-binary.dxf",
+    "regions": 20,
+    "area": 979.845,
+    "layers": [
+      "PARTS",
+      "MARKS"
+    ]
+  },
+  {
+    "file": "dxf-14-binary-r12.dxf",
+    "regions": 2,
+    "area": 1114.159,
+    "page": [
+      70,
+      30
+    ],
+    "unit": "no unit"
   }
 ]

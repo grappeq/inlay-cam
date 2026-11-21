@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
-import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
+import type { Design, FitCheck, ImportReport, MakeraImportPlan, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
@@ -51,6 +51,10 @@ export interface AppState {
   /** The inlay being edited; region clicks then add to or remove from it. */
   activeStepId: string | null;
   importReport: ImportReport | null;
+  /** The file the drawing was last brought in from, when that set or replaced the drawing: to bring it in again with gaps joined. */
+  importAgain: { file: { name: string; text: string; bytes?: Uint8Array }; replace: boolean } | null;
+  /** A Makera export being taken values from, picked or dropped: the dialog shows while it is set. */
+  makeraImport: { plan: MakeraImportPlan; fileName: string } | null;
   notice: Notice | null;
   saveError: string | null;
   /** The open project was saved from another window or browser while it was changed here too. Until it is settled, it is not saved. */
@@ -116,7 +120,8 @@ export type Action =
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
   | { type: "setActiveStep"; id: string | null }
-  | { type: "setImportReport"; report: ImportReport | null }
+  | { type: "setImportReport"; report: ImportReport | null; again?: AppState["importAgain"] }
+  | { type: "setMakeraImport"; incoming: AppState["makeraImport"] }
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
   | { type: "projectConflict"; conflict: ProjectConflict | null }
@@ -152,6 +157,8 @@ const initial: AppState = {
   selection: [],
   activeStepId: null,
   importReport: null,
+  importAgain: null,
+  makeraImport: null,
   notice: null,
   saveError: null,
   projectConflict: null,
@@ -206,6 +213,7 @@ export function reducer(state: AppState, action: Action): AppState {
         selection: [],
         activeStepId: null,
         importReport: action.importReport ?? null,
+        importAgain: null,
         panelPage: "list",
         output: null,
         timeline: null,
@@ -250,7 +258,9 @@ export function reducer(state: AppState, action: Action): AppState {
       // Going back to the list from the stock step by step leaves the stock on the stage.
       return { ...state, activeStepId: action.id, selection: [], stage: action.id === null && state.stage === "timeline" ? "timeline" : "drawing" };
     case "setImportReport":
-      return { ...state, importReport: action.report };
+      return { ...state, importReport: action.report, importAgain: action.again ?? null };
+    case "setMakeraImport":
+      return { ...state, makeraImport: action.incoming };
     case "notice":
       return { ...state, notice: action.notice };
     case "saveResult":

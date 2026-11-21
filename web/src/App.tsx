@@ -12,10 +12,12 @@ import { TimelineStart, TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
+import { readFile } from "./util/files";
 import { AppProvider, message, settleConflict, useApp, useDispatch, type Stage } from "./state/store";
 import { core } from "./core/client";
 import * as db from "./storage/home";
 import { duplicateProject } from "./state/model";
+import { MakeraImportDialog } from "./components/LibraryDialogs";
 
 export function App() {
   return (
@@ -44,7 +46,7 @@ function Shell() {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragging(false);
-    const files = await Promise.all([...e.dataTransfer.files].map(async (file) => ({ name: file.name, text: await file.text() })));
+    const files = await Promise.all([...e.dataTransfer.files].map(readFile));
     await importAll(files);
   };
 
@@ -68,8 +70,9 @@ function Shell() {
       <NoticeBar />
       <ConflictBar />
       <AgentPairing />
+      <MakeraIncoming />
       {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
-      {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, or tools.yaml</div>}
+      {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, tools.yaml, or a Makera export</div>}
     </div>
   );
 }
@@ -177,6 +180,14 @@ function AgentPairing() {
       </div>
     </div>
   );
+}
+
+/** Values from a Makera export to take into the tools, picked from the menu or dropped on the window. */
+function MakeraIncoming() {
+  const { makeraImport } = useApp();
+  const dispatch = useDispatch();
+  if (!makeraImport) return null;
+  return <MakeraImportDialog plan={makeraImport.plan} fileName={makeraImport.fileName} onClose={() => dispatch({ type: "setMakeraImport", incoming: null })} />;
 }
 
 /**

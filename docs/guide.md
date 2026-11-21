@@ -78,14 +78,16 @@ file holds and what to know about it.
   and what cannot be moved that way is refused with the reason.
 - **Export for Fusion 360** writes a `.json` tool library with every tool, each cutting
   row as a preset. "By group" writes one library per top group, since libraries are the
-  only folders Fusion's tool library has. A length that is not known is written as a
+  only folders Fusion's tool library has, as one `.zip` to unpack: each file is named
+  after its group, with look-alike letters such as full-width ones made plain. A length that is not known is written as a
   stand-in (flutes three diameters long, the tool 20 mm beyond its shoulder), and said so.
 - **Take values from a Makera export…** reads a `.tlslibrary` that Makera CAM or Makera
   Studio exported and shows where its numbers differ from yours: sizes, cutting values,
   and settings for a material a tool has no row for. Tick what to take. Tools are matched
   by their id, else by exact name and group; one matched by name comes unticked. Only
   numbers are taken: no name, group or material changes, and no tool is added. A 0 in
-  the export, which the apps use for "unknown", never replaces a value you have.
+  the export, which the apps use for "unknown", never replaces a value you have. A
+  `.tlslibrary` dropped on the window does the same.
 
 ### A tool's sheet
 
@@ -169,6 +171,10 @@ that holds none of the model's suggestions. A row that differs from every sugges
 - "Use suggestion" copies the suggested values into the row. The stepover stays in the
   unit the row has.
 
+The suggestion shows too while the sheet is only read, for the row whose numbers you
+opened; "Use suggestion" there starts editing with the values taken. While a tool goes
+to Makera CAM, its name is checked as you type for letters that app cannot read.
+
 Slot-safe is the reviewed stop: values for a dry Carvera Air with a spindle of about
 200 W, where any cut may be a full slot. The others are rough starting points or
 untested, and say so. The model knows nothing of your coating, workholding or coolant:
@@ -181,7 +187,8 @@ field had is kept, and comes back when you leave it.
 
 - A **corner-rounding bit** (fillet bit) rounds an edge over. It is used by the chamfer
   operation only. Give the radius it cuts and the diameter across its tip, below the
-  rounded edge.
+  rounded edge. Its sheet warns when the radius is not half the body less the tip, since
+  a `tools.yaml` keeps the two diameters only.
 - **Flute length** is the deepest the tool can cut. The app refuses a cut deeper than
   that. Leave it empty if unknown and the app warns instead.
 - **Tip flat diameter** of a V-bit: measure it. A bit sold as pointed often has a flat of
@@ -249,7 +256,9 @@ Use **Import drawing** or drop the files on the window. The app reads SVG and DX
 takes several files at once.
 
 - Shapes must be filled, or drawn as lines that join into closed outlines. Lines are
-  joined where their ends meet within 0.01 mm.
+  joined where their ends meet within 0.01 mm. When outlines were left out because they
+  do not close, the notes after the import offer to join larger gaps, up to 2 mm, and say
+  how many outlines that closes.
 - In a drawing made of outlines only, as CAD programs export, the shapes are the areas
   between the lines. A circle drawn around six shapes is the web between them. Outlines
   that cross or touch each other stay whole, one lying on the other.
@@ -863,7 +872,7 @@ app comes with no warranty: what a file does on your machine is your responsibil
 
 ## What the app does not do
 
-- It does not read DXF blocks or binary DXF, or text that is not outlines.
+- It does not read text that is not outlines.
 - It does not write a curve that changes height, such as a ramp along an arc, as an arc:
   only level curves are.
 - It checks every cut against the length of the tool's cutting edges, so nothing above

@@ -34,18 +34,21 @@ pub fn core_version() -> String {
     inlay_core::version().to_string()
 }
 
-/// Imports an SVG drawing. Returns `SvgImport` as JSON.
+/// Imports an SVG drawing. Returns `SvgImport` as JSON. `gap`: the ends of
+/// open outlines are joined across gaps up to this, mm, when it is more
+/// than the usual 0.01 mm.
 #[wasm_bindgen(js_name = importSvg)]
-pub fn import_svg(text: &str, source_name: &str) -> Result<String, JsError> {
-    svg::import_svg(text, source_name)
+pub fn import_svg(text: &str, source_name: &str, gap: Option<f64>) -> Result<String, JsError> {
+    svg::import_svg_joined(text, source_name, gap.unwrap_or(0.0))
         .map(|v| to_json(&v))
         .map_err(err)
 }
 
-/// Imports a DXF drawing (text form). Returns `SvgImport` as JSON.
+/// Imports a DXF drawing, text or binary, from its bytes. Returns
+/// `SvgImport` as JSON. `gap` as for an SVG.
 #[wasm_bindgen(js_name = importDxf)]
-pub fn import_dxf(text: &str, source_name: &str) -> Result<String, JsError> {
-    dxf::import_dxf(text, source_name)
+pub fn import_dxf(bytes: &[u8], source_name: &str, gap: Option<f64>) -> Result<String, JsError> {
+    dxf::import_dxf_bytes(bytes, source_name, gap.unwrap_or(0.0))
         .map(|v| to_json(&v))
         .map_err(err)
 }
@@ -301,6 +304,14 @@ pub fn suggest_name(tool_json: &str, named: &str, taken_json: &str) -> Result<St
     let tool: Tool = from_json(tool_json, "tool")?;
     let taken: Vec<String> = from_json(taken_json, "taken names")?;
     Ok(to_json(&inlay_core::naming::suggest(&tool, named, &taken)))
+}
+
+/// Why Makera CAM could not read a tool's shown name, or nothing when it can
+/// or the tool does not go there.
+#[wasm_bindgen(js_name = camNameProblem)]
+pub fn cam_name_problem(tool_json: &str) -> Result<Option<String>, JsError> {
+    let tool: Tool = from_json(tool_json, "tool")?;
+    Ok(inlay_core::naming::cam_name_problem(&tool))
 }
 
 /// Checks one tool. Returns the problem as text, or nothing when it is valid.

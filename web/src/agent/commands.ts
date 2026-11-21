@@ -579,15 +579,25 @@ export const COMMANDS: Command[] = [
     name: "drawing_import",
     title: "Bring in a drawing",
     description:
-      "Reads an SVG or DXF drawing from disk and puts its closed shapes on the stock. The first drawing of a project sets the stock to its page; a later one is added in the middle of the stock, beside what is there, and shapes_move then puts it in place. With replace, it takes the place of the whole drawing, and every step made from the old one goes. Answers the new shapes and what of the file was not read.",
-    inputSchema: object({ file: object({ name: { type: "string" }, text: { type: "string" } }, ["name", "text"]), replace: { type: "boolean" } }, ["file"]),
+      "Reads an SVG or DXF drawing (text or binary DXF) from disk and puts its closed shapes on the stock. The first drawing of a project sets the stock to its page; a later one is added in the middle of the stock, beside what is there, and shapes_move then puts it in place. With replace, it takes the place of the whole drawing, and every step made from the old one goes. Answers the new shapes and what of the file was not read. Ends of lines are joined where they meet within 0.01 mm; when outlines were left open, notRead.joinable names a larger gap that would close them: call again with joinGap and replace to bring the drawing in that way, after telling the user.",
+    inputSchema: object(
+      {
+        file: object({ name: { type: "string" }, text: { type: "string" }, base64: { type: "string", description: "The file's bytes, for a binary DXF." } }, ["name"]),
+        replace: { type: "boolean" },
+        joinGap: { type: "number", exclusiveMinimum: 0, maximum: 2, description: "Join ends of open outlines across gaps up to this, mm." },
+      },
+      ["file"],
+    ),
     takesFile: true,
     run: async (input, host) => {
       const before = host.state();
       const dxf = input.file.name.toLowerCase().endsWith(".dxf");
+      if (typeof input.file.text !== "string" && typeof input.file.base64 !== "string") throw new CommandError("invalid_input", "file needs its text, or its bytes as base64.");
+      const bytes = (): Uint8Array =>
+        typeof input.file.base64 === "string" ? Uint8Array.from(atob(input.file.base64), (c) => c.charCodeAt(0)) : new TextEncoder().encode(input.file.text);
       let read;
       try {
-        read = await core.call(dxf ? "importDxf" : "importSvg", input.file.text, input.file.name);
+        read = dxf ? await core.call("importDxf", bytes(), input.file.name, input.joinGap) : await core.call("importSvg", input.file.text ?? new TextDecoder().decode(bytes()), input.file.name, input.joinGap);
       } catch (e) {
         throw new CommandError("invalid_input", `${input.file.name}: ${message(e)}`);
       }

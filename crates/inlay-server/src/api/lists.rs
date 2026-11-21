@@ -92,7 +92,10 @@ impl List {
                             .filter_map(|entry| entry.material.as_ref())
                             .any(|m| m.key() == key)
                 }
-                List::Profiles => tool.cutting.iter().any(|c| c.profile.as_deref() == Some(key)),
+                List::Profiles => tool
+                    .cutting
+                    .iter()
+                    .any(|c| c.profile.as_deref() == Some(key)),
                 List::Groups => tool.group.as_deref() == Some(key),
             })
             .collect()
