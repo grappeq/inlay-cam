@@ -2,6 +2,7 @@ import { useRef, useState, useSyncExternalStore } from "react";
 import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import { core } from "../core/client";
 import * as db from "../storage/home";
+import * as server from "../storage/server";
 import { useFileActions } from "../state/files";
 import { duplicateProject, newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch, type SettingsPage } from "../state/store";
@@ -18,6 +19,8 @@ export function Header() {
   const [showProjects, setShowProjects] = useState(false);
   const { openProject } = useFileActions();
   const agent = useSyncExternalStore(subscribeLink, getLink);
+  const reach = useSyncExternalStore(server.subscribeReach, server.getReach);
+  const out = ready && home === "server" && reach === "unreachable";
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
 
   const exportProject = async () => {
@@ -56,9 +59,15 @@ export function Header() {
         value={project.name}
         onChange={(e) => dispatch({ type: "updateProject", update: (p) => ({ ...p, name: e.target.value }) })}
       />
-      <span className={`save-state${saveError ? " error" : ""}`} role="status">
-        {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
-      </span>
+      {out ? (
+        <span className="save-state error" role="status" title="Your changes stay in this page, and are saved as soon as the server answers again. Keep this page open until then.">
+          Server out of reach: changes wait here
+        </span>
+      ) : (
+        <span className={`save-state${saveError ? " error" : ""}`} role="status">
+          {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
+        </span>
+      )}
       {agent.status !== "off" && (
         <button
           className={`agent-chip ${agent.status}`}

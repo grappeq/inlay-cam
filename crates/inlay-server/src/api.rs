@@ -19,12 +19,13 @@ use inlay_core::import::tools_yaml;
 use inlay_core::naming::display_name;
 use inlay_core::tools::{
     library_from_file_json, library_to_file_json, needs_attention, CutResult, CuttingSettings,
-    Tool, ToolLibrary,
+    Material, Tool, ToolLibrary,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
 use crate::store::{is_project_id, iso, Loaded, Store};
+use lists::List;
 use inlay_core::project::project_from_file_json;
 
 /// The largest body of a write of the whole file, and of any other write.
@@ -159,6 +160,21 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("DELETE", "/api/tools/<tool>", "Delete a tool. {token, dryRun?, diff?}"),
     ("POST", "/api/tools/<tool>/rows/<row>/log", "Log a cut with a row. {token, entry: {date, outcome?, text, at?}, dryRun?, diff?}. <row>: material or material@profile."),
     ("GET", "/api/tools/<tool>/suggestions", "The feeds model's numbers for a row. ?row=<row>, &all=1 for every combination."),
+    ("GET", "/api/materials", "The materials, as the file holds them, and how many tools name each."),
+    ("POST", "/api/materials", "Add a material. {token, material, dryRun?, diff?}"),
+    ("GET", "/api/materials/<key>", "One material and the tools that name it."),
+    ("PATCH", "/api/materials/<key>", "Change a material. {token, patch, dryRun?, diff?}"),
+    ("DELETE", "/api/materials/<key>", "Delete a material no tool names. {token, dryRun?, diff?}"),
+    ("GET", "/api/profiles", "The profiles, and how many tools have a row on each."),
+    ("POST", "/api/profiles", "Add a profile. {token, profile, dryRun?, diff?}"),
+    ("GET", "/api/profiles/<key>", "One profile and the tools with a row on it."),
+    ("PATCH", "/api/profiles/<key>", "Change a profile. {token, patch, dryRun?, diff?}"),
+    ("DELETE", "/api/profiles/<key>", "Delete a profile no row is on. {token, dryRun?, diff?}"),
+    ("GET", "/api/groups", "The groups whose ids in the Makera apps are pinned, and how many tools each holds."),
+    ("POST", "/api/groups", "Pin a group's ids. {token, group: {path, ids}, dryRun?, diff?}"),
+    ("GET", "/api/groups/<path>", "One group entry and its tools."),
+    ("PATCH", "/api/groups/<path>", "Change a group entry. {token, patch, dryRun?, diff?}"),
+    ("DELETE", "/api/groups/<path>", "Delete a group entry; its tools stay in the group. {token, dryRun?, diff?}"),
     ("GET", "/api/attention", "What wants looking at in the tool list, worst first."),
     ("GET", "/api/export", "What each library for another program would hold, with its warnings."),
     ("GET", "/api/export/<kind>", "A library as a file: tools.yaml, cam, studio, fusion."),
@@ -276,6 +292,21 @@ impl Api {
                 self.log_cut(request, tool, row)
             }
             ("GET", ["api", "tools", tool, "suggestions"]) => self.suggestions(request, tool),
+            ("GET", ["api", name]) if List::named(name).is_some() => {
+                self.list(List::named(name).expect("matched"))
+            }
+            ("POST", ["api", name]) if List::named(name).is_some() => {
+                self.add_list_item(request, List::named(name).expect("matched"))
+            }
+            ("GET", ["api", name, key]) if List::named(name).is_some() => {
+                self.list_item(List::named(name).expect("matched"), key)
+            }
+            ("PATCH", ["api", name, key]) if List::named(name).is_some() => {
+                self.patch_list_item(request, List::named(name).expect("matched"), key)
+            }
+            ("DELETE", ["api", name, key]) if List::named(name).is_some() => {
+                self.delete_list_item(request, List::named(name).expect("matched"), key)
+            }
             ("GET", ["api", "attention"]) => self.attention(),
             ("GET", ["api", "export"]) => self.exports(),
             ("GET", ["api", "export", kind]) => self.export(kind),
@@ -741,14 +772,20 @@ impl Api {
             content_type: "application/json".into(),
             headers: vec![
                 ("Cache-Control".into(), "no-store".into()),
+                (
+                    "ETag".into(),
+                    format!("\"{}\"", crate::store::token_of(kept.text.as_bytes())),
+                ),
                 ("X-Modified".into(), kept.modified.to_string()),
             ],
             body: kept.text.into_bytes(),
         })
     }
 
-    /// Keeps a project file under its id. The last write is the one kept:
-    /// a project is one person's work in one place at a time.
+    /// Keeps a project file under its id. With `If-Match`, only over the
+    /// version that names: a project open in two places is not written over
+    /// by the one that has not seen the other's change. Without it, the last
+    /// write is the one kept.
     fn save_project(&self, request: &Request, id: &str) -> Answer {
         let text = std::str::from_utf8(&request.body)
             .map_err(|_| Refusal::bad("the body is not UTF-8"))?;
@@ -764,14 +801,36 @@ impl Api {
                 "a project's id must be 1 to 64 letters, digits, - or _ to be kept here",
             ));
         }
+        let based_on = request
+            .header("if-match")
+            .map(|tag| tag.trim().trim_matches('"').to_string());
         let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(based_on) = based_on {
+            // A project deleted meanwhile is kept again: nothing is lost.
+            if let Some(kept) = self.store.project(id).map_err(Refusal::internal)? {
+                let token = crate::store::token_of(kept.text.as_bytes());
+                if token != based_on {
+                    let mut refusal = Refusal::new(
+                        409,
+                        "conflict",
+                        "The project was saved from somewhere else since it was read. Read it again, or write without If-Match to put this version in its place.",
+                    );
+                    refusal.extra.insert("token".into(), token.into());
+                    refusal
+                        .extra
+                        .insert("modified".into(), kept.modified.into());
+                    return Err(refusal);
+                }
+            }
+        }
         let modified = self
             .store
             .save_project(id, text)
             .map_err(Refusal::internal)?;
+        let token = crate::store::token_of(text.as_bytes());
         Ok(Response::json(
             200,
-            &json!({ "ok": true, "id": id, "name": project.name, "modified": modified }),
+            &json!({ "ok": true, "id": id, "name": project.name, "modified": modified, "token": token }),
         ))
     }
 
@@ -981,6 +1040,11 @@ fn index() -> Response {
 
 /// Whether some method has this path.
 fn known_path(segments: &[&str]) -> bool {
+    if let ["api", name] | ["api", name, _] = segments {
+        if List::named(name).is_some() {
+            return true;
+        }
+    }
     matches!(
         segments,
         ["api"]
@@ -1334,6 +1398,8 @@ pub fn parse_query(query: &str) -> Vec<(String, String)> {
         })
         .collect()
 }
+
+mod lists;
 
 #[cfg(test)]
 mod tests;

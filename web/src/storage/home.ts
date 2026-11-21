@@ -33,12 +33,20 @@ export async function listProjects(): Promise<db.ProjectSummary[]> {
   return (await findHome()) === "server" ? server.listProjects() : db.listProjects();
 }
 
-export async function getProject(id: string): Promise<db.StoredProject | undefined> {
+/** A kept project. On a server, `token` names the version read. */
+export async function getProject(id: string): Promise<(db.StoredProject & { token?: string }) | undefined> {
   return (await findHome()) === "server" ? server.getProject(id) : db.getProject(id);
 }
 
-export async function putProject(project: db.StoredProject): Promise<void> {
-  return (await findHome()) === "server" ? server.putProject(project.id, project.text) : db.putProject(project);
+/**
+ * Keeps a project. On a server, `basedOn` is the token of the version this
+ * page read: the write is refused with "conflict" when the project was
+ * saved from elsewhere since. Gives the token of the version kept, on a server.
+ */
+export async function putProject(project: db.StoredProject, basedOn?: string): Promise<string | undefined | "conflict"> {
+  if ((await findHome()) === "server") return server.putProject(project.id, project.text, basedOn);
+  await db.putProject(project);
+  return undefined;
 }
 
 export async function deleteProject(id: string): Promise<void> {

@@ -55,7 +55,7 @@ a snapshot of the folder never holds half a file.
  "backup": "tools-20261118-091203-000.json", "diff": "--- a/tools.json\n+++ b/tools.json\n…"}
 ```
 
-plus what the route adds (`tool`, `deleted`, `logged`). A dry run has `"dryRun": true`, the
+plus what the route adds (`tool`, `material`, `profile`, `group`, `deleted`, `logged`). A dry run has `"dryRun": true`, the
 present `token`, and neither `savedAt` nor `backup`.
 
 **Errors.** Every refusal is a JSON envelope:
@@ -70,10 +70,10 @@ present `token`, and neither `savedAt` nor `backup`.
 | 403 | `forbidden_host`, `forbidden_origin` | The `Host`, `X-Inlay`, `Origin` or `Sec-Fetch-Site` check failed | |
 | 404 | `not_found` | No such path, tool, row, profile, export or backup | |
 | 405 | `method_not_allowed` | A path that exists, with a method it does not have | |
-| 409 | `conflict` | The tool file changed since `token` was read | `token`, `savedAt` |
+| 409 | `conflict` | The tool file changed since `token` was read; or a project, since the version `If-Match` names | `token`, `savedAt` (`modified` for a project) |
 | 413 | `too_large` | A body over 256 KB; over 8 MB for `PUT /api/library`; over 32 MB for a project | |
 | 415 | `unsupported_media_type` | A write without `Content-Type: application/json` | |
-| 422 | `invalid` | The write would leave the tool file invalid | |
+| 422 | `invalid` | The write would leave the tool file invalid, or would delete a material or profile a tool names | `ids` (for the last) |
 | 422 | `load_error` | The tool file on the server cannot be read, so nothing can be answered from it. `PUT /api/library` with the token given replaces it | `token` |
 | 422 | `export_failed` | Makera CAM could not read the library that would be written | |
 | 500 | `internal` | The data folder could not be read or written | |
@@ -101,13 +101,18 @@ ids. `<row>` names a cutting row: its material's key for the plain row, or
 | DELETE | `/api/tools/<tool>` | `{token}`, or none with `If-Match` | Deletes a tool |
 | POST | `/api/tools/<tool>/rows/<row>/log` | `{token, entry}` | Logs a cut with a row |
 | GET | `/api/tools/<tool>/suggestions?row=<row>` | | The feeds model's numbers for a row |
+| GET | `/api/materials`, `/api/profiles`, `/api/groups` | | One of the three lists, with how many tools name each |
+| POST | `/api/materials`, `/api/profiles`, `/api/groups` | `{token, material}`, `{token, profile}`, `{token, group}` | Adds one at the end |
+| GET | `/api/<list>/<key>` | | One, and the tools that name it |
+| PATCH | `/api/<list>/<key>` | `{token, patch}` | Changes one |
+| DELETE | `/api/<list>/<key>` | `{token}`, or none with `If-Match` | Deletes one no tool needs |
 | GET | `/api/attention` | | What wants looking at, worst first |
 | GET | `/api/export` | | What each library for another program would hold |
 | GET | `/api/export/<kind>` | | A library as a file: `tools.yaml`, `cam`, `studio`, `fusion` |
 | GET | `/api/backups` | | The backups kept, newest first |
 | GET | `/api/backups/<name>` | | One backup: a tool file |
 | GET | `/api/projects` | | The projects kept, last written first |
-| GET, PUT, DELETE | `/api/projects/<id>` | a project file | One project: read, kept, taken off the list |
+| GET, PUT, DELETE | `/api/projects/<id>` | a project file | One project: read, kept, taken off the list. `PUT` takes `If-Match` |
 | GET | `/api/settings` | | The settings kept, one text per key |
 | PUT | `/api/settings/<key>` | `{value}` | Keeps one setting |
 
@@ -115,9 +120,9 @@ ids. `<row>` names a cutting row: its material's key for the plain row, or
 
 The page's own two routes. `GET` answers the file's text as it is on disk, with
 `ETag: "<token>"` and `X-Saved-At`. `PUT` takes a whole tool file, checks it as the app
-checks an imported one, and writes it in the app's own layout. This is also how materials,
-profiles and groups are changed, and how a backup is put back: `GET /api/backups/<name>`,
-then `PUT` its text.
+checks an imported one, and writes it in the app's own layout. This is also how a backup
+is put back: `GET /api/backups/<name>`, then `PUT` its text. Materials, profiles and groups
+can be changed one at a time instead, below.
 
 ### `GET /api/tools?q=ball%20dlc&material=aluminum`
 
@@ -227,17 +232,53 @@ with and without a ramped entry, adaptive clearing and lubrication. A material o
 owner's is suggested for as the material it is set to cut like (`cutsLike`). The numbers are
 for a Carvera Air's spindle; the machine set in a browser is not known to the server.
 
+### Materials, profiles and groups
+
+```json
+{"token": "9f2c…", "material": {"key": "walnut", "label": "Walnut", "feedsAs": "hardwood"}}
+```
+
+The three lists of the tool file besides the tools, one at a time, in the file's words:
+a material is named by its `key`, a profile by its `key`, a group by its `path`, each
+percent-encoded in a path. Every write takes the token, `dryRun` and `diff`, and keeps a
+backup, as a tool's does.
+
+- `GET /api/<list>` answers the list as the file holds it, and `usedBy`: by key, how
+  many tools name it. `GET /api/<list>/<key>` answers one as `material`, `profile` or
+  `group`, and `usedBy`: the tools that name it, as `{id, name, displayName}`.
+- `POST /api/<list>` adds one at the end of its list. A key the list has is a `400`.
+  A material needs no entry for hardwood or softwood; one can be added, for its label or
+  its records for the Makera apps.
+- `PATCH /api/<list>/<key>` takes `{token, patch}`, a merge patch as for a tool. The key
+  cannot be changed.
+- `DELETE /api/<list>/<key>` answers `deleted`, the entry as it was. A material that a
+  tool names, by a row, as one it is for or in a wear entry, and a profile a row is on,
+  are not deleted: `422 invalid` names the tools, with their `ids`. Hardwood, softwood
+  and a group entry go whatever names them: the first two are known without an entry, and
+  a group entry only pins the group's ids in the Makera apps, so its tools stay in the
+  group.
+
+A material, profile or group answers in the shape of the read, as `GET /api/<list>/<key>`
+gives it.
+
 ### Projects and settings
 
-The page's own routes, for what it keeps besides the tool list. They take no token: the
-last write is the one kept, as between two tabs of one browser.
+The page's own routes, for what it keeps besides the tool list.
 
 `GET /api/projects` answers `{"projects": [{"id", "name", "modified"}]}`, `modified` in
 milliseconds since 1970. `GET /api/projects/<id>` answers the project file's text, with
-`X-Modified`. `PUT` takes a project file, checks it as the app checks an opened one and
-that its id is the path's, and keeps it as `projects/<id>.json`; an id is 1 to 64 letters,
-digits, `-` or `_`. Up to 32 MB. `DELETE` moves the file to `backups/` as
+`X-Modified` and `ETag`, the SHA-256 of the text. `PUT` takes a project file, checks it as
+the app checks an opened one and that its id is the path's, and keeps it as
+`projects/<id>.json`; an id is 1 to 64 letters, digits, `-` or `_`. Up to 32 MB. It
+answers `{ok, id, name, modified, token}`. With `If-Match: "<token>"` it is kept only over
+the version that token names, and is otherwise `409 conflict` with the present `token` and
+`modified`: so a project open in two places is not written over by the one that has not
+seen the other's change. A project deleted meanwhile is kept again. Without `If-Match`
+the last write is kept. `DELETE` moves the file to `backups/` as
 `project-<date>-<time>-<ms>-<id>.json`.
+
+Settings take no token: the last write is the one kept, as between two tabs of one
+browser.
 
 `GET /api/settings` answers an object of texts by key: `machine`, `inlayDefaults`,
 `lastProjectId` and `view` (what the screens remember, such as the tool list's sort order).
