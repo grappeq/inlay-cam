@@ -113,7 +113,8 @@ hold the pointer over one for the numbers. Clicking a line opens it:
   are tied to theirs (they are after a `tools.yaml` is imported);
 - its **field log**: the latest result and the entries behind it. A result counts only for
   the numbers it was cut at: change the row and it is untested again. "Correct" beside an
-  entry changes its result, words or date; "Remove" takes it out;
+  entry changes its result, words or date, and gives an entry recorded without numbers the
+  row's present ones when you tick that it was cut at them; "Remove" takes it out;
 - **Log a result…**, for after a cut: ok, worked but still to confirm, or failed, with a
   line on what happened. It is recorded at the numbers the row has at that moment, and
   kept at once.

@@ -460,6 +460,7 @@ export function LogList({ row, onChange }: { row: CuttingSettings; onChange?: (l
               <li key={at} className="editing">
                 <LogResult
                   initial={entry}
+                  present={valuesOf(row)}
                   saves="now"
                   onCancel={() => setEditing(null)}
                   onAdd={(next) => {
@@ -507,9 +508,14 @@ export function LogList({ row, onChange }: { row: CuttingSettings; onChange?: (l
   );
 }
 
-/** Adds what happened on a cut to a row's log, at the numbers the row has now; with `initial`, corrects an entry. */
-export function LogResult(props: { onAdd: (entry: CutResult) => void; saves: "now" | "with the tool"; initial?: CutResult; onCancel?: () => void }) {
+/**
+ * Adds what happened on a cut to a row's log, at the numbers the row has now; with `initial`, corrects an entry.
+ * An entry recorded without numbers can be given `present`, the row's numbers now, when that is what it was cut at.
+ */
+export function LogResult(props: { onAdd: (entry: CutResult) => void; saves: "now" | "with the tool"; initial?: CutResult; present?: NonNullable<CutResult["at"]>; onCancel?: () => void }) {
   const { initial } = props;
+  const attachable = initial !== undefined && initial.at === undefined && props.present !== undefined;
+  const [attach, setAttach] = useState(false);
   const [open, setOpen] = useState(initial !== undefined);
   // A note without a result stays one unless a result is picked for it.
   const [outcome, setOutcome] = useState<CutResult["outcome"]>(initial ? initial.outcome : "ok");
@@ -529,7 +535,7 @@ export function LogResult(props: { onAdd: (entry: CutResult) => void; saves: "no
   };
   const add = () => {
     if (text.trim() === "" || date === "") return;
-    props.onAdd({ date, outcome, text: text.trim() });
+    props.onAdd({ date, outcome, text: text.trim(), ...(attachable && attach ? { at: props.present } : {}) });
     setText("");
     setOpen(false);
   };
@@ -573,6 +579,16 @@ export function LogResult(props: { onAdd: (entry: CutResult) => void; saves: "no
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
       </div>
+      {attachable && props.present && (
+        <div className="row">
+          <label className="check">
+            <input type="checkbox" checked={attach} onChange={(e) => setAttach(e.target.checked)} />
+            <span>
+              Cut at the row's numbers now: {props.present.rpm} rpm, feed {fmt(props.present.feed)}, {fmt(props.present.stepdown)} mm deep
+            </span>
+          </label>
+        </div>
+      )}
       <div className="row">
         <button type="button" className="primary" disabled={text.trim() === "" || date === ""} onClick={add}>
           {initial ? "Keep the correction" : "Add to the log"}
@@ -580,7 +596,7 @@ export function LogResult(props: { onAdd: (entry: CutResult) => void; saves: "no
         <button type="button" onClick={close}>
           Cancel
         </button>
-        <span className="hint">{initial ? "The numbers it was recorded at stay as they were." : `Recorded at the numbers the row has now${props.saves === "now" ? "." : ", and kept when you save the tool."}`}</span>
+        <span className="hint">{initial ? (attachable ? (attach ? "It counts for the row's numbers now." : "No numbers recorded: it counts for none.") : "The numbers it was recorded at stay as they were.") :`Recorded at the numbers the row has now${props.saves === "now" ? "." : ", and kept when you save the tool."}`}</span>
       </div>
     </div>
   );
