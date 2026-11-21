@@ -1,4 +1,9 @@
-import { useEffect, useState, useSyncExternalStore, type DragEvent } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from "react";
 import { answerPairing, getLink, startLink, subscribeLink } from "./agent/link";
 import { ArrangeBar, StageBar } from "./components/ArrangeBar";
 import { DesignCanvas } from "./components/DesignCanvas";
@@ -13,7 +18,14 @@ import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
 import { readFile } from "./util/files";
-import { AppProvider, message, settleConflict, useApp, useDispatch, type Stage } from "./state/store";
+import {
+  AppProvider,
+  message,
+  settleConflict,
+  useApp,
+  useDispatch,
+  type Stage,
+} from "./state/store";
 import { core } from "./core/client";
 import * as db from "./storage/home";
 import { duplicateProject } from "./state/model";
@@ -71,44 +83,64 @@ function Shell() {
       <ConflictBar />
       <AgentPairing />
       <MakeraIncoming />
-      {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
-      {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, tools.yaml, or a Makera export</div>}
+      {!ready ? (
+        <p className="loading">Loading…</p>
+      ) : view === "design" ? (
+        <DesignView />
+      ) : (
+        <SettingsView />
+      )}
+      {dragging && (
+        <div className="drop-hint">
+          Drop SVG or DXF drawings, a project or tool file, tools.yaml, or a
+          Makera export
+        </div>
+      )}
     </div>
   );
 }
 
 function DesignView() {
-  const { project, output, timeline, stage, activeStepId, arranging } = useApp();
+  const { project, output, timeline, stage, activeStepId, arranging } =
+    useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
 
   const step = project.steps.find((j) => j.id === activeStepId);
-  const mine = step && output !== null && output.stepId === step.id ? output : null;
+  const mine =
+    step && output !== null && output.stepId === step.id ? output : null;
   const pocket = mine?.parts.pocket ?? null;
   const plug = mine?.parts.plug ?? null;
   const fit = mine?.fit ?? null;
   // Fall back to the drawing when what was asked for is not there (any more).
   const steps = timeline?.result ?? null;
   const shown: Stage =
-    (stage === "pocket" && pocket) || (stage === "plug" && plug) || (stage === "fit" && fit) || (stage === "timeline" && project.steps.length > 0)
+    (stage === "pocket" && pocket) ||
+    (stage === "plug" && plug) ||
+    (stage === "fit" && fit) ||
+    (stage === "timeline" && project.steps.length > 0)
       ? stage
       : "drawing";
   const preview = shown === "pocket" ? pocket : shown === "plug" ? plug : null;
   const wood = stockColor(project);
-  const plugWood = step && isInlay(step.task) ? stepColor(step, project.steps) : wood;
+  const plugWood =
+    step && isInlay(step.task) ? stepColor(step, project.steps) : wood;
   const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
   const marks = pocket ?? plug;
   // What there is to look at, besides the drawing.
   const tabs: [Stage, string][] = [["drawing", "Drawing"]];
-  if (step && pocket) tabs.push(["pocket", `${capital(partName("pocket", step))} in 3D`]);
-  if (step && plug) tabs.push(["plug", `${capital(partName("plug", step))} in 3D`]);
+  if (step && pocket)
+    tabs.push(["pocket", `${capital(partName("pocket", step))} in 3D`]);
+  if (step && plug)
+    tabs.push(["plug", `${capital(partName("plug", step))} in 3D`]);
   if (fit) tabs.push(["fit", "Fit"]);
   // The stock step by step is there to look at as soon as there is something to do to it; it is worked out when first asked for.
   if (project.steps.length > 0) tabs.push(["timeline", "Stock, step by step"]);
   // From an inlay or operation, the stock is shown as that one leaves it.
   const mineAt = step ? project.steps.indexOf(step) + 1 : undefined;
   const show = (to: Stage) => {
-    if (to === "timeline" && mineAt !== undefined && steps) dispatch({ type: "setTimelineAt", at: mineAt });
+    if (to === "timeline" && mineAt !== undefined && steps)
+      dispatch({ type: "setTimelineAt", at: mineAt });
     dispatch({ type: "setStage", stage: to });
   };
 
@@ -118,7 +150,11 @@ function DesignView() {
         {tabs.length > 1 && (
           <nav className="tabs stage-tabs" aria-label="What to look at">
             {tabs.map(([to, label]) => (
-              <button key={to} aria-pressed={shown === to} onClick={() => show(to)}>
+              <button
+                key={to}
+                aria-pressed={shown === to}
+                onClick={() => show(to)}
+              >
                 {label}
               </button>
             ))}
@@ -130,14 +166,22 @@ function DesignView() {
           <TimelineView timeline={timeline} result={steps} />
         ) : shown === "timeline" ? (
           <TimelineStart at={mineAt} />
-
         ) : preview ? (
-          <Viewer3D key={shown} preview={preview} thickness={preview.built.stock.thickness} color={shown === "plug" ? plugWood : wood} />
+          <Viewer3D
+            key={shown}
+            preview={preview}
+            thickness={preview.built.stock.thickness}
+            color={shown === "plug" ? plugWood : wood}
+          />
         ) : (
           <>
             <StageBar />
             {arranging && <ArrangeBar design={project.design} />}
-            <DesignCanvas design={project.design} narrow={marks?.built.narrow ?? []} cuttable={marks?.built.cuttable ?? []} />
+            <DesignCanvas
+              design={project.design}
+              narrow={marks?.built.narrow ?? []}
+              cuttable={marks?.built.cuttable ?? []}
+            />
           </>
         )}
       </main>
@@ -153,7 +197,12 @@ function AgentPairing() {
   if (!asking) return null;
   return (
     <div className="backdrop">
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="Let an AI agent work in this app?">
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Let an AI agent work in this app?"
+      >
         <h2>Let an AI agent work in this app?</h2>
         <table className="set-table">
           <tbody>
@@ -187,7 +236,13 @@ function MakeraIncoming() {
   const { makeraImport } = useApp();
   const dispatch = useDispatch();
   if (!makeraImport) return null;
-  return <MakeraImportDialog plan={makeraImport.plan} fileName={makeraImport.fileName} onClose={() => dispatch({ type: "setMakeraImport", incoming: null })} />;
+  return (
+    <MakeraImportDialog
+      plan={makeraImport.plan}
+      fileName={makeraImport.fileName}
+      onClose={() => dispatch({ type: "setMakeraImport", incoming: null })}
+    />
+  );
 }
 
 /**
@@ -212,8 +267,13 @@ function ConflictBar() {
     }
   };
   const openOther = async () => {
-    const other = await core.call("projectFromFile", conflict.text);
-    settleConflict(conflict);
+    // As it is saved there now: it may have been saved again since the bar came up.
+    const stored = await db.getProject(conflict.id);
+    const now = stored
+      ? { id: conflict.id, text: stored.text, token: stored.token }
+      : conflict;
+    const other = await core.call("projectFromFile", now.text);
+    settleConflict(now);
     dispatch({ type: "projectConflict", conflict: null });
     dispatch({ type: "openProject", project: other });
   };
@@ -222,26 +282,54 @@ function ConflictBar() {
     dispatch({ type: "projectConflict", conflict: null });
   };
   const keepBoth = async () => {
-    const copy = duplicateProject(project, projects.map((p) => p.name));
-    await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text: await core.call("projectToFile", copy) });
+    const copy = duplicateProject(
+      project,
+      projects.map((p) => p.name),
+    );
+    await db.putProject({
+      id: copy.id,
+      name: copy.name,
+      modified: Date.now(),
+      text: await core.call("projectToFile", copy),
+    });
     dispatch({ type: "setProjects", projects: await db.listProjects() });
     await openOther();
-    dispatch({ type: "notice", notice: { kind: "info", text: `Your version is kept as "${copy.name}", under Projects.` } });
+    dispatch({
+      type: "notice",
+      notice: {
+        kind: "info",
+        text: `Your version is kept as "${copy.name}", under Projects.`,
+      },
+    });
   };
 
   return (
     <div className="notice error" role="alert">
       <span>
-        This project was saved from another window or browser while you changed it here. Your changes are not saved until you choose which version to keep.
+        This project was saved from another window or browser while you changed
+        it here. Your changes are not saved until you choose which version to
+        keep.
       </span>
       <span className="notice-actions">
-        <button disabled={busy} onClick={run(keepBoth)} title="Keep your version as a copy, and show the one saved elsewhere">
+        <button
+          disabled={busy}
+          onClick={run(keepBoth)}
+          title="Keep your version as a copy, and show the one saved elsewhere"
+        >
           Keep both
         </button>
-        <button disabled={busy} onClick={run(openOther)} title="Show the version saved elsewhere. Your changes here are dropped.">
+        <button
+          disabled={busy}
+          onClick={run(openOther)}
+          title="Show the version saved elsewhere. Your changes here are dropped."
+        >
           Use the other
         </button>
-        <button disabled={busy} onClick={run(keepThis)} title="Save your version over the one saved elsewhere">
+        <button
+          disabled={busy}
+          onClick={run(keepThis)}
+          title="Save your version over the one saved elsewhere"
+        >
           Keep mine
         </button>
       </span>
@@ -256,15 +344,24 @@ function NoticeBar() {
   // Confirmations fade by themselves; errors stay until dismissed.
   useEffect(() => {
     if (notice?.kind !== "info") return;
-    const timer = setTimeout(() => dispatch({ type: "notice", notice: null }), 8000);
+    const timer = setTimeout(
+      () => dispatch({ type: "notice", notice: null }),
+      8000,
+    );
     return () => clearTimeout(timer);
   }, [notice, dispatch]);
 
   if (!notice) return null;
   return (
-    <div className={`notice ${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>
+    <div
+      className={`notice ${notice.kind}`}
+      role={notice.kind === "error" ? "alert" : "status"}
+    >
       <span>{notice.text}</span>
-      <button className="link" onClick={() => dispatch({ type: "notice", notice: null })}>
+      <button
+        className="link"
+        onClick={() => dispatch({ type: "notice", notice: null })}
+      >
         Dismiss
       </button>
     </div>

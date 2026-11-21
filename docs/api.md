@@ -36,6 +36,7 @@ other web sites out:
 write sends back the token of the read it is based on, as `token` in the body or as
 `If-Match: "<token>"`. If the file has changed since, the answer is `409 conflict` with the
 present token, and nothing is written. Every write answers the token of the file after it.
+Sent both ways, the two must be the same, or the write is a `400`.
 
 **Dry run and diff.** Every write takes `"dryRun": true`: the same checks, the same answer,
 and nothing written. `"diff": true` adds `diff`, the unified diff of `tools.json` that the
@@ -55,8 +56,8 @@ a snapshot of the folder never holds half a file.
  "backup": "tools-20261118-091203-000.json", "diff": "--- a/tools.json\n+++ b/tools.json\n…"}
 ```
 
-plus what the route adds (`tool`, `material`, `profile`, `group`, `deleted`, `logged`). A dry run has `"dryRun": true`, the
-present `token`, and neither `savedAt` nor `backup`.
+plus what the route adds (`tool`, `material`, `profile`, `group`, `deleted`, `logged`). A
+dry run has `"dryRun": true`, the present `token`, and neither `savedAt` nor `backup`.
 
 **Errors.** Every refusal is a JSON envelope:
 
@@ -69,7 +70,7 @@ present `token`, and neither `savedAt` nor `backup`.
 | 400 | `bad_request` | A malformed body, a missing or misspelt key, a name that several tools have | `ids` (for the last) |
 | 403 | `forbidden_host`, `forbidden_origin` | The `Host`, `X-Inlay`, `Origin` or `Sec-Fetch-Site` check failed | |
 | 404 | `not_found` | No such path, tool, row, profile, export or backup | |
-| 405 | `method_not_allowed` | A path that exists, with a method it does not have | |
+| 405 | `method_not_allowed` | A path that exists, with a method it does not have; `HEAD` and `OPTIONS` on any | |
 | 409 | `conflict` | The tool file changed since `token` was read; or a project, since the version `If-Match` names | `token`, `savedAt` (`modified` for a project) |
 | 413 | `too_large` | A body over 256 KB; over 8 MB for `PUT /api/library`; over 32 MB for a project | |
 | 415 | `unsupported_media_type` | A write without `Content-Type: application/json` | |
@@ -248,9 +249,13 @@ backup, as a tool's does.
   `group`, and `usedBy`: the tools that name it, as `{id, name, displayName}`.
 - `POST /api/<list>` adds one at the end of its list. A key the list has is a `400`.
   A material needs no entry for hardwood or softwood; one can be added, for its label or
-  its records for the Makera apps.
+  its records for the Makera apps. A profile needs a `label`. Refused with `422 invalid`:
+  a material key with `@` in it, which a row's name could not tell from a profile; a
+  `feedsAs` that is the material itself or one the feeds model does not know; and a group
+  path with a part between slashes that is empty, has spaces around it, holds a control
+  character, or is `.` or `..`.
 - `PATCH /api/<list>/<key>` takes `{token, patch}`, a merge patch as for a tool. The key
-  cannot be changed.
+  cannot be changed, and what is patched is checked as when it is added.
 - `DELETE /api/<list>/<key>` answers `deleted`, the entry as it was. A material that a
   tool names, by a row, as one it is for or in a wear entry, and a profile a row is on,
   are not deleted: `422 invalid` names the tools, with their `ids`. Hardwood, softwood

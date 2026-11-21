@@ -460,8 +460,9 @@ the machine.
 - Known limits: the fit check works on a grid, so gaps and heights under about one cell
   (0.05 to 0.2 mm, coarser for larger boards) are noise; a V-bit with a tip flat makes
   a plug with sharp corners ride high by about 0.1 mm until pressed, which the fit
-  check reports; DXF blocks and binary DXF are not read; no arc fitting; no holder or
-  Z-travel checks; inserts are not packed to save wood.
+  check reports; DXF blocks and binary DXF were not read then (they are since
+  2026-11-21, below); no arc fitting; no holder or Z-travel checks; inserts are not
+  packed to save wood.
 - Still to do by the user: the air cut in `machine-tests`, and a first real cut.
 
 ### After milestone 9: first use on the user's own DXF (2026-11-15)
@@ -1561,3 +1562,24 @@ retired. Its four known gaps were then closed.
 - Checked in a browser against a running server: a binary DXF with blocks, the gap offer
   and its join, the `.zip`, a Makera CAM export dropped back, the suggestion while read
   and the name check.
+
+### Tried by testers, and what was mended (2026-11-21)
+
+Three agents each drove the page and a server of their own, and one read the docs
+against the code. What they found and was mended:
+
+- An agent's `tool_row_set` and `tool_log_cut` read the list first, wait for it to be
+  written, and answer `failed` when a change made elsewhere at the same moment was kept
+  in place of theirs, or the row changed while the user was asked. Before, the answer said
+  the change was made. Numbers they take have bounds, and a feed over the machine's rapid
+  speed, a stepover wider than the tool or a stepdown deeper than its flutes is refused.
+- "Use the other" and "Keep both" read the project again: it may have been saved there
+  again since the bar came up.
+- The server refuses a material key with `@`, a `feedsAs` that is the material or one the
+  feeds model does not know, odd group paths, a token and `If-Match` that differ, and
+  answers `HEAD` and `OPTIONS` with 405.
+- A DXF's curves are flattened to 0.01 mm whatever its unit: a circle in metres was a
+  polygon. Blocks are placed to a budget, block names match whatever the case, and a
+  missing block is named also when nothing else is drawn.
+- A gap of exactly the distance asked closes: an SVG's points are single precision.
+- The `.zip`'s names are checked after folding for names Windows keeps and for length.

@@ -49,6 +49,16 @@ fn number(groups: &Groups, code: i32) -> Option<f64> {
         .and_then(|(_, v)| v.parse().ok())
 }
 
+thread_local! {
+    /// How far a flattened curve may stray, in the drawing's own units:
+    /// `FLATTEN_TOLERANCE` mm, whatever the unit. Set for each file read.
+    static TOLERANCE: std::cell::Cell<f64> = const { std::cell::Cell::new(FLATTEN_TOLERANCE) };
+}
+
+fn tolerance() -> f64 {
+    TOLERANCE.with(std::cell::Cell::get)
+}
+
 fn point(groups: &Groups, x: i32, y: i32) -> Option<Point> {
     Some([number(groups, x)?, number(groups, y)?])
 }
@@ -56,8 +66,9 @@ fn point(groups: &Groups, x: i32, y: i32) -> Option<Point> {
 /// Points along a circular arc from angle `from` through `sweep` radians
 /// (positive is counter-clockwise), the start left out and the end included.
 fn arc_points(centre: Point, radius: f64, from: f64, sweep: f64, out: &mut Vec<Point>) {
-    let step = if radius > FLATTEN_TOLERANCE {
-        2.0 * (1.0 - FLATTEN_TOLERANCE / radius).acos()
+    let tolerance = tolerance();
+    let step = if radius > tolerance {
+        2.0 * (1.0 - tolerance / radius).acos()
     } else {
         PI / 2.0
     };
@@ -204,7 +215,7 @@ fn spline(groups: &Groups) -> Option<Curve> {
                 points.push(de_boor(degree, &knots, &control, &weights, span, t));
             }
         }
-        thin(&points, FLATTEN_TOLERANCE / 4.0)
+        thin(&points, tolerance() / 4.0)
     } else if fit.len() >= 2 {
         fit
     } else if n >= 2 {
@@ -271,8 +282,9 @@ fn entity(kind: &str, groups: &Groups, report: &mut ImportReport) -> Option<Curv
             let a = major[0].hypot(major[1]);
             let minor = [-major[1] * ratio, major[0] * ratio];
             // As fine as a circle of the larger radius needs.
-            let step = if a > FLATTEN_TOLERANCE {
-                2.0 * (1.0 - FLATTEN_TOLERANCE / a).acos()
+            let tolerance = tolerance();
+            let step = if a > tolerance {
+                2.0 * (1.0 - tolerance / a).acos()
             } else {
                 PI / 2.0
             };
@@ -445,6 +457,20 @@ struct Block<'a> {
 /// block that places itself.
 const MOST_NESTED: usize = 16;
 
+/// Copies of blocks placed in all, and curves drawn in all, at most: past
+/// them a block that places itself several times, or a vast array, would
+/// take the page's memory and time.
+const MOST_COPIES: usize = 10_000;
+const MOST_CURVES: usize = 100_000;
+
+/// What `place` has placed so far, against `MOST_COPIES` and `MOST_CURVES`.
+#[derive(Default)]
+struct Placed {
+    copies: usize,
+}
+
+type Blocks<'a> = std::collections::HashMap<String, Block<'a>>;
+
 /// Reads the entities of a section or a block, `groups` starting at the
 /// first entity's group 0.
 fn read_items<'a>(groups: &'a Groups<'a>, report: &mut ImportReport) -> Vec<Item<'a>> {
@@ -494,7 +520,8 @@ fn read_items<'a>(groups: &'a Groups<'a>, report: &mut ImportReport) -> Vec<Item
                 let text = |code: i32| body.iter().find(|(c, _)| *c == code).map(|(_, v)| *v);
                 if let Some(block) = text(2) {
                     let count = |code: i32| {
-                        (number(body, code).unwrap_or(1.0) as i64).clamp(1, 1000) as u32
+                        (number(body, code).unwrap_or(1.0) as i64).clamp(1, MOST_COPIES as i64)
+                            as u32
                     };
                     items.push(Item::Insert(Insert {
                         block,
@@ -527,11 +554,9 @@ fn read_items<'a>(groups: &'a Groups<'a>, report: &mut ImportReport) -> Vec<Item
 }
 
 /// The blocks of the BLOCKS section, by name.
-fn read_blocks<'a>(
-    groups: &'a Groups<'a>,
-    report: &mut ImportReport,
-) -> std::collections::HashMap<&'a str, Block<'a>> {
-    let mut blocks = std::collections::HashMap::new();
+fn read_blocks<'a>(groups: &'a Groups<'a>, report: &mut ImportReport) -> Blocks<'a> {
+    // Block names are told apart whatever the case of their letters, as in AutoCAD.
+    let mut blocks = Blocks::new();
     let mut i = 0;
     while i < groups.len() {
         if groups[i] != (0, "BLOCK") {
@@ -549,7 +574,7 @@ fn read_blocks<'a>(
             .map_or(groups.len(), |n| head_end + n);
         if let Some((_, name)) = head.iter().find(|(c, _)| *c == 2) {
             blocks.insert(
-                *name,
+                name.to_uppercase(),
                 Block {
                     base: point(head, 10, 20).unwrap_or([0.0, 0.0]),
                     items: read_items(&groups[head_end..end], report),
@@ -566,14 +591,24 @@ fn read_blocks<'a>(
 /// block draws on layer "0" is on the layer of the INSERT that places it.
 fn place<'a>(
     items: &'a [Item<'a>],
-    blocks: &'a std::collections::HashMap<&'a str, Block<'a>>,
+    blocks: &'a Blocks<'a>,
     map: &Affine,
     layer_0: &'a str,
     depth: usize,
+    placed: &mut Placed,
     report: &mut ImportReport,
     out: &mut Vec<(Curve, &'a str)>,
 ) {
+    let mut note = |report: &mut ImportReport, note: String| {
+        if !report.unsupported.contains(&note) {
+            report.unsupported.push(note);
+        }
+    };
     for item in items {
+        if out.len() >= MOST_CURVES {
+            note(report, format!("all past the first {MOST_CURVES} curves"));
+            return;
+        }
         match item {
             Item::Curve(curve, layer) => out.push((
                 Curve {
@@ -583,18 +618,15 @@ fn place<'a>(
                 if *layer == "0" { layer_0 } else { layer },
             )),
             Item::Insert(insert) => {
-                let Some(block) = blocks.get(insert.block) else {
-                    let note = format!("INSERT of a block not in the file ({})", insert.block);
-                    if !report.unsupported.contains(&note) {
-                        report.unsupported.push(note);
-                    }
+                let Some(block) = blocks.get(&insert.block.to_uppercase()) else {
+                    note(
+                        report,
+                        format!("INSERT of a block not in the file ({})", insert.block),
+                    );
                     continue;
                 };
                 if depth >= MOST_NESTED {
-                    let note = "INSERT nested too deep".to_string();
-                    if !report.unsupported.contains(&note) {
-                        report.unsupported.push(note);
-                    }
+                    note(report, "INSERT nested too deep".to_string());
                     continue;
                 }
                 let layer = if insert.layer == "0" {
@@ -606,6 +638,14 @@ fn place<'a>(
                 let mirror = if insert.mirrored { -1.0 } else { 1.0 };
                 for row in 0..insert.rows {
                     for column in 0..insert.columns {
+                        if placed.copies >= MOST_COPIES {
+                            note(
+                                report,
+                                format!("copies of blocks past the first {MOST_COPIES}"),
+                            );
+                            return;
+                        }
+                        placed.copies += 1;
                         // Copies of an array step along the block's own turned axes.
                         let step = [
                             column as f64 * insert.spacing[0],
@@ -631,6 +671,7 @@ fn place<'a>(
                             &compose(map, &local),
                             layer,
                             depth + 1,
+                            placed,
                             report,
                             out,
                         );
@@ -669,10 +710,22 @@ fn from_groups(groups: &Groups, source_name: &str, gap: f64) -> Result<SvgImport
         .position(|g| *g == (9, "$INSUNITS"))
         .and_then(|i| header.get(i + 1))
         .and_then(|g| g.1.parse().ok());
+    let (scale, unit_note) = units(unit_code);
+    TOLERANCE.with(|t| t.set(FLATTEN_TOLERANCE / scale));
     let blocks = read_blocks(section(groups, "BLOCKS"), &mut report);
     let items = read_items(section(groups, "ENTITIES"), &mut report);
+    TOLERANCE.with(|t| t.set(FLATTEN_TOLERANCE));
     let mut placed: Vec<(Curve, &str)> = Vec::new();
-    place(&items, &blocks, &IDENTITY, "0", 0, &mut report, &mut placed);
+    place(
+        &items,
+        &blocks,
+        &IDENTITY,
+        "0",
+        0,
+        &mut Placed::default(),
+        &mut report,
+        &mut placed,
+    );
 
     // Each with the id of the layer it is on: the layer's place in `names`.
     let mut names: Vec<String> = Vec::new();
@@ -689,7 +742,6 @@ fn from_groups(groups: &Groups, source_name: &str, gap: f64) -> Result<SvgImport
     report.unsupported.sort();
     report.unsupported.dedup();
 
-    let (scale, unit_note) = units(unit_code);
     report.unit_note = unit_note;
     let mut rings: Vec<(Ring, u32)> = Vec::new();
     let mut pieces: Vec<(Vec<Point>, u32)> = Vec::new();
@@ -707,9 +759,14 @@ fn from_groups(groups: &Groups, source_name: &str, gap: f64) -> Result<SvgImport
         }
     }
     if rings.is_empty() && pieces.is_empty() {
-        return Err(
-            "No lines, arcs, circles, polylines or splines were found in the DXF file.".into(),
-        );
+        let left_out = if report.unsupported.is_empty() {
+            String::new()
+        } else {
+            format!(" Left out: {}.", report.unsupported.join(", "))
+        };
+        return Err(format!(
+            "No lines, arcs, circles, polylines or splines were found in the DXF file.{left_out}"
+        ));
     }
 
     // Layer by layer: lines are joined, and outlines cut out of each other,
@@ -854,6 +911,60 @@ mod tests {
         let mut ids: Vec<u32> = out.design.regions.iter().map(|r| r.id).collect();
         ids.sort_unstable();
         assert_eq!(ids, [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_circle_in_metres_is_as_fine_as_one_in_millimetres() {
+        let circle = |unit: u32, r: f64| {
+            let text = format!(
+                "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n{unit}\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nCIRCLE\n10\n0\n20\n0\n40\n{r}\n0\nENDSEC\n0\nEOF\n"
+            );
+            let out = import_dxf(&text, "test.dxf").unwrap();
+            ring_area(&out.design.regions[0].outer).abs()
+        };
+        let exact = PI * 50.0 * 50.0;
+        for (unit, r) in [(4, 50.0), (5, 5.0), (6, 0.05), (1, 50.0 / 25.4)] {
+            let area = circle(unit, r);
+            assert!((area - exact).abs() / exact < 1e-3, "unit {unit}: {area}");
+        }
+    }
+
+    #[test]
+    fn a_block_that_places_itself_many_times_stops_with_a_note() {
+        // Block R draws a square and places itself three times: 3^16 copies, unbounded.
+        let text = "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nR\n10\n0\n20\n0\n\
+            0\nLWPOLYLINE\n90\n4\n70\n1\n10\n0\n20\n0\n10\n1\n20\n0\n10\n1\n20\n1\n10\n0\n20\n1\n\
+            0\nINSERT\n2\nR\n10\n2\n20\n0\n0\nINSERT\n2\nR\n10\n0\n20\n2\n0\nINSERT\n2\nr\n10\n2\n20\n2\n\
+            0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nR\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n";
+        let out = import_dxf(text, "test.dxf").unwrap();
+        assert!(!out.design.regions.is_empty());
+        assert!(
+            out.report
+                .unsupported
+                .iter()
+                .any(|n| n.contains("copies of blocks past")),
+            "{:?}",
+            out.report.unsupported
+        );
+    }
+
+    #[test]
+    fn a_block_is_found_whatever_the_case_and_a_missing_one_is_named() {
+        let text = |name: &str| {
+            format!(
+                "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nDOOR\n10\n0\n20\n0\n0\nCIRCLE\n10\n0\n20\n0\n40\n5\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\n{name}\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n"
+            )
+        };
+        assert_eq!(
+            import_dxf(&text("door"), "test.dxf")
+                .unwrap()
+                .design
+                .regions
+                .len(),
+            1
+        );
+        let error = import_dxf(&text("WINDOW"), "test.dxf").unwrap_err();
+        assert!(error.contains("WINDOW"), "{error}");
     }
 
     #[test]

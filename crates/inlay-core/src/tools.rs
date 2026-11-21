@@ -859,6 +859,10 @@ impl ToolLibrary {
             if key.trim().is_empty() || key != key.trim() {
                 return Err("a material needs a key without spaces around it".into());
             }
+            if key.contains('@') {
+                // A row on a profile is named material@profile.
+                return Err(format!("the material key \"{key}\" may not hold \"@\""));
+            }
             if self.materials[..i].iter().any(|o| o.key == material.key) {
                 return Err(format!("the material \"{key}\" is listed twice"));
             }

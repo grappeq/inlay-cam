@@ -548,20 +548,24 @@
      "type": "object",
      "properties": {
       "rpm": {
-       "type": "number",
-       "exclusiveMinimum": 0
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1000000
       },
       "feed": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000000
       },
       "plunge": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000000
       },
       "stepover": {
        "type": "number",
        "exclusiveMinimum": 0,
+       "maximum": 1000,
        "description": "mm, whatever stepoverUnit says"
       },
       "stepoverUnit": {
@@ -573,11 +577,13 @@
       },
       "stepdown": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000
       },
       "passes": {
        "type": "integer",
-       "minimum": 1
+       "minimum": 1,
+       "maximum": 1000
       }
      },
      "required": [
@@ -619,20 +625,24 @@
      "type": "object",
      "properties": {
       "rpm": {
-       "type": "number",
-       "exclusiveMinimum": 0
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1000000
       },
       "feed": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000000
       },
       "plunge": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000000
       },
       "stepover": {
        "type": "number",
        "exclusiveMinimum": 0,
+       "maximum": 1000,
        "description": "mm, whatever stepoverUnit says"
       },
       "stepoverUnit": {
@@ -644,11 +654,13 @@
       },
       "stepdown": {
        "type": "number",
-       "exclusiveMinimum": 0
+       "exclusiveMinimum": 0,
+       "maximum": 1000
       },
       "passes": {
        "type": "integer",
-       "minimum": 1
+       "minimum": 1,
+       "maximum": 1000
       }
      },
      "required": [],

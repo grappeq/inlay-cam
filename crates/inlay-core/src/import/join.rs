@@ -21,6 +21,9 @@ pub struct Joined {
 /// than two ends meet at a point, the nearest is taken.
 pub fn join(pieces: Vec<Vec<Point>>, gap: f64) -> Joined {
     let pieces: Vec<Vec<Point>> = pieces.into_iter().filter(|p| p.len() >= 2).collect();
+    // A gap of exactly `gap`, as drawn, may measure a hair over it: an SVG's
+    // points are read in single precision, a few millionths of a mm off.
+    let gap = gap + 1e-5;
     let mut used = vec![false; pieces.len()];
     let mut out = Joined::default();
 
@@ -235,6 +238,9 @@ mod tests {
         let far = vec![open_square(0.0, 3.0)];
         assert_eq!(joinable(&far, JOIN_GAP, 1), None);
         assert_eq!(joinable(&layers, JOIN_GAP, 0), None);
+        // A gap drawn as the largest offered, that measures a hair over it, closes at it.
+        let edge = open_square(0.0, 2.0 + 3e-6);
+        assert_eq!(join(edge, 2.0).open, 0);
     }
 
     #[test]
