@@ -9,7 +9,7 @@
 // a state the app could not save.
 
 import { core } from "../core/client";
-import type { Built, BuildStats, DesignRegion, PocketPreview, Project, Ring, Step, StepType, StockTimeline, Task, Tool, ToolKind } from "../core/types";
+import type { Built, BuildStats, CutResult, CutValues, CuttingSettings, DesignRegion, PocketPreview, Project, Ring, Step, StepType, StockTimeline, Task, Tool, ToolKind } from "../core/types";
 import { partName, partsOf } from "../components/OutputPanel";
 import { addShape, duplicateShapes, emptiedSteps, mirrorOnBoard, moveOnBoard, removeShapes, rotateOnBoard, scaleOnBoard, trimBoard } from "../state/arrange";
 import { activeLayerOf } from "../state/layers";
@@ -17,7 +17,12 @@ import {
   STEP_LABELS,
   TOOL_KIND_LABELS,
   allMaterials,
+  currentResult,
   defaultInlay,
+  feedMaterial,
+  isAdaptive,
+  materialLabel,
+  today,
   displayName,
   emptyDesign,
   glueOf,
@@ -133,6 +138,57 @@ function describeShape(r: DesignRegion, owners: Map<number, Step>) {
 /** Every tool a step may name: the tool list's, and the copies the project carries of tools that are no longer in it. */
 function everyTool(state: AppState): Tool[] {
   return [...state.tools, ...state.project.tools.filter((t) => !state.tools.some((own) => own.id === t.id))];
+}
+
+/** The numbers of a cutting row, as a command takes them. */
+const CUT_VALUES: Record<string, Schema> = {
+  rpm: { type: "number", exclusiveMinimum: 0 },
+  feed: { type: "number", exclusiveMinimum: 0 },
+  plunge: { type: "number", exclusiveMinimum: 0 },
+  stepover: { type: "number", exclusiveMinimum: 0, description: "mm, whatever stepoverUnit says" },
+  stepoverUnit: { type: "string", enum: ["mm", "percent"] },
+  stepdown: { type: "number", exclusiveMinimum: 0 },
+  passes: { type: "integer", minimum: 1 },
+};
+
+/** A row's numbers, as a log entry records them. */
+function rowValues(row: CuttingSettings): CutValues {
+  const values: CutValues = { rpm: row.rpm, feed: row.feed, plunge: row.plunge, stepover: row.stepover, stepdown: row.stepdown };
+  if (row.stepoverUnit !== undefined) values.stepoverUnit = row.stepoverUnit;
+  if (row.passes !== undefined) values.passes = row.passes;
+  return values;
+}
+
+/** A row as a command answers it: its numbers, and the result that counts for it now. */
+function rowAnswer(row: CuttingSettings) {
+  return { row: row.profile ? `${row.material}@${row.profile}` : row.material, ...rowValues(row), result: currentResult(row) ?? null, logEntries: row.log?.length ?? 0 };
+}
+
+/** A tool of the user's own list, and the place of one of its rows. A copy that only a project carries is not changed here. */
+function ownRow(state: AppState, toolId: string, key: string): [Tool, number] {
+  const tool = state.tools.find((t) => t.id === toolId);
+  if (!tool) {
+    const inProject = state.project.tools.some((t) => t.id === toolId);
+    throw new CommandError("not_found", inProject ? `"${toolId}" is only in this project, not in the tool list: it cannot be changed here.` : `There is no tool "${toolId}". tools_list gives the tools and their ids.`);
+  }
+  const [material, profile] = key.split("@");
+  const index = tool.cutting.findIndex((c) => c.material === material && (c.profile ?? undefined) === (profile || undefined));
+  if (index < 0) {
+    const rows = tool.cutting.map((c) => (c.profile ? `${c.material}@${c.profile}` : c.material)).join(", ") || "none";
+    throw new CommandError("not_found", `"${shown(tool)}" has no cutting row "${key}". Its rows: ${rows}.`);
+  }
+  return [tool, index];
+}
+
+/** Checks a changed tool, and the list with it, as the tool sheet and a saved tool file are checked. */
+async function checkedTools(state: AppState, changed: Tool): Promise<void> {
+  const problem = await core.call("validateTool", changed);
+  if (problem) throw new CommandError("invalid_input", problem);
+  try {
+    await core.call("libraryToFile", { ...state.lists, tools: state.tools.map((t) => (t.id === changed.id ? changed : t)) });
+  } catch (e) {
+    throw new CommandError("invalid_input", message(e));
+  }
 }
 
 /** A tool's name as the tool list shows it, with its coating. */
@@ -746,13 +802,96 @@ export const COMMANDS: Command[] = [
     name: "tool_get",
     title: "Read one tool",
     description:
-      "One tool in full, by its id, as the tool list holds it: its sizes and its cutting rows (rpm; feed and plunge in mm/min; stepdown in mm; stepover in mm whatever stepoverUnit says, which is only how it was typed) with their logs of real cuts. These are the numbers the user runs: quote them, do not change them. `number` is the tool's own in the list; the T number in a project's files is numberInFiles of a step's tools. Keys such as ids, apps, camFlag and camExtra are for other programs.",
+      "One tool in full, by its id, as the tool list holds it: its sizes and its cutting rows (rpm; feed and plunge in mm/min; stepdown in mm; stepover in mm whatever stepoverUnit says, which is only how it was typed) with their logs of real cuts. These are the numbers the user runs: quote them, and change them only with tool_row_set when the user asks for it. `number` is the tool's own in the list; the T number in a project's files is numberInFiles of a step's tools. Keys such as ids, apps, camFlag and camExtra are for other programs.",
     inputSchema: object({ id: { type: "string" } }, ["id"]),
     readOnly: true,
     run: async (input, host) => {
       const tool = everyTool(host.state()).find((t) => t.id === input.id);
       if (!tool) throw new CommandError("not_found", `There is no tool "${input.id}". tools_list gives the tools and their ids.`);
       return { tool };
+    },
+  },
+  {
+    name: "tool_log_cut",
+    title: "Log a cut with a tool",
+    description:
+      "Adds one entry to a cutting row's log, as the tool sheet's \"Log a cut\" does: what came of a real cut with that row. `row` is a material key, or material@profile, as tools_list gives a tool's rows. `outcome` is ok, provisional (it worked, still to confirm) or failed; leave it out for a plain remark. `at` holds the numbers the cut was made at, and is the row's present numbers when left out, which is right for a cut made with the row as it is. Log only what the user tells you came of a cut. With dryRun, answers the entry as it would be kept and changes nothing.",
+    inputSchema: object(
+      {
+        toolId: { type: "string" },
+        row: { type: "string", description: "material, or material@profile" },
+        text: { type: "string", description: "What happened, in the user's words." },
+        outcome: { type: "string", enum: ["ok", "provisional", "failed"] },
+        date: { type: "string", description: "YYYY-MM-DD. Default: today." },
+        at: object(CUT_VALUES, ["rpm", "feed", "plunge", "stepover", "stepdown"]),
+        dryRun: { type: "boolean" },
+      },
+      ["toolId", "row", "text"],
+    ),
+    run: async (input, host) => {
+      const state = host.state();
+      const [tool, index] = ownRow(state, input.toolId, input.row);
+      if (input.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new CommandError("invalid_input", "date must be YYYY-MM-DD.");
+      if (String(input.text).trim() === "") throw new CommandError("invalid_input", "text is needed: what came of the cut.");
+      const row = tool.cutting[index];
+      const entry: CutResult = {
+        date: input.date ?? today(),
+        ...(input.outcome ? { outcome: input.outcome } : {}),
+        at: input.at ?? rowValues(row),
+        text: String(input.text).trim(),
+      };
+      const logged = (t: Tool): Tool => ({ ...t, cutting: t.cutting.map((c, i) => (i === index ? { ...c, log: [...(c.log ?? []), entry] } : c)) });
+      const changed = logged(tool);
+      await checkedTools(state, changed);
+      if (input.dryRun) return { dryRun: true, logged: entry, row: rowAnswer(changed.cutting[index]) };
+      const after = await host.apply({ type: "setTools", tools: host.state().tools.map((t) => (t.id === tool.id ? logged(t) : t)) });
+      const kept = after.tools.find((t) => t.id === tool.id)!;
+      return { logged: entry, tool: shown(kept), row: rowAnswer(kept.cutting[index]) };
+    },
+  },
+  {
+    name: "tool_row_set",
+    title: "Change a cutting row's numbers",
+    description:
+      "Changes the numbers of one cutting row of a tool: rpm, feed and plunge (mm/min), stepover (mm), stepoverUnit (how it is shown: mm or percent), stepdown (mm) and passes. Only what is given changes. These are the numbers the user runs, so the page asks the user to allow the change before it is made, showing it, and the answer says when they did not. Call it only when the user asks for the change. The row's log stays: its entries keep the numbers they were cut at, so a result logged at the old numbers no longer counts for the row. The answer holds the feeds model's check of the new numbers (chip load, power, warnings), as the tool sheet shows it. With dryRun, answers the row as it would be, and its check, without asking or changing anything.",
+    inputSchema: object(
+      {
+        toolId: { type: "string" },
+        row: { type: "string", description: "material, or material@profile" },
+        values: { ...object(CUT_VALUES), description: "The numbers to change." },
+        dryRun: { type: "boolean" },
+      },
+      ["toolId", "row", "values"],
+    ),
+    run: async (input, host) => {
+      const state = host.state();
+      const [tool, index] = ownRow(state, input.toolId, input.row);
+      const row = tool.cutting[index];
+      const values = input.values as Partial<CutValues>;
+      if (Object.keys(values).length === 0) throw new CommandError("invalid_input", "values names nothing to change.");
+      if (values.rpm !== undefined && values.rpm > state.machine.maxRpm) {
+        throw new CommandError("invalid_input", `${values.rpm} rpm is over the machine's top speed, ${state.machine.maxRpm} rpm.`);
+      }
+      const next = { ...row, ...values };
+      const changed: Tool = { ...tool, cutting: tool.cutting.map((c, i) => (i === index ? next : c)) };
+      await checkedTools(state, changed);
+      const profile = row.profile ? state.lists.profiles?.find((p) => p.key === row.profile) : undefined;
+      const check = await core
+        .call("checkRow", changed, feedMaterial(row.material, state.lists), { rpm: next.rpm, feed: next.feed, plunge: next.plunge, stepover: next.stepover, stepdown: next.stepdown, adaptive: row.profile !== undefined && isAdaptive(row.profile, profile) }, state.machine)
+        .catch(() => null);
+      const before = rowValues(row);
+      const differs = (Object.keys(values) as (keyof CutValues)[]).filter((key) => before[key] !== next[key]);
+      if (differs.length === 0) return { unchanged: true, row: rowAnswer(row), check };
+      if (input.dryRun) return { dryRun: true, before, row: rowAnswer(next), check };
+      const label = `${materialLabel(row.material, state.lists)}${profile ? ` (${profile.label})` : ""}`;
+      const change = differs.map((key) => `${key} ${before[key] ?? "none"} → ${next[key]}`).join(", ");
+      const warned = check?.warnings.length ? `\n\nThe feeds model says: ${check.warnings.join(" ")}` : "";
+      if (!confirm(`An AI agent asks to change the ${label} row of "${shown(tool)}":\n\n${change}${warned}\n\nAllow it?`)) {
+        throw new CommandError("failed", "The user did not allow the change. Nothing was changed.");
+      }
+      const after = await host.apply({ type: "setTools", tools: host.state().tools.map((t) => (t.id === tool.id ? { ...t, cutting: t.cutting.map((c, i) => (i === index ? { ...c, ...values } : c)) } : t)) });
+      const kept = after.tools.find((t) => t.id === tool.id)!;
+      return { tool: shown(kept), before, row: rowAnswer(kept.cutting[index]), check };
     },
   },
   {

@@ -1,0 +1,980 @@
+[
+ {
+  "name": "project_get",
+  "title": "Read the project",
+  "description": "The open project: its stock (width, height along Y, thickness, material), every shape of the drawing with its id and its box on the stock (x, y of its lower left corner; mm; origin at the stock's lower left, Y up), and the steps in the order they are done, each with its settings (task), its tools and `missing`: what must still be chosen before its files can be made. Read this before changing anything.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "projects_list",
+  "title": "List the kept projects",
+  "description": "The projects kept in this browser (or on the server the page came from), last changed first, and which one is open.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "project_open",
+  "title": "Open a kept project",
+  "description": "Opens one of the kept projects by its id (from projects_list) in place of the open one, which stays kept.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "project_new",
+  "title": "Start a new project",
+  "description": "Starts an empty project and shows it on the page in place of the open one, which stays kept and can be opened again. It has no stock yet: call stock_set or drawing_import next.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "Default: Untitled inlay."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "project_rename",
+  "title": "Rename the project",
+  "description": "Gives the open project another name.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "project_save",
+  "title": "Save the project to a file",
+  "description": "Writes the open project as a project file (.task.json), which the app opens again on any computer.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "givesFiles": true
+ },
+ {
+  "name": "project_load",
+  "title": "Open a project file",
+  "description": "Opens a project file (.task.json) from disk in place of the open project, which stays kept. A file whose project is kept here already under the same id opens as a copy.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "file": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name",
+      "text"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "file"
+   ],
+   "additionalProperties": false
+  },
+  "takesFile": true
+ },
+ {
+  "name": "stock_set",
+  "title": "Set the stock",
+  "description": "Sets the size, thickness, material or colour of the stock: the board everything is cut into. Only what is named changes. On a project without a stock it makes one (200 × 150 mm unless given). Shapes stay where they are; the stock never grows by itself, and shapes may lie outside it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "width": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "Along X, mm."
+    },
+    "height": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "Along Y, mm."
+    },
+    "thickness": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "mm."
+    },
+    "material": {
+     "type": "string",
+     "description": "A material key from tools_list's `materials`, such as hardwood."
+    },
+    "color": {
+     "type": "string",
+     "description": "The wood's colour in the app's pictures, as #rrggbb."
+    },
+    "fitToShapes": {
+     "type": "number",
+     "minimum": 0,
+     "description": "Instead of width and height: make the stock the extent of the shapes plus this margin on every side, mm."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "drawing_import",
+  "title": "Bring in a drawing",
+  "description": "Reads an SVG or DXF drawing from disk and puts its closed shapes on the stock. The first drawing of a project sets the stock to its page; a later one is added in the middle of the stock, beside what is there, and shapes_move then puts it in place. With replace, it takes the place of the whole drawing, and every step made from the old one goes. Answers the new shapes and what of the file was not read.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "file": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name",
+      "text"
+     ],
+     "additionalProperties": false
+    },
+    "replace": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "file"
+   ],
+   "additionalProperties": false
+  },
+  "takesFile": true
+ },
+ {
+  "name": "shape_add",
+  "title": "Draw a shape",
+  "description": "Adds one closed shape to the drawing and answers its id. circle: cx, cy of its middle and diameter. rectangle and ellipse: x, y of the lower left corner of its box, width, height (corner rounds a rectangle's corners). polygon: cx, cy of its middle, radius to its corners, sides, and angle of the first corner in degrees counter-clockwise from +X (default 90: a corner at the top). outline: points, a list of [x, y] around it. A shape wholly inside another becomes a hole in it, as in the app. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "shape": {
+     "type": "string",
+     "enum": [
+      "circle",
+      "rectangle",
+      "ellipse",
+      "polygon",
+      "outline"
+     ]
+    },
+    "x": {
+     "type": "number",
+     "description": "rectangle, ellipse: left of its box."
+    },
+    "y": {
+     "type": "number",
+     "description": "rectangle, ellipse: bottom of its box."
+    },
+    "diameter": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "circle."
+    },
+    "width": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "height": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "corner": {
+     "type": "number",
+     "minimum": 0
+    },
+    "cx": {
+     "type": "number",
+     "description": "circle, polygon: its middle."
+    },
+    "cy": {
+     "type": "number",
+     "description": "circle, polygon: its middle."
+    },
+    "radius": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "sides": {
+     "type": "integer",
+     "minimum": 3,
+     "maximum": 100
+    },
+    "angle": {
+     "type": "number"
+    },
+    "points": {
+     "type": "array",
+     "minItems": 3,
+     "items": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+       "type": "number"
+      }
+     }
+    }
+   },
+   "required": [
+    "shape"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_move",
+  "title": "Move shapes",
+  "description": "Moves shapes by dx and dy, mm (Y up). One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    },
+    "dx": {
+     "type": "number"
+    },
+    "dy": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "ids",
+    "dx",
+    "dy"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_rotate",
+  "title": "Turn shapes",
+  "description": "Turns shapes together about the middle of their box, counter-clockwise, in degrees. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    },
+    "degrees": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "ids",
+    "degrees"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_scale",
+  "title": "Scale shapes",
+  "description": "Scales shapes together by a factor (2 doubles them), keeping the lower left corner of their box where it is. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    },
+    "factor": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    }
+   },
+   "required": [
+    "ids",
+    "factor"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_mirror",
+  "title": "Mirror shapes",
+  "description": "Mirrors shapes together within their box: axis \"x\" swaps left and right, \"y\" swaps top and bottom. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    },
+    "axis": {
+     "type": "string",
+     "enum": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   "required": [
+    "ids",
+    "axis"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_duplicate",
+  "title": "Copy shapes",
+  "description": "Copies shapes and puts the copy to the right of the originals, `gap` mm away (default 5). Answers the copies, which belong to no inlay. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    },
+    "gap": {
+     "type": "number",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "shapes_remove",
+  "title": "Delete shapes",
+  "description": "Deletes shapes from the drawing and from the steps that used them. A step left without shapes is removed too: the answer names them. Deleting every shape is refused; replace the drawing instead. One undo step, which also brings those steps back.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "minItems": 1,
+     "description": "The shapes' ids."
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "history_undo",
+  "title": "Undo",
+  "description": "Takes back the last change to the drawing (shapes and stock size), as the app's Undo does. Settings of steps are not part of this history.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "history_redo",
+  "title": "Redo",
+  "description": "Makes the change to the drawing again that the last undo took back.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "tools_list",
+  "title": "List the tools",
+  "description": "The user's tools, each with its id, kind, sizes (mm) and `rows`: the materials it has cutting settings for (material, or material@profile). A step can only cut with a tool that has a row for what it cuts. Also answers the material keys. `query` words must all appear in a tool's name, kind, group or coating.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string"
+    },
+    "kind": {
+     "type": "string",
+     "enum": [
+      "flat_end",
+      "v_bit",
+      "corner_round",
+      "ball_end",
+      "drill",
+      "thread_mill"
+     ]
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "tool_get",
+  "title": "Read one tool",
+  "description": "One tool in full, by its id, as the tool list holds it: its sizes and its cutting rows (rpm; feed and plunge in mm/min; stepdown in mm; stepover in mm whatever stepoverUnit says, which is only how it was typed) with their logs of real cuts. These are the numbers the user runs: quote them, and change them only with tool_row_set when the user asks for it. `number` is the tool's own in the list; the T number in a project's files is numberInFiles of a step's tools. Keys such as ids, apps, camFlag and camExtra are for other programs.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "tool_log_cut",
+  "title": "Log a cut with a tool",
+  "description": "Adds one entry to a cutting row's log, as the tool sheet's \"Log a cut\" does: what came of a real cut with that row. `row` is a material key, or material@profile, as tools_list gives a tool's rows. `outcome` is ok, provisional (it worked, still to confirm) or failed; leave it out for a plain remark. `at` holds the numbers the cut was made at, and is the row's present numbers when left out, which is right for a cut made with the row as it is. Log only what the user tells you came of a cut. With dryRun, answers the entry as it would be kept and changes nothing.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "toolId": {
+     "type": "string"
+    },
+    "row": {
+     "type": "string",
+     "description": "material, or material@profile"
+    },
+    "text": {
+     "type": "string",
+     "description": "What happened, in the user's words."
+    },
+    "outcome": {
+     "type": "string",
+     "enum": [
+      "ok",
+      "provisional",
+      "failed"
+     ]
+    },
+    "date": {
+     "type": "string",
+     "description": "YYYY-MM-DD. Default: today."
+    },
+    "at": {
+     "type": "object",
+     "properties": {
+      "rpm": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "feed": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "plunge": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "stepover": {
+       "type": "number",
+       "exclusiveMinimum": 0,
+       "description": "mm, whatever stepoverUnit says"
+      },
+      "stepoverUnit": {
+       "type": "string",
+       "enum": [
+        "mm",
+        "percent"
+       ]
+      },
+      "stepdown": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "passes": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     "required": [
+      "rpm",
+      "feed",
+      "plunge",
+      "stepover",
+      "stepdown"
+     ],
+     "additionalProperties": false
+    },
+    "dryRun": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "toolId",
+    "row",
+    "text"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "tool_row_set",
+  "title": "Change a cutting row's numbers",
+  "description": "Changes the numbers of one cutting row of a tool: rpm, feed and plunge (mm/min), stepover (mm), stepoverUnit (how it is shown: mm or percent), stepdown (mm) and passes. Only what is given changes. These are the numbers the user runs, so the page asks the user to allow the change before it is made, showing it, and the answer says when they did not. Call it only when the user asks for the change. The row's log stays: its entries keep the numbers they were cut at, so a result logged at the old numbers no longer counts for the row. The answer holds the feeds model's check of the new numbers (chip load, power, warnings), as the tool sheet shows it. With dryRun, answers the row as it would be, and its check, without asking or changing anything.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "toolId": {
+     "type": "string"
+    },
+    "row": {
+     "type": "string",
+     "description": "material, or material@profile"
+    },
+    "values": {
+     "type": "object",
+     "properties": {
+      "rpm": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "feed": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "plunge": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "stepover": {
+       "type": "number",
+       "exclusiveMinimum": 0,
+       "description": "mm, whatever stepoverUnit says"
+      },
+      "stepoverUnit": {
+       "type": "string",
+       "enum": [
+        "mm",
+        "percent"
+       ]
+      },
+      "stepdown": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "passes": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     "required": [],
+     "additionalProperties": false,
+     "description": "The numbers to change."
+    },
+    "dryRun": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "toolId",
+    "row",
+    "values"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "step_settings",
+  "title": "The settings of each type of step",
+  "description": "For each type of step, or for one: what it is, its settings with their defaults (what `task` takes in step_add and step_update), the optional ones, and what each means. Changes nothing.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "vcarve",
+      "flat",
+      "pocket",
+      "facing",
+      "contour",
+      "chamfer",
+      "glue",
+      "saw"
+     ]
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "step_add",
+  "title": "Add an inlay or operation",
+  "description": "Adds a step to the list and opens it on the page. Read step_settings first: it names each type's settings and their defaults. Types: vcarve and flat are inlays (a pocket in the stock and a plug or insert of another wood; each shape belongs to one inlay); pocket, facing, contour and chamfer are plain operations on the stock (a facing without shapes mills the whole stock); glue and saw are done by hand and take forInlay, the inlay's step id, in place of shapes. A facing with forInlay is the trim that mills a glued-in plug flush. `task` sets any of the type's settings over its defaults; a step's tools are among them. Only where the tool list has a single tool of the kind a step needs is that one chosen: otherwise name it. The answer's `missing` says what is still to choose.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "vcarve",
+      "flat",
+      "pocket",
+      "facing",
+      "contour",
+      "chamfer",
+      "glue",
+      "saw"
+     ]
+    },
+    "shapeIds": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "description": "The shapes it works on."
+    },
+    "forInlay": {
+     "type": "string",
+     "description": "For glue, saw and a trimming facing: the inlay's step id."
+    },
+    "name": {
+     "type": "string"
+    },
+    "material": {
+     "type": "string",
+     "description": "Inlays: the wood of the plug or insert, a material key."
+    },
+    "color": {
+     "type": "string",
+     "description": "Inlays: that wood's colour in the pictures, #rrggbb."
+    },
+    "task": {
+     "type": "object",
+     "description": "Settings to set over the defaults."
+    },
+    "after": {
+     "type": "string",
+     "description": "The step id to put it after. Default: at the end, or for forInlay where it belongs."
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "step_update",
+  "title": "Change an inlay or operation",
+  "description": "Changes a step: only what is named changes. `task` sets settings of its type (an optional one given as null is taken away); tools are named by id (clearingToolIds, vbitToolId, toolId). rowProfiles names, by tool id, the toolpath profile whose cutting row the tool runs here; cutOverrides changes, by tool id, numbers of that row for this step only (rpm, feed, plunge, stepover, stepdown). Give either as null to clear it. `suppressed` true leaves the step out of the files and of the stock while it keeps its place and settings; an inlay's plug, glue-up and sawing are left out with it. A step's type cannot change. The files made before are out of date after this: build again.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "shapeIds": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "material": {
+     "type": "string"
+    },
+    "color": {
+     "type": "string"
+    },
+    "task": {
+     "type": "object"
+    },
+    "rowProfiles": {
+     "type": "object",
+     "nullable": true
+    },
+    "cutOverrides": {
+     "type": "object",
+     "nullable": true
+    },
+    "cutOutToolId": {
+     "type": "string",
+     "nullable": true,
+     "description": "The end mill that cuts a plug out of its board; null for the usual one."
+    },
+    "suppressed": {
+     "type": "boolean",
+     "description": "Left out of the files and of the stock, or back in."
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "step_move",
+  "title": "Reorder the list",
+  "description": "Moves a step to another place in the list: `index` counts from 0. The order is the order things are cut and done in, and the steps between two done by hand share a file.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "index": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "id",
+    "index"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "step_remove",
+  "title": "Delete an inlay or operation",
+  "description": "Removes a step from the list. The steps done by hand for an inlay (its glue-up, sawing off) go with it. Its shapes stay in the drawing. This is not undone by history_undo.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "step_build",
+  "title": "Make and simulate one step's files",
+  "description": "Makes the G-code of one step, cut on its own, and simulates it, without writing anything to disk; for an inlay both parts (pocket, and plug or insert), and for a V-carve inlay the plug is then fitted into the pocket. Shows the result on the page. Answers, per part: the file's name, running time, tools, what to do before running it (`before`), warnings, and `problems` the simulation found (a file with problems must not be run); `errors` say why a part could not be made; `fit` how the plug sits. Takes seconds to a minute. For the files as they are run, in the order of the list, use timeline_build and gcode_export.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "timeline_build",
+  "title": "Take the stock through the list",
+  "description": "Cuts the stock, in simulation, through every step in the order of the list, and makes the files as they are run: one file for each stretch of steps between two done by hand, and one for each inlay's plug or insert. Shows the stock step by step on the page. Answers every step with its errors, warnings and simulation problems, and each file with its name, time, tools and what to do before it is run. Report all of them to the user. Takes seconds to minutes.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "gcode_export",
+  "title": "Write the G-code files",
+  "description": "Writes the G-code files to disk: the files for the stock and, unless parts is false, each inlay's plug or insert file. With stepIds, only those steps: the picked steps of one stretch come to one file. The list is worked out first if the project changed since timeline_build. A file whose simulation found problems is withheld and named in `withheld` unless withProblems is true: such a file must not be run, and the user decides. Answers `made` (each file with what to do before it is run), `saved` (where each was written) and `notSaved` (a file of that name is there already: pass overwrite), `notMade` and why. After a change to the project, export again with overwrite.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "stepIds": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Default: every step."
+    },
+    "parts": {
+     "type": "boolean",
+     "description": "Also the plug or insert files of the inlays. Default true."
+    },
+    "withProblems": {
+     "type": "boolean",
+     "description": "Also write files the simulation found problems in. Default false."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "givesFiles": true
+ },
+ {
+  "name": "drawing_render",
+  "title": "Picture of the drawing",
+  "description": "A picture of the drawing from above: the stock in its wood, every shape with its id on it, shapes of an inlay in that inlay's wood. Look at it to see where shapes lie and which is which.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "width": {
+     "type": "integer",
+     "minimum": 300,
+     "maximum": 2000,
+     "description": "Width of the picture in pixels. Default 1000."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "stock_render",
+  "title": "Picture of the cut wood",
+  "description": "A picture from above of wood as the simulation leaves it, darker the deeper it is cut, each inlay's wood in its colour. Without input: the stock after the whole list (worked out first if need be). `at`: the stock after that many steps of the list (0 is the fresh stock). `stepId` with `part`: that part of a step as step_build last made it, on its own board. part is pocket (default; for a plain operation, its one cut) or plug (an inlay's plug or insert).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "at": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "stepId": {
+     "type": "string"
+    },
+    "part": {
+     "type": "string",
+     "enum": [
+      "pocket",
+      "plug"
+     ]
+    },
+    "width": {
+     "type": "integer",
+     "minimum": 300,
+     "maximum": 2000,
+     "description": "Width of the picture in pixels. Default 1000."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "readOnly": true
+ },
+ {
+  "name": "view_show",
+  "title": "Show something on the page",
+  "description": "Turns the page to what the user should look at: a view (design, tools, settings), a step's panel (stepId; null for the list), or what the large area shows (drawing, pocket, plug, fit, timeline). Changes nothing in the project.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "view": {
+     "type": "string",
+     "enum": [
+      "design",
+      "tools",
+      "settings"
+     ]
+    },
+    "stepId": {
+     "type": "string",
+     "nullable": true
+    },
+    "stage": {
+     "type": "string",
+     "enum": [
+      "drawing",
+      "pocket",
+      "plug",
+      "fit",
+      "timeline"
+     ]
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ }
+]

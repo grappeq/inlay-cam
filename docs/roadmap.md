@@ -73,10 +73,7 @@ checked against a page on this computer. Still to do:
 - A release tag, so that the install line can name a version.
 - Changes to steps are not in the undo history, which is the drawing's. To decide: one
   history for both.
-- The tool list is read only. Logging a cut and changing a row from the page, with the
-  care the server's API takes.
 - A picture of a part in 3D, and of the fit. The pictures are from above.
-- A list of the commands in the server for the first start, before any page has connected.
 
 ## Operations and cutting settings
 

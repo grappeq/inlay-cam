@@ -108,14 +108,22 @@ export function pairingLink(app, port, token) {
   return url.href;
 }
 
-/** The commands the page last said it has, so that they are listed before a page connects. */
-export function rememberedCommands(dir = configDir()) {
-  try {
-    const kept = JSON.parse(readFileSync(join(dir, "commands.json"), "utf8"));
-    return Array.isArray(kept) ? kept : [];
-  } catch {
-    return [];
+/**
+ * The commands the page last said it has, so that they are listed before a
+ * page connects. Before any page has, the ones this server was shipped with:
+ * the page's of the same version (commands.json beside this file, kept in
+ * step with web/src/agent/commands.ts by a test there).
+ */
+export function rememberedCommands(dir = configDir(), shipped = new URL("./commands.json", import.meta.url)) {
+  for (const file of [join(dir, "commands.json"), shipped]) {
+    try {
+      const kept = JSON.parse(readFileSync(file, "utf8"));
+      if (Array.isArray(kept) && kept.length > 0) return kept;
+    } catch {
+      // Not there, or not readable: the next.
+    }
   }
+  return [];
 }
 
 export function rememberCommands(commands, dir = configDir()) {

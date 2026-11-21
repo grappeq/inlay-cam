@@ -1507,3 +1507,23 @@ retired. Its four known gaps were then closed.
   browsers on one project, where the second showed the first's change when it was come
   back to, asked when both had changed it, and kept both, then its own; the server
   stopped and started, with a change made meanwhile saved when it came back.
+
+### An agent writes to the tool list (2026-11-21)
+
+- **`tool_log_cut` and `tool_row_set`** (`web/src/agent/commands.ts`), the two writes a
+  person makes to a tool after a cut. Both name a row as the server's API does, `material`
+  or `material@profile`, refuse a key they do not take, check the tool with the core's
+  `validateTool` and the whole list as a saved file is checked, and take `dryRun`. A row
+  change is checked against the machine's top speed, answers the feeds model's check of
+  the new numbers, and is made only once the user allows it in a dialog that shows the
+  change and the model's warnings. Logging does not ask: it adds to a history and changes
+  no number the user runs. Each is one `setTools`, so on a server it is saved, and merged
+  with changes made elsewhere, as an edit in the tool sheet is. A tool that only a
+  project carries is not changed: it is not in the list.
+- **The command list ships with the relay** as `mcp/src/commands.json`, so that the first
+  start lists the page's tools before any page has connected. A test in the page,
+  `agent/commands.test.ts`, holds the file to what the page says (a file snapshot;
+  `vitest -u` writes it). A list the relay remembers from a page goes before it.
+- Checked through the relay with a page on a running server: a dry run, a cut logged,
+  a row and a key that do not exist, a speed over the machine's, a change declined and
+  one allowed, which reached the server with the log entry.
