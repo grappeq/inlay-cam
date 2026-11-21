@@ -2,7 +2,7 @@
 // Changes are saved automatically: to browser storage, or to the server when
 // the app is served by one (storage/home.ts).
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type Dispatch, type ReactNode } from "react";
 import { core } from "../core/client";
 import type { Design, FitCheck, ImportReport, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
 import * as db from "../storage/home";
@@ -11,6 +11,7 @@ import * as server from "../storage/server";
 import { pickable } from "./layers";
 import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
 import { bindHost } from "../agent/host";
+import { mergeLibraries } from "./merge";
 import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolNumbers, toolSnapshots, withoutOrphans } from "./model";
 
 export type View = "design" | "settings";
@@ -21,6 +22,13 @@ export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
 export type PanelPage = "list" | "tools" | "export";
 export type Notice = { kind: "info" | "error"; text: string };
+/** The open project as it was saved from somewhere else, over what this page last read or wrote. */
+export interface ProjectConflict {
+  id: string;
+  /** The project file as it is kept now. */
+  text: string;
+  token?: string;
+}
 
 export interface AppState {
   /** False until stored data has been loaded. */
@@ -45,6 +53,10 @@ export interface AppState {
   importReport: ImportReport | null;
   notice: Notice | null;
   saveError: string | null;
+  /** The open project was saved from another window or browser while it was changed here too. Until it is settled, it is not saved. */
+  projectConflict: ProjectConflict | null;
+  /** Counts the times the server came back after it was out of reach, so that what waits is saved again. */
+  reconnects: number;
   /** The last generated output. Not saved: it is rebuilt on demand. */
   output: Output | null;
   /** The stock as it was last taken through the list, step by step, with the files that cut it. Not saved. */
@@ -107,6 +119,8 @@ export type Action =
   | { type: "setImportReport"; report: ImportReport | null }
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
+  | { type: "projectConflict"; conflict: ProjectConflict | null }
+  | { type: "reconnected" }
   | { type: "setOutput"; output: Output | null }
   | { type: "setStage"; stage: Stage }
   | { type: "setTimeline"; timeline: Timeline | null }
@@ -140,6 +154,8 @@ const initial: AppState = {
   importReport: null,
   notice: null,
   saveError: null,
+  projectConflict: null,
+  reconnects: 0,
   output: null,
   timeline: null,
   timelineAt: 0,
@@ -239,6 +255,10 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, notice: action.notice };
     case "saveResult":
       return { ...state, saveError: action.error };
+    case "projectConflict":
+      return { ...state, projectConflict: action.conflict };
+    case "reconnected":
+      return { ...state, reconnects: state.reconnects + 1 };
     case "setOutput":
       return { ...state, output: action.output };
     case "setStage":
@@ -394,11 +414,22 @@ export function useDispatch(): Dispatch<Action> {
   return useContext(DispatchContext);
 }
 
+// Each project as this page last read or wrote it, by id: what a save is
+// made over. When what is kept is neither that nor what this page has, the
+// project was saved from somewhere else in the meantime.
+const bases = new Map<string, { text: string; token?: string }>();
+
 /** Loads a kept project, upgrading it if an older version of the app wrote it. */
 export async function loadStoredProject(id: string): Promise<Project> {
   const stored = await db.getProject(id);
   if (!stored) throw new Error("That project is no longer kept.");
+  bases.set(id, { text: stored.text, token: stored.token });
   return core.call("projectFromFile", stored.text);
+}
+
+/** After a conflict, the version saved elsewhere is what this page's next save is made over. */
+export function settleConflict(conflict: ProjectConflict) {
+  bases.set(conflict.id, { text: conflict.text, token: conflict.token });
 }
 
 /** A tool list read from the server: the token that names its version, and its text as this app writes it. */
@@ -411,6 +442,8 @@ interface SharedList {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
+  // The state as last drawn, for work that finishes later than the render it began in.
+  const live = useRef(state);
 
   // The tool list as the server has it: the token that names that version,
   // and its text as this app writes it, to tell a change from none. Without
@@ -484,21 +517,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Save the project shortly after every change. Saves run one at a time, in
   // order, so an older save can never overwrite a newer one.
+  //
+  // A project open in two places is not written over by the one that has
+  // not seen the other's change: when what is kept is neither what this page
+  // last read or wrote nor what it has now, saving stops until the user
+  // chooses (projectConflict). On a server the write names the version it
+  // was made over, so that two saves at the same moment are told apart too.
   const saving = useRef<Promise<void>>(Promise.resolve());
+  const conflictId = state.projectConflict?.id;
   useEffect(() => {
-    if (!state.ready) return;
+    if (!state.ready || conflictId === state.project.id) return;
     const project = state.project;
     const timer = setTimeout(() => {
       saving.current = saving.current.then(async () => {
         try {
           const text = await core.call("projectToFile", project);
           const stored = await db.getProject(project.id);
+          const base = bases.get(project.id);
+          const conflict = (kept: { text: string; token?: string }) =>
+            dispatch({ type: "projectConflict", conflict: { id: project.id, text: kept.text, token: kept.token } });
+          if (stored && base && stored.text !== base.text && stored.text !== text) return conflict(stored);
           // A blank project that was never stored is not worth keeping, and
           // opening a project must not change its "last modified" time.
           const blank = !stored && project.design === null && project.steps.length === 0;
           if (!blank && stored?.text !== text) {
-            await db.putProject({ id: project.id, name: project.name, modified: Date.now(), text });
+            const token = await db.putProject({ id: project.id, name: project.name, modified: Date.now(), text }, stored?.token);
+            if (token === "conflict") {
+              const kept = await db.getProject(project.id);
+              if (kept) return conflict(kept);
+            }
+            bases.set(project.id, { text, token: token === "conflict" ? undefined : token });
             dispatch({ type: "setProjects", projects: await db.listProjects() });
+          } else if (stored) {
+            bases.set(project.id, { text: stored.text, token: stored.token });
           }
           if (!blank) await db.putSetting("lastProjectId", project.id);
           dispatch({ type: "saveResult", error: null });
@@ -508,7 +559,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     }, 300);
     return () => clearTimeout(timer);
-  }, [state.ready, state.project]);
+  }, [state.ready, state.project, conflictId, state.reconnects]);
+
+  // The open project, saved from another window or browser: looked for when
+  // the page is come back to, and once a minute while it is shown. When
+  // nothing was changed here, the version saved there is shown; when both
+  // changed it, the user chooses.
+  useEffect(() => {
+    if (!state.ready) return;
+    let looking = false;
+    const look = async () => {
+      const now = live.current;
+      const base = bases.get(now.project.id);
+      if (looking || !base || now.projectConflict || document.visibilityState !== "visible") return;
+      looking = true;
+      try {
+        const stored = await db.getProject(now.project.id);
+        if (!stored || stored.text === base.text || live.current.project !== now.project) return;
+        const text = await core.call("projectToFile", now.project);
+        if (text === stored.text) {
+          bases.set(now.project.id, { text: stored.text, token: stored.token });
+        } else if (text === base.text) {
+          bases.set(now.project.id, { text: stored.text, token: stored.token });
+          const project = await core.call("projectFromFile", stored.text);
+          if (live.current.project !== now.project) return;
+          dispatch({ type: "openProject", project });
+          dispatch({ type: "setView", view: now.view, page: now.settingsPage });
+          dispatch({ type: "notice", notice: { kind: "info", text: "This project was saved from another window or browser. It is shown as it was saved there." } });
+        } else {
+          dispatch({ type: "projectConflict", conflict: { id: now.project.id, text: stored.text, token: stored.token } });
+        }
+      } catch {
+        // Out of reach, or not readable: the next save says so.
+      } finally {
+        looking = false;
+      }
+    };
+    const timer = setInterval(look, 60_000);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [state.ready]);
 
   // Save the tool list after every change. On a server, shortly after, one
   // write at a time: each names the version it changed, and a write over a
@@ -516,10 +611,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // list is then read again, and the change made here is given up.
   const toolWrites = useRef<Promise<void>>(Promise.resolve());
   const toolWritesWaiting = useRef(0);
+
+  // A write refused because the list changed on the server: the changes
+  // made here since the version last held are made to the server's list,
+  // and written. Where both changed the same thing, the server's is kept,
+  // and said. A change made here while this was on its way is merged in the
+  // same way after.
+  const mergeShared = useCallback(async () => {
+    const lost = (text: string) => dispatch({ type: "notice", notice: { kind: "error", text } });
+    const theirs = await readShared();
+    if (!theirs) throw new Error("the server refused the change, but has the version it was made to");
+    const before = live.current;
+    const mine = { ...before.lists, tools: before.tools };
+    const base = shared.current.text ? await core.call("libraryFromFile", shared.current.text) : null;
+    if (!base) {
+      hold(theirs);
+      return lost("The tool list was changed somewhere else in the meantime. It was read again from the server, and your last change to it was not kept.");
+    }
+    const merged = mergeLibraries(base, mine, { ...theirs.lists, tools: theirs.tools });
+    let text: string;
+    let token: string | "conflict";
+    try {
+      text = await core.call("libraryToFile", merged.library);
+      token = await server.writeLibrary(text, theirs.token);
+    } catch (e) {
+      hold(theirs);
+      return lost(`The tool list was changed somewhere else in the meantime, and your changes could not be put with that one (${message(e)}). It was read again from the server, and your last changes to it were not kept.`);
+    }
+    if (token === "conflict") {
+      const again = await readShared();
+      if (again) hold(again);
+      return lost("The tool list was changed somewhere else twice in a row. It was read again from the server, and your last change to it was not kept.");
+    }
+    const { tools, ...lists } = await core.call("libraryFromFile", text);
+    hold({ tools, lists, token, text });
+    // Changed here while the merge was on its way: made to the merged list.
+    const after = live.current;
+    if (after.tools !== before.tools || after.lists !== before.lists) {
+      const again = mergeLibraries(mine, { ...after.lists, tools: after.tools }, { ...lists, tools });
+      const { tools: againTools, ...againLists } = again.library;
+      dispatch({ type: "setTools", tools: againTools, lists: againLists });
+    }
+    if (merged.lost.length > 0) {
+      const one = merged.lost.length === 1;
+      lost(
+        `The tool list was changed somewhere else too. Both changes were kept, except that ${listed(merged.lost)} ${one ? "was" : "were"} changed in both places, and the change made there was kept. Make yours again if it is still wanted.`,
+      );
+    } else {
+      dispatch({ type: "notice", notice: { kind: "info", text: "The tool list was changed somewhere else too. Both changes were kept." } });
+    }
+  }, [readShared, hold]);
   useEffect(() => {
     if (!state.ready) return;
     const library = { ...state.lists, tools: state.tools };
-    const failed = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
+    const failed = (e: unknown) => {
+      // Out of reach is said once, at the top, and the list is written when the server is back.
+      if (state.home === "server" && server.getReach() === "unreachable") return;
+      dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
+    };
     if (state.home === "browser") {
       (async () => db.putSetting("tools", await core.call("libraryToFile", library)))().catch(failed);
       return;
@@ -549,12 +698,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             shared.current = { token, text };
             return;
           }
-          const read = await readShared();
-          if (read) hold(read);
-          dispatch({
-            type: "notice",
-            notice: { kind: "error", text: "The tool list was changed somewhere else in the meantime. It was read again from the server, and your last change to it was not kept." },
-          });
+          await mergeShared();
         })
         .catch(failed)
         .finally(() => {
@@ -565,7 +709,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       if (!begun) toolWritesWaiting.current--;
     };
-  }, [state.ready, state.home, state.tools, state.lists, readShared, hold]);
+  }, [state.ready, state.home, state.tools, state.lists, state.reconnects, readShared, hold, mergeShared]);
 
   // A shared list changes without this page: look again when the page is
   // come back to, and once a minute while it is shown. Not while a change
@@ -599,23 +743,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state.ready, state.home, readShared, hold]);
 
+  // The server out of reach: said at the top (Header), and what waits is
+  // saved when it is back. The browser's own word that it is offline or
+  // online is taken as a hint.
+  const reach = useSyncExternalStore(server.subscribeReach, server.getReach);
+  const wasOut = useRef(false);
+  useEffect(() => {
+    if (reach === "unreachable") wasOut.current = true;
+    else if (wasOut.current) {
+      wasOut.current = false;
+      dispatch({ type: "reconnected" });
+    }
+  }, [reach]);
+  useEffect(() => {
+    if (!state.ready || state.home !== "server") return;
+    const offline = () => server.lostReach();
+    const online = () => server.checkReach();
+    window.addEventListener("offline", offline);
+    window.addEventListener("online", online);
+    return () => {
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("online", online);
+    };
+  }, [state.ready, state.home]);
+  const waiting = state.home === "server" && reach === "unreachable";
+  useEffect(() => {
+    if (!waiting) return;
+    const ask = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", ask);
+    return () => window.removeEventListener("beforeunload", ask);
+  }, [waiting]);
+
   useEffect(() => {
     if (!state.ready || state.machine === asLoaded.current.machine) return;
-    db.putSetting("machine", JSON.stringify(state.machine)).catch((e) =>
-      dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } }),
-    );
-  }, [state.ready, state.machine]);
+    db.putSetting("machine", JSON.stringify(state.machine)).catch((e) => {
+      if (state.home === "server" && server.getReach() === "unreachable") return;
+      dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } });
+    });
+  }, [state.ready, state.home, state.machine, state.reconnects]);
 
   useEffect(() => {
     if (!state.ready || state.defaults === asLoaded.current.defaults) return;
-    db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch((e) =>
-      dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } }),
-    );
-  }, [state.ready, state.defaults]);
+    db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch((e) => {
+      if (state.home === "server" && server.getReach() === "unreachable") return;
+      dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } });
+    });
+  }, [state.ready, state.home, state.defaults, state.reconnects]);
 
   // For an agent's commands (agent/host.ts), which run outside the screens:
   // the state as last drawn, and a dispatch that answers once it is drawn.
-  const live = useRef(state);
   const drawn = useRef<(() => void)[]>([]);
   useEffect(() => {
     live.current = state;
@@ -643,6 +819,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       <DispatchContext.Provider value={dispatch}>{children}</DispatchContext.Provider>
     </StateContext.Provider>
   );
+}
+
+/** "a, b and c". */
+function listed(items: string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 export function message(e: unknown): string {

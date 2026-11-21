@@ -12,7 +12,10 @@ import { TimelineStart, TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
-import { AppProvider, useApp, useDispatch, type Stage } from "./state/store";
+import { AppProvider, message, settleConflict, useApp, useDispatch, type Stage } from "./state/store";
+import { core } from "./core/client";
+import * as db from "./storage/home";
+import { duplicateProject } from "./state/model";
 
 export function App() {
   return (
@@ -63,6 +66,7 @@ function Shell() {
     >
       <Header />
       <NoticeBar />
+      <ConflictBar />
       <AgentPairing />
       {!ready ? <p className="loading">Loading…</p> : view === "design" ? <DesignView /> : <SettingsView />}
       {dragging && <div className="drop-hint">Drop SVG or DXF drawings, a project or tool file, or tools.yaml</div>}
@@ -171,6 +175,65 @@ function AgentPairing() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The open project was saved from another window or browser while it was
+ * changed here too. Nothing is saved until one of the two is chosen, or both
+ * kept: this one as a copy beside the other.
+ */
+function ConflictBar() {
+  const { projectConflict: conflict, project, projects } = useApp();
+  const dispatch = useDispatch();
+  const [busy, setBusy] = useState(false);
+  if (!conflict || conflict.id !== project.id) return null;
+
+  const run = (work: () => Promise<void>) => async () => {
+    setBusy(true);
+    try {
+      await work();
+    } catch (e) {
+      dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openOther = async () => {
+    const other = await core.call("projectFromFile", conflict.text);
+    settleConflict(conflict);
+    dispatch({ type: "projectConflict", conflict: null });
+    dispatch({ type: "openProject", project: other });
+  };
+  const keepThis = async () => {
+    settleConflict(conflict);
+    dispatch({ type: "projectConflict", conflict: null });
+  };
+  const keepBoth = async () => {
+    const copy = duplicateProject(project, projects.map((p) => p.name));
+    await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text: await core.call("projectToFile", copy) });
+    dispatch({ type: "setProjects", projects: await db.listProjects() });
+    await openOther();
+    dispatch({ type: "notice", notice: { kind: "info", text: `Your version is kept as "${copy.name}", under Projects.` } });
+  };
+
+  return (
+    <div className="notice error" role="alert">
+      <span>
+        This project was saved from another window or browser while you changed it here. Your changes are not saved until you choose which version to keep.
+      </span>
+      <span className="notice-actions">
+        <button disabled={busy} onClick={run(keepBoth)} title="Keep your version as a copy, and show the one saved elsewhere">
+          Keep both
+        </button>
+        <button disabled={busy} onClick={run(openOther)} title="Show the version saved elsewhere. Your changes here are dropped.">
+          Use the other
+        </button>
+        <button disabled={busy} onClick={run(keepThis)} title="Save your version over the one saved elsewhere">
+          Keep mine
+        </button>
+      </span>
     </div>
   );
 }

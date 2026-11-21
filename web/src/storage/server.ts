@@ -7,6 +7,69 @@
 // A write names the token of the file it changed (`If-Match`), and is
 // refused when the file has changed since: see docs/api.md.
 
+// Whether the server can be reached, as the last request to it found. A
+// request that gets no answer, or a proxy's answer that the server is down,
+// says it is out of reach; any answer of the server's own says it is back.
+// While it is out of reach it is asked again every few seconds, so that the
+// page finds out, and saves what waits, without anything else being done.
+
+type Reach = "reachable" | "unreachable";
+let reach: Reach = "reachable";
+const watchers = new Set<() => void>();
+let probe: ReturnType<typeof setTimeout> | null = null;
+
+/** Whether the server could be reached the last time it was asked. */
+export function getReach(): Reach {
+  return reach;
+}
+
+export function subscribeReach(watch: () => void): () => void {
+  watchers.add(watch);
+  return () => watchers.delete(watch);
+}
+
+function setReach(next: Reach) {
+  if (next === "unreachable" && probe === null) scheduleProbe(2000);
+  if (next === reach) return;
+  reach = next;
+  for (const watch of watchers) watch();
+}
+
+function scheduleProbe(delay: number) {
+  probe = setTimeout(async () => {
+    probe = null;
+    if (reach === "reachable") return;
+    await call("api/health", { cache: "no-store" }).catch(() => undefined);
+    if (reach === "unreachable" && probe === null) scheduleProbe(Math.min(delay * 2, 30_000));
+  }, delay);
+}
+
+/** A proxy's answer for a server behind it that does not answer. */
+const DOWN = [502, 503, 504];
+
+/** `fetch`, noting whether the server answered. */
+async function call(input: string, init?: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(input, init);
+  } catch (e) {
+    setReach("unreachable");
+    throw new Error("the server is out of reach", { cause: e });
+  }
+  setReach(DOWN.includes(response.status) ? "unreachable" : "reachable");
+  return response;
+}
+
+/** Marks the server as out of reach, as when the browser says it is offline, so that it is asked until it answers. */
+export function lostReach() {
+  setReach("unreachable");
+}
+
+/** Asks the server now, as when the browser says it is back online. */
+export function checkReach() {
+  call("api/health", { cache: "no-store" }).catch(() => undefined);
+}
+
 export interface ServerLibrary {
   /** Tool-library file text. */
   text: string;
@@ -44,7 +107,7 @@ export async function findServer(): Promise<boolean> {
 
 /** The tool list as the server has it; null when it is still the version `have` names. */
 export async function readLibrary(have?: string): Promise<ServerLibrary | null> {
-  const response = await fetch("api/library", { cache: "no-store", headers: have ? { "If-None-Match": `"${have}"` } : {} });
+  const response = await call("api/library", { cache: "no-store", headers: have ? { "If-None-Match": `"${have}"` } : {} });
   if (response.status === 304) return null;
   if (!response.ok) throw await problem(response);
   return { text: await response.text(), token: tokenOf(response) };
@@ -52,7 +115,7 @@ export async function readLibrary(have?: string): Promise<ServerLibrary | null> 
 
 /** Writes the tool list over the version `token` names. Gives the new token, or "conflict" when the server's list is no longer that version. */
 export async function writeLibrary(text: string, token: string): Promise<string | "conflict"> {
-  const response = await fetch("api/library", {
+  const response = await call("api/library", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "If-Match": `"${token}"`, "X-Inlay": "1" },
     body: text,
@@ -73,32 +136,38 @@ async function answer(response: Response): Promise<Response> {
 
 /** The projects kept on the server, last written first. */
 export async function listProjects(): Promise<{ id: string; name: string; modified: number }[]> {
-  const body = await (await answer(await fetch("api/projects", { cache: "no-store" }))).json();
+  const body = await (await answer(await call("api/projects", { cache: "no-store" }))).json();
   return body.projects;
 }
 
-export async function getProject(id: string): Promise<{ id: string; name: string; modified: number; text: string } | undefined> {
-  const response = await fetch(`api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
+export async function getProject(id: string): Promise<{ id: string; name: string; modified: number; text: string; token?: string } | undefined> {
+  const response = await call(`api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
   if (response.status === 404) return undefined;
   await answer(response);
+  const etag = response.headers.get("ETag");
   // The name is in the text; nothing that asks for one project reads it from here.
-  return { id, name: "", modified: Number(response.headers.get("X-Modified")) || 0, text: await response.text() };
+  return { id, name: "", modified: Number(response.headers.get("X-Modified")) || 0, text: await response.text(), token: etag?.replace(/^W\//, "").replace(/"/g, "") };
 }
 
-export async function putProject(id: string, text: string): Promise<void> {
-  await answer(await fetch(`api/projects/${encodeURIComponent(id)}`, { method: "PUT", headers: WRITE, body: text }));
+/** Keeps a project. With `basedOn`, the token of the version this page read, it is refused when the project was saved from elsewhere since: "conflict". Gives the token of the version kept. */
+export async function putProject(id: string, text: string, basedOn?: string): Promise<string | undefined | "conflict"> {
+  const headers: Record<string, string> = basedOn ? { ...WRITE, "If-Match": `"${basedOn}"` } : WRITE;
+  const response = await call(`api/projects/${encodeURIComponent(id)}`, { method: "PUT", headers, body: text });
+  if (response.status === 409) return "conflict";
+  const body = await (await answer(response)).json();
+  return typeof body?.token === "string" ? body.token : undefined;
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const response = await fetch(`api/projects/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Inlay": "1" } });
+  const response = await call(`api/projects/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Inlay": "1" } });
   if (response.status !== 404) await answer(response);
 }
 
 export async function getSetting(key: string): Promise<string | undefined> {
-  const body = await (await answer(await fetch("api/settings", { cache: "no-store" }))).json();
+  const body = await (await answer(await call("api/settings", { cache: "no-store" }))).json();
   return typeof body[key] === "string" ? body[key] : undefined;
 }
 
 export async function putSetting(key: string, value: string): Promise<void> {
-  await answer(await fetch(`api/settings/${encodeURIComponent(key)}`, { method: "PUT", headers: WRITE, body: JSON.stringify({ value }) }));
+  await answer(await call(`api/settings/${encodeURIComponent(key)}`, { method: "PUT", headers: WRITE, body: JSON.stringify({ value }) }));
 }

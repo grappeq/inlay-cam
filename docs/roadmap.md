@@ -7,9 +7,10 @@ Within a section the order is the order to take things in, where there is one.
 
 ## Joining with the tooling library
 
-The app is taking over the work of the tooling library, a separate Python program. Three
-of five phases are done: one tool model, the feeds model with the tool sheet, and the
-libraries for other programs. The fourth, a server, is built and not yet in use.
+The app has taken over the work of the tooling library, a separate Python program, which
+is retired. Four of five phases are done: one tool model, the feeds model with the tool
+sheet, the libraries for other programs, and a server, `inlay-server`, which is in use in
+the workbench's place ([server.md](server.md)).
 
 **To check with the real programs**
 
@@ -18,24 +19,6 @@ libraries for other programs. The fourth, a server, is built and not yet in use.
   opened in the programs themselves.
 - Run a real, full-size tool list through the list, the sheet and the writers. Everything
   so far was checked with made-up lists of about ten tools.
-
-**Phase 4: a server**
-
-Built: `inlay-server` serves the same build and keeps everything on the server that a
-browser would keep, the tool list in one shared file, with an HTTP API whose writes to it
-are checked by a token, and backups ([api.md](api.md)). Still to do:
-
-- Deploy it in place of the tooling library's workbench, and bring the real tool list
-  over: export a `tools.yaml` there, import it in the served app.
-- Point the agents at it: [agent-brief.md](agent-brief.md) takes the place of the
-  workbench's prompt.
-- Then the Python repository is archived.
-- A change refused because the list changed elsewhere is dropped. Keep both where they
-  are to different tools.
-- A project open in two browsers: the one saved last is kept, without a word to the other.
-- Materials, profiles and groups through the API one at a time. Today only the whole file
-  can be replaced.
-- The page says nothing when the server is out of reach, until something is saved.
 
 **Phase 5: what only the joined app can do**
 

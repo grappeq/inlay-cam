@@ -272,6 +272,12 @@ input[aria-invalid="true"] {
   color: var(--danger);
   background: var(--danger-soft);
 }
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
 
 /* Start screen */
 .start {

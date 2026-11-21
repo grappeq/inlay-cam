@@ -855,3 +855,233 @@ fn a_query_parameter_a_route_does_not_read_is_refused() {
     assert_eq!(served.get("/api/attention?x=1").0, 400);
     assert_eq!(served.get("/api/tools?q=drill").0, 200);
 }
+
+#[test]
+fn materials_profiles_and_groups_are_listed_with_what_names_them() {
+    let served = served();
+    let (status, materials) = served.get("/api/materials");
+    assert_eq!(status, 200);
+    let keys: Vec<&str> = materials["materials"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["key"].as_str().unwrap())
+        .collect();
+    assert!(keys.contains(&"aluminum"), "{keys:?}");
+    assert!(materials["usedBy"]["aluminum"].as_u64().unwrap() > 0);
+    let (status, one) = served.get("/api/materials/aluminum");
+    assert_eq!(status, 200);
+    assert_eq!(one["material"]["key"], "aluminum");
+    assert!(!one["usedBy"].as_array().unwrap().is_empty());
+    // Built in, and so known without its entry, which can go though tools
+    // name it; then said so.
+    let (status, _) = served.write(
+        "DELETE",
+        "/api/materials/hardwood",
+        json!({"token": served.token()}),
+    );
+    assert_eq!(status, 200);
+    let (status, answer) = served.get("/api/materials/hardwood");
+    assert_eq!(status, 404);
+    assert!(answer["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("built in"));
+    assert_eq!(served.get("/api/profiles").0, 200);
+    assert_eq!(served.get("/api/groups").0, 200);
+    assert_eq!(served.get("/api/profiles/nothing").0, 404);
+}
+
+#[test]
+fn a_material_is_added_changed_and_deleted_one_at_a_time() {
+    let served = served();
+    let token = served.token();
+    let (status, added) = served.write(
+        "POST",
+        "/api/materials",
+        json!({"token": token, "material": {"key": "walnut", "label": "Walnut", "feedsAs": "hardwood"}}),
+    );
+    assert_eq!(status, 200, "{added}");
+    assert_eq!(added["material"]["label"], "Walnut");
+    assert_eq!(added["usedBy"], json!([]));
+    assert!(added["backup"].is_string());
+    let library = served.library();
+    assert_eq!(library.materials.last().unwrap().key.key(), "walnut");
+    // Added twice, or with a key the model does not have: refused.
+    let (status, answer) = served.write(
+        "POST",
+        "/api/materials",
+        json!({"token": served.token(), "material": {"key": "walnut"}}),
+    );
+    assert_eq!((status, code(&answer)), (400, "bad_request"));
+    let (status, answer) = served.write(
+        "POST",
+        "/api/materials",
+        json!({"token": served.token(), "material": {"key": "oak", "lable": "Oak"}}),
+    );
+    assert_eq!((status, code(&answer)), (400, "bad_request"));
+    assert!(answer["error"]["message"].as_str().unwrap().contains("lable"));
+
+    let (status, changed) = served.write(
+        "PATCH",
+        "/api/materials/walnut",
+        json!({"token": served.token(), "patch": {"label": "Black walnut"}, "diff": true}),
+    );
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["material"]["label"], "Black walnut");
+    assert_eq!(changed["material"]["feedsAs"], "hardwood");
+    assert!(changed["diff"].as_str().unwrap().contains("Black walnut"));
+    let (status, answer) = served.write(
+        "PATCH",
+        "/api/materials/walnut",
+        json!({"token": served.token(), "patch": {"key": "oak"}}),
+    );
+    assert_eq!((status, code(&answer)), (400, "bad_request"));
+
+    // A material a tool names stays.
+    let (status, answer) = served.write(
+        "DELETE",
+        "/api/materials/aluminum",
+        json!({"token": served.token()}),
+    );
+    assert_eq!((status, code(&answer)), (422, "invalid"));
+    assert!(!answer["error"]["ids"].as_array().unwrap().is_empty());
+    let (status, deleted) = served.write(
+        "DELETE",
+        "/api/materials/walnut",
+        json!({"token": served.token()}),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(deleted["deleted"]["key"], "walnut");
+    assert!(!served
+        .library()
+        .materials
+        .iter()
+        .any(|m| m.key.key() == "walnut"));
+}
+
+#[test]
+fn a_profile_is_checked_as_the_app_checks_one() {
+    let served = served();
+    let (status, added) = served.write(
+        "POST",
+        "/api/profiles",
+        json!({"token": served.token(), "profile": {"key": "finish", "label": "Finishing", "level": "gentle"}, "dryRun": true}),
+    );
+    assert_eq!(status, 200, "{added}");
+    assert_eq!(added["dryRun"], true);
+    assert!(served.library().profile("finish").is_none());
+    let (status, answer) = served.write(
+        "POST",
+        "/api/profiles",
+        json!({"token": served.token(), "profile": {"key": "Finish!", "label": "Finishing"}}),
+    );
+    assert_eq!((status, code(&answer)), (422, "invalid"));
+    let (status, _) = served.write(
+        "POST",
+        "/api/profiles",
+        json!({"token": served.token(), "profile": {"key": "finish", "label": "Finishing"}}),
+    );
+    assert_eq!(status, 200);
+    // A profile a row is on stays.
+    let token = served.token();
+    let (status, _) = served.write(
+        "PATCH",
+        "/api/tools/starter-04",
+        json!({"token": token, "patch": {"cutting": {"hardwood@finish": {"rpm": 10000, "feed": 800, "plunge": 200, "stepover": 1, "stepdown": 0.5}}}}),
+    );
+    assert_eq!(status, 200);
+    let (status, answer) = served.write(
+        "DELETE",
+        "/api/profiles/finish",
+        json!({"token": served.token()}),
+    );
+    assert_eq!((status, code(&answer)), (422, "invalid"));
+    assert_eq!(answer["error"]["ids"], json!(["starter-04"]));
+    let (_, one) = served.get("/api/profiles/finish");
+    assert_eq!(one["usedBy"][0]["id"], "starter-04");
+}
+
+#[test]
+fn a_group_entry_goes_without_its_tools() {
+    let served = served();
+    let library = served.library();
+    let group = library.groups[0].path.clone();
+    let encoded: String = group.bytes().map(|b| format!("%{b:02X}")).collect();
+    // Pinned once only.
+    let (status, _) = served.write(
+        "POST",
+        "/api/groups",
+        json!({"token": served.token(), "group": {"path": group}}),
+    );
+    assert_eq!(status, 400);
+    let (_, one) = served.get(&format!("/api/groups/{encoded}"));
+    assert!(!one["usedBy"].as_array().unwrap().is_empty());
+    let (status, _) = served.write(
+        "DELETE",
+        &format!("/api/groups/{encoded}"),
+        json!({"token": served.token()}),
+    );
+    assert_eq!(status, 200);
+    let library = served.library();
+    assert!(library.groups.iter().all(|g| g.path != group));
+    assert!(library
+        .tools
+        .iter()
+        .any(|t| t.group.as_deref() == Some(group.as_str())));
+    let (status, _) = served.write(
+        "POST",
+        "/api/groups",
+        json!({"token": served.token(), "group": {"path": group}}),
+    );
+    assert_eq!(status, 200);
+    // A write with an old token is refused here as for a tool.
+    let (status, answer) = served.write(
+        "POST",
+        "/api/groups",
+        json!({"token": "old", "group": {"path": "x"}}),
+    );
+    assert_eq!((status, code(&answer)), (409, "conflict"));
+}
+
+#[test]
+fn a_project_saved_elsewhere_is_not_written_over() {
+    let served = served();
+    let mut project = inlay_core::project::project_from_file_json(include_str!(
+        "../../../inlay-core/tests/fixtures/project-v2.json"
+    ))
+    .unwrap();
+    project.id = "p-1".into();
+    let first = inlay_core::project::project_to_file_json(&project);
+    let saved = served.send("PUT", "/api/projects/p-1", &[], first.as_bytes());
+    let token: Value = serde_json::from_slice(&saved.body).unwrap();
+    let token = token["token"].as_str().unwrap().to_string();
+    let read = served.send("GET", "/api/projects/p-1", &[], b"");
+    let etag = read
+        .headers
+        .iter()
+        .find(|(n, _)| n == "ETag")
+        .map(|(_, v)| v.clone())
+        .unwrap();
+    assert_eq!(etag, format!("\"{token}\""));
+
+    // Saved from a second place, over the version it read.
+    project.name = "Second".into();
+    let second = inlay_core::project::project_to_file_json(&project);
+    let response = served.send("PUT", "/api/projects/p-1", &[("if-match", &etag)], second.as_bytes());
+    assert_eq!(response.status, 200);
+    // The first place, still on the first version, is refused.
+    project.name = "Third".into();
+    let third = inlay_core::project::project_to_file_json(&project);
+    let response = served.send("PUT", "/api/projects/p-1", &[("if-match", &etag)], third.as_bytes());
+    assert_eq!(response.status, 409);
+    let answer: Value = serde_json::from_slice(&response.body).unwrap();
+    assert_eq!(code(&answer), "conflict");
+    assert_eq!(
+        served.send("GET", "/api/projects/p-1", &[], b"").body,
+        second.as_bytes()
+    );
+    // Without If-Match, the last write is kept, as before.
+    let response = served.send("PUT", "/api/projects/p-1", &[], third.as_bytes());
+    assert_eq!(response.status, 200);
+}

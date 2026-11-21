@@ -1472,3 +1472,38 @@ and last a button for each profile.
   too: the panel beside the drawing gives way while the drawing is edited, turning by an
   angle and scaling by a percentage wait behind a "more" button, and the number boxes
   shrink. Three rows at 820 px, two at 1000 px, and at 1280 px it is as it was.
+
+### The server in use (2026-11-21)
+
+The server took the tooling library's workbench's place, and the Python repository was
+retired. Its four known gaps were then closed.
+
+- **Two changes to the tool list are both kept.** A write the server refused, because the
+  list changed there since the page read it, used to be dropped. Now the page merges three
+  ways (`web/src/state/merge.ts`): the version it last held, its own list, and the
+  server's. Items are told apart by id or key, and so are a tool's cutting rows; a list
+  that both sides added to at the end, as a log is added to, keeps both sides' entries.
+  Where both changed one value, the server's is kept and the page names the tool, since
+  the page cannot know which of the two was meant, and the server's may be a cut that was
+  logged. Merged on the page rather than on the server: the page already sends the whole
+  file, and the server keeps no history of versions to merge from but its backups.
+- **A project open in two places.** The page keeps each project as it last read or wrote
+  it (`bases` in `store.tsx`). A save over something else stops, and a bar asks: keep
+  both, use the other, keep mine. The server gives a project an `ETag` and takes
+  `If-Match`, so two saves at the same moment are told apart too; without `If-Match` it
+  keeps the last write as before, for scripts. The check is on the page, so it works
+  between two tabs of one browser as well.
+- **Materials, profiles and groups one at a time** through the API
+  (`crates/inlay-server/src/api/lists.rs`), through the same write as a tool, with token,
+  dry run, diff and backup. A material or profile that a tool names is not deleted; the
+  answer lists those tools. Hardwood and softwood need no entry, so theirs may go.
+- **The server out of reach** is said at the top of the page, in place of where things
+  are saved. Every request notes whether the server answered; out of reach, it is asked
+  again every 2 seconds, doubling up to 30, and when it answers the project, the tool
+  list, the machine and the inlay defaults are saved again. Closing the page asks first.
+- Checked by test: 5 new tests of the server's routes; 9 of the merge. In the browser,
+  against a running server: a change to one tool made through the API and another made in
+  the tool sheet were both kept, and the same field changed in both named the tool; two
+  browsers on one project, where the second showed the first's change when it was come
+  back to, asked when both had changed it, and kept both, then its own; the server
+  stopped and started, with a change made meanwhile saved when it came back.
