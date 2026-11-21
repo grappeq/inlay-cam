@@ -21,7 +21,7 @@ inlay-cam makes CNC toolpaths for wooden inlays. These tools drive the inlay-cam
 - Start with inlay_status. With no page connected, call inlay_open: it opens the page paired with this server. The first time, the page asks the user to allow the connection, and the browser asks whether the site may reach this computer; wait for them, then call inlay_status again.
 - project_get describes the open project: the stock, the shapes of the drawing, the steps (inlays and operations) and what each still lacks. Read it before changing anything, and again after.
 - Lengths are mm, angles degrees, feeds mm/min. The drawing's origin is the stock's lower left corner, Y up.
-- A step's tools are chosen by id from tools_list. Cutting numbers come from the user's tool list: do not invent them.
+- A step's tools are chosen by id from tools_list. Cutting numbers come from the user's tool list: do not invent them. tool_log_cut records what the user tells you came of a cut; tool_row_set changes a row's numbers only when the user asks, and the page asks them to allow it.
 - step_settings names the settings of each type of step. Read it before step_add.
 - Build before you export: step_build makes and simulates one step's files, timeline_build takes the stock through the whole list. Report every error, problem and warning they return to the user; a file with problems is not one to run.
 - Only gcode_export and project_save write files, to the outputFolder inlay_status names unless the call gives a folder. They do not write over a file that is there unless the call says overwrite.

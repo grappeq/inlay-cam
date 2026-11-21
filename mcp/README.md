@@ -81,7 +81,9 @@ The server has three tools of its own:
 
 Every command of the connected page is a tool beside them. The page says which it has when
 it connects, so a newer page brings its new tools without a new server. The server remembers
-the list, and offers it at the next start before a page has connected.
+the list, and offers it at the next start before a page has connected. Before any page ever
+has, it offers the list it was shipped with: the page's commands of the same version
+(`mcp/src/commands.json`).
 
 | Tool | What |
 |---|---|
@@ -94,6 +96,8 @@ the list, and offers it at the next start before a page has connected.
 | `shapes_move`, `shapes_rotate`, `shapes_scale`, `shapes_mirror`, `shapes_duplicate`, `shapes_remove` | Shapes, by id |
 | `history_undo`, `history_redo` | The drawing's undo history |
 | `tools_list`, `tool_get` | The user's tools and their cutting rows, to read |
+| `tool_log_cut` | What came of a real cut, logged with a cutting row |
+| `tool_row_set` | A cutting row's numbers changed, once the user allows it |
 | `step_settings` | The settings of each type of step, with their defaults and what they mean |
 | `step_add`, `step_update`, `step_move`, `step_remove` | Inlays, operations and steps done by hand |
 | `step_build` | One step's files made and simulated, and a V-carve inlay's fit |
@@ -108,7 +112,12 @@ themselves are in `web/src/agent/commands.ts`.
 - **Changes to the drawing** are each one step of the app's undo history.
 - **Every change to the project** is checked by the core before it is made, as a project
   file is when it is written. A key a command does not take is refused by name.
-- **The tool list is read, not changed.** Cutting numbers are the user's own.
+- **Cutting numbers are the user's own.** `tool_row_set` changes a row only when the user
+  allows it in the page, which shows the change and what the feeds model says of it. A
+  number over the machine's top speed is refused. `tool_log_cut` adds to a row's log
+  without asking, as the user would after a cut. Both check the tool and the list as the
+  tool sheet does, take a dry run, and are saved as the user's own changes are: on a
+  server, through the same merge with changes made elsewhere.
 - **A file the simulation found problems in** is not written by `gcode_export` unless asked
   for, and is named in its answer.
 

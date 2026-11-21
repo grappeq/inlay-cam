@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { pairingLink, readOptions } from "../src/config.js";
+import { pairingLink, readOptions, rememberCommands, rememberedCommands } from "../src/config.js";
 import { SharedLink, hostIsLocal, originAllowed } from "../src/link.js";
 import { Mcp, safeName } from "../src/mcp.js";
 
@@ -177,6 +177,16 @@ test("a second copy sends its calls through the first, and takes the port over w
   first.link.close();
   await new Promise((r) => setTimeout(r, 600));
   assert.equal(second.link.role, "holder");
+});
+
+test("before any page has connected, the commands shipped with the server are listed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inlay-mcp-config-"));
+  const shipped = rememberedCommands(dir);
+  assert.ok(shipped.some((c) => c.name === "project_get"), "commands.json ships with the server");
+  assert.ok(shipped.some((c) => c.name === "tool_log_cut"));
+  // Once a page has said its own, those are listed instead.
+  rememberCommands([{ name: "only_this", description: "x", inputSchema: { type: "object" } }], dir);
+  assert.deepEqual(rememberedCommands(dir).map((c) => c.name), ["only_this"]);
 });
 
 test("the commands last seen are listed before a page connects", async () => {
