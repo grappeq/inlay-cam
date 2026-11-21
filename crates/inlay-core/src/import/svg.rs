@@ -609,6 +609,18 @@ fn flatten_cubic(p0: Point, p1: Point, p2: Point, p3: Point, out: &mut Ring) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gap_of_exactly_the_join_distance_closes() {
+        for gap in [1.0, 1.5, 2.0] {
+            let text = format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="50mm" height="50mm" viewBox="0 0 50 50"><path d="M10 10 L30 10 L30 30 L10 30 L10 {}" fill="none" stroke="black"/></svg>"#,
+                10.0 + gap
+            );
+            let out = import_svg_joined(&text, "gap.svg", gap).unwrap();
+            assert_eq!(out.design.regions.len(), 1, "gap {gap}");
+        }
+    }
     use std::f64::consts::PI;
 
     fn import(svg: &str) -> SvgImport {

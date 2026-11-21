@@ -507,11 +507,16 @@ text is Windows-1252 before AutoCAD 2007 (`AC1021`) and UTF-8 from it.
 - The `ENTITIES` section is read, and the blocks its `INSERT`s place, from the `BLOCKS`
   section: moved, scaled (also mirrored), turned and in rows and columns as the `INSERT`
   says, and blocks in blocks to 16 deep. What is drawn on layer `0` in a block takes the
-  `INSERT`'s layer; the rest keeps its own. An `INSERT` of a block the file does not
-  hold is left out and reported by the block's name. `HATCH`, dimensions and anything
+  `INSERT`'s layer; the rest keeps its own. Block names are matched whatever the case of
+  their letters, as in AutoCAD. An `INSERT` of a block the file does not hold is left out
+  and reported by the block's name, also in the error when nothing else is drawn. At most
+  10,000 copies of blocks are placed, and 100,000 curves read in all; past them the rest
+  is left out and said, so that a block placing itself several times, or a vast array,
+  cannot hang the page. `HATCH`, dimensions and anything
   else not listed above are reported; text is reported as text.
 - Units come from `$INSUNITS`: inches, feet, millimetres, centimetres and metres. Without
-  it the numbers are taken as millimetres and the import says so.
+  it the numbers are taken as millimetres and the import says so. Curves are flattened to
+  within 0.01 mm whatever the unit.
 - Lines, arcs and curves are joined end to end where their ends are within 0.01 mm, and
   the shapes are the areas between the closed outlines, exactly as for an SVG drawing
   made of outlines. Chains that do not close are left out and counted. When some were,

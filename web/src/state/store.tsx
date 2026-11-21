@@ -2,21 +2,67 @@
 // Changes are saved automatically: to browser storage, or to the server when
 // the app is served by one (storage/home.ts).
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type Dispatch, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useSyncExternalStore,
+  type Dispatch,
+  type ReactNode,
+} from "react";
 import { core } from "../core/client";
-import type { Design, FitCheck, ImportReport, MakeraImportPlan, Step, Machine, Part, PocketPreview, Project, Setup, StockTimeline, Tool, ToolLists } from "../core/types";
+import type {
+  Design,
+  FitCheck,
+  ImportReport,
+  MakeraImportPlan,
+  Step,
+  Machine,
+  Part,
+  PocketPreview,
+  Project,
+  Setup,
+  StockTimeline,
+  Tool,
+  ToolLists,
+} from "../core/types";
 import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { pickable } from "./layers";
-import { DEFAULT_DRAW_OPTIONS, type DrawOptions, type DrawTool } from "./shapes";
+import {
+  DEFAULT_DRAW_OPTIONS,
+  type DrawOptions,
+  type DrawTool,
+} from "./shapes";
 import { bindHost } from "../agent/host";
 import { mergeLibraries } from "./merge";
-import { DEFAULT_MACHINE, DEFAULT_SETUP, addDrawing, isByHand, isInlay, newProject, normaliseDesign, profileSnapshots, readMachine, readSetup, regionOwners, relinkTools, toolNumbers, toolSnapshots, withoutOrphans } from "./model";
+import {
+  DEFAULT_MACHINE,
+  DEFAULT_SETUP,
+  addDrawing,
+  isByHand,
+  isInlay,
+  newProject,
+  normaliseDesign,
+  profileSnapshots,
+  readMachine,
+  readSetup,
+  regionOwners,
+  relinkTools,
+  toolNumbers,
+  toolSnapshots,
+  withoutOrphans,
+} from "./model";
 
 export type View = "design" | "settings";
 /** The pages of the settings view. */
-export type SettingsPage = "tools" | "materials" | "profiles" | "machine" | "defaults" | "agent";
+export type SettingsPage =
+  "tools" | "materials" | "profiles" | "machine" | "defaults" | "agent";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
@@ -52,7 +98,10 @@ export interface AppState {
   activeStepId: string | null;
   importReport: ImportReport | null;
   /** The file the drawing was last brought in from, when that set or replaced the drawing: to bring it in again with gaps joined. */
-  importAgain: { file: { name: string; text: string; bytes?: Uint8Array }; replace: boolean } | null;
+  importAgain: {
+    file: { name: string; text: string; bytes?: Uint8Array };
+    replace: boolean;
+  } | null;
   /** A Makera export being taken values from, picked or dropped: the dialog shows while it is set. */
   makeraImport: { plan: MakeraImportPlan; fileName: string } | null;
   notice: Notice | null;
@@ -108,8 +157,21 @@ export interface Timeline {
 }
 
 export type Action =
-  | { type: "loaded"; tools: Tool[]; lists: ToolLists; home: db.Home; machine: Machine; defaults: Setup; project: Project; projects: db.ProjectSummary[] }
-  | { type: "openProject"; project: Project; importReport?: ImportReport | null }
+  | {
+      type: "loaded";
+      tools: Tool[];
+      lists: ToolLists;
+      home: db.Home;
+      machine: Machine;
+      defaults: Setup;
+      project: Project;
+      projects: db.ProjectSummary[];
+    }
+  | {
+      type: "openProject";
+      project: Project;
+      importReport?: ImportReport | null;
+    }
   | { type: "updateProject"; update: (project: Project) => Project }
   | { type: "updateStep"; id: string; update: (step: Step) => Step }
   | { type: "setTools"; tools: Tool[]; lists?: ToolLists }
@@ -120,7 +182,11 @@ export type Action =
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
   | { type: "setActiveStep"; id: string | null }
-  | { type: "setImportReport"; report: ImportReport | null; again?: AppState["importAgain"] }
+  | {
+      type: "setImportReport";
+      report: ImportReport | null;
+      again?: AppState["importAgain"];
+    }
   | { type: "setMakeraImport"; incoming: AppState["makeraImport"] }
   | { type: "notice"; notice: Notice | null }
   | { type: "saveResult"; error: string | null }
@@ -138,7 +204,14 @@ export type Action =
   | { type: "setDrawTool"; tool: DrawTool | null }
   | { type: "setDrawOptions"; options: DrawOptions }
   /** Changes the drawing, as one step to undo. `select` are the shapes selected afterwards; `layer` becomes the active layer. */
-  | { type: "editDrawing"; update: (project: Project) => Project; tag?: string; at?: number; select?: number[]; layer?: number }
+  | {
+      type: "editDrawing";
+      update: (project: Project) => Project;
+      tag?: string;
+      at?: number;
+      select?: number[];
+      layer?: number;
+    }
   | { type: "setActiveLayer"; id: number }
   | { type: "undoDrawing" }
   | { type: "redoDrawing" };
@@ -181,15 +254,38 @@ const initial: AppState = {
 function withSnapshots(state: AppState): AppState {
   // A glue-up goes with its inlay, however the inlay went: deleted, or taken along by a shape or an undo.
   const steps = withoutOrphans(state.project.steps);
-  if (steps !== state.project.steps) state = { ...state, project: { ...state.project, steps } };
+  if (steps !== state.project.steps)
+    state = { ...state, project: { ...state.project, steps } };
   // Every tool a step uses has a number, and keeps it.
-  const numbers = toolNumbers(state.project, state.tools, state.machine.firstTool);
-  const tools = toolSnapshots({ ...state.project, toolNumbers: numbers }, state.tools);
+  const numbers = toolNumbers(
+    state.project,
+    state.tools,
+    state.machine.firstTool,
+  );
+  const tools = toolSnapshots(
+    { ...state.project, toolNumbers: numbers },
+    state.tools,
+  );
   const profiles = profileSnapshots(state.project, state.lists);
-  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  if (numbers === state.project.toolNumbers && same(tools, state.project.tools) && same(profiles, state.project.profiles ?? []) && same(state.machine, state.project.machine))
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  if (
+    numbers === state.project.toolNumbers &&
+    same(tools, state.project.tools) &&
+    same(profiles, state.project.profiles ?? []) &&
+    same(state.machine, state.project.machine)
+  )
     return state;
-  return { ...state, project: { ...state.project, tools, toolNumbers: numbers, profiles: profiles.length > 0 ? profiles : undefined, machine: state.machine } };
+  return {
+    ...state,
+    project: {
+      ...state.project,
+      tools,
+      toolNumbers: numbers,
+      profiles: profiles.length > 0 ? profiles : undefined,
+      machine: state.machine,
+    },
+  };
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -232,11 +328,21 @@ export function reducer(state: AppState, action: Action): AppState {
     case "updateStep":
       return withSnapshots({
         ...state,
-        project: { ...state.project, steps: state.project.steps.map((j) => (j.id === action.id ? action.update(j) : j)) },
+        project: {
+          ...state.project,
+          steps: state.project.steps.map((j) =>
+            j.id === action.id ? action.update(j) : j,
+          ),
+        },
       });
     case "setTools":
       // A tool that comes into the list may be one the project carries a copy of under another id.
-      return withSnapshots({ ...state, tools: action.tools, lists: action.lists ?? state.lists, project: relinkTools(state.project, action.tools) });
+      return withSnapshots({
+        ...state,
+        tools: action.tools,
+        lists: action.lists ?? state.lists,
+        project: relinkTools(state.project, action.tools),
+      });
     case "setMachine":
       return withSnapshots({ ...state, machine: action.machine });
     case "setDefaults":
@@ -244,21 +350,39 @@ export function reducer(state: AppState, action: Action): AppState {
     case "setProjects":
       return { ...state, projects: action.projects };
     case "setView":
-      return { ...state, view: action.view, settingsPage: action.page ?? state.settingsPage };
+      return {
+        ...state,
+        view: action.view,
+        settingsPage: action.page ?? state.settingsPage,
+      };
     case "clickRegion":
       return clickRegion(state, action.id, action.add ?? false);
     case "setSelection": {
       // Shapes on a hidden layer are not picked, nor those on a locked one while the drawing is edited.
-      const can = state.project.design ? pickable(state.project.design, state.arranging) : () => true;
+      const can = state.project.design
+        ? pickable(state.project.design, state.arranging)
+        : () => true;
       return { ...state, selection: action.ids.filter(can) };
     }
     case "setActiveLayer":
       return { ...state, activeLayer: action.id };
     case "setActiveStep":
       // Going back to the list from the stock step by step leaves the stock on the stage.
-      return { ...state, activeStepId: action.id, selection: [], stage: action.id === null && state.stage === "timeline" ? "timeline" : "drawing" };
+      return {
+        ...state,
+        activeStepId: action.id,
+        selection: [],
+        stage:
+          action.id === null && state.stage === "timeline"
+            ? "timeline"
+            : "drawing",
+      };
     case "setImportReport":
-      return { ...state, importReport: action.report, importAgain: action.again ?? null };
+      return {
+        ...state,
+        importReport: action.report,
+        importAgain: action.again ?? null,
+      };
     case "setMakeraImport":
       return { ...state, makeraImport: action.incoming };
     case "notice":
@@ -274,23 +398,43 @@ export function reducer(state: AppState, action: Action): AppState {
     case "setStage":
       return { ...state, stage: action.stage };
     case "setTimeline":
-      return { ...state, timeline: action.timeline, timelineAt: Math.min(state.timelineAt, action.timeline?.result?.steps.length ?? 0) };
+      return {
+        ...state,
+        timeline: action.timeline,
+        timelineAt: Math.min(
+          state.timelineAt,
+          action.timeline?.result?.steps.length ?? 0,
+        ),
+      };
     case "setPanelPage":
       return { ...state, panelPage: action.page };
     case "setTimelineAt": {
-      const at = Math.max(0, Math.min(action.at, state.timeline?.result?.steps.length ?? 0));
+      const at = Math.max(
+        0,
+        Math.min(action.at, state.timeline?.result?.steps.length ?? 0),
+      );
       if (!action.open) return { ...state, timelineAt: at };
       // The entry as the project has it now; one that is gone since leaves the list.
-      const id = at > 0 ? state.timeline?.result?.steps[at - 1]?.stepId : undefined;
+      const id =
+        at > 0 ? state.timeline?.result?.steps[at - 1]?.stepId : undefined;
       const step = state.project.steps.find((j) => j.id === id);
-      return { ...state, timelineAt: at, activeStepId: step?.id ?? null, selection: [] };
+      return {
+        ...state,
+        timelineAt: at,
+        activeStepId: step?.id ?? null,
+        selection: [],
+      };
     }
     case "addDrawing": {
       const current = state.project.design;
       if (!current || action.replace) {
         return withSnapshots({
           ...state,
-          project: { ...state.project, design: normaliseDesign(action.design), steps: action.replace ? [] : state.project.steps },
+          project: {
+            ...state.project,
+            design: normaliseDesign(action.design),
+            steps: action.replace ? [] : state.project.steps,
+          },
           selection: [],
           activeStepId: null,
           output: null,
@@ -323,10 +467,23 @@ export function reducer(state: AppState, action: Action): AppState {
       });
     }
     case "setArranging":
-      return { ...state, arranging: action.on, drawTool: null, selection: [], activeStepId: null, stage: "drawing", lastEdit: null };
+      return {
+        ...state,
+        arranging: action.on,
+        drawTool: null,
+        selection: [],
+        activeStepId: null,
+        stage: "drawing",
+        lastEdit: null,
+      };
     case "setDrawTool":
       // A drawing tool starts with nothing selected: the selection's frame would be in its way.
-      return { ...state, drawTool: action.tool, selection: action.tool ? [] : state.selection, lastEdit: null };
+      return {
+        ...state,
+        drawTool: action.tool,
+        selection: action.tool ? [] : state.selection,
+        lastEdit: null,
+      };
     case "setDrawOptions":
       return { ...state, drawOptions: action.options };
     case "editDrawing": {
@@ -335,23 +492,33 @@ export function reducer(state: AppState, action: Action): AppState {
       const at = action.at ?? 0;
       // A run of the same small change, such as nudging with the arrow keys, is one step to undo.
       const folds =
-        action.tag !== undefined && state.lastEdit?.tag === action.tag && at - state.lastEdit.at < 1000 && state.undo.length > 0;
+        action.tag !== undefined &&
+        state.lastEdit?.tag === action.tag &&
+        at - state.lastEdit.at < 1000 &&
+        state.undo.length > 0;
       const left = new Set(project.design?.regions.map((r) => r.id));
       // A layer that is hidden or locked lets go of its shapes.
-      const can = project.design ? pickable(project.design, state.arranging) : () => true;
+      const can = project.design
+        ? pickable(project.design, state.arranging)
+        : () => true;
       return withSnapshots({
         ...state,
         project,
         undo: folds ? state.undo : [...state.undo.slice(-49), state.project],
         redo: [],
         lastEdit: action.tag !== undefined ? { tag: action.tag, at } : null,
-        selection: (action.select ?? state.selection).filter((id) => left.has(id) && can(id)),
+        selection: (action.select ?? state.selection).filter(
+          (id) => left.has(id) && can(id),
+        ),
         activeLayer: action.layer ?? state.activeLayer,
       });
     }
     case "undoDrawing":
     case "redoDrawing": {
-      const [from, to] = action.type === "undoDrawing" ? [state.undo, state.redo] : [state.redo, state.undo];
+      const [from, to] =
+        action.type === "undoDrawing"
+          ? [state.undo, state.redo]
+          : [state.redo, state.undo];
       const other = from[from.length - 1];
       if (!other) return state;
       const rest = from.slice(0, -1);
@@ -368,14 +535,24 @@ export function reducer(state: AppState, action: Action): AppState {
               const now = state.project.steps.find((j) => j.id === old.id);
               return now ? { ...now, regionIds: old.regionIds } : old;
             }),
-            ...state.project.steps.filter((j) => !other.steps.some((old) => old.id === j.id) && j.regionIds.every((id) => other.design?.regions.some((r) => r.id === id))),
+            ...state.project.steps.filter(
+              (j) =>
+                !other.steps.some((old) => old.id === j.id) &&
+                j.regionIds.every((id) =>
+                  other.design?.regions.some((r) => r.id === id),
+                ),
+            ),
           ],
         },
         undo: action.type === "undoDrawing" ? rest : kept,
         redo: action.type === "undoDrawing" ? kept : rest,
         lastEdit: null,
         activeStepId: state.activeStepId,
-        selection: state.selection.filter((id) => other.design?.regions.some((r) => r.id === id) && (!other.design || pickable(other.design, state.arranging)(id))),
+        selection: state.selection.filter(
+          (id) =>
+            other.design?.regions.some((r) => r.id === id) &&
+            (!other.design || pickable(other.design, state.arranging)(id)),
+        ),
       });
     }
   }
@@ -392,7 +569,12 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   if (state.arranging && state.project.design) {
     // One outline is picked, without what lies inside it.
     if (!add) return { ...state, selection: [id] };
-    return { ...state, selection: state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id] };
+    return {
+      ...state,
+      selection: state.selection.includes(id)
+        ? state.selection.filter((r) => r !== id)
+        : [...state.selection, id],
+    };
   }
   const owner = regionOwners(state.project.steps).get(id);
   const active = state.project.steps.find((j) => j.id === state.activeStepId);
@@ -402,14 +584,34 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   if (active) {
     // A shape is one wood, so one inlay; a plain operation takes any shape.
     if (isInlay(active.task) && owner && owner.id !== active.id) {
-      return { ...state, notice: { kind: "info", text: `That shape already belongs to "${owner.name}".` } };
+      return {
+        ...state,
+        notice: {
+          kind: "info",
+          text: `That shape already belongs to "${owner.name}".`,
+        },
+      };
     }
-    const regionIds = active.regionIds.includes(id) ? active.regionIds.filter((r) => r !== id) : [...active.regionIds, id];
-    return reducer(state, { type: "updateStep", id: active.id, update: (step) => ({ ...step, regionIds }) });
+    const regionIds = active.regionIds.includes(id)
+      ? active.regionIds.filter((r) => r !== id)
+      : [...active.regionIds, id];
+    return reducer(state, {
+      type: "updateStep",
+      id: active.id,
+      update: (step) => ({ ...step, regionIds }),
+    });
   }
   // A shape that already has an inlay opens that inlay; with Shift it is selected, for an operation.
-  if (owner && !add) return { ...state, activeStepId: owner.id, selection: [], stage: "drawing" };
-  const selection = state.selection.includes(id) ? state.selection.filter((r) => r !== id) : [...state.selection, id];
+  if (owner && !add)
+    return {
+      ...state,
+      activeStepId: owner.id,
+      selection: [],
+      stage: "drawing",
+    };
+  const selection = state.selection.includes(id)
+    ? state.selection.filter((r) => r !== id)
+    : [...state.selection, id];
   return { ...state, selection };
 }
 
@@ -458,26 +660,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // The tool list as the server has it: the token that names that version,
   // and its text as this app writes it, to tell a change from none. Without
   // a token the list was never read, and must not be written over.
-  const shared = useRef<{ token: string | null; text: string | null }>({ token: null, text: null });
+  const shared = useRef<{ token: string | null; text: string | null }>({
+    token: null,
+    text: null,
+  });
   /** Reads the server's tool list; null when it is still the version held. It is not held until `hold` is given it. */
   const readShared = useCallback(async (): Promise<SharedList | null> => {
     const read = await server.readLibrary(shared.current.token ?? undefined);
     if (!read) return null;
     const { tools, ...lists } = await core.call("libraryFromFile", read.text);
-    return { tools, lists, token: read.token, text: await core.call("libraryToFile", { ...lists, tools }) };
+    return {
+      tools,
+      lists,
+      token: read.token,
+      text: await core.call("libraryToFile", { ...lists, tools }),
+    };
   }, []);
   // Counts the lists taken from the server. A change waiting to be written
   // was made to the list before, and is let go when another has been taken.
   const taken = useRef(0);
   // What was read at start. Until it is changed here it is not written
   // back: what could not be read would go over what the server holds.
-  const asLoaded = useRef<{ tools?: Tool[]; lists?: ToolLists; machine?: Machine; defaults?: Setup }>({});
+  const asLoaded = useRef<{
+    tools?: Tool[];
+    lists?: ToolLists;
+    machine?: Machine;
+    defaults?: Setup;
+  }>({});
   /** Makes a list read from the server the one this page works on. */
   const hold = useCallback((read: SharedList) => {
     taken.current++;
     shared.current = { token: read.token, text: read.text };
     dispatch({ type: "setTools", tools: read.tools, lists: read.lists });
   }, []);
+  // Counts the changes to the list waiting to be written, or on their way.
+  const toolWritesWaiting = useRef(0);
+  /** Takes the server's list when it changed there, unless a change made here waits: that one finds out by being refused. */
+  const refreshShared = useCallback(async (): Promise<SharedList | null> => {
+    if (live.current.home !== "server" || toolWritesWaiting.current > 0)
+      return null;
+    const had = shared.current.token;
+    const read = await readShared();
+    // Not when a change went out meanwhile: this list is older than it.
+    if (!read || toolWritesWaiting.current > 0 || shared.current.token !== had)
+      return null;
+    hold(read);
+    return read;
+  }, [readShared, hold]);
 
   // Load stored tools and the last open project once.
   useEffect(() => {
@@ -498,7 +727,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         } else {
           const toolsText = await db.getSetting("tools");
-          if (toolsText) ({ tools, ...lists } = await core.call("libraryFromFile", toolsText));
+          if (toolsText)
+            ({ tools, ...lists } = await core.call(
+              "libraryFromFile",
+              toolsText,
+            ));
         }
       } catch (e) {
         problem =
@@ -513,12 +746,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         problem ??= `The last project could not be reopened: ${message(e)}`;
       }
       const projects = await db.listProjects().catch(() => []);
-      const machine = readMachine(await db.getSetting("machine").catch(() => undefined));
-      const defaults = readSetup(await db.getSetting("inlayDefaults").catch(() => undefined));
+      const machine = readMachine(
+        await db.getSetting("machine").catch(() => undefined),
+      );
+      const defaults = readSetup(
+        await db.getSetting("inlayDefaults").catch(() => undefined),
+      );
       if (cancelled) return;
       asLoaded.current = { tools, lists, machine, defaults };
-      dispatch({ type: "loaded", tools, lists, home, machine, defaults, project, projects });
-      if (problem) dispatch({ type: "notice", notice: { kind: "error", text: problem } });
+      dispatch({
+        type: "loaded",
+        tools,
+        lists,
+        home,
+        machine,
+        defaults,
+        project,
+        projects,
+      });
+      if (problem)
+        dispatch({ type: "notice", notice: { kind: "error", text: problem } });
     })();
     return () => {
       cancelled = true;
@@ -545,19 +792,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const stored = await db.getProject(project.id);
           const base = bases.get(project.id);
           const conflict = (kept: { text: string; token?: string }) =>
-            dispatch({ type: "projectConflict", conflict: { id: project.id, text: kept.text, token: kept.token } });
-          if (stored && base && stored.text !== base.text && stored.text !== text) return conflict(stored);
+            dispatch({
+              type: "projectConflict",
+              conflict: { id: project.id, text: kept.text, token: kept.token },
+            });
+          if (
+            stored &&
+            base &&
+            stored.text !== base.text &&
+            stored.text !== text
+          )
+            return conflict(stored);
           // A blank project that was never stored is not worth keeping, and
           // opening a project must not change its "last modified" time.
-          const blank = !stored && project.design === null && project.steps.length === 0;
+          const blank =
+            !stored && project.design === null && project.steps.length === 0;
           if (!blank && stored?.text !== text) {
-            const token = await db.putProject({ id: project.id, name: project.name, modified: Date.now(), text }, stored?.token);
+            const token = await db.putProject(
+              {
+                id: project.id,
+                name: project.name,
+                modified: Date.now(),
+                text,
+              },
+              stored?.token,
+            );
             if (token === "conflict") {
               const kept = await db.getProject(project.id);
               if (kept) return conflict(kept);
             }
-            bases.set(project.id, { text, token: token === "conflict" ? undefined : token });
-            dispatch({ type: "setProjects", projects: await db.listProjects() });
+            bases.set(project.id, {
+              text,
+              token: token === "conflict" ? undefined : token,
+            });
+            dispatch({
+              type: "setProjects",
+              projects: await db.listProjects(),
+            });
           } else if (stored) {
             bases.set(project.id, { text: stored.text, token: stored.token });
           }
@@ -581,11 +852,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const look = async () => {
       const now = live.current;
       const base = bases.get(now.project.id);
-      if (looking || !base || now.projectConflict || document.visibilityState !== "visible") return;
+      if (
+        looking ||
+        !base ||
+        now.projectConflict ||
+        document.visibilityState !== "visible"
+      )
+        return;
       looking = true;
       try {
         const stored = await db.getProject(now.project.id);
-        if (!stored || stored.text === base.text || live.current.project !== now.project) return;
+        if (
+          !stored ||
+          stored.text === base.text ||
+          live.current.project !== now.project
+        )
+          return;
         const text = await core.call("projectToFile", now.project);
         if (text === stored.text) {
           bases.set(now.project.id, { text: stored.text, token: stored.token });
@@ -595,9 +877,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (live.current.project !== now.project) return;
           dispatch({ type: "openProject", project });
           dispatch({ type: "setView", view: now.view, page: now.settingsPage });
-          dispatch({ type: "notice", notice: { kind: "info", text: "This project was saved from another window or browser. It is shown as it was saved there." } });
+          dispatch({
+            type: "notice",
+            notice: {
+              kind: "info",
+              text: "This project was saved from another window or browser. It is shown as it was saved there.",
+            },
+          });
         } else {
-          dispatch({ type: "projectConflict", conflict: { id: now.project.id, text: stored.text, token: stored.token } });
+          dispatch({
+            type: "projectConflict",
+            conflict: {
+              id: now.project.id,
+              text: stored.text,
+              token: stored.token,
+            },
+          });
         }
       } catch {
         // Out of reach, or not readable: the next save says so.
@@ -620,7 +915,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // version that someone else has changed since is refused. The server's
   // list is then read again, and the change made here is given up.
   const toolWrites = useRef<Promise<void>>(Promise.resolve());
-  const toolWritesWaiting = useRef(0);
 
   // A write refused because the list changed on the server: the changes
   // made here since the version last held are made to the server's list,
@@ -628,17 +922,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // and said. A change made here while this was on its way is merged in the
   // same way after.
   const mergeShared = useCallback(async () => {
-    const lost = (text: string) => dispatch({ type: "notice", notice: { kind: "error", text } });
+    const lost = (text: string) =>
+      dispatch({ type: "notice", notice: { kind: "error", text } });
     const theirs = await readShared();
-    if (!theirs) throw new Error("the server refused the change, but has the version it was made to");
+    if (!theirs)
+      throw new Error(
+        "the server refused the change, but has the version it was made to",
+      );
     const before = live.current;
     const mine = { ...before.lists, tools: before.tools };
-    const base = shared.current.text ? await core.call("libraryFromFile", shared.current.text) : null;
+    const base = shared.current.text
+      ? await core.call("libraryFromFile", shared.current.text)
+      : null;
     if (!base) {
       hold(theirs);
-      return lost("The tool list was changed somewhere else in the meantime. It was read again from the server, and your last change to it was not kept.");
+      return lost(
+        "The tool list was changed somewhere else in the meantime. It was read again from the server, and your last change to it was not kept.",
+      );
     }
-    const merged = mergeLibraries(base, mine, { ...theirs.lists, tools: theirs.tools });
+    const merged = mergeLibraries(base, mine, {
+      ...theirs.lists,
+      tools: theirs.tools,
+    });
     let text: string;
     let token: string | "conflict";
     try {
@@ -646,19 +951,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       token = await server.writeLibrary(text, theirs.token);
     } catch (e) {
       hold(theirs);
-      return lost(`The tool list was changed somewhere else in the meantime, and your changes could not be put with that one (${message(e)}). It was read again from the server, and your last changes to it were not kept.`);
+      return lost(
+        `The tool list was changed somewhere else in the meantime, and your changes could not be put with that one (${message(e)}). It was read again from the server, and your last changes to it were not kept.`,
+      );
     }
     if (token === "conflict") {
       const again = await readShared();
       if (again) hold(again);
-      return lost("The tool list was changed somewhere else twice in a row. It was read again from the server, and your last change to it was not kept.");
+      return lost(
+        "The tool list was changed somewhere else twice in a row. It was read again from the server, and your last change to it was not kept.",
+      );
     }
     const { tools, ...lists } = await core.call("libraryFromFile", text);
     hold({ tools, lists, token, text });
     // Changed here while the merge was on its way: made to the merged list.
     const after = live.current;
     if (after.tools !== before.tools || after.lists !== before.lists) {
-      const again = mergeLibraries(mine, { ...after.lists, tools: after.tools }, { ...lists, tools });
+      const again = mergeLibraries(
+        mine,
+        { ...after.lists, tools: after.tools },
+        { ...lists, tools },
+      );
       const { tools: againTools, ...againLists } = again.library;
       dispatch({ type: "setTools", tools: againTools, lists: againLists });
     }
@@ -668,7 +981,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         `The tool list was changed somewhere else too. Both changes were kept, except that ${listed(merged.lost)} ${one ? "was" : "were"} changed in both places, and the change made there was kept. Make yours again if it is still wanted.`,
       );
     } else {
-      dispatch({ type: "notice", notice: { kind: "info", text: "The tool list was changed somewhere else too. Both changes were kept." } });
+      dispatch({
+        type: "notice",
+        notice: {
+          kind: "info",
+          text: "The tool list was changed somewhere else too. Both changes were kept.",
+        },
+      });
     }
   }, [readShared, hold]);
   useEffect(() => {
@@ -676,14 +995,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const library = { ...state.lists, tools: state.tools };
     const failed = (e: unknown) => {
       // Out of reach is said once, at the top, and the list is written when the server is back.
-      if (state.home === "server" && server.getReach() === "unreachable") return;
-      dispatch({ type: "notice", notice: { kind: "error", text: `The tool list could not be saved: ${message(e)}` } });
+      if (state.home === "server" && server.getReach() === "unreachable")
+        return;
+      dispatch({
+        type: "notice",
+        notice: {
+          kind: "error",
+          text: `The tool list could not be saved: ${message(e)}`,
+        },
+      });
     };
     if (state.home === "browser") {
-      (async () => db.putSetting("tools", await core.call("libraryToFile", library)))().catch(failed);
+      (async () =>
+        db.putSetting(
+          "tools",
+          await core.call("libraryToFile", library),
+        ))().catch(failed);
       return;
     }
-    if (state.tools === asLoaded.current.tools && state.lists === asLoaded.current.lists) return;
+    if (
+      state.tools === asLoaded.current.tools &&
+      state.lists === asLoaded.current.lists
+    )
+      return;
     const base = taken.current;
     toolWritesWaiting.current++;
     let begun = false;
@@ -701,7 +1035,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // Never read: read now, and the change made on nothing is given up.
             const read = await readShared();
             if (read) hold(read);
-            throw new Error("it had not been read from the server. It has been read now, and your last change to it was not kept.");
+            throw new Error(
+              "it had not been read from the server. It has been read now, and your last change to it was not kept.",
+            );
           }
           const token = await server.writeLibrary(text, shared.current.token);
           if (token !== "conflict") {
@@ -719,7 +1055,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       if (!begun) toolWritesWaiting.current--;
     };
-  }, [state.ready, state.home, state.tools, state.lists, state.reconnects, readShared, hold, mergeShared]);
+  }, [
+    state.ready,
+    state.home,
+    state.tools,
+    state.lists,
+    state.reconnects,
+    readShared,
+    hold,
+    mergeShared,
+  ]);
 
   // A shared list changes without this page: look again when the page is
   // come back to, and once a minute while it is shown. Not while a change
@@ -730,13 +1075,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!state.ready || state.home !== "server") return;
     let looking = false;
     const look = async () => {
-      if (looking || document.visibilityState !== "visible" || toolWritesWaiting.current > 0) return;
+      if (looking || document.visibilityState !== "visible") return;
       looking = true;
-      const had = shared.current.token;
       try {
-        const read = await readShared();
-        // Not when a change went out meanwhile: this list is older than it.
-        if (read && toolWritesWaiting.current === 0 && shared.current.token === had) hold(read);
+        await refreshShared();
       } catch {
         // Out of reach for now: the next look, or the next save, will say.
       } finally {
@@ -751,7 +1093,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", look);
       document.removeEventListener("visibilitychange", look);
     };
-  }, [state.ready, state.home, readShared, hold]);
+  }, [state.ready, state.home, refreshShared]);
 
   // The server out of reach: said at the top (Header), and what waits is
   // saved when it is back. The browser's own word that it is offline or
@@ -787,17 +1129,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!state.ready || state.machine === asLoaded.current.machine) return;
     db.putSetting("machine", JSON.stringify(state.machine)).catch((e) => {
-      if (state.home === "server" && server.getReach() === "unreachable") return;
-      dispatch({ type: "notice", notice: { kind: "error", text: `The machine could not be saved: ${message(e)}` } });
+      if (state.home === "server" && server.getReach() === "unreachable")
+        return;
+      dispatch({
+        type: "notice",
+        notice: {
+          kind: "error",
+          text: `The machine could not be saved: ${message(e)}`,
+        },
+      });
     });
   }, [state.ready, state.home, state.machine, state.reconnects]);
 
   useEffect(() => {
     if (!state.ready || state.defaults === asLoaded.current.defaults) return;
-    db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch((e) => {
-      if (state.home === "server" && server.getReach() === "unreachable") return;
-      dispatch({ type: "notice", notice: { kind: "error", text: `The inlay defaults could not be saved: ${message(e)}` } });
-    });
+    db.putSetting("inlayDefaults", JSON.stringify(state.defaults)).catch(
+      (e) => {
+        if (state.home === "server" && server.getReach() === "unreachable")
+          return;
+        dispatch({
+          type: "notice",
+          notice: {
+            kind: "error",
+            text: `The inlay defaults could not be saved: ${message(e)}`,
+          },
+        });
+      },
+    );
   }, [state.ready, state.home, state.defaults, state.reconnects]);
 
   // For an agent's commands (agent/host.ts), which run outside the screens:
@@ -819,21 +1177,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 drawn.current.push(() => resolve(live.current));
                 dispatch(action);
               }),
+        freshTools: async () => {
+          const read = await refreshShared();
+          // Drawn, so that state() has it.
+          for (
+            let waited = 0;
+            read && live.current.tools !== read.tools && waited < 2000;
+            waited += 10
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        },
+        toolsSaved: async () => {
+          // A change is written 300 ms after it is made, one at a time.
+          for (
+            let waited = 0;
+            toolWritesWaiting.current > 0 && waited < 30_000;
+            waited += 50
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          await toolWrites.current;
+        },
       }),
-    [],
+    [refreshShared],
   );
 
   const value = useMemo(() => state, [state]);
   return (
     <StateContext.Provider value={value}>
-      <DispatchContext.Provider value={dispatch}>{children}</DispatchContext.Provider>
+      <DispatchContext.Provider value={dispatch}>
+        {children}
+      </DispatchContext.Provider>
     </StateContext.Provider>
   );
 }
 
 /** "a, b and c". */
 function listed(items: string[]): string {
-  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  return items.length < 2
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 export function message(e: unknown): string {

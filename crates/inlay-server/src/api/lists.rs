@@ -69,6 +69,48 @@ impl List {
         Ok(())
     }
 
+    /// What the tool file's own check lets through, but an item added or
+    /// changed here should not be: a material that takes its feeds from
+    /// itself or from one the feeds model does not know, and a group path
+    /// with a part that is empty, has spaces around it, holds a control
+    /// character or is "." or "..".
+    fn check(self, value: &Value) -> Result<(), Refusal> {
+        let key = self.key_of(value);
+        match self {
+            List::Materials => {
+                if let Some(feeds_as) = value.get("feedsAs").and_then(Value::as_str) {
+                    if feeds_as == key {
+                        return Err(Refusal::invalid(format!(
+                            "the material \"{key}\" cannot take its feeds from itself"
+                        )));
+                    }
+                    if !inlay_core::feeds::covers(feeds_as) {
+                        return Err(Refusal::invalid(format!(
+                            "feedsAs \"{feeds_as}\" is not a material the feeds model knows"
+                        )));
+                    }
+                }
+            }
+            List::Groups => {
+                let bad = key.split('/').any(|part| {
+                    part.trim().is_empty()
+                        || part != part.trim()
+                        || part == "."
+                        || part == ".."
+                        || part.chars().any(char::is_control)
+                });
+                if bad {
+                    return Err(Refusal::invalid(format!(
+                        "the group path \"{}\" has a part that is empty, has spaces around it, holds a control character or is \".\" or \"..\"",
+                        key.escape_debug()
+                    )));
+                }
+            }
+            List::Profiles => {}
+        }
+        Ok(())
+    }
+
     fn key_of(self, value: &Value) -> String {
         value
             .get(self.key_field())
@@ -198,6 +240,7 @@ impl Api {
                     list.path()
                 )));
             }
+            list.check(&item)?;
             values.push(item);
             list.set(library, values)?;
             let values = list.values(library);
@@ -227,6 +270,7 @@ impl Api {
             let mut values = list.values(library);
             let at = list.find(&values, key)?;
             merge(&mut values[at], &patch);
+            list.check(&values[at])?;
             list.set(library, values)?;
             let values = list.values(library);
             Ok(list.view(library, &values[at]))

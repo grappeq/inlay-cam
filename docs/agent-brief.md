@@ -123,6 +123,12 @@ given in this conversation:
 4. If the write answers `409 conflict`, the file changed in between: read again, re-run the
    dry run, and show me the new diff. An approval covers only the diff I saw.
 
+The materials, profiles and groups of the tool file are changed the same way, one at a
+time: `GET /api/materials` (or `profiles`, `groups`) lists them and how many tools name
+each, `POST` adds one, and `PATCH` and `DELETE /api/<list>/<key>` change and delete one,
+with the same token, dry run and diff. A material or profile that a tool names is not
+deleted (`422 invalid`, naming the tools). Read `docs/api.md` for the bodies.
+
 Never use `PUT /api/library` (it replaces the whole file) unless I ask for exactly that.
 
 ## Errors

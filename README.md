@@ -124,9 +124,12 @@ that instead of building, put it in `compose.yaml` as the `image:` and take out 
 - Before each change to the tool list the file as it was is kept in `backups/` beside it: the newest 30,
   and of older ones the last of each day, for 60 days.
 - A page that is open looks for changes to the tool list when it is come back to, and once a
-  minute. When two change the list at the same moment, the second is told that the list was
-  read again and its last change was not kept. A project is not checked so: open in two
-  browsers at once, the one saved last is the one kept, as with two tabs of one browser.
+  minute. When two change the list at the same moment, the second is refused, reads the
+  list again and makes its change over it, so both are kept; only a value changed in both
+  places is decided, for the server's, and the page names it. A project saved from another
+  window or browser while it was changed here is not written over: the page asks whether to
+  keep both, use the other or keep its own. When the server cannot be reached, the top of
+  the page says so, and the changes wait there until it answers.
 - [docs/server.md](docs/server.md) shows how the server works, with pictures.
   [docs/api.md](docs/api.md) describes the API, and
   [docs/agent-brief.md](docs/agent-brief.md) is a brief to paste into an agent so that it

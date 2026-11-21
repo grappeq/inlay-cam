@@ -11,6 +11,10 @@ export interface Host {
   preview(action: Action): AppState;
   /** Makes a change as a screen would, and answers with the state once the screens have drawn it. */
   apply(action: Action): Promise<AppState>;
+  /** On a server, takes the tool list as it is there, unless a change made here is on its way. */
+  freshTools?(): Promise<void>;
+  /** Answers once every change to the tool list made so far is written, or given up. */
+  toolsSaved?(): Promise<void>;
 }
 
 let bound: Host | null = null;

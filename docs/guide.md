@@ -16,7 +16,10 @@ Everything runs in the browser. Projects and tools are stored in that browser on
 from a server set up to hold them (the README's "With a server"), everything is kept there
 instead, projects included, and every browser that opens it sees the same; where this
 guide says "in this browser", read "on the server". The header says which it is: "Saved in
-this browser" or "Saved on this server".
+this browser" or "Saved on this server". When the server cannot be reached the header says
+"Server out of reach: changes wait here", and they are saved when it answers. If a project
+was saved from another window or browser while you changed it here, the app stops saving it
+and asks: keep both (yours becomes a copy under Projects), use the other, or keep yours.
 
 ## 1. List your tools
 
@@ -79,8 +82,9 @@ file holds and what to know about it.
 - **Export for Fusion 360** writes a `.json` tool library with every tool, each cutting
   row as a preset. "By group" writes one library per top group, since libraries are the
   only folders Fusion's tool library has, as one `.zip` to unpack: each file is named
-  after its group, with look-alike letters such as full-width ones made plain. A length that is not known is written as a
-  stand-in (flutes three diameters long, the tool 20 mm beyond its shoulder), and said so.
+  after its group, with look-alike letters such as full-width ones made plain. A length
+  that is not known is written as a stand-in (flutes three diameters long, the tool 20 mm
+  beyond its shoulder), and said so.
 - **Take values from a Makera export…** reads a `.tlslibrary` that Makera CAM or Makera
   Studio exported and shows where its numbers differ from yours: sizes, cutting values,
   and settings for a material a tool has no row for. Tick what to take. Tools are matched

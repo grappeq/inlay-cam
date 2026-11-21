@@ -272,6 +272,21 @@ impl Api {
             }
         }
         let method = request.method.as_str();
+        if !matches!(method, "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+            // HEAD, OPTIONS and the rest: no path has them.
+            return Err(if known_path(&segments) {
+                Refusal::new(
+                    405,
+                    "method_not_allowed",
+                    format!("{method} is not a method of {}", request.path),
+                )
+            } else {
+                Refusal::not_found(format!(
+                    "There is no {}. GET /api lists the routes.",
+                    request.path
+                ))
+            });
+        }
         if method != "GET" {
             guard_write(request)?;
         }
@@ -996,8 +1011,18 @@ struct Options {
 
 impl Options {
     fn of(request: &Request, body: &Map<String, Value>) -> Result<Options, Refusal> {
+        let header = request
+            .header("if-match")
+            .map(|tag| tag.trim().trim_matches('"').to_string());
         let token = match body.get("token") {
-            Some(Value::String(token)) => token.clone(),
+            Some(Value::String(token)) => {
+                if header.as_ref().is_some_and(|tag| tag != token) {
+                    return Err(Refusal::bad(
+                        "token and If-Match name different versions: send one of them",
+                    ));
+                }
+                token.clone()
+            }
             Some(_) => return Err(Refusal::bad("token must be a string")),
             None => request
                 .header("if-match")

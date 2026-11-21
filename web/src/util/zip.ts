@@ -95,12 +95,32 @@ export function zipFiles(
   return out;
 }
 
+/** Names Windows keeps for devices, whatever the case and the extension. */
+const RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/** Letters a name keeps at most, as the core's own names for the libraries, and bytes, as file systems allow 255. */
+const LONGEST = 100;
+const LONGEST_BYTES = 200;
+
+/** As many letters of `text` from the start as `LONGEST` and `LONGEST_BYTES` allow. */
+function shortened(text: string): string {
+  let out = "";
+  let bytes = 0;
+  for (const letter of [...text].slice(0, LONGEST)) {
+    bytes += new TextEncoder().encode(letter).length;
+    if (bytes > LONGEST_BYTES) break;
+    out += letter;
+  }
+  return out;
+}
+
 /**
  * File names with look-alike letters folded as Unicode's NFKC does, so
  * that "Ｅnd mills" and "End mills" are one name, and kept apart whatever
  * the case of letters by a number after the second. Folding can make a
  * letter a file name may not hold, such as a full-width slash into "/":
- * those are made "_".
+ * those are made "_"; and it can make a name Windows keeps, such as
+ * "ＣＯＮ" into "CON", or one too long, so those are checked after it.
  */
 export function foldedNames(names: string[]): string[] {
   const seen = new Set<string>();
@@ -108,14 +128,22 @@ export function foldedNames(names: string[]): string[] {
     const dot = name.lastIndexOf(".");
     const [stem, ext] =
       dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
-    const folded =
-      stem
-        .normalize("NFKC")
-        .replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "_")
-        .trim() || "Tools";
+    let folded = shortened(
+      stem.normalize("NFKC").replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "_"),
+    )
+      // Windows drops dots and spaces at the end of a name.
+      .replace(/[. ]+$/, "")
+      .trim();
+    if (!folded) folded = "Tools";
+    if (RESERVED.test(folded)) folded = `${folded}_`;
+    // A name numbered already, as the core numbers two that were alike, goes on from its number.
+    const numbered = /^(.*) \((\d+)\)$/.exec(folded);
+    const [base, first] = numbered
+      ? [numbered[1], Number(numbered[2]) + 1]
+      : [folded, 2];
     let candidate = folded;
-    for (let n = 2; seen.has(`${candidate}${ext}`.toLowerCase()); n++)
-      candidate = `${folded} (${n})`;
+    for (let n = first; seen.has(`${candidate}${ext}`.toLowerCase()); n++)
+      candidate = `${base} (${n})`;
     seen.add(`${candidate}${ext}`.toLowerCase());
     return `${candidate}${ext}`;
   });

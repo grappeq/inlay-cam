@@ -1098,3 +1098,54 @@ fn a_project_saved_elsewhere_is_not_written_over() {
     let response = served.send("PUT", "/api/projects/p-1", &[], third.as_bytes());
     assert_eq!(response.status, 200);
 }
+
+#[test]
+fn an_item_that_could_not_be_used_is_refused() {
+    let served = served();
+    let refused = |target: &str, body: Value| {
+        let (status, answer) = served.write("POST", target, body);
+        (status, code(&answer).to_string())
+    };
+    let token = served.token();
+    // A row on a profile is named material@profile.
+    assert_eq!(
+        refused(
+            "/api/materials",
+            json!({"token": token, "material": {"key": "x@y"}})
+        )
+        .0,
+        422
+    );
+    for feeds_as in ["unobtainium", "mC"] {
+        assert_eq!(
+            refused(
+                "/api/materials",
+                json!({"token": token, "material": {"key": "mC", "feedsAs": feeds_as}})
+            ),
+            (422, "invalid".to_string())
+        );
+    }
+    for path in ["  lead", "trail  ", "x\ny", ".", "a/../b", "a//b"] {
+        assert_eq!(
+            refused(
+                "/api/groups",
+                json!({"token": token, "group": {"path": path}})
+            ),
+            (422, "invalid".to_string()),
+            "{path:?}"
+        );
+    }
+    // The token twice, naming two versions.
+    let response = served.send(
+        "POST",
+        "/api/groups",
+        &[("if-match", "\"other\"")],
+        json!({"token": token, "group": {"path": "Fine"}})
+            .to_string()
+            .as_bytes(),
+    );
+    assert_eq!(response.status, 400);
+    // A method no path has.
+    assert_eq!(served.send("HEAD", "/api/groups", &[], b"").status, 405);
+    assert_eq!(served.send("OPTIONS", "/api/nothing", &[], b"").status, 404);
+}
