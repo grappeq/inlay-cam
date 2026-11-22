@@ -40,7 +40,11 @@ export interface Task {
   stoppable: boolean;
   /** The view its result lands in, for the header to lead there. */
   view: "projects" | "design" | null;
-  /** It was asked to stop, and has not yet. */
+  /** Whether it can be called off at once, with nothing of it kept. */
+  cancellable: boolean;
+  /** It makes anew something there is already, which stays to look at meanwhile. */
+  again: boolean;
+  /** It was asked to stop or called off, and has not ended yet. */
   stopping: boolean;
 }
 
@@ -57,6 +61,9 @@ export interface TaskStart {
   view?: Task["view"];
   /** Who asked for it: the user, unless said. */
   by?: Actor;
+  /** Calls the work off. With it, the task can be cancelled; the work is then to end, failing or not, and its task with it. */
+  onCancel?: () => void;
+  again?: boolean;
 }
 
 export interface TaskHandle {
@@ -85,6 +92,7 @@ export function createTasks(deps: TaskDeps) {
   let nextId = 1;
   const listeners = new Set<() => void>();
   const timers = new Map<number, () => void>();
+  const cancels = new Map<number, () => void>();
   const joined = new Map<string, { token: unknown; promise: Promise<unknown> }>();
 
   const set = (next: readonly Task[]) => {
@@ -117,8 +125,11 @@ export function createTasks(deps: TaskDeps) {
       heavy: init.heavy ?? false,
       stoppable: init.stoppable ?? false,
       view: init.view ?? null,
+      cancellable: init.onCancel !== undefined,
+      again: init.again ?? false,
       stopping: false,
     };
+    if (init.onCancel) cancels.set(id, init.onCancel);
     set([...list, task]);
     timers.set(
       id,
@@ -144,6 +155,7 @@ export function createTasks(deps: TaskDeps) {
       end() {
         timers.get(id)?.();
         timers.delete(id);
+        cancels.delete(id);
         if (list.some((t) => t.id === id)) set(list.filter((t) => t.id !== id));
       },
     };
@@ -162,6 +174,19 @@ export function createTasks(deps: TaskDeps) {
     stop(id: number) {
       const task = list.find((t) => t.id === id);
       if (task && task.stoppable && !task.stopping) change(id, { stopping: true });
+    },
+    /** Calls a task off, when it can be: once. It is said to be stopping until its work has ended. */
+    cancel(id: number) {
+      const task = list.find((t) => t.id === id);
+      const call = cancels.get(id);
+      if (!task || !call || task.stopping) return;
+      change(id, { stopping: true });
+      try {
+        call();
+      } catch {
+        // It could not be called off: it goes on, and can be asked again.
+        change(id, { stopping: false });
+      }
     },
     /** Does `work` as a task, which ends with it however it ends. */
     async run<T>(init: TaskStart, work: (task: TaskHandle) => Promise<T>): Promise<T> {

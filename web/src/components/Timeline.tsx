@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
 import { aboveOrBelow, fmt, isByHand, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
-import { STOCK, stockOf, stockRows } from "../state/work";
+import { STOCK, isCancelled, stockCalledOff, stockOf, stockRows } from "../state/work";
 import { StepIcon } from "./icons";
 import { ProgressLine, useTask } from "./Progress";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
@@ -18,16 +18,20 @@ export function useWorkOut() {
   const dispatch = useDispatch();
   // The one run there is, whichever tab or menu started it.
   const task = useTask(STOCK);
+  // Whether it was called off for the project as it is, whoever had asked: what there was before is left as it is.
+  // Read anew when it is: the task ending has this drawn again.
+  const calledOff = task === null && stockCalledOff(project);
   const workOut = async (at?: number) => {
     try {
       const result = await stockOf(project);
       dispatch({ type: "setTimeline", timeline: { project, result, errors: [] } });
       dispatch({ type: "setTimelineAt", at: at ?? result.steps.length });
     } catch (e) {
+      if (isCancelled(e)) return;
       dispatch({ type: "setTimeline", timeline: { project, result: null, errors: message(e).split("\n") } });
     }
   };
-  return { busy: task !== null, task, workOut };
+  return { busy: task !== null, task, calledOff, workOut };
 }
 
 /** Keeps the row of the step in hand in view, in a list longer than its frame. */
@@ -52,11 +56,12 @@ function summary(step: TimelineStep): string {
  */
 export function TimelineStart({ at }: { at?: number }) {
   const { timeline, project } = useApp();
-  const { busy, task, workOut } = useWorkOut();
+  const { busy, task, calledOff, workOut } = useWorkOut();
   const names = useMemo(() => project.steps.map((s) => s.name), [project.steps]);
   const started = useRef(false);
   useEffect(() => {
-    if (timeline !== null || started.current) return;
+    // Not what was called off: that is started again by asking for it.
+    if (timeline !== null || started.current || stockCalledOff(project)) return;
     started.current = true;
     void workOut(at);
     // Once, when the view is first shown.
@@ -65,7 +70,14 @@ export function TimelineStart({ at }: { at?: number }) {
 
   return (
     <div className="timeline-start">
-      {timeline === null || busy ? (
+      {timeline === null && !busy && calledOff ? (
+        <>
+          <p className="status-line" role="status">
+            Cancelled: the stock is not worked out.
+          </p>
+          <button onClick={() => workOut(at)}>Work it out</button>
+        </>
+      ) : timeline === null || busy ? (
         task?.shown ? (
           <>
             <ProgressLine task={task} />
@@ -127,7 +139,7 @@ function noFile(project: Project, thickness: number): Built {
 export function TimelineView({ timeline, result }: { timeline: Timeline; result: StockTimeline }) {
   const { project, timelineAt, panelPage, activeStepId } = useApp();
   const dispatch = useDispatch();
-  const { busy, workOut } = useWorkOut();
+  const { busy, task, workOut } = useWorkOut();
   // While the panel is on what to export, it stays there to be looked through.
   const stay = panelPage === "export" && activeStepId === null;
   // Names and colours are those of the project as it was when this was worked out.
@@ -195,7 +207,7 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
   const label = (index: number) => (index === 0 ? "the fresh stock" : `after "${stepOf(result.steps[index - 1].stepId)?.name ?? "?"}"`);
 
   return (
-    <div className="timeline-view">
+    <div className={`timeline-view${busy && task?.shown ? " making" : ""}`}>
       <div className="timeline">
         <div className="timeline-bar">
           <button className="arrow" aria-label="One step back" disabled={at === 0} onClick={() => go(at - 1)}>
@@ -221,13 +233,18 @@ export function TimelineView({ timeline, result }: { timeline: Timeline; result:
           </button>
           {result.steps.map((_, index) => chip(index))}
         </div>
-        {stale && (
-          <p className="callout warn">
-            The project has changed since this was worked out.{" "}
-            <button className="link" disabled={busy} onClick={() => workOut(at)}>
-              {busy ? "Working…" : "Work it out again"}
-            </button>
-          </p>
+        {busy && task?.shown ? (
+          // The stock as it was last worked out stays, dimmed, while it is worked out again.
+          <ProgressLine task={task} className="in-view" />
+        ) : (
+          stale && (
+            <p className="callout warn">
+              The project has changed since this was worked out.{" "}
+              <button className="link" disabled={busy} onClick={() => workOut(at)}>
+                {busy ? "Working…" : "Work it out again"}
+              </button>
+            </p>
+          )
         )}
         <StepNote step={step} at={at} result={result} made={made} />
       </div>

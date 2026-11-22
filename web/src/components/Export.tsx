@@ -5,7 +5,7 @@ import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
 import { BeforeCut } from "./BeforeCut";
-import { FILES, joinedFile } from "../state/work";
+import { FILES, joinedFile, stockCalledOff } from "../state/work";
 import { formatMinutes, partName } from "./OutputPanel";
 import { ProgressLine, Spinner, useTask } from "./Progress";
 import { useWorkOut } from "./Timeline";
@@ -122,12 +122,13 @@ const short = (minutes: number) => (minutes < 1 ? "< 1 min" : formatMinutes(minu
 export function ExportList() {
   const { project, timeline } = useApp();
   const dispatch = useDispatch();
-  const { busy, task, workOut } = useWorkOut();
+  const { busy, task, calledOff, workOut } = useWorkOut();
   const joining = useTask(FILES);
   const result = timeline?.result ?? null;
   const started = useRef(false);
   useEffect(() => {
-    if (timeline !== null || started.current) return;
+    // Not what was called off: that is started again by asking for it.
+    if (timeline !== null || started.current || stockCalledOff(project)) return;
     started.current = true;
     // Nothing made yet: make it now, without changing what the stage shows.
     void workOut();
@@ -283,14 +284,23 @@ export function ExportList() {
 
   return (
     <section className="export">
-      {(busy || timeline === null) &&
+      {timeline === null && !busy && calledOff ? (
+        <p className="callout" role="status">
+          Cancelled: the files are not made.{" "}
+          <button className="link" onClick={() => workOut()}>
+            Make them
+          </button>
+        </p>
+      ) : (
+        (busy || timeline === null) &&
         (task?.shown ? (
           <ProgressLine task={task} />
         ) : (
           <p className="status-line" role="status">
             Making the files and cutting the stock with them…
           </p>
-        ))}
+        ))
+      )}
       {!busy && timeline && timeline.errors.length > 0 && (
         <div className="callout error" role="alert">
           <p>The files could not be made:</p>

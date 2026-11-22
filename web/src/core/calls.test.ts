@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCalls, createPace } from "./calls";
+import { Cancelled, createCalls, createPace, isCancelled } from "./calls";
 import type { CoreProgress, CoreRequest } from "./protocol";
 
 function setup() {
@@ -75,6 +75,50 @@ describe("calls to the core", () => {
     calls.receive({ id: 1, progress: cut(10) });
     calls.receive({ id: 1, ok: true, value: "v" });
     expect(await made).toBe("v");
+  });
+
+  it("called off by their tag fail as cancelled, and the others are given to send again", async () => {
+    const { sent, calls } = setup();
+    const save = calls.call("coreVersion", []);
+    const pocket = calls.call("coreVersion", [], undefined, "generate");
+    const plug = calls.call("coreVersion", [], undefined, "generate");
+    const stock = calls.call("coreVersion", [], undefined, "stock");
+    const result = calls.cancel("generate");
+    expect(result.cancelled).toBe(2);
+    // In the order they were made, as they were sent.
+    expect(result.rest).toEqual([sent[0], sent[3]]);
+    await expect(pocket).rejects.toBeInstanceOf(Cancelled);
+    await expect(plug).rejects.toSatisfy(isCancelled);
+    expect(calls.count()).toBe(2);
+    // The others are answered as ever, under the ids they had.
+    calls.receive({ id: 1, ok: true, value: "saved" });
+    calls.receive({ id: 4, ok: true, value: "stock" });
+    expect(await save).toBe("saved");
+    expect(await stock).toBe("stock");
+  });
+
+  it("take an answer that comes for a call that was called off", async () => {
+    const { calls } = setup();
+    const made = calls.call("coreVersion", [], undefined, "generate");
+    calls.cancel("generate");
+    calls.receive({ id: 1, progress: cut(10) });
+    calls.receive({ id: 1, ok: true, value: "late" });
+    await expect(made).rejects.toBeInstanceOf(Cancelled);
+    expect(calls.count()).toBe(0);
+  });
+
+  it("call nothing off for a tag no call has", () => {
+    const { sent, calls } = setup();
+    void calls.call("coreVersion", []);
+    void calls.call("coreVersion", [], undefined, "stock");
+    expect(calls.cancel("generate")).toEqual({ cancelled: 0, rest: sent });
+    expect(calls.count()).toBe(2);
+  });
+
+  it("tell a failure from a calling off", () => {
+    expect(isCancelled(new Cancelled())).toBe(true);
+    expect(isCancelled(new Error("Cancelled."))).toBe(false);
+    expect(isCancelled("Cancelled.")).toBe(false);
   });
 
   it("all fail when the core is gone", async () => {

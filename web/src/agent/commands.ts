@@ -26,7 +26,7 @@ import type {
   Tool,
   ToolKind,
 } from "../core/types";
-import { makeOutput, stockOf } from "../state/work";
+import { isCancelled, remakeOutput, stockOf } from "../state/work";
 import {
   addShape,
   duplicateShapes,
@@ -618,6 +618,10 @@ function describeBuilt(built: Built) {
   };
 }
 
+/** What a command answers when the user ended its work on the page. */
+const CALLED_OFF =
+  "The user cancelled this on the page before it was done. Nothing was made. Ask them before trying again.";
+
 /** Takes the stock through the list, shows it on the page, and answers with the result. */
 async function workOut(
   host: Host,
@@ -629,6 +633,8 @@ async function workOut(
   try {
     result = await stockOf(project, "agent");
   } catch (e) {
+    // Called off on the page: what there was of the stock is left as it is.
+    if (isCancelled(e)) throw new CommandError("failed", CALLED_OFF);
     const timeline = { project, result: null, errors: message(e).split("\n") };
     await host.apply({ type: "setTimeline", timeline });
     throw new CommandError("failed", message(e));
@@ -1952,13 +1958,16 @@ export const COMMANDS: Command[] = [
       const project = state.project;
       // The step is opened first, so that its panel shows the files being made.
       await host.apply({ type: "setActiveStep", id: step.id });
-      // Each part is shown as it is made, and all of it before the work is said to be over.
-      const out: Output = await makeOutput(
+      // As from the step's own button: what was made last stays until the new is there, and comes back when the user calls this off.
+      const out: Output = await remakeOutput(
         project,
         step,
+        () => host.state().output,
         (output) => void host.apply({ type: "setOutput", output }),
         "agent",
-      );
+      ).catch((e) => {
+        throw isCancelled(e) ? new CommandError("failed", CALLED_OFF) : e;
+      });
       await host.apply({ type: "setOutput", output: out });
       const stage: Stage = out.fit
         ? "fit"

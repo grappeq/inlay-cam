@@ -4,7 +4,7 @@ import { fmt, isInlay, missingFor, missingSettings, partName, partsOf } from "..
 import { stageMade } from "../state/route";
 import { useApp, useDispatch, type Stage } from "../state/store";
 import { tasks } from "../state/tasks";
-import { generateKey, makeOutput } from "../state/work";
+import { generateKey, isCancelled, remakeOutput } from "../state/work";
 import { downloadText } from "../util/files";
 import { ProgressLine, Spinner, useTask } from "./Progress";
 import { ToolRack } from "./ProjectTools";
@@ -25,6 +25,9 @@ export function useOutput(step: Step) {
   // The making of this step's files while it goes on, whoever asked for it and whatever the panel showed meanwhile.
   const busy = useTask(generateKey(step.id));
 
+  // The output as it is shown now, for work that goes on while it changes.
+  const shown = useRef(output);
+  shown.current = output;
   const mine = output?.stepId === step.id ? output : null;
   // Any edit since generating may have changed the result.
   const stale = mine !== null && mine.project !== project;
@@ -35,8 +38,13 @@ export function useOutput(step: Step) {
   const generate = async (want?: Stage) => {
     // Already being made: a second asking does not start it again.
     if (tasks.find(generateKey(step.id))) return;
-    const out = await makeOutput(project, step, (output) => dispatch({ type: "setOutput", output }));
-    dispatch({ type: "setStage", stage: stageMade(out, want) });
+    try {
+      const out = await remakeOutput(project, step, () => shown.current, (made) => dispatch({ type: "setOutput", output: made }));
+      dispatch({ type: "setStage", stage: stageMade(out, want) });
+    } catch (e) {
+      // Called off: what there was before is what there is, and nothing went wrong.
+      if (!isCancelled(e)) throw e;
+    }
   };
 
   // The page was loaded at an address that names this step's pocket, plug or

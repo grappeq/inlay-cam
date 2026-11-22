@@ -85,7 +85,7 @@ export function ProgressLine({ task, className }: { task: Task | null; className
         {count && <span className="progress-count">{count}</span>}
       </div>
       <Bar task={task} />
-      {(task.stage || time || task.stoppable) && (
+      {(task.stage || time || task.stoppable || task.cancellable) && (
         <div className="progress-sub">
           <span className="progress-stage">{task.stage}</span>
           {time && (
@@ -96,6 +96,11 @@ export function ProgressLine({ task, className }: { task: Task | null; className
           {task.stoppable && (
             <button type="button" className="link" disabled={task.stopping} onClick={() => tasks.stop(task.id)} title="Stops after the one in hand. What is done stays done.">
               Stop
+            </button>
+          )}
+          {task.cancellable && (
+            <button type="button" className="link" disabled={task.stopping} onClick={() => tasks.cancel(task.id)} title="Ends it now. Nothing of it is kept, and what was worked out before has to be worked out again.">
+              Cancel
             </button>
           )}
         </div>

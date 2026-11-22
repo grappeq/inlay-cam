@@ -31,7 +31,8 @@ import { core } from "./core/client";
 import * as db from "./storage/home";
 import { duplicateProject } from "./state/model";
 import { MakeraImportDialog } from "./components/LibraryDialogs";
-import { TaskNotices } from "./components/Progress";
+import { Spinner, TaskNotices, useTask } from "./components/Progress";
+import { generateKey } from "./state/work";
 import { tasks } from "./state/tasks";
 
 export function App() {
@@ -111,6 +112,10 @@ function DesignView() {
   const { project, output, timeline, stockAt, stage, activeStepId, arranging } =
     useApp();
   const dispatch = useDispatch();
+  // The files of the step shown being made: what is on the stage of it is the last made.
+  // Only when they are made again, and not for the first moments: quick work does not flicker.
+  const remaking = useTask(generateKey(activeStepId ?? ""));
+  const making = remaking !== null && remaking.again && remaking.shown;
   if (!project.design) return <StartGuide />;
 
   const step = project.steps.find((j) => j.id === activeStepId);
@@ -153,7 +158,7 @@ function DesignView() {
 
   return (
     <div className="design-view">
-      <main className="stage">
+      <main className={`stage${making && shown !== "drawing" && shown !== "timeline" ? " making" : ""}`}>
         {tabs.length > 1 && (
           <nav className="tabs stage-tabs" aria-label="What to look at">
             {tabs.map(([to, label]) => (
@@ -166,6 +171,11 @@ function DesignView() {
               </button>
             ))}
           </nav>
+        )}
+        {making && shown !== "drawing" && shown !== "timeline" && (
+          <p className="status-line stage-making" role="status">
+            <Spinner /> Shown as last made, while it is made again.
+          </p>
         )}
         {shown === "fit" && fit ? (
           <FitView fit={fit} baseColor={wood} plugColor={plugWood} />

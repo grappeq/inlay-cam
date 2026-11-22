@@ -4,14 +4,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The calls the core was given, each waiting for the test to answer it. */
-const calls: { method: string; args: unknown[]; resolve: (v: unknown) => void; reject: (e: Error) => void; say: (p: CoreProgress) => void }[] = [];
+const calls: { method: string; args: unknown[]; tag?: string; resolve: (v: unknown) => void; reject: (e: Error) => void; say: (p: CoreProgress) => void }[] = [];
+/** The tags the core was told to call off. */
+const cancelled: string[] = [];
 
 vi.mock("../core/client", () => ({
   core: {
     call: (method: string, ...args: unknown[]) => new Promise((resolve, reject) => calls.push({ method, args, resolve, reject, say: () => {} })),
     watch: (say: (p: CoreProgress) => void, method: string, ...args: unknown[]) => new Promise((resolve, reject) => calls.push({ method, args, resolve, reject, say })),
+    work: (tag: string, say: (p: CoreProgress) => void, method: string, ...args: unknown[]) => new Promise((resolve, reject) => calls.push({ method, args, tag, resolve, reject, say })),
+    // As the core does: every call of the work fails as cancelled.
+    cancel: (tag: string) => {
+      cancelled.push(tag);
+      for (const call of calls) if (call.tag === tag) call.reject(new Cancelled());
+    },
   },
 }));
+
+import { Cancelled } from "../core/calls";
 
 import type { CoreProgress } from "../core/protocol";
 
@@ -19,7 +29,7 @@ import type { Built, Project } from "../core/types";
 import { newProject, newStep } from "./model";
 import type { Output } from "./store";
 import { tasks } from "./tasks";
-import { FILES, STOCK, createFileRuns, fileProgress, generateKey, makeOutput, stockOf, stockProgress, stockRows } from "./work";
+import { FILES, STOCK, createFileRuns, fileProgress, generateKey, isCancelled, makeOutput, remakeOutput, stockCalledOff, stockOf, stockProgress, stockRows } from "./work";
 
 /** Lets what waits on a settled promise run. */
 const settle = async () => {
@@ -34,6 +44,7 @@ function project(type: "vcarve" | "flat" | "pocket"): { project: Project; step: 
 
 beforeEach(() => {
   calls.length = 0;
+  cancelled.length = 0;
   expect(tasks.get()).toHaveLength(0);
 });
 
@@ -87,6 +98,52 @@ describe("taking the stock through the list", () => {
     calls[0].resolve({ steps: [] });
     await run;
     expect(tasks.get()).toHaveLength(0);
+  });
+
+  it("can be called off: all who asked are told so, and its task ends", async () => {
+    const { project: p } = project("flat");
+    const a = stockOf(p);
+    const b = stockOf(p);
+    const task = tasks.find(STOCK)!;
+    expect(task.cancellable).toBe(true);
+    tasks.cancel(task.id);
+    expect(cancelled).toEqual([calls[0].tag]);
+    await expect(a).rejects.toSatisfy(isCancelled);
+    await expect(b).rejects.toSatisfy(isCancelled);
+    expect(tasks.get()).toHaveLength(0);
+    // Asked for again, it is a run of its own, called off by another name.
+    const again = stockOf(p);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].tag).not.toBe(calls[0].tag);
+    calls[1].resolve(1);
+    await again;
+  });
+
+  it("called off, is known to be for that project, until it is asked for again", async () => {
+    const { project: p } = project("flat");
+    const other = { ...p };
+    expect(stockCalledOff(p)).toBe(false);
+    const run = stockOf(p);
+    tasks.cancel(tasks.find(STOCK)!.id);
+    // Known at once, before whoever asked has heard of it.
+    expect(stockCalledOff(p)).toBe(true);
+    expect(stockCalledOff(other)).toBe(false);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(stockCalledOff(p)).toBe(true);
+    // Asked for again, it is under way, not called off.
+    const again = stockOf(p);
+    expect(stockCalledOff(p)).toBe(false);
+    calls[1].resolve(1);
+    await again;
+    expect(stockCalledOff(p)).toBe(false);
+  });
+
+  it("is not said to be called off when it failed", async () => {
+    const { project: p } = project("flat");
+    const run = stockOf(p);
+    calls[0].reject(new Error("The stock is too thin."));
+    await expect(run).rejects.toThrow();
+    expect(stockCalledOff(p)).toBe(false);
   });
 
   it("is the task of whoever asked for it", async () => {
@@ -161,6 +218,50 @@ describe("making a step's files", () => {
     expect(tasks.get()).toHaveLength(0);
   });
 
+  it("called off while a part is made, fails as cancelled and makes nothing more", async () => {
+    const { project: p, step } = project("vcarve");
+    const seen: Output[] = [];
+    const run = makeOutput(p, step, (out) => seen.push(out));
+    calls[0].resolve({ built: "pocket" });
+    await settle();
+    expect(calls).toHaveLength(2);
+    const task = tasks.find(generateKey(step.id))!;
+    expect(task.cancellable).toBe(true);
+    tasks.cancel(task.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    // Every call of the run has the one name it is called off by.
+    expect(cancelled).toEqual([calls[1].tag]);
+    expect(calls[0].tag).toBe(calls[1].tag);
+    // Neither the fit nor anything else was asked for, and the plug was not published as failed.
+    expect(calls).toHaveLength(2);
+    expect(seen).toHaveLength(1);
+    expect(tasks.get()).toHaveLength(0);
+  });
+
+  it("called off while the plug is fitted, fails as cancelled", async () => {
+    const { project: p, step } = project("vcarve");
+    const run = makeOutput(p, step);
+    calls[0].resolve({});
+    await settle();
+    calls[1].resolve({});
+    await settle();
+    tasks.cancel(tasks.find(generateKey(step.id))!.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(tasks.get()).toHaveLength(0);
+  });
+
+  it("is called off by a name of its own, apart from another step's", async () => {
+    const a = project("pocket");
+    const b = project("pocket");
+    const first = makeOutput(a.project, a.step);
+    const second = makeOutput(b.project, b.step);
+    tasks.cancel(tasks.find(generateKey(a.step.id))!.id);
+    await expect(first).rejects.toSatisfy(isCancelled);
+    expect(tasks.find(generateKey(b.step.id))).not.toBeNull();
+    calls[1].resolve({});
+    expect((await second).errors).toEqual([]);
+  });
+
   it("says why a part could not be made, once, and does not fit what is not there", async () => {
     const { project: p, step } = project("vcarve");
     const run = makeOutput(p, step);
@@ -186,6 +287,114 @@ describe("making a step's files", () => {
     expect(out.fit).toBeNull();
     expect(out.fitErrors).toEqual(["The maps do not match."]);
     expect(Object.keys(out.parts)).toHaveLength(2);
+  });
+});
+
+describe("making a step's files for whoever asks", () => {
+  /** What is shown, and every change of it. */
+  function screen(start: Output | null) {
+    let shown = start;
+    const changes: (Output | null)[] = [];
+    return {
+      current: () => shown,
+      show: (out: Output | null) => {
+        shown = out;
+        changes.push(out);
+      },
+      changes,
+    };
+  }
+  const made = (stepId: string, p: Project): Output => ({ stepId, project: p, parts: { pocket: {} as never, plug: {} as never }, errors: [], fit: null, fitErrors: [] });
+
+  it("shows each part as it comes when nothing was made before", async () => {
+    const { project: p, step } = project("flat");
+    const s = screen(null);
+    const run = remakeOutput(p, step, s.current, s.show);
+    expect(tasks.find(generateKey(step.id))?.again).toBe(false);
+    calls[0].resolve({});
+    await settle();
+    expect(s.changes).toHaveLength(1);
+    expect(Object.keys(s.current()!.parts)).toEqual(["pocket"]);
+    calls[1].resolve({});
+    const out = await run;
+    expect(Object.keys(s.current()!.parts)).toEqual(["pocket", "plug"]);
+    expect(out.stepId).toBe(step.id);
+  });
+
+  it("keeps what was made last until all of the new is there", async () => {
+    const { project: p, step } = project("flat");
+    const old = made(step.id, p);
+    const s = screen(old);
+    const run = remakeOutput({ ...p }, step, s.current, s.show);
+    expect(tasks.find(generateKey(step.id))?.again).toBe(true);
+    calls[0].resolve({});
+    await settle();
+    // Nothing half made takes its place.
+    expect(s.current()).toBe(old);
+    expect(s.changes).toHaveLength(0);
+    calls[1].resolve({});
+    const out = await run;
+    expect(s.changes).toEqual([out]);
+    expect(s.current()).not.toBe(old);
+  });
+
+  it("called off the first time, shows again what was shown before", async () => {
+    const { project: p, step } = project("flat");
+    const other = made("another step", p);
+    const s = screen(other);
+    const run = remakeOutput(p, step, s.current, s.show);
+    calls[0].resolve({});
+    await settle();
+    expect(s.current()!.stepId).toBe(step.id);
+    tasks.cancel(tasks.find(generateKey(step.id))!.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(s.current()).toBe(other);
+  });
+
+  it("called off before any part came, changes nothing of what is shown", async () => {
+    const { project: p, step } = project("flat");
+    const other = made("another step", p);
+    const s = screen(other);
+    const run = remakeOutput(p, step, s.current, s.show);
+    tasks.cancel(tasks.find(generateKey(step.id))!.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(s.changes).toHaveLength(0);
+    expect(s.current()).toBe(other);
+  });
+
+  it("called off while made again, leaves what was made last", async () => {
+    const { project: p, step } = project("flat");
+    const old = made(step.id, p);
+    const s = screen(old);
+    const run = remakeOutput(p, step, s.current, s.show);
+    calls[0].resolve({});
+    await settle();
+    tasks.cancel(tasks.find(generateKey(step.id))!.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(s.changes).toHaveLength(0);
+    expect(s.current()).toBe(old);
+  });
+
+  it("called off, does not take back what another step has shown since", async () => {
+    const { project: p, step } = project("flat");
+    const s = screen(null);
+    const run = remakeOutput(p, step, s.current, s.show);
+    calls[0].resolve({});
+    await settle();
+    const newer = made("another step", p);
+    s.show(newer);
+    tasks.cancel(tasks.find(generateKey(step.id))!.id);
+    await expect(run).rejects.toSatisfy(isCancelled);
+    expect(s.current()).toBe(newer);
+  });
+
+  it("is the agent's when the agent asks", async () => {
+    const { project: p, step } = project("pocket");
+    const s = screen(null);
+    const run = remakeOutput(p, step, s.current, s.show, "agent");
+    expect(tasks.find(generateKey(step.id))?.by).toBe("agent");
+    calls[0].resolve({});
+    await run;
   });
 });
 
@@ -275,7 +484,7 @@ describe("what the core says of the stock", () => {
   });
 
   it("is shown step by step: kept, done, the one in hand, and those to come", () => {
-    const base = { id: 1, key: STOCK, label: "", stage: null, unit: "step", started: 0, shown: true, by: "user", place: "inline", cover: false, heavy: true, stoppable: false, view: null, stopping: false } as const;
+    const base = { id: 1, key: STOCK, label: "", stage: null, unit: "step", started: 0, shown: true, by: "user", place: "inline", cover: false, heavy: true, stoppable: false, view: null, cancellable: false, again: false, stopping: false } as const;
     // Before it says where it is, all are to come.
     expect(stockRows(names, { ...base, done: 0, total: null, part: null, kept: 0 }).map((r) => r.state)).toEqual(["wait", "wait", "wait", "wait"]);
     // A list that is not this one any more: nothing is said of these steps.

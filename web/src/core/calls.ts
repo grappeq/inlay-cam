@@ -4,20 +4,49 @@
 
 import type { CoreApi, CoreMessage, CoreMethod, CoreProgress, CoreRequest } from "./protocol";
 
-type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; onProgress?: (progress: CoreProgress) => void };
+type Pending = { request: CoreRequest; tag?: string; resolve: (value: unknown) => void; reject: (error: Error) => void; onProgress?: (progress: CoreProgress) => void };
+
+/** What a call that was cancelled fails with: nothing went wrong, it was called off. */
+export class Cancelled extends Error {
+  constructor() {
+    super("Cancelled.");
+    this.name = "Cancelled";
+  }
+}
+
+/** Whether something failed only because it was called off. */
+export const isCancelled = (e: unknown): e is Cancelled => e instanceof Cancelled;
 
 /** Keeps the calls under way. `post` sends a request to where the core runs; what comes back is given to `receive`. */
 export function createCalls(post: (request: CoreRequest) => void) {
   const pending = new Map<number, Pending>();
   let nextId = 1;
   return {
-    /** Asks the core for something. `onProgress` is told how far it is, for the calls that say. */
-    call<M extends CoreMethod>(method: M, args: Parameters<CoreApi[M]>, onProgress?: (progress: CoreProgress) => void): Promise<ReturnType<CoreApi[M]>> {
+    /** Asks the core for something. `onProgress` is told how far it is, for the calls that say. `tag` names the work it is part of, to call it off by. */
+    call<M extends CoreMethod>(method: M, args: Parameters<CoreApi[M]>, onProgress?: (progress: CoreProgress) => void, tag?: string): Promise<ReturnType<CoreApi[M]>> {
       const id = nextId++;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve: resolve as (value: unknown) => void, reject, onProgress });
-        post({ id, method, args });
+        const request: CoreRequest = { id, method, args };
+        pending.set(id, { request, tag, resolve: resolve as (value: unknown) => void, reject, onProgress });
+        post(request);
       });
+    },
+    /**
+     * Calls off every call under way that has the tag: each fails as
+     * cancelled. Gives how many there were, and the requests of the calls
+     * still under way, in the order they were made: where the core runs does
+     * one thing at a time and cannot be told to leave one out, so it is
+     * started anew and these are sent to it again.
+     */
+    cancel(tag: string): { cancelled: number; rest: CoreRequest[] } {
+      let cancelled = 0;
+      for (const [id, entry] of [...pending]) {
+        if (entry.tag !== tag) continue;
+        pending.delete(id);
+        cancelled++;
+        entry.reject(new Cancelled());
+      }
+      return { cancelled, rest: [...pending.values()].map((entry) => entry.request) };
     },
     /** Takes what the core sent: an answer ends its call, a word of progress goes to whoever watches it. */
     receive(message: CoreMessage) {

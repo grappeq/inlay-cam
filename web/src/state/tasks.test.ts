@@ -42,6 +42,8 @@ const task = (over: Partial<Task>): Task => ({
   heavy: false,
   stoppable: false,
   view: null,
+  cancellable: false,
+  again: false,
   stopping: false,
   ...over,
 });
@@ -183,6 +185,69 @@ describe("the list of tasks", () => {
     expect(fixed.stopped()).toBe(false);
     expect(loop.stopped()).toBe(true);
     expect(list.find("b")?.stopping).toBe(true);
+  });
+
+  it("calls off a task that can be, once", () => {
+    const { list } = setup();
+    let called = 0;
+    const t = list.start({ key: "stock", label: "Cutting the stock", onCancel: () => called++ });
+    expect(list.get()[0]).toMatchObject({ cancellable: true, stopping: false });
+    list.cancel(t.id);
+    expect(called).toBe(1);
+    // It is stopping until its work has ended.
+    expect(list.get()[0].stopping).toBe(true);
+    list.cancel(t.id);
+    expect(called).toBe(1);
+    t.end();
+    list.cancel(t.id);
+    expect(called).toBe(1);
+  });
+
+  it("goes on, and can be called off again, when calling it off failed", () => {
+    const { list } = setup();
+    let tries = 0;
+    const t = list.start({
+      key: "stock",
+      label: "Cutting the stock",
+      onCancel: () => {
+        if (++tries === 1) throw new Error("the worker would not end");
+      },
+    });
+    list.cancel(t.id);
+    expect(list.get()[0].stopping).toBe(false);
+    list.cancel(t.id);
+    expect(tries).toBe(2);
+    expect(list.get()[0].stopping).toBe(true);
+  });
+
+  it("says when it makes anew something there is already", () => {
+    const { list } = setup();
+    list.start({ key: "a", label: "A" });
+    list.start({ key: "b", label: "B", again: true });
+    expect(list.find("a")?.again).toBe(false);
+    expect(list.find("b")?.again).toBe(true);
+  });
+
+  it("does not call off a task that cannot be, nor stop one that can only be called off", () => {
+    const { list } = setup();
+    const fixed = list.start({ key: "a", label: "A" });
+    expect(list.get()[0].cancellable).toBe(false);
+    list.cancel(fixed.id);
+    expect(list.get()[0].stopping).toBe(false);
+    let called = 0;
+    const work = list.start({ key: "b", label: "B", onCancel: () => called++ });
+    list.stop(work.id);
+    expect(list.find("b")?.stopping).toBe(false);
+    expect(called).toBe(0);
+  });
+
+  it("ends a task whose work is called off from inside its own calling off", async () => {
+    const { list } = setup();
+    let fail: (e: Error) => void = () => {};
+    const run = list.run({ key: "stock", label: "Cutting the stock", onCancel: () => fail(new Error("called off")) }, () => new Promise<void>((_, reject) => (fail = reject)));
+    list.cancel(list.find("stock")!.id);
+    await expect(run).rejects.toThrow("called off");
+    expect(list.get()).toHaveLength(0);
   });
 
   it("ends a task with its work, also when the work fails", async () => {

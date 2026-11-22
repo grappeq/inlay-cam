@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import { tasks } from "../state/tasks";
-import { GCODE, STOCK, stockOf } from "../state/work";
+import { GCODE, STOCK, isCancelled, stockOf } from "../state/work";
 import { useTask } from "./Progress";
 import type { Built, Step } from "../core/types";
 import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, isSuppressed, sawOf, sawRoom, sawStep, standingPart, trimFacing, trimOf, withSuppressed, withoutStep } from "../state/model";
@@ -78,6 +78,9 @@ export function useStepFiles() {
     setAsked((n) => n + 1);
     try {
       await work();
+    } catch (e) {
+      // Called off: nothing is shown and nothing saved, and nothing went wrong.
+      if (!isCancelled(e)) throw e;
     } finally {
       setAsked((n) => n - 1);
     }
@@ -94,6 +97,8 @@ export function useStepFiles() {
     try {
       made = { project, result: await stockOf(project), errors: [] };
     } catch (e) {
+      // Called off: what there was of the stock is left as it is.
+      if (isCancelled(e)) throw e;
       made = { project, result: null, errors: message(e).split("\n") };
     }
     dispatch({ type: "setTimeline", timeline: made });

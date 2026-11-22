@@ -2,6 +2,7 @@
 // a button, a tab, a right click or an agent, it is one task, shown as one,
 // and the same work asked for twice while it goes on is done once.
 
+import { isCancelled } from "../core/calls";
 import { core } from "../core/client";
 import type { CoreProgress } from "../core/protocol";
 import type { Built, Project, Step, StockTimeline } from "../core/types";
@@ -19,6 +20,22 @@ export const GCODE = "gcode";
 export const generateKey = (stepId: string) => `generate:${stepId}`;
 
 const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export { isCancelled };
+
+/** The project whose stock was last called off, until its stock is asked for again. */
+let calledOff: Project | null = null;
+
+/**
+ * Whether the taking of this project's stock through its list was called
+ * off, and not asked for again since. Whoever shows the stock says so, and
+ * does not start it again unasked, whichever of them had asked for it.
+ */
+export const stockCalledOff = (project: Project): boolean => calledOff === project;
+
+let runs = 0;
+/** A name for one run of some work, to call its calls to the core off by. */
+const runTag = (kind: string) => `${kind} ${++runs}`;
 
 type Change = Parameters<TaskHandle["update"]>[0];
 
@@ -118,13 +135,22 @@ export function stockRows(names: string[], task: Task | null): StockRow[] {
 /**
  * Takes the stock through the list of a project, which also makes its files.
  * Asked for again for the same project while it goes on, it is the same run,
- * and the task is whoever asked first's.
+ * and the task is whoever asked first's. It can be called off: everyone who
+ * asked then gets a failure that `isCancelled` knows.
  */
 export function stockOf(project: Project, by: Actor = "user"): Promise<StockTimeline> {
-  return tasks.once(STOCK, project, () =>
-    tasks.run({ key: STOCK, label: "Cutting the stock", stage: "One step after the other", unit: "step", heavy: true, view: "design", by }, (task) => {
+  return tasks.once(STOCK, project, () => {
+    const tag = runTag(STOCK);
+    calledOff = null;
+    const cancel = () => {
+      // Known before the task ends, so that what shows the stock then finds it.
+      calledOff = project;
+      core.cancel(tag);
+    };
+    return tasks.run({ key: STOCK, label: "Cutting the stock", stage: "One step after the other", unit: "step", heavy: true, view: "design", by, onCancel: cancel }, (task) => {
       const said = stockProgress(project.steps.map((s) => s.name));
-      return core.watch(
+      return core.work(
+        tag,
         (p) => {
           const change = said(p);
           if (change) task.update(change);
@@ -132,22 +158,25 @@ export function stockOf(project: Project, by: Actor = "user"): Promise<StockTime
         "stockTimeline",
         project,
       );
-    }),
-  );
+    });
+  });
 }
 
 /**
  * Makes a step's parts and simulates them, and for a V-carve inlay fits the
  * plug into the pocket. `publish` is given what there is after each of them.
- * What could not be made is said in what comes back, not thrown.
+ * What could not be made is said in what comes back, not thrown. It can be
+ * called off: it then fails with what `isCancelled` knows, whatever of it
+ * was made. `again`: there is a result already, which stays meanwhile.
  */
-export function makeOutput(project: Project, step: Step, publish?: (out: Output) => void, by: Actor = "user"): Promise<Output> {
+export function makeOutput(project: Project, step: Step, publish?: (out: Output) => void, by: Actor = "user", again = false): Promise<Output> {
   const out: Output = { stepId: step.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
   const tell = () => publish?.({ ...out, parts: { ...out.parts }, errors: [...out.errors] });
   const parts = partsOf(step);
   const vcarve = step.task.type === "vcarve";
   const label = (i: number) => `Working out the ${partName(parts[i], step)}`;
-  return tasks.run({ key: generateKey(step.id), label: label(0), total: parts.length + (vcarve ? 1 : 0), heavy: true, view: "design", by }, async (task) => {
+  const tag = runTag("generate");
+  return tasks.run({ key: generateKey(step.id), label: label(0), total: parts.length + (vcarve ? 1 : 0), heavy: true, view: "design", by, again, onCancel: () => core.cancel(tag) }, async (task) => {
     /** Follows one call to the core: each starts with nothing said of a list. */
     const watch = () => {
       const said = fileProgress();
@@ -159,8 +188,9 @@ export function makeOutput(project: Project, step: Step, publish?: (out: Output)
     for (const [i, part] of parts.entries()) {
       task.update({ label: label(i), done: i, stage: null, part: null });
       try {
-        out.parts[part] = await core.watch(watch(), "previewPart", project, step.id, part);
+        out.parts[part] = await core.work(tag, watch(), "previewPart", project, step.id, part);
       } catch (e) {
+        if (isCancelled(e)) throw e;
         for (const line of text(e).split("\n")) if (!out.errors.includes(line)) out.errors.push(line);
       }
       tell();
@@ -168,14 +198,39 @@ export function makeOutput(project: Project, step: Step, publish?: (out: Output)
     if (vcarve && out.parts.pocket && out.parts.plug) {
       task.update({ label: "Fitting the plug into the pocket", done: parts.length, stage: null, part: null });
       try {
-        out.fit = await core.watch(watch(), "checkFit", project, step.id);
+        out.fit = await core.work(tag, watch(), "checkFit", project, step.id);
       } catch (e) {
+        if (isCancelled(e)) throw e;
         out.fitErrors = text(e).split("\n");
       }
       tell();
     }
     return out;
   });
+}
+
+/**
+ * Makes a step's files and shows them, for whoever asks: a button or an
+ * agent. `current` gives the output that is shown, `show` shows one.
+ *
+ * Made for the first time, each part is shown as it comes. Made again, what
+ * was made last stays shown until all of the new is there: nothing half
+ * made takes its place. Called off, what was shown before is shown again,
+ * unless something else has been shown since; it then fails with what
+ * `isCancelled` knows.
+ */
+export async function remakeOutput(project: Project, step: Step, current: () => Output | null, show: (out: Output | null) => void, by: Actor = "user"): Promise<Output> {
+  const before = current();
+  const again = before !== null && before.stepId === step.id;
+  try {
+    const out = await makeOutput(project, step, again ? undefined : show, by, again);
+    if (again) show(out);
+    return out;
+  } catch (e) {
+    // Only parts of this run are taken back: not what another step showed meanwhile.
+    if (isCancelled(e) && !again && current()?.stepId === step.id) show(before);
+    throw e;
+  }
 }
 
 /**
