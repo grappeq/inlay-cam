@@ -1,5 +1,5 @@
 import type { TrueInlay } from "../core/types";
-import { fmt } from "../state/model";
+import { backerOf, fmt } from "../state/model";
 
 /** The numbers the picture marks: named as the fields that set them, so that the one being typed in can be marked out. */
 export type InlayHot = "saw" | "engagement" | "glue" | "pocket" | "insert" | "start" | null;
@@ -12,6 +12,8 @@ interface Dimension {
   label: string;
   /** How far right of the others its bracket is drawn, so two that share a span stay apart. */
   shift?: number;
+  /** Marked out as falling short. */
+  short?: boolean;
 }
 
 /** Brackets down the right-hand side, each with its label, kept from overlapping. */
@@ -24,7 +26,7 @@ function Dimensions({ x, items, hot }: { x: number; items: Dimension[]; hot: Inl
         previous = y;
         const bx = x + (d.shift ?? 0);
         return (
-          <g key={d.label} className={hot === null ? undefined : d.of === hot ? "hot" : "faint"}>
+          <g key={d.label} className={[hot === null ? "" : d.of === hot ? "hot" : "faint", d.short ? "short" : ""].join(" ").trim() || undefined}>
             <path d={`M${bx - 3} ${d.from}H${bx + 3}M${bx} ${d.from}V${d.to}M${bx - 3} ${d.to}H${bx + 3}`} />
             <path className="leader" d={`M${bx + 3} ${(d.from + d.to) / 2}L${x + 22} ${y}`} />
             <text x={x + 25} y={y} dominantBaseline="middle">
@@ -56,6 +58,18 @@ function Lowered({ y, drop, left, right }: { y: number; drop: number; left: numb
 /** How tall a start depth is drawn: to scale, but never too small to see or so large that it swamps the rest. */
 const dropOf = (start: number, k: number) => (start > 0 ? Math.min(Math.max(start * k, 6), 34) : 0);
 
+/** How tall a plug's backer is drawn: to scale, so that a thin one looks thin, but never too thin to see or so thick that it swamps the rest. None where none is left. */
+const backerHeight = (backer: number, k: number) => (backer > 0 ? Math.min(Math.max(backer * k, 1.5), 30) : 0);
+
+/** The backer's own height in the picture, marked out when it falls short. */
+const backerDimension = (backer: number, from: number, to: number, short: boolean): Dimension => ({
+  of: "insert",
+  from,
+  to,
+  label: backer > 0 ? `Backer ${fmt(backer)}` : "No backer",
+  short: short || backer <= 0,
+});
+
 /** What the caption says of a pocket cut into a lower surface. */
 const loweredLine = (start: number) => (start > 0 ? ` Cut into a surface ${fmt(start)} mm down, where the wood above (dashed) is gone already.` : "");
 
@@ -64,13 +78,14 @@ const loweredLine = (start: number) => (start > 0 ? ` Cut into a surface ${fmt(s
  * board, and the plug or insert in place. Heights follow the numbers; very
  * small ones are drawn large enough to see.
  */
-export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInlay; halfAngle: number; hot?: InlayHot }) {
+export function InlayDiagram({ inlay, halfAngle, hot = null, short = false }: { inlay: TrueInlay; halfAngle: number; hot?: InlayHot; /** The backer is thinner than what hangs on it. */ short?: boolean }) {
   const left = 8;
   const right = 176;
   const middle = (left + right) / 2;
   const dimX = right + 10;
 
   const start = inlay.startDepth ?? 0;
+  const leftOver = backerOf(inlay) ?? 0;
 
   if (inlay.type === "vcarve") {
     const total = Math.max(inlay.engagementDepth + inlay.glueGap + inlay.sawGap, 0.1);
@@ -78,7 +93,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
     const saw = Math.max(inlay.sawGap * k, 5);
     const engagement = Math.max(inlay.engagementDepth * k, 8);
     const glue = Math.max(inlay.glueGap * k, 4);
-    const backer = 14;
+    const backer = backerHeight(leftOver, k);
     const drop = dropOf(start, k);
     // Room above the backer for the stock's surface, when it stands higher.
     const yBacker = 6 + Math.max(backer, drop - saw);
@@ -103,6 +118,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
             hot={hot}
             x={dimX}
             items={[
+              backerDimension(leftOver, yTop, yBacker, short),
               ...(drop > 0 ? [{ of: "start" as const, from: y0 - drop, to: y0, label: `Start depth ${fmt(start)}`, shift: 10 }] : []),
               { of: "saw", from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
               { of: "engagement", from: y0, to: yTip, label: `Engagement ${fmt(inlay.engagementDepth)}` },
@@ -112,7 +128,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
         </svg>
         <figcaption>
           Plug (dark) glued into the base board. Pocket {fmt(inlay.engagementDepth + inlay.glueGap)} mm deep; plug cut{" "}
-          {fmt(inlay.engagementDepth + inlay.sawGap)} mm deep.{loweredLine(start)} Not to scale.
+          {fmt(inlay.engagementDepth + inlay.sawGap)} mm deep into a {fmt(inlay.plugThickness)} mm blank.{loweredLine(start)} Small heights are drawn larger.
         </figcaption>
       </figure>
     );
@@ -120,7 +136,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
 
   if (inlay.insertStyle === "backer") {
     const k = 56 / Math.max(inlay.pocketDepth + inlay.sawGap, 0.1);
-    const backer = 14;
+    const backer = backerHeight(leftOver, k);
     const saw = Math.max(inlay.sawGap * k, inlay.sawGap > 0 ? 5 : 0);
     const drop = dropOf(start, k);
     const yBacker = 6 + Math.max(backer, drop - saw);
@@ -143,6 +159,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
             hot={hot}
             x={dimX}
             items={[
+              backerDimension(leftOver, yTop, yBacker, short),
               ...(drop > 0 ? [{ of: "start" as const, from: y0 - drop, to: y0, label: `Start depth ${fmt(start)}`, shift: 10 }] : []),
               { of: "saw", from: yBacker, to: y0, label: `Saw gap ${fmt(inlay.sawGap)}` },
               { of: "pocket", from: y0, to: yFloor, label: `Pocket ${fmt(inlay.pocketDepth)} deep` },
@@ -151,7 +168,7 @@ export function InlayDiagram({ inlay, halfAngle, hot = null }: { inlay: TrueInla
         </svg>
         <figcaption>
           Plug (dark) glued in face down, {fmt(inlay.allowance / 2)} mm clear on each side. Its backer is sawn or planed off afterwards. The plug
-          is cut {fmt(inlay.pocketDepth + inlay.sawGap)} mm deep into a {fmt(inlay.insertThickness)} mm board.{loweredLine(start)} Not to scale.
+          is cut {fmt(inlay.pocketDepth + inlay.sawGap)} mm deep into a {fmt(inlay.insertThickness)} mm board.{loweredLine(start)} Small heights are drawn larger.
         </figcaption>
       </figure>
     );

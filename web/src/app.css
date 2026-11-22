@@ -706,6 +706,20 @@ input[aria-invalid="true"] {
 .hint.warn {
   color: var(--warn);
 }
+/* What is short, and the numbers that mend it, each a click away. */
+.backer-short {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.backer-short span {
+  flex: 1 1 100%;
+}
+.backer-short button {
+  font-size: 12px;
+  padding: 2px 8px;
+}
 .check {
   display: flex;
   align-items: center;
@@ -1043,6 +1057,15 @@ details.more[open] > summary {
 }
 .dims .faint {
   opacity: 0.35;
+}
+/* A height that falls short of what is asked of it. */
+.dims .short path:not(.leader) {
+  stroke: var(--warn);
+  stroke-width: 2;
+}
+.dims .short text {
+  fill: var(--warn);
+  font-weight: 600;
 }
 
 /* Ordered tools */

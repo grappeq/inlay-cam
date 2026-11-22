@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch } from "./model";
+import type { Design, FlatInlay, Profile, Project, Step, Tool, VcarveInlay } from "../core/types";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch, backerOf, backerShort, tabThicknessOn } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -457,5 +457,91 @@ describe("radiusMismatch", () => {
   });
   it("says what the radius would come back as through a tools.yaml", () => {
     expect(radiusMismatch(rounder(10, 4, 2))).toContain("would be 3 mm");
+  });
+});
+
+describe("a plug's backer", () => {
+  const flat = (over: Partial<FlatInlay>): FlatInlay => ({ ...(newStep("flat", [0], [], DEFAULT_SETUP).task as FlatInlay), insertStyle: "backer", ...over });
+  const vcarve = (over: Partial<VcarveInlay>): VcarveInlay => ({ ...(newStep("vcarve", [0], [], DEFAULT_SETUP).task as VcarveInlay), ...over });
+  const setup = { ...DEFAULT_SETUP, tabThickness: 1 };
+
+  it("is what the board has left above the floor round the shapes", () => {
+    expect(backerOf(flat({ insertThickness: 4.63, pocketDepth: 3, sawGap: 1.5 }))).toBe(0.13);
+    expect(backerOf(vcarve({ plugThickness: 10, engagementDepth: 3, sawGap: 1.5 }))).toBe(5.5);
+    expect(backerOf(flat({ insertThickness: 4, pocketDepth: 3, sawGap: 1.5 }))).toBe(-0.5);
+    // Loose inserts are cut right through: no backer to speak of.
+    expect(backerOf(flat({ insertStyle: "loose" }))).toBeNull();
+  });
+
+  it("asks tabs no thicker than half the board", () => {
+    expect(tabThicknessOn(setup, 4.63)).toBe(1);
+    expect(tabThicknessOn(setup, 1.5)).toBe(0.75);
+  });
+
+  it("falls short where tabs are asked thicker than it, with the numbers that mend it", () => {
+    const thin = flat({ insertThickness: 4.63, pocketDepth: 3, sawGap: 1.5, cutOut: true, tabs: true });
+    const short = backerShort(thin, setup);
+    expect(short).toEqual({ backer: 0.13, tabs: 1, sawGap: 0.63, board: 5.5 });
+    // Either number, taken, leaves nothing to say.
+    expect(backerShort({ ...thin, sawGap: short!.sawGap! }, setup)).toBeNull();
+    expect(backerShort({ ...thin, insertThickness: short!.board }, setup)).toBeNull();
+    // Numbers that do not round to a hundredth are rounded the safe way.
+    const odd = backerShort({ ...thin, insertThickness: 4.637, pocketDepth: 3.001 }, setup)!;
+    expect(backerShort({ ...thin, insertThickness: 4.637, pocketDepth: 3.001, sawGap: odd.sawGap! }, setup)).toBeNull();
+    expect(backerShort({ ...thin, pocketDepth: 3.001, insertThickness: odd.board }, setup)).toBeNull();
+    // Half a board in thousandths is asked of the tabs: the saw gap offered still leaves that much.
+    const capped = { ...thin, insertThickness: 2.384, pocketDepth: 1, sawGap: 1.36 };
+    const thick = { ...setup, tabThickness: 3 };
+    expect(backerShort(capped, thick)).toMatchObject({ tabs: 1.192, sawGap: 0.19 });
+    expect(backerShort({ ...capped, sawGap: 0.19 }, thick)).toBeNull();
+  });
+
+  it("is measured as the core measures it, not to the nearest hundredth", () => {
+    // Three thousandths of backer is a backer: the core cuts it.
+    const hair = flat({ insertThickness: 4.003, pocketDepth: 3, sawGap: 1 });
+    expect(backerOf(hair)).toBe(0.003);
+    expect(backerShort(hair, setup)).toBeNull();
+    // And four thousandths short of the tabs is short.
+    expect(backerShort(flat({ insertThickness: 4.996, pocketDepth: 3, sawGap: 1, cutOut: true, tabs: true }), setup)).toMatchObject({ backer: 0.996, tabs: 1 });
+    // For every board, pocket and gap in thousandths, what is offered mends it.
+    for (let i = 0; i < 4000; i++) {
+      const n = (k: number, span: number) => Math.round((((i * k) % 997) / 997) * span * 1000) / 1000;
+      const thin = flat({ insertThickness: 0.5 + n(31, 12), pocketDepth: 0.2 + n(17, 6), sawGap: n(7, 3), cutOut: true, tabs: true });
+      const tabs = { ...setup, tabThickness: 0.1 + n(13, 4) };
+      const short = backerShort(thin, tabs);
+      if (!short) continue;
+      expect(short.board).toBeGreaterThan(0);
+      expect(backerShort({ ...thin, insertThickness: short.board }, tabs)).toBeNull();
+      if (short.sawGap !== null) {
+        expect(short.sawGap).toBeGreaterThanOrEqual(0);
+        expect(backerShort({ ...thin, sawGap: short.sawGap }, tabs)).toBeNull();
+      }
+    }
+  });
+
+  it("is enough where no tabs hang on it", () => {
+    const thin = flat({ insertThickness: 4.63, pocketDepth: 3, sawGap: 1.5 });
+    expect(backerShort({ ...thin, cutOut: false, tabs: true }, setup)).toBeNull();
+    expect(backerShort({ ...thin, cutOut: true, tabs: false }, setup)).toBeNull();
+    // As thick as the tabs, to the hundredth.
+    expect(backerShort(flat({ insertThickness: 5.5, pocketDepth: 3, sawGap: 1.5, cutOut: true, tabs: true }), setup)).toBeNull();
+    expect(backerShort(flat({ insertStyle: "loose", cutOut: true, tabs: true }), setup)).toBeNull();
+  });
+
+  it("is said to be missing when the board is too thin for the plug", () => {
+    expect(backerShort(flat({ insertThickness: 4, pocketDepth: 3, sawGap: 1.5 }), setup)).toEqual({ backer: -0.5, tabs: null, sawGap: 0, board: 5.5 });
+    // A board no thicker than the pocket is deep: no saw gap mends that.
+    expect(backerShort(flat({ insertThickness: 3.5, pocketDepth: 3, sawGap: 1.5 }), setup)).toEqual({ backer: -1, tabs: null, sawGap: null, board: 5.5 });
+    // A V-carve plug needs some gap to be sawn off in.
+    expect(backerShort(vcarve({ plugThickness: 4, engagementDepth: 3, sawGap: 1.5 }), setup)).toEqual({ backer: -0.5, tabs: null, sawGap: null, board: 5.5 });
+    expect(backerShort(vcarve({ plugThickness: 10, engagementDepth: 3, sawGap: 1.5, cutOut: true, tabs: true }), setup)).toBeNull();
+  });
+
+  it("offers a board whose tabs are as thick as set, not half a thin board", () => {
+    // Half of a 1.9 mm board is less than the millimetre set.
+    const thin = flat({ insertThickness: 1.9, pocketDepth: 1, sawGap: 0.5, cutOut: true, tabs: true });
+    const short = backerShort(thin, setup)!;
+    expect(short).toEqual({ backer: 0.4, tabs: 0.95, sawGap: null, board: 2.5 });
+    expect(backerShort({ ...thin, insertThickness: short.board }, setup)).toBeNull();
   });
 });

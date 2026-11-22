@@ -325,6 +325,67 @@ export function standingPart(owner: Step): { above: number; margin: number; floo
   return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, floor, what: "plug" } : { above, margin: 1, floor, what: "inserts" };
 }
 
+/** Without the last bits that arithmetic in binary leaves behind: 4.63 − 3 − 1.5 is 0.13. */
+const exact = (mm: number) => Math.round(mm * 1e6) / 1e6;
+
+/**
+ * How thick the backer of an inlay's plug comes out: what is left of its
+ * board above the floor cut round the shapes. Null for loose inserts, which
+ * have none; nothing or less when the board is too thin for the plug.
+ */
+export function backerOf(inlay: TrueInlay): number | null {
+  if (inlay.type === "vcarve") return exact(inlay.plugThickness - inlay.engagementDepth - inlay.sawGap);
+  return inlay.insertStyle === "backer" ? exact(inlay.insertThickness - inlay.pocketDepth - inlay.sawGap) : null;
+}
+
+/** How thick a tab is asked to be on a board: the thickness set, or half the board if that is less. As the core has it. */
+export function tabThicknessOn(setup: Setup, board: number): number {
+  return Math.min(board / 2, setup.tabThickness);
+}
+
+/** A plug's backer that falls short: by how much, and the numbers that would mend it. */
+export interface BackerShort {
+  /** How thick the backer comes out, mm. Nothing or less when none is left. */
+  backer: number;
+  /** How thick the tabs were asked to be, when it is the tabs that come out thinner. Null when no backer is left at all. */
+  tabs: number | null;
+  /** The saw gap that leaves enough backer with the board as it is, or null when none would. */
+  sawGap: number | null;
+  /** The board that leaves enough backer with the saw gap as it is. */
+  board: number;
+}
+
+/**
+ * What is wrong with the backer of an inlay's plug, or null when nothing is:
+ * none is left, or the plug is cut out of a larger board with tabs and the
+ * backer is thinner than they are asked to be. The floor round a plug on a
+ * backer is cut right out to its edge, so there a tab is no thicker than the
+ * backer. The numbers offered leave tabs of the thickness set.
+ */
+export function backerShort(inlay: TrueInlay, setup: Setup): BackerShort | null {
+  const backer = backerOf(inlay);
+  if (backer === null) return null;
+  const flat = inlay.type === "flat";
+  const board = flat ? inlay.insertThickness : inlay.plugThickness;
+  const pocket = flat ? inlay.pocketDepth : inlay.engagementDepth;
+  const tabbed = flat && inlay.cutOut && inlay.tabs;
+  const asked = tabThicknessOn(setup, board);
+  if (backer > 0 && !(tabbed && backer < asked - 1e-9)) return null;
+  // Enough for the tabs where there are any, and otherwise a millimetre to hold the shapes together.
+  const wanted = tabbed ? asked : 1;
+  // In hundredths, rounded so that what is offered never falls short itself.
+  const sawGap = Math.floor(exact(board - pocket - wanted) * 100) / 100;
+  // A V-carve plug needs some gap to be sawn off in.
+  const least = flat ? 0 : 0.01;
+  return {
+    backer,
+    tabs: backer > 0 ? asked : null,
+    sawGap: sawGap >= least ? sawGap : null,
+    // Half a thicker board is more than the thickness set, so that is what its tabs get.
+    board: Math.ceil(exact(pocket + inlay.sawGap + (tabbed ? setup.tabThickness : wanted)) * 100) / 100,
+  };
+}
+
 /** How high something stands, said from the stock's surface: "2 mm above" or "1 mm below". */
 export function aboveOrBelow(mm: number): string {
   const v = Math.round(mm * 100) / 100;

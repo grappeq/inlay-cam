@@ -14,11 +14,13 @@ import {
   SETUP_LIMITS,
   WOODS,
   cutOutDepth,
+  cutsPlugOut,
   DEFAULT_TIP_CLEARANCE,
   MAX_TIP_CLEARANCE,
   VCARVE_TUNING,
   describeTool,
   fmt,
+  backerShort,
   glueOf,
   glueStep,
   hasBacker,
@@ -1342,6 +1344,18 @@ function StepEditor({ step }: { step: InlayStep }) {
   const vbit = inlay.type === "vcarve" ? resolveTool(inlay.vbitToolId, tools, project) : undefined;
   const halfAngle = (((vbit?.tipAngle ?? 60) / 2) * Math.PI) / 180;
   const shapes = `${step.regionIds.length} shape${step.regionIds.length === 1 ? "" : "s"}`;
+  // A backer too thin for what hangs on it, said beside the numbers that make it so.
+  const short = backerShort(inlay, setup);
+  const board = inlay.type === "flat" ? inlay.insertThickness : inlay.plugThickness;
+  const cutDepth = (inlay.type === "flat" ? inlay.pocketDepth : inlay.engagementDepth) + inlay.sawGap;
+  // A thicker board is only offered where the end mill that cuts the plug out still reaches through it.
+  const thicker: Step | null = short ? { ...step, task: (inlay.type === "flat" ? { ...inlay, insertThickness: short.board } : { ...inlay, plugThickness: short.board }) as Task } : null;
+  const reaches = (() => {
+    if (!thicker || !cutsPlugOut(inlay)) return true;
+    const tool = thicker.cutOutToolId !== undefined ? resolveTool(thicker.cutOutToolId, tools, project) : usualCutOutTool(thicker as InlayStep, tools, project);
+    if (!tool) return thicker.cutOutToolId !== undefined || inlay.clearingToolIds.length === 0;
+    return tool.fluteLength === undefined || tool.fluteLength >= cutOutDepth(thicker, project);
+  })();
 
   return (
     <aside className="panel" aria-label={`Inlay ${step.name}`}>
@@ -1369,7 +1383,7 @@ function StepEditor({ step }: { step: InlayStep }) {
 
         <section>
           <h3>Depths and fit</h3>
-          <InlayDiagram inlay={inlay} halfAngle={halfAngle} hot={hot} />
+          <InlayDiagram inlay={inlay} halfAngle={halfAngle} hot={hot} short={short !== null} />
           {inlay.type === "vcarve" ? (
             <div className="row">
               <NumberField label="Engagement" unit="mm" min={0.01} value={inlay.engagementDepth} onChange={(v) => v !== undefined && setInlay({ engagementDepth: v })} onFocusChange={mark("engagement")} />
@@ -1390,6 +1404,25 @@ function StepEditor({ step }: { step: InlayStep }) {
                   : "The insert is cut right through a board of the thickness given."}
               </p>
             </>
+          )}
+          {short && (
+            <p className="hint warn backer-short" role="status">
+              <span>
+                {short.tabs === null
+                  ? `No backer is left: the plug is cut ${fmt(cutDepth)} mm into a ${fmt(board)} mm ${inlay.type === "flat" ? "board" : "blank"}.`
+                  : `Tabs come out ${fmt(short.backer)} mm thick, not ${fmt(short.tabs)} mm: no thicker than the backer.`}
+              </span>
+              {short.sawGap !== null && (
+                <button type="button" onClick={() => setInlay({ sawGap: short.sawGap! })}>
+                  Set saw gap to {fmt(short.sawGap)}
+                </button>
+              )}
+              {reaches && (
+                <button type="button" onClick={() => setInlay(inlay.type === "flat" ? { insertThickness: short.board } : { plugThickness: short.board })}>
+                  Set {inlay.type === "flat" ? "plug board" : "thickness"} to {fmt(short.board)}
+                </button>
+              )}
+            </p>
           )}
           <div className="row">
             <StartDepthField value={inlay.startDepth} help="inlayStart" onChange={(startDepth) => setInlay({ startDepth })} onFocusChange={mark("start")} />
@@ -1459,7 +1492,7 @@ function StepEditor({ step }: { step: InlayStep }) {
             <summary>{inlay.type === "vcarve" ? "Plug blank and cut-out" : "Insert: pieces or plug, board, cut-out"}</summary>
             {inlay.type === "vcarve" ? (
               <div className="row">
-                <NumberField label="Thickness" unit="mm" min={0.01} value={inlay.plugThickness} onChange={(v) => v !== undefined && setInlay({ plugThickness: v })} />
+                <NumberField label="Thickness" unit="mm" min={0.01} value={inlay.plugThickness} onChange={(v) => v !== undefined && setInlay({ plugThickness: v })} onFocusChange={mark("insert")} />
                 <NumberField label="Margin" unit="mm" min={0.01} value={inlay.plugMargin} onChange={(v) => v !== undefined && setInlay({ plugMargin: v })} />
               </div>
             ) : (
