@@ -156,7 +156,16 @@ pub(crate) fn ramp_in(
         path.feed_to([entry[0], entry[1], z], plunge);
         return;
     }
-    let leg = (drop / slope).min(usable);
+    // The last leg runs towards the entry. With an even number of legs the
+    // first one starts there too, which is where a tool already in the cut
+    // is: its legs are then shorter, so that the way down is no longer.
+    let needed = drop / slope;
+    let mut leg = needed.min(usable);
+    let mut legs = (needed / leg - 1e-9).ceil().max(1.0) as usize;
+    if continuing && legs % 2 == 1 {
+        legs += 1;
+        leg = (needed / legs as f64).min(usable);
+    }
     // The last `leg` mm of the run, from its far end to the entry.
     let mut points = vec![entry];
     let mut left = leg;
@@ -173,12 +182,6 @@ pub(crate) fn ramp_in(
     }
     points.reverse();
 
-    // The last leg runs towards the entry. With an even number of legs the
-    // first one starts there too, which is where a tool already in the cut is.
-    let mut legs = (drop / slope / leg - 1e-9).ceil().max(1.0) as usize;
-    if continuing && legs % 2 == 1 {
-        legs += 1;
-    }
     let mut forward = legs % 2 == 1;
     let first = if forward { points[0] } else { entry };
     if !continuing {
@@ -261,32 +264,14 @@ pub fn finish_walls(path: &mut PathBuilder, tracks: &[Region], p: &ClearParams) 
     path.retract();
 }
 
+/// How closely the way across the floor from one depth to the next is
+/// checked to stay where the tool's centre may go, mm.
+const LINK_STEP: f64 = 0.1;
+
 /// Clears with the tool's centre going everywhere inside `allowed`.
 fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
+    let rings = rings_in_order(allowed, p);
     let allowed = vec![allowed.clone()];
-
-    // Ring k keeps the tool centre `k * stepover` inside the allowed area.
-    // Each is offset from that area, so errors do not build up.
-    let mut levels: Vec<Vec<Region>> = vec![allowed.clone()];
-    loop {
-        let level = offset(&allowed, -(levels.len() as f64 * p.stepover));
-        if level.is_empty() {
-            break;
-        }
-        levels.push(level);
-    }
-
-    // Innermost first, so each ring cuts into the gap the previous one opened
-    // and the last ring of a pass is a light cut along the wall.
-    let radius = p.tool_diameter / 2.0;
-    let mut rings: Vec<Ring> = Vec::new();
-    for k in (0..levels.len()).rev() {
-        let inner = levels.get(k + 1).map(Vec::as_slice).unwrap_or(&[]);
-        for island in missed(&levels[k], inner, radius, p.stepover) {
-            rings.extend(island.rings().cloned());
-        }
-        rings.extend(levels[k].iter().flat_map(|r| r.rings().cloned()));
-    }
 
     let passes = (p.cut() / p.stepdown).ceil().max(1.0) as usize;
     for pass in 1..=passes {
@@ -331,6 +316,23 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
                         }
                     }
                 }
+                // Still down on the floor of the pass before, and near: across
+                // that floor to where the way down ends, instead of up and over.
+                if let Some(pos) = path.position() {
+                    let from = [pos[0], pos[1]];
+                    let near = (2.0 * p.tool_diameter).max(if p.plunge > 0.0 {
+                        p.feed * path.clearance() / p.plunge
+                    } else {
+                        0.0
+                    });
+                    if pass > 1
+                        && (pos[2] - floor_above).abs() < 1e-9
+                        && distance(from, first) <= near
+                        && stays_inside(&allowed, from, first, (p.stepover / 2.0).min(LINK_STEP))
+                    {
+                        path.feed_to([first[0], first[1], floor_above], p.feed);
+                    }
+                }
                 ramp_in(
                     path,
                     &run,
@@ -349,6 +351,110 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
         }
     }
     path.retract();
+}
+
+/// Appends the rings that clear `region`, one of the areas of `levels[k]`:
+/// first those of every area of the next level that lies inside it, each
+/// with all that lies inside it in turn and the nearest one first, then the
+/// islands those leave standing, then its own.
+///
+/// `parents[k + 1][c]` says which area of `levels[k]` area `c` of the next
+/// level lies inside: see [`parents_of`].
+fn nest(
+    levels: &[Vec<Region>],
+    parents: &[Vec<usize>],
+    k: usize,
+    index: usize,
+    radius: f64,
+    stepover: f64,
+    rings: &mut Vec<Ring>,
+) {
+    let region = &levels[k][index];
+    let mut left: Vec<usize> = parents.get(k + 1).map_or(Vec::new(), |of| {
+        (0..of.len()).filter(|c| of[*c] == index).collect()
+    });
+    let inner: Vec<Region> = left.iter().map(|c| levels[k + 1][*c].clone()).collect();
+    // From one nest to the nearest that is left, by their middles: where
+    // the tool ends a ring depends on where it came from.
+    let mut from: Option<Point> = None;
+    while !left.is_empty() {
+        let mut best = 0;
+        if let Some(from) = from {
+            let gap = |c: usize| distance(middle(&levels[k + 1][c]), from);
+            for i in 1..left.len() {
+                if gap(left[i]) < gap(left[best]) {
+                    best = i;
+                }
+            }
+        }
+        let child = left.remove(best);
+        from = Some(middle(&levels[k + 1][child]));
+        nest(levels, parents, k + 1, child, radius, stepover, rings);
+    }
+    for island in missed(std::slice::from_ref(region), &inner, radius, stepover) {
+        rings.extend(island.rings().cloned());
+    }
+    rings.extend(region.rings().cloned());
+}
+
+/// For each level but the first, which area of the level before each of its
+/// areas lies inside. One that rounding puts inside none goes with the
+/// first, so that no ring is ever left out.
+fn parents_of(levels: &[Vec<Region>]) -> Vec<Vec<usize>> {
+    let mut parents: Vec<Vec<usize>> = vec![Vec::new()];
+    for k in 1..levels.len() {
+        parents.push(
+            levels[k]
+                .iter()
+                .map(|r| {
+                    r.outer
+                        .first()
+                        .and_then(|q| levels[k - 1].iter().position(|outer| outer.contains(*q)))
+                        .unwrap_or(0)
+                })
+                .collect(),
+        );
+    }
+    parents
+}
+
+/// The middle of the upright rectangle round an area.
+fn middle(region: &Region) -> Point {
+    let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for q in &region.outer {
+        for k in 0..2 {
+            low[k] = low[k].min(q[k]);
+            high[k] = high[k].max(q[k]);
+        }
+    }
+    [(low[0] + high[0]) / 2.0, (low[1] + high[1]) / 2.0]
+}
+
+/// The rings that clear `allowed` with the tool's centre going everywhere
+/// inside it, in the order they are cut at each depth.
+fn rings_in_order(allowed: &Region, p: &ClearParams) -> Vec<Ring> {
+    let allowed = std::slice::from_ref(allowed);
+    // Ring k keeps the tool centre `k * stepover` inside the allowed area.
+    // Each is offset from that area, so errors do not build up.
+    let mut levels: Vec<Vec<Region>> = vec![allowed.to_vec()];
+    loop {
+        let level = offset(allowed, -(levels.len() as f64 * p.stepover));
+        if level.is_empty() {
+            break;
+        }
+        levels.push(level);
+    }
+
+    // Innermost first, so each ring cuts into the gap the previous one opened
+    // and the last ring of a pass is a light cut along the wall. One nest of
+    // rings at a time, so the tool does not cross the area after every ring.
+    let radius = p.tool_diameter / 2.0;
+    let parents = parents_of(&levels);
+    let mut rings: Vec<Ring> = Vec::new();
+    for index in 0..levels[0].len() {
+        nest(&levels, &parents, 0, index, radius, p.stepover, &mut rings);
+    }
+    rings
 }
 
 /// How far inside the first and last edge of an area the outermost straight
@@ -692,6 +798,259 @@ mod tests {
         // Down to the start, and up at the end: none in between.
         assert_eq!(rapids, 3);
         assert_eq!(feeds(&moves).last(), Some(&[6.0, 0.0, -0.4]));
+    }
+
+    /// Length of the cuts that go down while moving sideways.
+    fn ramp_length(moves: &[Move]) -> f64 {
+        let mut at: Option<[f64; 3]> = None;
+        let mut length = 0.0;
+        for m in moves {
+            let to = match m {
+                Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                _ => continue,
+            };
+            if let (Some(a), Move::Feed { .. }) = (at, m) {
+                let across = distance([a[0], a[1]], [to[0], to[1]]);
+                if a[2] - to[2] > 1e-9 && across > 1e-9 {
+                    length += across;
+                }
+            }
+            at = Some(to);
+        }
+        length
+    }
+
+    #[test]
+    fn a_tool_already_in_the_cut_ramps_no_further_than_one_coming_from_above() {
+        // 0.4 mm down at 1 in 10 needs 4 mm, and the run is long enough.
+        let run = [[0.0, 0.0], [20.0, 0.0]];
+        let mut from_above = PathBuilder::new(5.0);
+        from_above.start_tool(1, 12000);
+        ramp_in(
+            &mut from_above,
+            &run,
+            0.0,
+            -0.4,
+            0.1,
+            f64::INFINITY,
+            600.0,
+            100.0,
+        );
+        let mut in_the_cut = PathBuilder::new(5.0);
+        in_the_cut.start_tool(1, 12000);
+        in_the_cut.rapid_to([20.0, 0.0], 1.0);
+        in_the_cut.feed_to([20.0, 0.0, 0.0], 100.0);
+        ramp_in(
+            &mut in_the_cut,
+            &run,
+            0.0,
+            -0.4,
+            0.1,
+            f64::INFINITY,
+            600.0,
+            100.0,
+        );
+        let (a, b) = (from_above.finish(), in_the_cut.finish());
+        assert!((ramp_length(&a) - 4.0).abs() < 1e-9);
+        // Out 2 mm and back, at the same slope.
+        assert!((ramp_length(&b) - 4.0).abs() < 1e-9, "{}", ramp_length(&b));
+        let cuts = feeds(&b);
+        assert_eq!(cuts.last(), Some(&[20.0, 0.0, -0.4]));
+        assert!(cuts.iter().all(|q| q[0] >= 18.0 - 1e-9));
+    }
+
+    #[test]
+    fn between_depths_the_tool_stays_down_where_the_next_start_is_near() {
+        // A small pocket: from the end of one depth to the start of the next
+        // is a few millimetres over a floor that is already cut.
+        let region = Region::new(rect(0.0, 0.0, 12.0, 12.0));
+        for ramp in [0.0, 0.0875] {
+            let p = ClearParams { ramp, ..params() };
+            let (moves, _) = run(std::slice::from_ref(&region), &p);
+            let rapids = moves
+                .iter()
+                .filter(|m| matches!(m, Move::Rapid { .. }))
+                .count();
+            // Up to the travel height and down at the start, up at the end.
+            assert_eq!(rapids, 3, "ramp {ramp}: {moves:?}");
+            let mut at: Option<[f64; 3]> = None;
+            let mut lowest = 0.0_f64;
+            for q in feeds(&moves) {
+                if let Some(a) = at {
+                    let across = distance([a[0], a[1]], [q[0], q[1]]);
+                    if across > 1e-9 && (a[2] - q[2]).abs() < 1e-9 {
+                        // Level moves are at the depth of a pass: the way
+                        // across is on the floor of the pass before.
+                        assert!((q[2] - q[2].round()).abs() < 1e-9, "{q:?}");
+                    }
+                }
+                // Never outside where the tool's centre may go.
+                assert!(q[0] >= 2.0 - 1e-9 && q[0] <= 10.0 + 1e-9);
+                assert!(q[1] >= 2.0 - 1e-9 && q[1] <= 10.0 + 1e-9);
+                lowest = lowest.min(q[2]);
+                at = Some(q);
+            }
+            assert!((lowest + 3.0).abs() < 1e-9);
+        }
+
+        // Far apart, the tool lifts and travels: a long way at the feed
+        // would take longer.
+        let wide = Region::new(rect(0.0, 0.0, 80.0, 60.0));
+        let (moves, _) = run(std::slice::from_ref(&wide), &params());
+        let rapids = moves
+            .iter()
+            .filter(|m| matches!(m, Move::Rapid { .. }))
+            .count();
+        assert!(rapids > 3);
+    }
+
+    #[test]
+    fn no_ring_is_lost_by_cutting_one_nest_at_a_time() {
+        // An area with an island and a passage, and a stepover above the
+        // radius, so there are nests within nests and islands between rings.
+        let region = Region::with_holes(
+            vec![
+                [0.0, 0.0],
+                [30.0, 0.0],
+                [30.0, 10.0],
+                [40.0, 10.0],
+                [40.0, 0.0],
+                [70.0, 0.0],
+                [70.0, 30.0],
+                [40.0, 30.0],
+                [40.0, 18.0],
+                [30.0, 18.0],
+                [30.0, 30.0],
+                [0.0, 30.0],
+            ],
+            vec![rect_cw(10.0, 10.0, 18.0, 20.0)],
+        );
+        for stepover in [1.6, 2.6] {
+            let p = ClearParams {
+                stepover,
+                ..params()
+            };
+            let radius = p.tool_diameter / 2.0;
+            for allowed in centres(std::slice::from_ref(&region), &[], p.tool_diameter) {
+                // Level by level, as the rings are made.
+                let mut levels = vec![vec![allowed.clone()]];
+                loop {
+                    let level = offset(
+                        std::slice::from_ref(&allowed),
+                        -(levels.len() as f64 * stepover),
+                    );
+                    if level.is_empty() {
+                        break;
+                    }
+                    levels.push(level);
+                }
+                let mut wanted = 0;
+                let mut length = 0.0;
+                let around = |ring: &Ring| -> f64 {
+                    (0..ring.len())
+                        .map(|i| distance(ring[i], ring[(i + 1) % ring.len()]))
+                        .sum()
+                };
+                for k in 0..levels.len() {
+                    let inner = levels.get(k + 1).map(Vec::as_slice).unwrap_or(&[]);
+                    let islands = missed(&levels[k], inner, radius, stepover);
+                    for ring in islands.iter().chain(&levels[k]).flat_map(|r| r.rings()) {
+                        wanted += 1;
+                        length += around(ring);
+                    }
+                }
+                let rings = rings_in_order(&allowed, &p);
+                assert!(levels.len() > 3);
+                assert_eq!(rings.len(), wanted, "stepover {stepover}");
+                let got: f64 = rings.iter().map(around).sum();
+                assert!((got - length).abs() < 1e-6 * length, "{got} of {length}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_way_across_between_depths_keeps_clear_of_the_walls() {
+        // A slot bent round a thin wall: the end of one depth and the start
+        // of the next can be near each other with the wall between them.
+        let region = Region::new(vec![
+            [0.0, 0.0],
+            [22.0, 0.0],
+            [22.0, 14.0],
+            [12.0, 14.0],
+            [12.0, 5.0],
+            [10.0, 5.0],
+            [10.0, 14.0],
+            [0.0, 14.0],
+        ]);
+        for ramp in [0.0, 0.0875] {
+            let p = ClearParams { ramp, ..params() };
+            let (moves, _) = run(std::slice::from_ref(&region), &p);
+            let mut at: Option<[f64; 3]> = None;
+            for m in &moves {
+                let to = match m {
+                    Move::Feed { to, .. } | Move::Rapid { to } => *to,
+                    _ => continue,
+                };
+                if let (Some(a), Move::Feed { .. }) = (at, m) {
+                    // Every cut, all the way along it.
+                    let n = (distance([a[0], a[1]], [to[0], to[1]]) / 0.05)
+                        .ceil()
+                        .max(1.0);
+                    for i in 0..=n as usize {
+                        let t = i as f64 / n;
+                        let q = [a[0] + (to[0] - a[0]) * t, a[1] + (to[1] - a[1]) * t];
+                        assert!(
+                            region.contains(q) && region.distance_to_boundary(q) > 2.0 - 0.02,
+                            "ramp {ramp}: the tool is at {q:?} on the way to {to:?}"
+                        );
+                    }
+                }
+                at = Some(to);
+            }
+        }
+    }
+
+    #[test]
+    fn one_nest_of_rings_is_finished_before_the_next() {
+        // Two rooms joined by a passage: away from the walls the rings fall
+        // into two nests, one in each room.
+        let outline = vec![
+            [0.0, 0.0],
+            [20.0, 0.0],
+            [20.0, 7.5],
+            [30.0, 7.5],
+            [30.0, 0.0],
+            [50.0, 0.0],
+            [50.0, 20.0],
+            [30.0, 20.0],
+            [30.0, 12.5],
+            [20.0, 12.5],
+            [20.0, 20.0],
+            [0.0, 20.0],
+        ];
+        let region = Region::new(outline);
+        let p = ClearParams {
+            depth: 1.0,
+            ..params()
+        };
+        let (moves, pocket) = run(std::slice::from_ref(&region), &p);
+        // Everything the tool can reach is still cut.
+        assert!((total_area(&pocket) - region.area()).abs() < 8.0);
+        // The tool changes rooms a few times in all: into the second room,
+        // and round the ring that takes in both. Not after every ring.
+        let mut side: Option<bool> = None;
+        let mut changes = 0;
+        for q in feeds(&moves) {
+            if (q[0] - 25.0).abs() < 5.0 {
+                continue;
+            }
+            let right = q[0] > 25.0;
+            if side.is_some_and(|s| s != right) {
+                changes += 1;
+            }
+            side = Some(right);
+        }
+        assert!(changes <= 4, "{changes} changes of room");
     }
 
     #[test]

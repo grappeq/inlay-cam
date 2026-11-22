@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::{self, Fit, PlugFrame};
 use crate::feeds;
 use crate::gcode::{self, Interpreted};
-use crate::geom::boolean::{difference, union};
+use crate::geom::boolean::{difference, intersection, union};
 use crate::geom::offset::{close, offset, open, total_area};
 use crate::geom::{distance, Point, Region};
 use crate::ops::chamfer::{self, EdgeBit, EdgePlan, EdgeSpec};
@@ -23,7 +23,9 @@ use crate::project::{
     InsertStyle, Machine, PassDirection, Pattern, Project, Setup, Side, Step, Task, VcarveTuning,
 };
 use crate::sim::{self, HeightMap, ToolProfile};
-use crate::toolpath::{fit_arcs, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE};
+use crate::toolpath::{
+    fit_arcs, thin, Move, PathBuilder, Program, ProgramTool, ARC_FIT_TOLERANCE, THIN_TOLERANCE,
+};
 use crate::tools::{CuttingSettings, Material, Profile, Tool, ToolKind};
 
 /// The two halves of an task: each is cut from its own board, with its own file.
@@ -796,9 +798,10 @@ fn finish(
     name: &str,
 ) -> Result<(String, Interpreted, Stats), Vec<String>> {
     progress::report(Stage::Write, 0, 0);
-    // Curves are worked out as short straight cuts; they are written as arcs.
+    // Curves are worked out as short straight cuts; they are written as arcs,
+    // and what is left without the points that add nothing to its shape.
     let gcode = carvera::write(&Program {
-        moves: fit_arcs(&program.moves, ARC_FIT_TOLERANCE),
+        moves: thin(&fit_arcs(&program.moves, ARC_FIT_TOLERANCE), THIN_TOLERANCE),
         ..program.clone()
     });
 
@@ -913,6 +916,9 @@ struct Cut {
     /// How far beyond the plug's edge the end mills cleared, when the plug
     /// is cut out of a larger board.
     overrun: f64,
+    /// For a plug with a flat floor round it: what the end mills cut down to
+    /// that floor, in the blank's own place, and how deep the floor lies.
+    floor: Option<(Vec<Region>, f64)>,
     /// Wood the moves expect to be gone already.
     gone: Option<Gone>,
 }
@@ -1074,10 +1080,17 @@ impl<'a> Context<'a> {
     /// nowhere, or finds nothing left, is not loaded at all, with a warning.
     /// Tools are numbered from `number` on, which is advanced. Returns the
     /// area cut and the tools used.
+    ///
+    /// `matters` is the part of `area` whose edges are walls. The rest is
+    /// waste the tools run out over, as round a plug's blank: its edge is not
+    /// followed for its own sake, neither by a smaller tool after the wood a
+    /// larger one left in its corners nor by the pass that finishes the walls.
+    #[allow(clippy::too_many_arguments)]
     fn clear_in_order(
         &mut self,
         path: &mut PathBuilder,
         area: &[Region],
+        matters: Option<&[Region]>,
         end_mills: &[(&Tool, CuttingSettings)],
         number: &mut u32,
         what: &str,
@@ -1092,7 +1105,26 @@ impl<'a> Context<'a> {
             .min_by(|a, b| a.0.diameter.total_cmp(&b.0.diameter))
             .filter(|_| !vbit_follows && setup.finish_allowance > 0.0);
         let wanted = area;
+        let waste: Vec<Region> = matters.map_or(Vec::new(), |matters| {
+            wanted.iter().flat_map(|r| difference(r, matters)).collect()
+        });
         let tracks = finisher.map_or(Vec::new(), |(tool, _)| offset(wanted, -tool.diameter / 2.0));
+        // The tracks that follow a wall: not those that only go round the waste.
+        let walls: Vec<Region> = match matters {
+            Some(matters) => {
+                let within = offset(matters, -WALL_INSET);
+                tracks
+                    .iter()
+                    .flat_map(|track| track.rings())
+                    .filter(|ring| {
+                        ring.iter()
+                            .any(|q| within.iter().any(|region| region.contains(*q)))
+                    })
+                    .map(|ring| Region::new(ring.clone()))
+                    .collect()
+            }
+            None => tracks.clone(),
+        };
         let kept;
         let area = match finisher {
             Some((tool, _)) if !tracks.is_empty() => {
@@ -1112,6 +1144,8 @@ impl<'a> Context<'a> {
                     .collect();
                 let mut rough = offset(wanted, -allowance);
                 rough.extend(tight);
+                // No wall at the edge of the waste, so nothing to leave on it.
+                rough.extend(waste.iter().cloned());
                 kept = union(&rough);
                 &kept[..]
             }
@@ -1124,7 +1158,14 @@ impl<'a> Context<'a> {
         let mut loaded: Option<&str> = None;
         for (tool, cutting) in end_mills {
             let fits = !offset(area, -tool.diameter / 2.0).is_empty();
-            let where_to = centres(area, &cleared, tool.diameter);
+            // What a tool before left in the waste is not gone back for.
+            let where_to = if cleared.is_empty() || waste.is_empty() {
+                centres(area, &cleared, tool.diameter)
+            } else {
+                let mut gone = cleared.clone();
+                gone.extend(waste.iter().cloned());
+                centres(area, &union(&gone), tool.diameter)
+            };
             if where_to.is_empty() {
                 if area.is_empty() {
                     continue;
@@ -1173,7 +1214,7 @@ impl<'a> Context<'a> {
             });
             *number += 1;
         }
-        if let (Some((tool, cutting)), false) = (finisher, tracks.is_empty()) {
+        if let (Some((tool, cutting)), false) = (finisher, walls.is_empty()) {
             // It keeps its number if it has been in the spindle before.
             if loaded != Some(tool.id.as_str()) {
                 let known = tools
@@ -1192,16 +1233,50 @@ impl<'a> Context<'a> {
             }
             finish_walls(
                 path,
-                &tracks,
+                &walls,
                 &ClearParams {
                     start: self.start,
                     ..clear_params(tool, cutting, self.depth, ramp)
                 },
             );
-            cleared.extend(offset(&tracks, tool.diameter / 2.0));
+            // What it went over, which in the waste it did not.
+            let swept = offset(&tracks, tool.diameter / 2.0);
+            match matters {
+                Some(matters) => {
+                    cleared.extend(swept.iter().flat_map(|r| intersection(r, matters)))
+                }
+                None => cleared.extend(swept),
+            }
             cleared = union(&cleared);
         }
         (cleared, tools)
+    }
+}
+
+/// How far inside the part of an area that matters a track has to come to
+/// count as following one of its walls, mm.
+const WALL_INSET: f64 = 0.05;
+
+/// The diameter of the end mill that will cut a plug out of a board
+/// `thickness` thick, as [`cut_piece_out`] chooses it: the one named for it,
+/// or the largest of the inlay's that is long enough. `None` when there is
+/// none; `cut_piece_out` says why.
+fn cut_out_diameter(ctx: &Context, thickness: f64, tool_ids: &[String]) -> Option<f64> {
+    let depth = thickness + ctx.setup().through_cut;
+    let end_mill = |id: &str| {
+        ctx.project
+            .tools
+            .iter()
+            .find(|t| t.id == id && t.kind == ToolKind::FlatEnd)
+    };
+    match ctx.step.cut_out_tool_id.as_deref() {
+        Some(id) => end_mill(id).map(|t| t.diameter),
+        None => tool_ids
+            .iter()
+            .filter_map(|id| end_mill(id))
+            .filter(|t| t.flute_length.is_none_or(|flutes| flutes >= depth))
+            .map(|t| t.diameter)
+            .max_by(f64::total_cmp),
     }
 }
 
@@ -1427,6 +1502,7 @@ fn flat_pocket(
     let (_, tools) = ctx.clear_in_order(
         &mut path,
         &shapes.pocket,
+        None,
         &end_mills,
         &mut number,
         "the pocket",
@@ -1688,7 +1764,14 @@ fn flat_backer(
     // corner of the blank is left standing as high as the inserts. Further
     // still on a plug that is cut out of a larger board, where needed.
     let overrun = if cut_out {
-        edge_overrun(largest, insert.margin)
+        let overrun = edge_overrun(largest, insert.margin);
+        // As far as the cut that frees the plug is wide, where that is no
+        // more than a tool's width: the floor then takes in the whole of that
+        // cut, which has only the backer left to go through.
+        match cut_out_diameter(ctx, insert.thickness, tool_ids) {
+            Some(width) if width > overrun && width <= largest => width,
+            _ => overrun,
+        }
     } else {
         largest / 2.0
     };
@@ -1703,6 +1786,7 @@ fn flat_backer(
     let (cleared, tools) = ctx.clear_in_order(
         &mut path,
         &floor,
+        Some(std::slice::from_ref(&blank)),
         &end_mills,
         &mut number,
         "the plug's floor",
@@ -1753,9 +1837,14 @@ fn flat_backer(
         flat_fit: Some(fit),
         cuttable: outlines(&shapes.cuttable),
         overrun: if cut_out { overrun } else { 0.0 },
+        floor: Some((cleared, ctx.depth)),
         ..Cut::default()
     })
 }
+
+/// Wood thinner than twice this in the way of the cut that frees a plug is
+/// the rounding of curves, not wood, mm.
+const CUT_OUT_SLIVER: f64 = 0.02;
 
 /// Takes a finished plug, whose blank so far was the whole board, and cuts it
 /// out of a larger board as one piece: the board grows by a border all round,
@@ -1907,7 +1996,31 @@ fn cut_piece_out(
         [border + width, border + height],
         [border, border + height],
     ]);
-    let tab_height = setup.tab_thickness_on(thickness);
+    // Where the end mills cut a floor round the plug that takes in the whole
+    // width of this cut, it starts on that floor: the wood above is gone.
+    let start = cut
+        .floor
+        .as_ref()
+        .filter(|(_, floor)| *floor < depth - 1e-9)
+        .and_then(|(cleared, floor)| {
+            let blank = Region::new(vec![
+                [0.0, 0.0],
+                [width, 0.0],
+                [width, height],
+                [0.0, height],
+            ]);
+            let standing: Vec<Region> = offset(std::slice::from_ref(&blank), tool.diameter)
+                .iter()
+                .flat_map(|r| difference(r, std::slice::from_ref(&blank)))
+                .flat_map(|r| difference(&r, cleared))
+                .collect();
+            open(&standing, CUT_OUT_SLIVER).is_empty().then_some(*floor)
+        })
+        .unwrap_or(0.0);
+    // A tab is no thicker than the wood the floor left under it.
+    let tab_height = setup
+        .tab_thickness_on(thickness)
+        .min((thickness - start).max(0.0));
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     let report = profile(
@@ -1916,7 +2029,7 @@ fn cut_piece_out(
         &ProfileParams {
             tool_diameter: tool.diameter,
             depth,
-            start: 0.0,
+            start,
             stepdown: cutting.stepdown,
             feed: cutting.feed,
             plunge: cutting.plunge,
@@ -1946,8 +2059,18 @@ fn cut_piece_out(
             "{} tabs {} mm wide and {} mm thick hold the plug to its board. Cut them and trim the edge before use.",
             report.tabs.iter().sum::<usize>(),
             num(setup.tab_width),
-            num(tab_height)
+            num((tab_height * 100.0).round() / 100.0)
         ));
+        let asked = setup.tab_thickness_on(thickness);
+        if tab_height < asked - 1e-9 {
+            ctx.before.push(format!(
+                "Hold the plug down with tape as well: its tabs are {} mm thick, not {} mm, because the floor round the plug is cut {} mm into a {} mm board. A thicker board gives thicker tabs.",
+                num((tab_height * 100.0).round() / 100.0),
+                num(asked),
+                num(start),
+                num(thickness)
+            ));
+        }
     } else {
         ctx.before.push("Hold the plug down with tape: without tabs it comes loose on the last pass and can be thrown by the tool.".into());
     }
@@ -2054,12 +2177,14 @@ fn clear_floor_then_load_vbit(
     setup: &VcarveSetup,
     path: &mut PathBuilder,
     floor: &[Region],
+    matters: Option<&[Region]>,
     whose: &str,
 ) -> (Vec<Region>, Vec<ProgramTool>) {
     let mut number = ctx.project.machine.first_tool;
     let (cleared, mut tools) = ctx.clear_in_order(
         path,
         floor,
+        matters,
         &setup.end_mills,
         &mut number,
         &format!("the {whose} flat floor"),
@@ -2098,7 +2223,8 @@ fn vcarve_pocket(
     let setup = vcarve_setup(ctx, ctx.depth, end_mill_ids, vbit_id)?;
     let floor = setup.params.floor(regions);
     let mut path = ctx.path();
-    let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "pocket's");
+    let (cleared, tools) =
+        clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, None, "pocket's");
     if let Err(e) = vcarve(&mut path, regions, &cleared, &setup.params) {
         carving_failed(ctx, e);
         return None;
@@ -2211,7 +2337,14 @@ fn vcarve_plug_cut(
         .flat_map(|r| difference(r, &standing))
         .collect();
     let mut path = ctx.path();
-    let (cleared, tools) = clear_floor_then_load_vbit(ctx, &setup, &mut path, &floor, "plug's");
+    let (cleared, tools) = clear_floor_then_load_vbit(
+        ctx,
+        &setup,
+        &mut path,
+        &floor,
+        (overrun > 0.0).then_some(std::slice::from_ref(&blank)),
+        "plug's",
+    );
     if let Err(e) = vcarve_plug(&mut path, &shapes, &blank, &cleared, plug.engagement, p) {
         carving_failed(ctx, e);
         return None;
@@ -2298,6 +2431,7 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
     let (cleared, tools) = ctx.clear_in_order(
         &mut path,
         regions,
+        None,
         &end_mills,
         &mut number,
         "the pocket",
@@ -4941,6 +5075,88 @@ pub(crate) mod tests {
             assert_eq!(at(x0 + 19.0, y0 + 33.0), 0.0);
             assert!(at(x0 + 11.0, y0 + 33.0) < -3.4);
         }
+    }
+
+    #[test]
+    fn the_waste_round_a_cut_out_plug_is_cut_once_and_the_cut_starts_on_its_floor() {
+        // A 2 mm end mill follows the 3.175 mm one, finishes the walls and
+        // cuts the plug out.
+        let mut p = backer_project();
+        let mut small = end_mill();
+        small.id = "t-small".into();
+        small.name = "2 mm end mill".into();
+        small.diameter = 2.0;
+        p.tools.push(small);
+        if let Task::Flat {
+            clearing_tool_ids, ..
+        } = &mut p.steps[0].task
+        {
+            clearing_tool_ids.push("t-small".into());
+        }
+        p.steps[0].cut_out_tool_id = Some("t-small".into());
+        set_cut_out(&mut p, true, true);
+        let cut = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(cut.problems, vec![]);
+
+        // Pocket 2 mm deep plus the 1.5 mm saw gap, in a 4 mm board.
+        let floor = -3.5;
+        let [x0, y0, x1, y1] = cut.built.piece.unwrap();
+        let run = crate::gcode::interpret(&cut.built.gcode).unwrap();
+        let small_tool = *run.tool_changes.last().unwrap();
+        let outside = |q: [f64; 3]| {
+            q[0] < x0 - 0.01 || q[0] > x1 + 0.01 || q[1] < y0 - 0.01 || q[1] > y1 + 0.01
+        };
+        // Beyond the blank's edge the small tool only cuts the plug out, and
+        // that from the floor down: it neither goes after what the larger
+        // tool left in the corners of the waste nor finishes its edge.
+        let mut cut_out = 0.0;
+        for s in run
+            .segments
+            .iter()
+            .filter(|s| s.tool == small_tool && !s.rapid)
+        {
+            if outside(s.from) && outside(s.to) {
+                // It comes down to the floor through air, and cuts below it.
+                assert!(
+                    s.to[2] <= floor + 1e-6,
+                    "line {}: cuts in the waste at {:?}",
+                    s.line,
+                    s.to
+                );
+                cut_out += s.length();
+            }
+        }
+        // Twice round for the 0.7 mm that is left, and the way down: not
+        // once for every stepdown of the 4.2 mm from the top.
+        let round = 2.0 * ((x1 - x0) + (y1 - y0));
+        assert!(
+            cut_out > round * 1.8 && cut_out < round * 2.6,
+            "{cut_out} of {round}"
+        );
+        // The shapes still stand, and the floor is cut out to the blank's corners.
+        let map = &cut.map;
+        let at = |x: f64, y: f64| map.at((x / map.cell) as usize, (y / map.cell) as usize) as f64;
+        assert_eq!(at(x0 + 19.0, y0 + 33.0), 0.0);
+        assert!((at(x0 + 11.0, y0 + 33.0) - floor).abs() < 0.01);
+        assert!((at(x0 + 0.3, y0 + 0.3) - floor).abs() < 0.01);
+
+        // The tabs are as thick as the backer, and that is said.
+        assert!(
+            cut.built
+                .warnings
+                .iter()
+                .any(|w| w.contains("tabs 4 mm wide and 0.5 mm thick")),
+            "{:?}",
+            cut.built.warnings
+        );
+        assert!(
+            cut.built
+                .before
+                .iter()
+                .any(|w| w.contains("tabs are 0.5 mm thick, not 1 mm")),
+            "{:?}",
+            cut.built.before
+        );
     }
 
     #[test]

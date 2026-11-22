@@ -260,6 +260,78 @@ pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
     out
 }
 
+/// How far a cut may be moved sideways by leaving out points along it, mm.
+/// Outlines come with clusters of points a few thousandths apart, which the
+/// machine cannot run at the feed asked for.
+pub const THIN_TOLERANCE: f64 = 0.002;
+
+/// The most pieces looked at for joining into one, to bound the work.
+const THIN_STRETCH: usize = 400;
+
+/// Joins straight cuts at one feed that lie on one line, to within
+/// `tolerance`, into single cuts: a ramp along a curve keeps its shape and
+/// its slope, but not the points that add nothing to either. A cut that
+/// turns back on itself keeps its turning point.
+pub fn thin(moves: &[Move], tolerance: f64) -> Vec<Move> {
+    let mut out: Vec<Move> = Vec::with_capacity(moves.len());
+    let mut at: Option<P3> = None;
+    let mut i = 0;
+    while i < moves.len() {
+        let (Some(from), Move::Feed { feed, .. }) = (at, &moves[i]) else {
+            match &moves[i] {
+                Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. } => at = Some(*to),
+                Move::ToolChange { .. } | Move::RapidXy { .. } => at = None,
+                Move::SpindleOn { .. } | Move::SpindleOff | Move::Comment { .. } => {}
+            }
+            out.push(moves[i].clone());
+            i += 1;
+            continue;
+        };
+        let mut points: Vec<P3> = vec![from];
+        let mut j = i;
+        while let Some(Move::Feed { to, feed: f }) = moves.get(j) {
+            if f != feed {
+                break;
+            }
+            points.push(*to);
+            j += 1;
+        }
+        let mut s = 0;
+        while s + 1 < points.len() {
+            let mut e = s + 1;
+            while e + 1 < points.len()
+                && e - s < THIN_STRETCH
+                && points[s + 1..=e]
+                    .iter()
+                    .all(|q| point_segment_distance3(*q, points[s], points[e + 1]) <= tolerance)
+            {
+                e += 1;
+            }
+            out.push(Move::Feed {
+                to: points[e],
+                feed: *feed,
+            });
+            s = e;
+        }
+        at = points.last().copied();
+        i = j;
+    }
+    out
+}
+
+/// Distance from `p` to the stretch from `a` to `b`, in space.
+fn point_segment_distance3(p: P3, a: P3, b: P3) -> f64 {
+    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let t = if len2 > 0.0 {
+        ((v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    ((v[0] - d[0] * t).powi(2) + (v[1] - d[1] * t).powi(2) + (v[2] - d[2] * t).powi(2)).sqrt()
+}
+
 /// The circle through the first, middle and last of `points`, when every
 /// point and the middle of every piece lies within `tolerance` of it and the
 /// points go round it one way. Returns its centre and whether they go
@@ -412,5 +484,102 @@ mod tests {
         moves.push(Move::RapidXy { to: [15.0, 5.0] });
         moves.extend(feeds(&spiral));
         assert_eq!(fit_arcs(&moves, ARC_FIT_TOLERANCE), moves);
+    }
+
+    #[test]
+    fn points_that_add_nothing_to_a_cut_are_left_out() {
+        // A ramp along a line in pieces of a few thousandths, with a corner
+        // at its end and a wobble of a thousandth on the way.
+        let mut points: Vec<[f64; 3]> = (0..=1000)
+            .map(|i| {
+                let s = i as f64 * 0.005;
+                let wobble = if i % 2 == 1 { 0.001 } else { 0.0 };
+                [s, wobble, -s * 0.1]
+            })
+            .collect();
+        points.push([5.0, 3.0, -0.5]);
+        let moves = feeds(&points);
+        let thinned = thin(&moves, THIN_TOLERANCE);
+        assert!(thinned.len() <= 6, "{} moves", thinned.len());
+        assert_eq!(thinned.last(), moves.last());
+        // Every point left out is where the tool still goes, to the tolerance.
+        let kept: Vec<[f64; 3]> = thinned
+            .iter()
+            .map(|m| match m {
+                Move::Rapid { to } | Move::Feed { to, .. } => *to,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        for q in &points {
+            let off = kept
+                .windows(2)
+                .map(|w| point_segment_distance3(*q, w[0], w[1]))
+                .fold(f64::INFINITY, f64::min);
+            assert!(off <= THIN_TOLERANCE + 1e-12, "{q:?} is {off} off");
+        }
+    }
+
+    #[test]
+    fn turning_points_feeds_and_curves_are_kept() {
+        // Back and forth along one line, going down: every turn stays.
+        let zigzag = feeds(&[
+            [0.0, 0.0, 0.0],
+            [3.0, 0.0, -0.1],
+            [6.0, 0.0, -0.2],
+            [3.0, 0.0, -0.3],
+            [0.0, 0.0, -0.4],
+            [6.0, 0.0, -0.4],
+            [0.0, 0.0, -0.4],
+        ]);
+        let thinned = thin(&zigzag, THIN_TOLERANCE);
+        let ends: Vec<[f64; 3]> = thinned
+            .iter()
+            .skip(1)
+            .map(|m| match m {
+                Move::Feed { to, .. } => *to,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ends,
+            [
+                [6.0, 0.0, -0.2],
+                [0.0, 0.0, -0.4],
+                [6.0, 0.0, -0.4],
+                [0.0, 0.0, -0.4]
+            ]
+        );
+
+        // A change of feed on one line is not joined across.
+        let moves = vec![
+            Move::Rapid {
+                to: [0.0, 0.0, 1.0],
+            },
+            Move::Feed {
+                to: [0.0, 0.0, 0.0],
+                feed: 100.0,
+            },
+            Move::Feed {
+                to: [0.0, 0.0, -1.0],
+                feed: 100.0,
+            },
+            Move::Feed {
+                to: [0.0, 0.0, -2.0],
+                feed: 50.0,
+            },
+        ];
+        assert_eq!(thin(&moves, THIN_TOLERANCE).len(), 3);
+
+        // A curve whose pieces are further from their chords than the
+        // tolerance keeps them, and arcs and other moves pass through.
+        let mut curve = feeds(&on_circle(0.0, 90.0, 30, -1.0));
+        curve.push(Move::Arc {
+            to: [5.0, 25.0, -1.0],
+            center: [5.0, 20.0],
+            clockwise: false,
+            feed: 600.0,
+        });
+        curve.push(Move::ToolChange { number: 2 });
+        assert_eq!(thin(&curve, THIN_TOLERANCE), curve);
     }
 }
