@@ -73,3 +73,34 @@ export interface CoreRequest<M extends CoreMethod = CoreMethod> {
 export type CoreResponse =
   | { id: number; ok: true; value: unknown }
   | { id: number; ok: false; error: string };
+
+/**
+ * What long work in the core is doing. Of the list: "list" it is taken
+ * through from its step `done` on, the steps before being kept from the last
+ * time, and at the end, with `done` at the total, it is through; "plug" an
+ * inlay's plug or inserts are made, "build" a step's file is worked out,
+ * "ahead" a copy of the stock is cut with a step's file ahead of its turn,
+ * "step" the stock is cut with a step, or the step is done by hand or left
+ * out; all of these are counted in the steps of the list, `done` being the
+ * step's place in it. Of a file:
+ * "paths" its toolpaths are worked out, "write" it is written and read back,
+ * "cut" a board is cut with it, counted in its moves. "fit": a plug is fitted
+ * into its pocket.
+ */
+export type ProgressStage = "list" | "plug" | "build" | "ahead" | "step" | "paths" | "write" | "cut" | "fit";
+
+/** How far a call is: its stage and, for a stage that is counted, how many of its `total` parts are `done`. Both are 0 for one that is not. */
+export interface CoreProgress {
+  stage: ProgressStage;
+  done: number;
+  total: number;
+}
+
+/** A word of progress for the call `id`, sent while it goes on. */
+export interface CoreNote {
+  id: number;
+  progress: CoreProgress;
+}
+
+/** Whatever the worker sends: words of progress, then the answer. */
+export type CoreMessage = CoreResponse | CoreNote;

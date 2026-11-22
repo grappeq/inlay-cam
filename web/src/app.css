@@ -5397,3 +5397,49 @@ button.primary .spinner {
 .pf-open .spinner {
   margin-right: 6px;
 }
+
+/* The steps of the list while the stock is taken through them */
+.stock-rows {
+  list-style: none;
+  width: min(320px, 70vw);
+  max-height: 40vh;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.stock-rows li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.stock-rows li:last-child {
+  border-bottom: 0;
+}
+.stock-rows li.now {
+  background: var(--accent-soft);
+}
+.stock-rows li.wait,
+.stock-rows li.kept .stock-row-name {
+  color: var(--muted);
+}
+.stock-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-row-state {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stock-rows li.done .stock-row-state {
+  color: var(--ok);
+}

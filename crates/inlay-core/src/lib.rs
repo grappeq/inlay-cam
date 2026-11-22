@@ -13,6 +13,7 @@ pub mod import;
 pub mod naming;
 pub mod ops;
 pub mod post;
+pub mod progress;
 pub mod project;
 pub mod sim;
 pub mod starter;

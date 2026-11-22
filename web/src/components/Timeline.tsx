@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
 import { aboveOrBelow, fmt, isByHand, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
-import { STOCK, stockOf } from "../state/work";
+import { STOCK, stockOf, stockRows } from "../state/work";
 import { StepIcon } from "./icons";
 import { ProgressLine, useTask } from "./Progress";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
@@ -30,6 +30,12 @@ export function useWorkOut() {
   return { busy: task !== null, task, workOut };
 }
 
+/** Keeps the row of the step in hand in view, in a list longer than its frame. */
+const inHand = (row: HTMLLIElement | null) => row?.scrollIntoView({ block: "nearest" });
+
+/** What a step of the list is said to be while the stock is taken through it. */
+const ROW_TEXT = { kept: "Kept", done: "Done", now: "In hand", wait: "Waiting" } as const;
+
 /** What is wrong with a step, in a few words. */
 function summary(step: TimelineStep): string {
   if (step.errors.length > 0) return "could not be done";
@@ -45,8 +51,9 @@ function summary(step: TimelineStep): string {
  * the point of the list to show once it is.
  */
 export function TimelineStart({ at }: { at?: number }) {
-  const { timeline } = useApp();
+  const { timeline, project } = useApp();
   const { busy, task, workOut } = useWorkOut();
+  const names = useMemo(() => project.steps.map((s) => s.name), [project.steps]);
   const started = useRef(false);
   useEffect(() => {
     if (timeline !== null || started.current) return;
@@ -60,7 +67,19 @@ export function TimelineStart({ at }: { at?: number }) {
     <div className="timeline-start">
       {timeline === null || busy ? (
         task?.shown ? (
-          <ProgressLine task={task} />
+          <>
+            <ProgressLine task={task} />
+            {task.total === names.length && (
+              <ol className="stock-rows" aria-label="The steps of the list">
+                {stockRows(names, task).map((row, at) => (
+                  <li key={at} className={row.state} aria-current={row.state === "now" ? "step" : undefined} ref={row.state === "now" ? inHand : undefined}>
+                    <span className="stock-row-name">{row.name}</span>
+                    <span className="stock-row-state">{ROW_TEXT[row.state]}{row.percent !== null ? ` ${row.percent}%` : ""}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
         ) : (
           <p className="status-line" role="status">
             Cutting the stock, one step after the other…

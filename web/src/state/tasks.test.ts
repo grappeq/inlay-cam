@@ -31,6 +31,8 @@ const task = (over: Partial<Task>): Task => ({
   stage: null,
   done: 0,
   total: null,
+  part: null,
+  kept: 0,
   unit: null,
   started: 0,
   shown: true,
@@ -98,6 +100,48 @@ describe("the list of tasks", () => {
     expect(list.get()[0].done).toBe(2);
     t.update({ done: 9 });
     expect(list.get()[0].done).toBe(3);
+  });
+
+  it("knows how far the part in hand is, until the next part starts", () => {
+    const { list } = setup();
+    const t = list.start({ key: "a", label: "A", total: 3 });
+    expect(list.get()[0].part).toBeNull();
+    t.update({ part: 0.4 });
+    expect(list.get()[0].part).toBe(0.4);
+    // Another word that says nothing of it leaves it.
+    t.update({ stage: "Cutting" });
+    expect(list.get()[0].part).toBe(0.4);
+    // It can start anew within a part.
+    t.update({ part: 0.1 });
+    expect(list.get()[0].part).toBe(0.1);
+    t.update({ done: 1 });
+    expect(list.get()[0].part).toBeNull();
+    t.update({ done: 2, part: 0.5 });
+    expect(list.get()[0].part).toBe(0.5);
+    t.update({ part: null });
+    expect(list.get()[0].part).toBeNull();
+  });
+
+  it("keeps how far a part is between nothing and all of it", () => {
+    const { list } = setup();
+    const t = list.start({ key: "a", label: "A" });
+    t.update({ part: 1.7 });
+    expect(list.get()[0].part).toBe(1);
+    t.update({ part: -2 });
+    expect(list.get()[0].part).toBe(0);
+    t.update({ part: Number.NaN });
+    expect(list.get()[0].part).toBeNull();
+  });
+
+  it("counts what was kept from before among what is finished, and no more than that", () => {
+    const { list } = setup();
+    const t = list.start({ key: "a", label: "A", total: 6 });
+    t.update({ done: 3, kept: 3 });
+    expect(list.get()[0]).toMatchObject({ done: 3, kept: 3 });
+    t.update({ done: 4 });
+    expect(list.get()[0]).toMatchObject({ done: 4, kept: 3 });
+    t.update({ kept: 9 });
+    expect(list.get()[0].kept).toBe(4);
   });
 
   it("takes a total of nothing as no count", () => {
@@ -294,6 +338,11 @@ describe("what is said of a task", () => {
     expect(fraction(task({ total: null }))).toBeNull();
     expect(fraction(task({ total: 4, done: 1 }))).toBe(0.25);
     expect(fraction(task({ total: 4, done: 4 }))).toBe(1);
+    // With how far the part in hand is.
+    expect(fraction(task({ total: 4, done: 1, part: 0.5 }))).toBe(0.375);
+    expect(fraction(task({ total: 4, done: 4, part: 0.5 }))).toBe(1);
+    // Of work with no count of parts, what is known of the one there is.
+    expect(fraction(task({ total: null, part: 0.3 }))).toBe(0.3);
   });
 
   it("draws a few parts as pieces, and many or one as one bar", () => {

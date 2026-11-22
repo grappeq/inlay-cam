@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use crate::gcode::{Interpreted, Segment};
+use crate::progress::{self, Stage};
 use crate::toolpath::P3;
 use crate::tools::{Tool, ToolKind};
 
@@ -388,7 +389,9 @@ pub fn simulate_segments(
     };
     let mut profiles: HashMap<u32, Option<(ToolProfile, Option<f64>)>> = HashMap::new();
 
-    for segment in segments {
+    let pace = progress::every(segments.len());
+    for (at, segment) in segments.iter().enumerate() {
+        progress::turn(Stage::Cut, at, segments.len(), pace);
         let Segment {
             from,
             to,

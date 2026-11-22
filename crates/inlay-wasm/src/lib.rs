@@ -561,11 +561,45 @@ impl StockTimeline {
 
 thread_local! {
     static TIMELINE: RefCell<inlay_core::timeline::Cache> = RefCell::new(Default::default());
+    static PROGRESS: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
+}
+
+/// Sets who is told how far long work is, or with nothing, nobody. The
+/// listener is called with the stage's name, how many of its parts are done
+/// and how many there are (both 0 for a stage that is not counted), while a
+/// call that builds a file, cuts a board or takes the stock through the list
+/// is going on. What a call gives does not depend on it.
+#[wasm_bindgen(js_name = setProgress)]
+pub fn set_progress(listener: Option<js_sys::Function>) {
+    PROGRESS.with(|p| *p.borrow_mut() = listener);
+}
+
+/// Does `work`, telling the listener of [`set_progress`] how far it is.
+fn watched<T>(work: impl FnOnce() -> T) -> T {
+    let Some(listener) = PROGRESS.with(|p| p.borrow().clone()) else {
+        return work();
+    };
+    inlay_core::progress::watch(
+        move |r| {
+            // A listener that fails is not the work's business.
+            let _ = listener.call3(
+                &JsValue::NULL,
+                &JsValue::from_str(r.stage.name()),
+                &JsValue::from(r.done),
+                &JsValue::from(r.total),
+            );
+        },
+        work,
+    )
 }
 
 /// Takes the stock through every inlay and operation of the project.
 #[wasm_bindgen(js_name = stockTimeline)]
 pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
+    watched(|| stock_timeline_now(project_json))
+}
+
+fn stock_timeline_now(project_json: &str) -> Result<StockTimeline, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
     // What the last call came to is kept, so that only the steps from the
@@ -583,6 +617,10 @@ pub fn stock_timeline(project_json: &str) -> Result<StockTimeline, JsError> {
 /// per line.
 #[wasm_bindgen(js_name = exportSteps)]
 pub fn export_steps(project_json: &str, step_ids_json: &str) -> Result<String, JsError> {
+    watched(|| export_steps_now(project_json, step_ids_json))
+}
+
+fn export_steps_now(project_json: &str, step_ids_json: &str) -> Result<String, JsError> {
     let project: Project = from_json(project_json, "project")?;
     let step_ids: Vec<String> = from_json(step_ids_json, "steps")?;
     project.validate().map_err(err)?;
@@ -598,6 +636,14 @@ pub fn export_steps(project_json: &str, step_ids_json: &str) -> Result<String, J
 /// simulates it. Fails with every reason, one per line.
 #[wasm_bindgen(js_name = previewPart)]
 pub fn preview_part(
+    project_json: &str,
+    step_id: &str,
+    part: &str,
+) -> Result<PocketPreview, JsError> {
+    watched(|| preview_part_now(project_json, step_id, part))
+}
+
+fn preview_part_now(
     project_json: &str,
     step_id: &str,
     part: &str,
@@ -708,6 +754,10 @@ impl FitCheck {
 /// plug fits the pocket. Fails with every reason, one per line.
 #[wasm_bindgen(js_name = checkFit)]
 pub fn check_fit(project_json: &str, step_id: &str) -> Result<FitCheck, JsError> {
+    watched(|| check_fit_now(project_json, step_id))
+}
+
+fn check_fit_now(project_json: &str, step_id: &str) -> Result<FitCheck, JsError> {
     let project: Project = from_json(project_json, "project")?;
     project.validate().map_err(err)?;
     let pocket =

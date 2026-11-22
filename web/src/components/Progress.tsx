@@ -44,11 +44,19 @@ function Bar({ task }: { task: Task }) {
       aria-label={task.label}
       aria-valuemin={task.total === null ? undefined : 0}
       aria-valuemax={task.total ?? undefined}
-      aria-valuenow={task.total === null ? undefined : task.done}
+      aria-valuenow={task.total === null ? undefined : Math.round((task.done + (task.part ?? 0)) * 100) / 100}
       aria-valuetext={countText(task) || undefined}
     >
       {parts ? (
-        parts.map((state, i) => <span key={i} className={state} />)
+        parts.map((state, i) =>
+          state === "now" && task.part !== null ? (
+            <span key={i}>
+              <i style={{ width: `${Math.round(task.part * 100)}%` }} />
+            </span>
+          ) : (
+            <span key={i} className={state} />
+          ),
+        )
       ) : part === null ? (
         <span className="now" />
       ) : (

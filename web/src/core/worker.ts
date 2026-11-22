@@ -2,9 +2,30 @@
 // freeze the page. Structured values cross into the core as JSON text.
 
 import init, * as wasm from "../wasm/inlay_wasm";
-import type { CoreApi, CoreRequest, CoreResponse } from "./protocol";
+import { createPace } from "./calls";
+import type { CoreApi, CoreNote, CoreRequest, CoreResponse, ProgressStage } from "./protocol";
 
-const ready = init();
+/** The call that is going on, for its words of progress to be sent under. */
+let current: number | null = null;
+/** At most a word of progress each this long, ms, within one stage. */
+const PACE = 100;
+const pace = createPace(() => performance.now(), PACE);
+
+const ready = init().then(() => {
+  // The core says how far long work is; it is passed on under the call that asked for the work.
+  // The listener only posts: it must not call into the core, which is in the middle of its work.
+  try {
+    wasm.setProgress((stage: ProgressStage, done: number, total: number) => {
+      if (current === null) return;
+      const progress = { stage, done, total };
+      if (!pace(progress)) return;
+      const note: CoreNote = { id: current, progress };
+      self.postMessage(note);
+    });
+  } catch {
+    // A core that cannot say how far it is still does its work: the bars go on without numbers.
+  }
+});
 
 const api: CoreApi = {
   coreVersion: () => wasm.coreVersion(),
@@ -72,9 +93,13 @@ self.onmessage = async (event: MessageEvent<CoreRequest>) => {
   try {
     await ready;
     const fn = api[method] as (...a: unknown[]) => unknown;
+    current = id;
+    pace.reset();
     response = { id, ok: true, value: fn(...args) };
   } catch (e) {
     response = { id, ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    current = null;
   }
   self.postMessage(response);
 };

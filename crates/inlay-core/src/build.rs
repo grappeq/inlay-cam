@@ -18,6 +18,7 @@ use crate::ops::clear::{centres, clear_centres, finish_walls, raster_centres, Cl
 use crate::ops::profile::{follow, follow_depths, profile, ProfileError, ProfileParams, Tabs};
 use crate::ops::vcarve::{narrow_parts, plug_relief, vcarve, vcarve_plug, VcarveParams};
 use crate::post::carvera;
+use crate::progress::{self, Stage};
 use crate::project::{
     InsertStyle, Machine, PassDirection, Pattern, Project, Setup, Side, Step, Task, VcarveTuning,
 };
@@ -282,6 +283,7 @@ pub fn build_with(
     part: Part,
     standing: Option<f64>,
 ) -> Result<Built, Vec<String>> {
+    progress::report(Stage::Paths, 0, 0);
     let machine = &project.machine;
     let step = project
         .steps
@@ -793,6 +795,7 @@ fn finish(
     machine: &Machine,
     name: &str,
 ) -> Result<(String, Interpreted, Stats), Vec<String>> {
+    progress::report(Stage::Write, 0, 0);
     // Curves are worked out as short straight cuts; they are written as arcs.
     let gcode = carvera::write(&Program {
         moves: fit_arcs(&program.moves, ARC_FIT_TOLERANCE),
@@ -3460,6 +3463,7 @@ pub fn fit_of(
     pocket: &Preview,
     plug: &Preview,
 ) -> Result<Fit, Vec<String>> {
+    progress::report(Stage::Fit, 0, 0);
     let settings = analysis::FitSettings {
         problems: pocket.problems.len() + plug.problems.len(),
         ..fit_settings(project, step_id)?

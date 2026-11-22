@@ -19,6 +19,10 @@ export interface Task {
   done: number;
   /** How many parts there are. Null when they cannot be counted. */
   total: number | null;
+  /** How far the part in hand is, 0 to 1. Null when that is not known. It can start anew within a part. */
+  part: number | null;
+  /** How many of the finished parts were not done now, but kept from the last time. */
+  kept: number;
   /** What a part is called in the count: "step" gives "step 2 of 3". */
   unit: string | null;
   /** When it started, by the clock handed in. */
@@ -57,7 +61,7 @@ export interface TaskStart {
 
 export interface TaskHandle {
   readonly id: number;
-  update(change: Partial<Pick<Task, "label" | "stage" | "done" | "total">>): void;
+  update(change: Partial<Pick<Task, "label" | "stage" | "done" | "total" | "part" | "kept">>): void;
   /** Whether the user asked for it to stop. */
   stopped(): boolean;
   end(): void;
@@ -102,6 +106,8 @@ export function createTasks(deps: TaskDeps) {
       stage: init.stage ?? null,
       done: 0,
       total: total !== null && total > 0 ? total : null,
+      part: null,
+      kept: 0,
       unit: init.unit ?? null,
       started: deps.now(),
       shown: false,
@@ -129,7 +135,10 @@ export function createTasks(deps: TaskDeps) {
         const total = next.total === undefined ? now.total : next.total !== null && next.total > 0 ? next.total : null;
         // Progress does not run backwards, nor past its end.
         const done = Math.max(now.done, Math.min(next.done ?? now.done, total ?? Infinity));
-        change(id, { label: next.label ?? now.label, stage: next.stage === undefined ? now.stage : next.stage, total, done });
+        // A new part starts with nothing known of how far it is.
+        const part = next.part === undefined ? (done > now.done ? null : now.part) : next.part === null || !Number.isFinite(next.part) ? null : Math.max(0, Math.min(1, next.part));
+        const kept = Math.min(done, Math.max(0, next.kept ?? now.kept));
+        change(id, { label: next.label ?? now.label, stage: next.stage === undefined ? now.stage : next.stage, total, done, part, kept });
       },
       stopped: () => list.find((t) => t.id === id)?.stopping ?? false,
       end() {
@@ -220,9 +229,10 @@ export function countText(task: Task): string {
   return `${task.unit ? `${task.unit} ` : ""}${Math.min(task.done + 1, task.total)} of ${task.total}`;
 }
 
-/** How much of it is finished, 0 to 1. Null when its parts cannot be counted. */
+/** How much of it is finished, 0 to 1, with how far the part in hand is. Null when nothing of that is known. */
 export function fraction(task: Task): number | null {
-  return task.total === null ? null : Math.min(1, task.done / task.total);
+  if (task.total === null) return task.part;
+  return Math.min(1, (task.done + (task.done < task.total ? (task.part ?? 0) : 0)) / task.total);
 }
 
 /**

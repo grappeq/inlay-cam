@@ -1,37 +1,25 @@
-import type { CoreApi, CoreMethod, CoreRequest, CoreResponse } from "./protocol";
-
-type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
+import { createCalls } from "./calls";
+import type { CoreApi, CoreMessage, CoreMethod, CoreProgress } from "./protocol";
 
 /** Promise-based access to the core running in a Web Worker. */
 export class CoreClient {
   private readonly worker: Worker;
-  private readonly pending = new Map<number, Pending>();
-  private nextId = 1;
+  private readonly calls: ReturnType<typeof createCalls>;
 
   constructor() {
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (event: MessageEvent<CoreResponse>) => {
-      const response = event.data;
-      const entry = this.pending.get(response.id);
-      if (!entry) return;
-      this.pending.delete(response.id);
-      if (response.ok) entry.resolve(response.value);
-      else entry.reject(new Error(response.error));
-    };
-    this.worker.onerror = (event) => {
-      const error = new Error(event.message || "The core worker failed to load");
-      for (const entry of this.pending.values()) entry.reject(error);
-      this.pending.clear();
-    };
+    this.calls = createCalls((request) => this.worker.postMessage(request));
+    this.worker.onmessage = (event: MessageEvent<CoreMessage>) => this.calls.receive(event.data);
+    this.worker.onerror = (event) => this.calls.failAll(new Error(event.message || "The core worker failed to load"));
   }
 
   call<M extends CoreMethod>(method: M, ...args: Parameters<CoreApi[M]>): Promise<ReturnType<CoreApi[M]>> {
-    const id = this.nextId++;
-    const request: CoreRequest<M> = { id, method, args };
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      this.worker.postMessage(request);
-    });
+    return this.calls.call(method, args);
+  }
+
+  /** As `call`, with `onProgress` told how far the work is, for the calls that say: those that build a file, cut a board or take the stock through the list. */
+  watch<M extends CoreMethod>(onProgress: (progress: CoreProgress) => void, method: M, ...args: Parameters<CoreApi[M]>): Promise<ReturnType<CoreApi[M]>> {
+    return this.calls.call(method, args, onProgress);
   }
 
   dispose(): void {

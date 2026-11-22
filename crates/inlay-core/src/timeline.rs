@@ -18,6 +18,7 @@ use crate::analysis::PlugFrame;
 use crate::build::{self, Built, Part, Preview};
 use crate::gcode::Segment;
 use crate::geom::{Point, Region};
+use crate::progress::{self, Stage};
 use crate::project::{InsertStyle, Project, Step, Task};
 use crate::sim::{self, HeightMap, SimProblem};
 use crate::tools::Tool;
@@ -481,7 +482,10 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
         let plug = cache
             .plugs
             .entry(key)
-            .or_insert_with(|| Rc::new(build::preview(project, &step.id, Part::Plug)))
+            .or_insert_with(|| {
+                progress::report(Stage::Plug, index, count);
+                Rc::new(build::preview(project, &step.id, Part::Plug))
+            })
             .clone();
         plugs.insert(step.id.as_str(), plug);
     }
@@ -497,6 +501,9 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
         .find(|&r| r == 0 || cache.outcomes[&keys[r - 1]].after.is_some())
         .unwrap_or(0);
     cache.redone = count - resume;
+    if resume < count {
+        progress::report(Stage::List, resume, count);
+    }
     let stock = if resume == 0 {
         fresh
     } else {
@@ -543,6 +550,9 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
             run.clear();
         }
         let Some(step) = step else { break };
+        if index >= resume {
+            progress::report(Stage::Step, index, count);
+        }
         let (went, snapshot) = pass.by_hand(index, step, &glued, &plugs);
         if let (Task::Glue { inlay_id }, Some(_)) = (&step.task, &went.seat) {
             glued.push(inlay_id.clone());
@@ -550,6 +560,8 @@ pub fn timeline_with(project: &Project, cache: &mut Cache) -> Result<Timeline, V
         steps.push(went);
         snapshots.push(snapshot);
     }
+
+    progress::report(Stage::List, count, count);
 
     // What is not part of this list any more is let go.
     let Pass {
@@ -861,6 +873,7 @@ impl Pass<'_> {
             // A hair over, so that the first pass starts in the air.
             .map(|top| (top.max(0.0) * 100.0).ceil() / 100.0);
         if !self.cache.builds.contains_key(&key) || (listed && index >= self.resume) {
+            progress::report(Stage::Build, index, self.project.steps.len());
             let built = build::build_with(self.project, &step.id, Part::Pocket, standing);
             self.cache.builds.insert(key, Rc::new(built));
         }
@@ -915,6 +928,7 @@ impl Pass<'_> {
                 .iter()
                 .any(|&later| later >= self.resume && listed(later));
             if let (true, true, Ok(built)) = (more, index >= self.resume, part.as_ref()) {
+                progress::report(Stage::Ahead, index, project.steps.len());
                 let copy = ahead.get_or_insert_with(|| self.stock.clone());
                 sim::simulate_segments(
                     &mut copy.map,
@@ -1005,6 +1019,7 @@ impl Pass<'_> {
                 let snapshot = if index < self.resume {
                     self.known(index, &mut went, 0)
                 } else {
+                    progress::report(Stage::Step, index, project.steps.len());
                     self.keep(index, &went, 0)
                 };
                 cut.push((went, snapshot));
@@ -1027,6 +1042,7 @@ impl Pass<'_> {
                 }
                 snapshot
             } else {
+                progress::report(Stage::Step, index, project.steps.len());
                 if let Some((segments, tools, thickness, _)) = stretch {
                     went.starts_above = starts_above[k];
                     if went.starts_above.is_none() {
@@ -2121,5 +2137,199 @@ mod tests {
         // The other shape's plug is untouched.
         let (z, owner) = at(&t, 4, 43.5, 30.0);
         assert!(z.abs() < 0.02 && owner == 1);
+    }
+
+    /// What the work of `work` reports, with what it gives.
+    fn watched<T>(work: impl FnOnce() -> T) -> (T, Vec<progress::Report>) {
+        let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let into = seen.clone();
+        let result = progress::watch(move |r| into.borrow_mut().push(r), work);
+        let reports = seen.borrow().clone();
+        (result, reports)
+    }
+
+    fn of(reports: &[progress::Report], stage: Stage) -> Vec<u32> {
+        reports
+            .iter()
+            .filter(|r| r.stage == stage)
+            .map(|r| r.done)
+            .collect()
+    }
+
+    /// Every cutting is of something the list has just named: a plug's own
+    /// board, a copy cut ahead, or the stock at a step. Never straight
+    /// after a file was only worked out.
+    fn every_cut_is_named(reports: &[progress::Report]) {
+        let mut last = None;
+        for r in reports {
+            match r.stage {
+                Stage::Cut => assert!(
+                    matches!(last, Some(Stage::Plug | Stage::Ahead | Stage::Step)),
+                    "a cut after {last:?}"
+                ),
+                Stage::Paths | Stage::Write | Stage::Fit => {}
+                stage => last = Some(stage),
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_cut_ahead_is_said_to_be_also_when_it_was_kept() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        // In one stretch of the list: a facing, then one that takes its
+        // height from the stock as the first leaves it.
+        p.steps.push(trim(2.0, 8.0));
+        p.steps.push(Step {
+            id: "trim2".into(),
+            name: "trim2".into(),
+            ..listed_trim(8.0)
+        });
+        p.validate().unwrap();
+        let mut cache = Cache::default();
+        let (_, first) = watched(|| timeline_with(&p, &mut cache).unwrap());
+        every_cut_is_named(&first);
+        assert_eq!(of(&first, Stage::Ahead), vec![2]);
+        assert_eq!(of(&first, Stage::Build), vec![0, 2, 3]);
+        assert_eq!(of(&first, Stage::Step), vec![0, 1, 2, 3]);
+
+        // The inlay changed: the list is gone through again from the start.
+        // The first facing's file is kept, and is still cut ahead.
+        p.steps[0].name = "renamed".into();
+        let (_, again) = watched(|| timeline_with(&p, &mut cache).unwrap());
+        every_cut_is_named(&again);
+        assert_eq!(of(&again, Stage::List), vec![0, 4]);
+        assert_eq!(of(&again, Stage::Ahead), vec![2]);
+        assert!(!of(&again, Stage::Build).contains(&2));
+        assert_eq!(of(&again, Stage::Step), vec![0, 1, 2, 3]);
+        // The cutting ahead comes before the stock is at the step after the glue-up.
+        let ahead = again.iter().position(|r| r.stage == Stage::Ahead).unwrap();
+        let at_two = again
+            .iter()
+            .position(|r| r.stage == Stage::Step && r.done == 2)
+            .unwrap();
+        assert!(ahead < at_two);
+    }
+
+    #[test]
+    fn a_suppressed_step_is_reached_like_any_other() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        let mut left_out = trim(2.0, 8.0);
+        left_out.suppressed = true;
+        p.steps.push(left_out);
+        p.validate().unwrap();
+        let (_, reports) = watched(|| timeline(&p).unwrap());
+        assert_eq!(of(&reports, Stage::Step), vec![0, 1, 2]);
+        // Nothing is worked out or cut for it.
+        assert_eq!(of(&reports, Stage::Build), vec![0]);
+        every_cut_is_named(&reports);
+    }
+
+    #[test]
+    fn a_list_with_nothing_to_do_says_only_that_it_is_done() {
+        let mut p = backer_project();
+        p.steps.clear();
+        let (_, reports) = watched(|| timeline(&p).unwrap());
+        assert_eq!(
+            reports,
+            vec![progress::Report {
+                stage: Stage::List,
+                done: 0,
+                total: 0
+            }]
+        );
+    }
+
+    #[test]
+    fn the_list_says_which_step_it_is_at_as_it_goes() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        p.steps.push(trim(2.0, 8.0));
+        p.validate().unwrap();
+        let (t, reports) = watched(|| timeline(&p).unwrap());
+        // Watching changes nothing of what comes out.
+        assert_eq!(t, timeline(&p).unwrap());
+
+        // Every step is reached once, in the order of the list, counted in its steps.
+        assert_eq!(of(&reports, Stage::Step), vec![0, 1, 2]);
+        // It goes on from the start, once the plugs are made, and ends with all done.
+        assert_eq!(of(&reports, Stage::List), vec![0, 3]);
+        assert_eq!(reports.last().unwrap().stage, Stage::List);
+        every_cut_is_named(&reports);
+        // The inlay's plug is made first, then the files of the two steps that are cut.
+        assert_eq!(of(&reports, Stage::Plug), vec![0]);
+        assert_eq!(of(&reports, Stage::Build), vec![0, 2]);
+        assert_eq!(reports[0].stage, Stage::Plug);
+        for r in reports.iter().filter(|r| {
+            matches!(
+                r.stage,
+                Stage::Step | Stage::Plug | Stage::Build | Stage::List
+            )
+        }) {
+            assert_eq!(r.total, 3);
+        }
+
+        // A file is worked out, then written, then cut with: three files here, the plug and two on the stock.
+        assert_eq!(of(&reports, Stage::Paths).len(), 3);
+        assert!(of(&reports, Stage::Write).len() >= 3);
+        // Each cutting starts at nothing and only goes on, short of its end.
+        let mut cuts = 0;
+        let mut last: Option<progress::Report> = None;
+        for r in reports.iter().filter(|r| r.stage == Stage::Cut) {
+            assert!(r.total > 0 && r.done < r.total, "{r:?}");
+            match last {
+                Some(before) if r.done != 0 => {
+                    assert!(
+                        r.done > before.done && r.total == before.total,
+                        "{before:?} then {r:?}"
+                    )
+                }
+                _ => {
+                    assert_eq!(r.done, 0);
+                    cuts += 1;
+                }
+            }
+            last = Some(*r);
+        }
+        // The plug on its board, and the two steps on the stock.
+        assert_eq!(cuts, 3);
+        // The stock is cut with a step after the list says it is at that step.
+        let first_step = reports.iter().position(|r| r.stage == Stage::Step).unwrap();
+        assert!(reports[first_step + 1..]
+            .iter()
+            .any(|r| r.stage == Stage::Cut));
+    }
+
+    #[test]
+    fn what_is_kept_from_last_time_is_not_reported_again() {
+        let mut p = backer_project();
+        p.steps.push(glue_up());
+        p.steps.push(listed_trim(8.0));
+        let mut cache = Cache::default();
+        let (_, first) = watched(|| timeline_with(&p, &mut cache).unwrap());
+        assert_eq!(of(&first, Stage::Step), vec![0, 1, 2]);
+
+        // Nothing changed: no step is done again. The files of the list are
+        // still joined and written anew, and that is all that is said.
+        let (_, again) = watched(|| timeline_with(&p, &mut cache).unwrap());
+        assert!(
+            again
+                .iter()
+                .all(|r| matches!(r.stage, Stage::Write | Stage::List)),
+            "{again:?}"
+        );
+        // It says only that all of it is done.
+        assert_eq!(of(&again, Stage::List), vec![3]);
+
+        // The last step changed: the list starts at it.
+        if let Task::Facing { depth, .. } = &mut p.steps[2].task {
+            *depth = 0.5;
+        }
+        let (_, changed) = watched(|| timeline_with(&p, &mut cache).unwrap());
+        assert_eq!(of(&changed, Stage::Step), vec![2]);
+        assert_eq!(of(&changed, Stage::List), vec![2, 3]);
+        assert_eq!(of(&changed, Stage::Build), vec![2]);
+        assert_eq!(of(&changed, Stage::Plug), Vec::<u32>::new());
     }
 }
