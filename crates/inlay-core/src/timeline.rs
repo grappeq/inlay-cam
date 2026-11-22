@@ -1075,13 +1075,25 @@ pub fn starts_above(project: &Project, step_id: &str, cache: &mut Cache) -> Opti
 /// than it starts above.
 fn facing_start_warning(project: &Project, stock: &Workpiece, step: &Step) -> Option<String> {
     let (rect, above) = build::facing_start(project, &step.id)?;
+    // A facing that starts below the surface starts there, whatever `above` says.
+    let start = match &step.task {
+        Task::Facing { start_depth, .. } if *start_depth > 0.0 => -start_depth,
+        _ => above,
+    };
     let top = stock.top_in(rect)?;
-    (top > above + PROUD).then(|| {
+    let level = |z: f64| {
+        if z < 0.0 {
+            format!("{} mm below", num(-z))
+        } else {
+            format!("{} mm above", num(z))
+        }
+    };
+    (top > start + PROUD).then(|| {
         format!(
-            "Wood stands {} mm above the surface where this facing cuts, but its first pass starts {} mm above it: the tool would go {} mm into the wood at once.",
-            num(top),
-            num(above),
-            num(top - above)
+            "The wood stands {} the surface where this facing cuts, but its first pass starts {} it: the tool would go {} mm into the wood at once.",
+            level(top),
+            level(start),
+            num(top - start)
         )
     })
 }
@@ -1133,16 +1145,18 @@ fn glue(
                 .map(|e| format!("{}: {e}", step.name))
                 .collect()
         })?;
+    // Its pocket may be cut into a surface below the stock's.
+    let start = step.task.inlay_start();
     match &step.task {
         Task::Vcarve {
             engagement_depth, ..
-        } => seat_plug(stock, plug, -engagement_depth),
+        } => seat_plug(stock, plug, -engagement_depth - start),
         Task::Flat {
             insert_style: InsertStyle::Backer,
             pocket_depth,
             ..
-        } => seat_plug(stock, plug, -pocket_depth),
-        Task::Flat { pocket_depth, .. } => seat_inserts(stock, &plug.built, -pocket_depth),
+        } => seat_plug(stock, plug, -pocket_depth - start),
+        Task::Flat { pocket_depth, .. } => seat_inserts(stock, &plug.built, -pocket_depth - start),
         _ => Err(not_an_inlay()),
     }
 }
@@ -1323,6 +1337,7 @@ mod tests {
             ..step(
                 "trim",
                 Task::Facing {
+                    start_depth: 0.0,
                     above,
                     above_auto: false,
                     depth: 0.0,
@@ -1412,6 +1427,121 @@ mod tests {
         let (z, owner) = at(&t, 3, 20.0, 15.0);
         assert!(z.abs() < 0.02 && owner == 1, "{z} {owner}");
         assert_eq!(at(&t, 3, 2.0, 2.0).1, 0);
+    }
+
+    #[test]
+    fn a_plug_seats_in_a_pocket_cut_into_a_lower_surface() {
+        let mut p = vcarve_project(true);
+        p.base.thickness = 12.0;
+        if let Task::Vcarve { start_depth, .. } = &mut p.steps[0].task {
+            *start_depth = 3.0;
+        }
+        // The whole stock faced 3 mm down first.
+        p.steps.insert(0, lowered(3.0));
+        p.steps.push(glue_up());
+        // Trimmed with the height from the list, down to the lower surface.
+        let mut flush = trim(0.0, 6.0);
+        if let Task::Facing {
+            above_auto, depth, ..
+        } = &mut flush.task
+        {
+            *above_auto = true;
+            *depth = 3.0;
+        }
+        p.steps.push(flush);
+        p.validate().unwrap();
+
+        // 8 mm blank, 2 mm in, 3 mm down: 3 mm stands above the surface.
+        assert_eq!(
+            crate::build::facing_start(&p, "trim").map(|(_, above)| above),
+            Some(3.0)
+        );
+        let t = timeline(&p).unwrap();
+        for s in &t.steps {
+            assert!(s.errors.is_empty(), "{:?}", s.errors);
+            assert!(s.problems.is_empty(), "{:?}", s.problems);
+        }
+        let seat = t.steps[2].seat.unwrap();
+        assert!(seat.proud > -0.02 && seat.proud < PROUD, "{seat:?}");
+        assert!((seat.above - 3.0).abs() < PROUD, "{seat:?}");
+        // Trimmed: the plug's wood at the lower surface, the stock's around it.
+        let (z, owner) = at(&t, 4, 20.0, 15.0);
+        assert!((z + 3.0).abs() < 0.02 && owner == 1, "{z} {owner}");
+        let (z, owner) = at(&t, 4, 37.5, 30.0);
+        assert!((z + 3.0).abs() < 0.02 && owner == 0, "{z} {owner}");
+    }
+
+    /// The whole stock faced `depth` down.
+    fn lowered(depth: f64) -> Step {
+        let mut down = trim(0.0, 0.0);
+        down.id = "down".into();
+        down.region_ids = vec![];
+        if let Task::Facing { depth: d, .. } = &mut down.task {
+            *d = depth;
+        }
+        down
+    }
+
+    #[test]
+    fn plugs_and_inserts_seat_in_pockets_cut_into_a_lower_surface() {
+        for backer in [false, true] {
+            let mut p = if backer { backer_project() } else { project() };
+            p.base.thickness = 12.0;
+            if let Task::Flat { start_depth, .. } = &mut p.steps[0].task {
+                *start_depth = 1.0;
+            }
+            p.steps.insert(0, lowered(1.0));
+            p.steps.push(glue_up());
+            let t = timeline(&p).unwrap();
+            for s in &t.steps {
+                assert!(s.errors.is_empty(), "{backer}: {:?}", s.errors);
+                assert!(s.problems.is_empty(), "{backer}: {:?}", s.problems);
+            }
+            // A 4 mm board on the floor of a 2 mm pocket 1 mm down: its top
+            // stands 1 mm above the stock's surface.
+            let seat = t.steps[2].seat.unwrap();
+            assert!(seat.proud.abs() < 0.02, "{backer}: {seat:?}");
+            assert!((seat.above - 1.0).abs() < 0.02, "{backer}: {seat:?}");
+            let (z, owner) = at(&t, 3, 20.0, 15.0);
+            assert!(
+                (z - 1.0).abs() < 0.02 && owner == 1,
+                "{backer}: {z} {owner}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_facing_that_starts_below_the_surface_says_when_wood_stands_higher() {
+        let mut p = vcarve_project(true);
+        p.base.thickness = 12.0;
+        p.steps.push(glue_up());
+        // 6 mm of plug stands above the surface; the facing starts 1 mm below it.
+        let mut low = trim(0.0, 6.0);
+        if let Task::Facing {
+            start_depth, depth, ..
+        } = &mut low.task
+        {
+            *start_depth = 1.0;
+            *depth = 2.0;
+        }
+        p.steps.push(low);
+        let t = timeline(&p).unwrap();
+        let warnings = t.steps[2].warnings.join(" | ");
+        assert!(
+            warnings.contains("starts 1 mm below it") && warnings.contains("into the wood at once"),
+            "{warnings}"
+        );
+        // It takes nothing off what stands above it, for the steps after it.
+        let mut after = trim(0.0, 6.0);
+        after.id = "after".into();
+        if let Task::Facing { above_auto, .. } = &mut after.task {
+            *above_auto = true;
+        }
+        p.steps.push(after);
+        assert_eq!(
+            crate::build::facing_start(&p, "after").map(|(_, above)| above),
+            Some(6.0)
+        );
     }
 
     #[test]

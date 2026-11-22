@@ -32,6 +32,8 @@ import {
   stepColor,
   stepSetup,
   newStep,
+  flushTrim,
+  sawRoom,
   regionOwners,
   resolveTool,
   sameSetup,
@@ -303,13 +305,13 @@ function describeStep(step: Step): string {
   const inlay = step.task;
   switch (inlay.type) {
     case "vcarve":
-      return `V-carve inlay, ${shapes}`;
+      return `V-carve inlay${inlay.startDepth ? ` ${fmt(inlay.startDepth)} mm down` : ""}, ${shapes}`;
     case "flat":
-      return `Flat inlay, ${shapes}`;
+      return `Flat inlay${inlay.startDepth ? ` ${fmt(inlay.startDepth)} mm down` : ""}, ${shapes}`;
     case "pocket":
       return `Pocket ${fmt(inlay.depth)} mm deep${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${shapes}`;
     case "facing":
-      return step.regionIds.length === 0 ? "Facing, the whole stock" : `Facing, over ${shapes}`;
+      return `Facing${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${step.regionIds.length === 0 ? "the whole stock" : `over ${shapes}`}`;
     case "contour":
       return `Contour ${inlay.side === "on" ? "on the line" : inlay.side}, ${inlay.depth === null ? "through" : `${fmt(inlay.depth)} mm deep`}${inlay.startDepth ? ` from ${fmt(inlay.startDepth)} mm` : ""}, ${shapes}`;
     case "chamfer":
@@ -876,20 +878,24 @@ function PatternField(props: { value: Pattern; onChange: (pattern: Pattern) => v
  */
 function TrimOffer({ step }: { step: Step }) {
   const dispatch = useDispatch();
-  const { part, trims, glue, saw, trim: made, addGlue, addSaw, addTrim: add } = useAfterCut(step);
+  const { part, trims, saws, glue, saw, trim: made, addGlue, addSaw, addTrim: add } = useAfterCut(step);
   if (!part) return null;
 
   const open = (id: string) => dispatch({ type: "setActiveStep", id });
   const height = (mm: number) => `${fmt(round2(mm))} mm`;
   // What the facing has to take off: what the saw leaves, or all that stands.
-  const standing = saw && saw.task.type === "saw" ? saw.task.leave : part.above;
+  const standing = (saw && saw.task.type === "saw" ? Math.min(saw.task.leave, part.above) : part.above) + part.floor;
 
   return (
     <section>
       <h3>After the cut</h3>
       <ul className="life">
-        <LifeRow title={`Glue the ${part.what} in`} note={part.above > 0 ? `by hand · ${part.what === "plug" ? "stands" : "stand"} ${height(part.above)} above the surface` : "by hand"} step={glue} onAdd={addGlue} onOpen={open} />
-        {trims && (
+        <LifeRow title={`Glue the ${part.what} in`} note={
+            part.above + part.floor > 0
+              ? `by hand · ${part.what === "plug" ? "stands" : "stand"} ${height(part.above + part.floor)} above the ${part.floor > 0 ? `surface ${fmt(part.floor)} mm down` : "surface"}`
+              : "by hand"
+          } step={glue} onAdd={addGlue} onOpen={open} />
+        {saws && (
           <LifeRow
             title="Saw the backer off"
             note={saw && saw.task.type === "saw" ? `by hand · leaves ${height(saw.task.leave)} standing` : "by hand · optional"}
@@ -990,7 +996,11 @@ function HandEditor({ step }: { step: Step }) {
                   unit="mm"
                   value={task.leave}
                   onChange={(v) => v !== undefined && dispatch({ type: "updateStep", id: step.id, update: (j) => ({ ...j, task: { ...task, leave: v } }) })}
-                  hint="At most what the saw can leave: the inlay's saw gap."
+                  hint={
+                    inlay && isInlay(inlay.task) && (inlay.task.startDepth ?? 0) > 0
+                      ? `At most what the saw can leave: the inlay's saw gap less the ${fmt(inlay.task.startDepth ?? 0)} mm its pocket lies down, ${fmt(sawRoom(inlay.task))} mm.`
+                      : "At most what the saw can leave: the inlay's saw gap."
+                  }
                 />
               </div>
             </>
@@ -1040,8 +1050,15 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
   const tool = resolveTool(inlay.toolId, tools, project);
   const listed = inlay.aboveAuto === true;
   const height = useListedHeight(step, listed);
+  // Below the surface, or on wood above it: one or the other.
+  const start = inlay.startDepth ?? 0;
   // Where the cut starts: as the list gives it, or as typed.
   const above = listed ? (height ?? 0) : inlay.above;
+  // The one field for both: how high above the surface the cut starts, under 0 below it.
+  const startAt = listed ? round2(above) : inlay.above > 0 ? inlay.above : -start;
+  // Typed, it is wood above the surface or a start below it, never both; the cut does not end above where it starts.
+  const setStart = (v: number) =>
+    onChange(v >= 0 ? { above: v, startDepth: undefined, depth: Math.max(inlay.depth, -v) } : { above: 0, startDepth: -v, depth: Math.max(inlay.depth, -v) });
   // How far it reaches: as the inlays of its shapes give it, or as typed.
   const fromInlay = inlayMargin(step, project.steps);
   const follows = inlay.marginAuto === true && fromInlay !== null;
@@ -1052,29 +1069,39 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 
   return (
     <>
-      <FacingDiagram above={above} depth={inlay.depth} margin={whole ? null : margin} beyond={tool ? tool.diameter / 2 : null} hot={hot} />
+      <FacingDiagram above={start > 0 ? 0 : above} start={start} depth={inlay.depth} margin={whole ? null : margin} beyond={tool ? tool.diameter / 2 : null} hot={hot} />
       <label className="check">
         <input
           type="checkbox"
           checked={listed}
           // By hand, the field starts from what the list gave.
-          onChange={(e) => onChange(e.target.checked ? { aboveAuto: true } : { aboveAuto: undefined, above: round2(height ?? inlay.above), depth: Math.max(inlay.depth, -(height ?? inlay.above)) })}
+          onChange={(e) =>
+            onChange(e.target.checked ? { aboveAuto: true, startDepth: undefined } : { aboveAuto: undefined, above: round2(height ?? inlay.above), depth: Math.max(inlay.depth, -(height ?? inlay.above)) })
+          }
         />
-        Take the wood above the surface from the list
+        Take the start from the wood the list leaves above the surface
       </label>
       <div className="row">
-        {/* The cut cannot end above where it starts: less wood above takes a depth under 0 up with it. */}
         <NumberField
-          label="Wood above the surface"
+          label="Start above the surface"
           unit="mm"
-          value={listed ? round2(above) : inlay.above}
+          min={-Infinity}
+          value={startAt}
           disabled={listed}
-          onChange={(v) => v !== undefined && onChange({ above: v, depth: Math.max(inlay.depth, -v) })}
-          onFocusChange={mark("above")}
+          onChange={(v) => v !== undefined && setStart(v)}
+          help="facingStart"
+          onFocusChange={(focused) => mark(startAt < 0 ? "start" : "above")(focused)}
         />
-        <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} help="facingDepth" onFocusChange={mark("depth")} />
+        {/* The cut cannot end above where it starts. */}
+        <NumberField label="Depth below the surface" unit="mm" min={listed && height === null ? -Infinity : start > 0 ? -Infinity : -above} value={inlay.depth} onChange={(v) => v !== undefined && onChange({ depth: v })} help="facingDepth" onFocusChange={mark("depth")} />
         {!whole && <NumberField label="Margin" unit="mm" value={margin} disabled={follows} onChange={(v) => v !== undefined && onChange({ margin: v })} onFocusChange={mark("margin")} />}
       </div>
+      {start > 0 && (listed || inlay.above > 0) ? (
+        // Only a file written elsewhere has both: typing the start, or ticking the box, keeps one.
+        <p className="hint warn">This facing has both wood above the surface and a start {fmt(start)} mm below it, which cannot be cut: type where it starts.</p>
+      ) : (
+        <StartDepthNote start={start} end={inlay.depth} what="facing" />
+      )}
       {!whole && fromInlay !== null && (
         <label className="check">
           <input
@@ -1096,15 +1123,44 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 
       {inlays.map((owner) => {
         const part = standingPart(owner);
-        if (!part || part.above <= 0) return null;
-        const set = (listed || Math.abs(inlay.above - part.above) < 1e-9) && inlay.depth === 0 && Math.abs(margin - part.margin) < 1e-9;
+        if (!part || part.above + part.floor <= 0) return null;
+        const flush = flushTrim(part);
+        // Taken from the list, the height is whatever stands; a top below the surface is typed as a start.
+        const fromList = listed && flush.above > 0;
+        const set =
+          (fromList || (!listed && Math.abs(inlay.above - flush.above) < 1e-9)) &&
+          Math.abs(start - (flush.startDepth ?? 0)) < 1e-9 &&
+          Math.abs(inlay.depth - flush.depth) < 1e-9 &&
+          Math.abs(margin - part.margin) < 1e-9;
+        const stands = part.what === "inserts" ? "stand" : "stands";
         return (
           <p className="derived" key={owner.id}>
-            The {part.what} of "{owner.name}" {part.what === "inserts" ? "stand" : "stands"} {fmt(part.above)} mm above the surface once glued in.{" "}
+            The {part.what} of "{owner.name}"{" "}
+            {part.floor > 0
+              ? `${stands} ${fmt(round2(part.above + part.floor))} mm above the surface ${fmt(part.floor)} mm down that ${part.what === "inserts" ? "they are" : "it is"} set in, once glued in.`
+              : `${stands} ${fmt(round2(part.above))} mm above the surface once glued in.`}{" "}
+            {inlay.depth > part.floor + 1e-9 && (
+              <>
+                <span className="warn">
+                  The facing goes {fmt(round2(inlay.depth - part.floor))} mm below the surface {part.what === "inserts" ? "they are" : "it is"} set in, into the {part.what} and the stock around it.
+                </span>{" "}
+              </>
+            )}
             {set ? (
               "The fields are set to trim it flush."
             ) : (
-              <button type="button" className="link" onClick={() => onChange({ ...(listed ? {} : { above: round2(part.above) }), depth: 0, ...(follows ? {} : { margin: part.margin }) })}>
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  onChange({
+                    ...(fromList ? {} : { aboveAuto: undefined, above: flush.above }),
+                    startDepth: flush.startDepth,
+                    depth: flush.depth,
+                    ...(follows ? {} : { margin: part.margin }),
+                  })
+                }
+              >
                 Set the fields to trim {part.what === "inserts" ? "them" : "it"} flush
               </button>
             )}
@@ -1120,15 +1176,41 @@ function FacingFields({ step, inlay, onChange }: { step: Step; inlay: FacingOp; 
 }
 
 /** How deep a plain operation starts below the surface. 0 is the surface, and is left out of the file. */
-function StartDepthField({ label = "Start depth", value, help, onChange }: { label?: string; value: number | undefined; help: HelpTopic; onChange: (startDepth: number | undefined) => void }) {
-  return <NumberField label={label} unit="mm" min={0} value={value ?? 0} onChange={(v) => v !== undefined && onChange(v > 0 ? v : undefined)} help={help} />;
+function StartDepthField({
+  label = "Start depth",
+  value,
+  help,
+  disabled,
+  onChange,
+  onFocusChange,
+}: {
+  label?: string;
+  value: number | undefined;
+  help: HelpTopic;
+  disabled?: boolean;
+  onChange: (startDepth: number | undefined) => void;
+  onFocusChange?: (focused: boolean) => void;
+}) {
+  return (
+    <NumberField
+      label={label}
+      unit="mm"
+      min={0}
+      value={value ?? 0}
+      disabled={disabled}
+      onChange={(v) => v !== undefined && onChange(v > 0 ? v : undefined)}
+      help={help}
+      onFocusChange={onFocusChange}
+    />
+  );
 }
 
 /** One line under a start depth that is set: what it asks of the wood, or that it is not above the end. */
-function StartDepthNote({ start = 0, end, what }: { start?: number; end: number; what: "pocket" | "cut" }) {
+function StartDepthNote({ start = 0, end, what }: { start?: number; end: number; what: "pocket" | "cut" | "facing" }) {
   if (start <= 0) return null;
   if (start >= end) return <p className="hint warn">The {what} has to start above where it ends: {fmt(end)} mm.</p>;
-  return <p className="hint">The wood above {fmt(start)} mm must be gone {what === "pocket" ? "over the shapes" : "where the tool runs"}: the tool comes down fast to it.</p>;
+  const where = what === "pocket" ? "over the shapes" : what === "facing" ? "over the area" : "where the tool runs";
+  return <p className="hint">The wood above {fmt(start)} mm must be gone {where}: the tool comes down fast to it.</p>;
 }
 
 /** Said once, whichever bit cuts the chamfer. */
@@ -1177,7 +1259,7 @@ function ChamferFields({ step, inlay, onChange }: { step: Step; inlay: ChamferOp
   const mark = (which: ChamferHot) => (focused: boolean) => setHot(focused ? which : null);
   return (
     <>
-      {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} hot={hot} plan={plan} blocked={problem !== null} />}
+      {bit && cut && <ChamferDiagram bit={bit} width={inlay.width} clearance={clearance} side={inlay.side} start={inlay.startDepth ?? 0} hot={hot} plan={plan} blocked={problem !== null} />}
       <div className="row">
         {bit?.kind !== "corner_round" && (
           <>
@@ -1193,7 +1275,7 @@ function ChamferFields({ step, inlay, onChange }: { step: Step; inlay: ChamferOp
             />
           </>
         )}
-        <StartDepthField label="Edge depth" value={inlay.startDepth} help="chamferStart" onChange={(startDepth) => onChange({ startDepth })} />
+        <StartDepthField label="Edge depth" value={inlay.startDepth} help="chamferStart" onChange={(startDepth) => onChange({ startDepth })} onFocusChange={mark("start")} />
         {bit?.kind === "corner_round" && <span />}
       </div>
       {problem && <p className="hint warn">{problem}</p>}
@@ -1311,6 +1393,21 @@ function StepEditor({ step }: { step: InlayStep }) {
                   : "The insert is cut right through a board of the thickness given."}
               </p>
             </>
+          )}
+          <div className="row">
+            <StartDepthField value={inlay.startDepth} help="inlayStart" onChange={(startDepth) => setInlay({ startDepth })} onFocusChange={mark("start")} />
+            {/* A third of the row, as beside the depths above. */}
+            <span />
+            <span />
+          </div>
+          {(inlay.startDepth ?? 0) > 0 && (
+            <p className="hint">
+              The pocket is cut into a surface {fmt(inlay.startDepth ?? 0)} mm down, such as the floor of an earlier pocket or facing: the wood above it must be gone{" "}
+              {inlay.type === "flat" && inlay.insertStyle === "loose"
+                ? "over the inserts"
+                : `over the plug's blank, ${fmt(inlay.type === "vcarve" ? inlay.plugMargin : inlay.insertMargin)} mm round the shapes`}
+              . The {inlay.type === "flat" && inlay.insertStyle === "loose" ? "inserts are" : "plug is"} cut as before.
+            </p>
           )}
           {inlay.type === "vcarve" && (
             <>

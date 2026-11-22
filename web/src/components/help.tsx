@@ -156,6 +156,27 @@ const START = (
   </Frame>
 );
 
+/** In section, a facing's start either side of the surface: on a plug standing on it, and in a floor already cut lower. */
+const FACING_START = (
+  <Frame>
+    <path className="help-wood" d="M0 40H76V90H0Z" />
+    <rect className="help-plug" x="46" y="24" width="18" height="16" />
+    <path className="help-dim" d="M66 24H72M69 24V40M66 40H72" />
+    <path className="help-wood" d="M84 40H96V54H148V40H160V90H84Z" />
+    <path className="help-dim" d="M117 40H123M120 40V54M117 54H123" />
+    <path className="help-level" d="M0 40H160" />
+    <text className="help-text" x="2" y="36">
+      surface
+    </text>
+    <text className="help-text" x="40" y="14">
+      start 2
+    </text>
+    <text className="help-text" x="100" y="30">
+      start −1
+    </text>
+  </Frame>
+);
+
 /** In section: a pocket already cut, and the edge of a deeper opening in its floor bevelled. */
 const EDGE_START = (
   <Frame>
@@ -217,6 +238,16 @@ export const HELP = {
     title: "Edge depth",
     text: "How deep the edge lies below the surface, as the edge of an opening in the floor of a pocket: the bevel is cut as it would be at the top, that much lower. The wood above it must be gone on both sides of the edge. 0 for the top edge of the stock.",
     picture: EDGE_START,
+  },
+  facingStart: {
+    title: "Start above the surface",
+    text: "Where the first pass begins, measured from the stock's surface. Above 0: on wood standing on the surface, such as a glued-in plug. Under 0: below the surface, where the wood above is already gone. 0: at the surface.",
+    picture: FACING_START,
+  },
+  inlayStart: {
+    title: "Start depth",
+    text: "How deep the surface the pocket is cut into lies, such as the floor of an earlier pocket or facing: the pocket is cut as it would be at the top, that much lower, and the plug or insert is cut as before. The wood above must be gone over the plug's blank, or over loose inserts. 0 for the stock's surface.",
+    picture: START,
   },
   facingDepth: { title: "Depth below the surface", text: "How far under the stock's surface the facing goes. Under 0, it stops that far above the surface and leaves the wood proud." },
   byHand: { title: "A step done by hand", text: "Its place in the list is what counts: the steps below it find the stock as this one leaves it. Drag it in the list to move it." },

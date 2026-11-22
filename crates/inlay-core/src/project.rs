@@ -614,6 +614,12 @@ pub enum Task {
         glue_gap: f64,
         /// Space between the pocket surface and the plug's backer, mm.
         saw_gap: f64,
+        /// How deep the surface the pocket is cut into lies, as the floor of
+        /// an earlier pocket or facing: the wood above it, over the plug's
+        /// blank, is gone already. 0 for the stock's surface. The plug is
+        /// cut as it would be at the surface.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// Flat end mills that clear the flat floor, in the order they are
         /// used. Each cuts only what those before it left.
         #[serde(default)]
@@ -644,6 +650,11 @@ pub enum Task {
     #[serde(rename_all = "camelCase")]
     Flat {
         pocket_depth: f64,
+        /// How deep the surface the pocket is cut into lies, as the floor of
+        /// an earlier pocket or facing: the wood above it, over the insert
+        /// or the plug's blank, is gone already. 0 for the stock's surface.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// Total gap between insert and pocket wall, split between the two, mm.
         allowance: f64,
         /// Hold whatever is cut out of the insert board to it with tabs.
@@ -713,6 +724,12 @@ pub enum Task {
         /// stands there, and leaves the rest of it proud.
         #[serde(default)]
         depth: f64,
+        /// How deep the first pass starts, where the wood above, over the
+        /// area, is gone already: for a facing in the floor of another. 0
+        /// starts at the surface, or above it on the wood that stands there.
+        /// Not with wood above the surface.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_depth: f64,
         /// How far beyond the rectangle around the chosen shapes the area reaches, mm.
         #[serde(default)]
         margin: f64,
@@ -1004,6 +1021,7 @@ impl Task {
             engagement_depth: 3.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
+            start_depth: 0.0,
             plug_margin: 8.0,
             plug_thickness: 10.0,
             cut_out: false,
@@ -1018,6 +1036,7 @@ impl Task {
     pub fn default_flat() -> Self {
         Task::Flat {
             pocket_depth: 3.0,
+            start_depth: 0.0,
             allowance: 0.1,
             tabs: false,
             clearing_tool_ids: Vec::new(),
@@ -1051,6 +1070,15 @@ impl Task {
             | Task::Contour { tool_id, .. }
             | Task::Chamfer { tool_id, .. } => tool_id.iter().map(String::as_str).collect(),
             Task::Glue { .. } | Task::Saw { .. } => Vec::new(),
+        }
+    }
+
+    /// How deep the surface an inlay's pocket is cut into lies below the
+    /// stock's. 0 for any other step.
+    pub fn inlay_start(&self) -> f64 {
+        match self {
+            Task::Vcarve { start_depth, .. } | Task::Flat { start_depth, .. } => *start_depth,
+            _ => 0.0,
         }
     }
 
@@ -1097,12 +1125,17 @@ impl Task {
                 engagement_depth,
                 glue_gap,
                 saw_gap,
+                start_depth,
                 plug_margin,
                 plug_thickness,
                 tuning,
                 ..
             } => {
                 tuning.validate()?;
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth an inlay's pocket starts at must be 0 or more",
+                )?;
                 check(
                     plug_margin.is_finite() && plug_margin > 0.0,
                     "plug margin must be greater than 0",
@@ -1126,12 +1159,17 @@ impl Task {
             }
             Task::Flat {
                 pocket_depth,
+                start_depth,
                 allowance,
                 insert_thickness,
                 insert_margin,
                 saw_gap,
                 ..
             } => {
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth an inlay's pocket starts at must be 0 or more",
+                )?;
                 check(
                     saw_gap.is_finite() && saw_gap >= 0.0,
                     "saw gap must be 0 or more",
@@ -1171,12 +1209,19 @@ impl Task {
                 above,
                 above_auto,
                 depth,
+                start_depth,
                 margin,
                 ..
             } => {
                 check(
                     above.is_finite() && above >= 0.0,
                     "the wood above the surface must be 0 or more",
+                )?;
+                // Starting at or below the end, or below the surface with
+                // wood above it, is refused when the file is made.
+                check(
+                    start_depth.is_finite() && start_depth >= 0.0,
+                    "the depth a facing starts at must be 0 or more",
                 )?;
                 // With the height taken from the list, where the cut may
                 // end is known only when the file is made.
@@ -1483,6 +1528,7 @@ mod tests {
                     cut_overrides: Default::default(),
                     suppressed: false,
                     task: Task::Vcarve {
+                        start_depth: 0.0,
                         engagement_depth: 3.0,
                         glue_gap: 0.3,
                         saw_gap: 1.5,
@@ -1508,6 +1554,7 @@ mod tests {
                     cut_overrides: Default::default(),
                     suppressed: false,
                     task: Task::Flat {
+                        start_depth: 0.0,
                         pocket_depth: 2.5,
                         allowance: 0.1,
                         tabs: true,
@@ -1658,6 +1705,7 @@ mod tests {
         op(
             "facing",
             Task::Facing {
+                start_depth: 0.0,
                 pattern: Pattern::Raster,
                 direction: PassDirection::Longer,
                 above: 6.0,
@@ -1727,6 +1775,7 @@ mod tests {
         // A facing may end above the surface, but not above where it starts.
         let mut proud = p.clone();
         let facing = |above: f64, depth: f64| Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above,
@@ -1863,6 +1912,7 @@ mod tests {
     fn negative_depths_are_rejected() {
         let mut project = sample();
         project.steps[1].task = Task::Flat {
+            start_depth: 0.0,
             pocket_depth: -1.0,
             allowance: 0.1,
             tabs: false,

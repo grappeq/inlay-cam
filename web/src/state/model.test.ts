@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, Profile, Project, Step, Tool } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -115,7 +115,7 @@ describe("steps", () => {
   it("makes a facing that trims a glued-in plug flush", () => {
     const inlay = { ...step("vcarve", [1, 2]), name: "Walnut star", material: "softwood" };
     // 10 mm of plug, 3 mm of it in the pocket.
-    expect(standingPart(inlay)).toEqual({ above: 7, margin: 8, what: "plug" });
+    expect(standingPart(inlay)).toEqual({ above: 7, margin: 8, floor: 0, what: "plug" });
     const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
     expect(trim.name).toBe("Trim Walnut star");
     // It cuts the plug, so it is in the plug's wood, whatever the stock is; a facing of the stock itself is in the stock's.
@@ -153,6 +153,44 @@ describe("steps", () => {
     const pocket = step("pocket", [3]);
     expect(duplicateStep(pocket, [pocket])!.regionIds).toEqual([3]);
     expect(duplicateStep(glueStep(inlay, [inlay])!, [inlay])).toBeNull();
+  });
+
+  it("trims a plug set into a lower surface down to that surface", () => {
+    const inlay = { ...step("vcarve", [1, 2]), name: "Walnut star" };
+    // 10 mm of plug, 3 mm in, in a pocket cut 4 mm down: 3 mm stand above the stock's surface.
+    Object.assign(inlay.task, { startDepth: 4 });
+    expect(standingPart(inlay)).toEqual({ above: 3, margin: 8, floor: 4, what: "plug" });
+    const trim = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
+    expect(trim.task).toMatchObject({ type: "facing", above: 3, aboveAuto: true, depth: 4 });
+    expect(trimOf(inlay, [inlay, trim])).toBe(trim);
+    // 8 mm down, its top is 1 mm below the stock's surface: the facing starts there, and nothing is taken from the list.
+    Object.assign(inlay.task, { startDepth: 8 });
+    expect(flushTrim(standingPart(inlay)!)).toEqual({ above: 0, startDepth: 1, depth: 8 });
+    const low = trimFacing(inlay, [inlay], DEFAULT_SETUP)!;
+    expect(low.task).toMatchObject({ type: "facing", above: 0, startDepth: 1, depth: 8 });
+    expect(low.task.type === "facing" && low.task.aboveAuto).toBeFalsy();
+    expect(trimOf(inlay, [inlay, low])).toBe(low);
+    // Wholly below the surface it is set in: nothing to trim.
+    Object.assign(inlay.task, { startDepth: 0, plugThickness: 3 });
+    expect(trimFacing(inlay, [inlay], DEFAULT_SETUP)).toBeNull();
+  });
+
+  it("saws and trims a plug set into a lower surface by what stands of it", () => {
+    const inlay = { ...step("vcarve", [1, 2]), name: "Walnut star" };
+    // A 1.5 mm saw gap, 1 mm down: half a millimetre for the saw.
+    Object.assign(inlay.task, { sawGap: 1.5, startDepth: 1 });
+    expect(sawRoom(inlay.task)).toBe(0.5);
+    expect(sawStep(inlay, [inlay])!.task).toMatchObject({ type: "saw", leave: 0.5 });
+    // 2 mm down the backer lies below the stock's surface: no room.
+    Object.assign(inlay.task, { startDepth: 2 });
+    expect(sawRoom(inlay.task)).toBe(-0.5);
+    expect(aboveOrBelow(-0.97)).toBe("0.97 mm below");
+    expect(aboveOrBelow(2)).toBe("2 mm above");
+    // A facing over the inlay's shapes that starts below the surface is its trim only below it in the list:
+    // above it, it may be what lowered the surface the pocket is cut into.
+    const facing = { ...step("facing", [1, 2]), task: { ...step("facing", [1, 2]).task, startDepth: 1, depth: 2 } as Step["task"] };
+    expect(trimOf(inlay, [facing, inlay])).toBeUndefined();
+    expect(trimOf(inlay, [inlay, facing])).toBe(facing);
   });
 
   it("offers the trim for a plug on a backer only", () => {

@@ -369,6 +369,13 @@ pub fn build_with(
     // A contour without a depth goes right through the stock on purpose.
     let through_stock = matches!(&step.task, Task::Contour { depth: None, .. });
 
+    // An inlay's pocket cut into a surface below the stock's: worked out
+    // as at the surface, then lowered.
+    let lowered = match part {
+        Part::Pocket => step.task.inlay_start(),
+        Part::Plug => 0.0,
+    };
+
     let mut errors: Vec<String> = Vec::new();
     let before: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
@@ -381,7 +388,14 @@ pub fn build_with(
             "The inlay has no shapes. Click shapes in the drawing to add them.".into()
         });
     }
-    if depth >= thickness && !loose && !through_stock {
+    if lowered > 0.0 && lowered + depth >= thickness {
+        errors.push(format!(
+            "The pocket starts {} mm deep and goes {} mm further, but the base board is only {} mm thick.",
+            num(lowered),
+            num(depth),
+            num(thickness)
+        ));
+    } else if depth >= thickness && !loose && !through_stock {
         errors.push(match part {
             _ if plain => format!(
                 "The cut is {} mm deep but the stock is only {} mm thick.{}",
@@ -413,7 +427,7 @@ pub fn build_with(
         machine,
         depth,
         start: match &step.task {
-            Task::Pocket { start_depth, .. } => *start_depth,
+            Task::Pocket { start_depth, .. } | Task::Facing { start_depth, .. } => *start_depth,
             _ => 0.0,
         },
         pattern: match &step.task {
@@ -455,7 +469,13 @@ pub fn build_with(
                 .filter(|_| *above_auto)
                 .or_else(|| facing_start(project, step_id).map(|(_, above)| above))
                 .unwrap_or(0.0);
-            if *above_auto && above + depth <= 0.0 {
+            if ctx.start > 0.0 && (*above_auto || above > 0.0) {
+                ctx.errors.push(
+                    "A facing starts below the surface or on wood above it, not both. Set the start depth to 0, or take no wood above the surface."
+                        .into(),
+                );
+                None
+            } else if *above_auto && above + depth <= 0.0 {
                 ctx.errors.push(
                     "There is nothing to face: when the list gets to this facing, nothing glued in stands above the surface where it cuts. Put it below the glue-up, or give the wood above the surface by hand."
                         .into(),
@@ -536,6 +556,7 @@ pub fn build_with(
                 insert_style,
                 saw_gap,
                 cut_out,
+                ..
             },
         ) => {
             let insert = FlatInsert {
@@ -590,6 +611,7 @@ pub fn build_with(
                 vbit_tool_id,
                 cut_out,
                 tabs,
+                ..
             },
         ) => {
             let cut = vcarve_plug_cut(
@@ -614,6 +636,15 @@ pub fn build_with(
                 other => other,
             }
         }
+    };
+    let cut = match cut {
+        Some(cut) if lowered > 0.0 => Some(lower_pocket(
+            cut,
+            lowered,
+            Setup::of(project, step).safe_height,
+            inlay_blank(&regions, &step.task),
+        )),
+        other => other,
     };
     // Where the pocket ends up shallower than the plug needs to go in.
     let mut narrow: Vec<[Point; 2]> = Vec::new();
@@ -2406,6 +2437,8 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                     ),
                     _ => continue,
                 };
+                // Its pocket may be cut into a surface below the stock's.
+                let height = height - inlay.task.inlay_start();
                 if let Some(b) = extent(&design.placed_regions(&inlay.region_ids)) {
                     if height > 0.0 {
                         standing.push((
@@ -2416,14 +2449,18 @@ fn standing_in(project: &Project, index: usize, rect: [f64; 4]) -> f64 {
                     }
                 }
             }
-            Task::Facing { depth, .. } => {
+            Task::Facing {
+                depth, start_depth, ..
+            } => {
                 let faced = facing_rect(
                     &design.placed_regions(&step.region_ids),
                     design.placed_size(),
                     facing_margin(project, step),
                 );
                 for (_, blank, height) in &mut standing {
-                    if overlap(blank, &faced) {
+                    // One that starts below the surface takes off nothing
+                    // that stands above it: it expects that wood gone.
+                    if overlap(blank, &faced) && *start_depth <= 0.0 {
                         *height = height.min((-depth).max(0.0));
                     }
                 }
@@ -2461,6 +2498,15 @@ fn facing(
     tool_id: Option<&str>,
 ) -> Option<Cut> {
     let depth = ctx.depth;
+    let start = ctx.start;
+    if start > 0.0 && start >= depth {
+        ctx.errors.push(format!(
+            "The facing starts {} mm deep, but it ends only {} mm deep. Start it higher.",
+            num(start),
+            num(depth)
+        ));
+        return None;
+    }
     let total = above + depth;
     if total <= 0.0 {
         ctx.errors.push(
@@ -2490,7 +2536,12 @@ fn facing(
     let mut path = ctx.path();
     path.start_tool(number, cutting.rpm);
     // The area has no walls: straight passes need no pass round its edge.
-    let params = clear_params(tool, &cutting, total, ctx.setup().ramp_slope());
+    // Below the surface the passes start at `start`; above it, at the
+    // surface, and are lifted below.
+    let params = ClearParams {
+        start,
+        ..clear_params(tool, &cutting, total, ctx.setup().ramp_slope())
+    };
     match ctx.pattern {
         Pattern::Offset => clear_centres(&mut path, &where_to, &params),
         Pattern::Raster => raster_centres(&mut path, &where_to, &params, false, ctx.direction),
@@ -2540,9 +2591,60 @@ fn facing(
             tool: tool.clone(),
         }],
         moves,
+        // Over the area and as far as the tool reaches beyond it, and a
+        // little over for the grid the simulation runs on.
+        gone: (start > 0.0).then(|| Gone::over(&offset(&wanted, radius + 0.2), start)),
         pocket: wanted,
         ..Cut::default()
     })
+}
+
+/// The pocket of an inlay worked out at the surface, lowered by `start` into
+/// a surface below it: every move but those at the travel height, which
+/// stays where it is. Its file alone is simulated with the wood above that
+/// surface gone over `blank`.
+fn lower_pocket(mut cut: Cut, start: f64, safe: f64, blank: Vec<Region>) -> Cut {
+    for m in &mut cut.moves {
+        match m {
+            Move::Rapid { to } | Move::Feed { to, .. } | Move::Arc { to, .. }
+                if to[2] < safe - 1e-9 =>
+            {
+                to[2] -= start
+            }
+            _ => {}
+        }
+    }
+    cut.gone = Some(Gone::over(&blank, start));
+    cut
+}
+
+/// What of an inlay rests on the surface its pocket is cut into: the plug's
+/// blank, the rectangle around the shapes grown by its margin, or loose
+/// inserts, inside their pockets. A little over for the grid the simulation
+/// runs on.
+fn inlay_blank(regions: &[Region], task: &Task) -> Vec<Region> {
+    let margin = match task {
+        Task::Vcarve { plug_margin, .. } => *plug_margin,
+        Task::Flat {
+            insert_style: InsertStyle::Backer,
+            insert_margin,
+            ..
+        } => *insert_margin,
+        Task::Flat { allowance, .. } => return offset(regions, allowance / 2.0 + 0.2),
+        _ => 0.0,
+    };
+    match extent(regions) {
+        Some([x0, y0, x1, y1]) => {
+            let m = margin + 0.2;
+            vec![Region::new(vec![
+                [x0 - m, y0 - m],
+                [x1 + m, y0 - m],
+                [x1 + m, y1 + m],
+                [x0 - m, y1 + m],
+            ])]
+        }
+        None => Vec::new(),
+    }
 }
 
 /// A contour: an end mill taken along the outlines of the shapes, outside
@@ -3367,6 +3469,24 @@ pub fn fit_of(
     })?;
     // A plug cut out of a larger board is only what lies inside the cut: the
     // rest of that board is not there when the plug goes in.
+    // A pocket cut into a surface below the stock's is measured from that
+    // surface, as one at the stock's surface is.
+    let start = project
+        .steps
+        .iter()
+        .find(|j| j.id == step_id)
+        .map_or(0.0, |j| j.task.inlay_start());
+    let raised;
+    let pocket_map = if start > 0.0 {
+        let mut map = pocket.map.clone();
+        for z in &mut map.z {
+            *z += start as f32;
+        }
+        raised = map;
+        &raised
+    } else {
+        &pocket.map
+    };
     let masked;
     let plug_map = match plug.built.piece {
         Some([x0, y0, x1, y1]) => {
@@ -3384,7 +3504,7 @@ pub fn fit_of(
         }
         None => &plug.map,
     };
-    analysis::fit(&pocket.map, plug_map, frame, &settings)
+    analysis::fit(pocket_map, plug_map, frame, &settings)
         .ok_or_else(|| vec!["The plug does not lie over the base board at all.".to_string()])
 }
 
@@ -3521,6 +3641,7 @@ pub(crate) mod tests {
                 cut_overrides: Default::default(),
                 suppressed: false,
                 task: Task::Flat {
+                    start_depth: 0.0,
                     pocket_depth: 2.0,
                     allowance: 0.1,
                     tabs: false,
@@ -3789,6 +3910,7 @@ pub(crate) mod tests {
         let reasons = |p: &Project| build_pocket(p, "j").unwrap_err().join(" | ");
 
         let p = with_inlay(Task::Flat {
+            start_depth: 0.0,
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
@@ -3802,6 +3924,7 @@ pub(crate) mod tests {
         assert!(reasons(&p).contains("Choose an end mill"));
 
         let p = with_inlay(Task::Flat {
+            start_depth: 0.0,
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: false,
@@ -3815,6 +3938,7 @@ pub(crate) mod tests {
         assert!(reasons(&p).contains("is not an end mill"));
 
         let p = with_inlay(Task::Flat {
+            start_depth: 0.0,
             pocket_depth: 25.0,
             allowance: 0.1,
             tabs: false,
@@ -3884,6 +4008,7 @@ pub(crate) mod tests {
     /// 3.175 mm end mill.
     pub(crate) fn vcarve_project(clearing: bool) -> Project {
         let mut p = with_inlay(Task::Vcarve {
+            start_depth: 0.0,
             engagement_depth: 2.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
@@ -5094,6 +5219,7 @@ pub(crate) mod tests {
     #[test]
     fn facing_the_whole_stock_starts_above_the_surface_and_leaves_it_flat() {
         let mut p = op_project(Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 2.0,
@@ -5130,6 +5256,7 @@ pub(crate) mod tests {
     #[test]
     fn facing_over_shapes_covers_them_and_their_margin_only() {
         let p = op_project(Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
@@ -5158,6 +5285,7 @@ pub(crate) mod tests {
         // A depth under 0 ends the cut that far above the surface.
         let mut proud = p.clone();
         proud.steps[0].task = Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 3.0,
@@ -5181,6 +5309,7 @@ pub(crate) mod tests {
         // Nothing to do at all is refused.
         let mut none = p.clone();
         none.steps[0].task = Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 0.0,
@@ -5317,6 +5446,161 @@ pub(crate) mod tests {
         use crate::project::project_to_file_json;
         assert!(!project_to_file_json(&pocket(0.0)).contains("startDepth"));
         assert!(project_to_file_json(&pocket(3.0)).contains("\"startDepth\": 3"));
+    }
+
+    #[test]
+    fn a_facing_can_start_below_the_surface() {
+        let facing = |start_depth: f64, above: f64| {
+            let mut p = op_project(Task::Facing {
+                start_depth,
+                pattern: Pattern::Raster,
+                direction: PassDirection::Longer,
+                above,
+                above_auto: false,
+                depth: 4.0,
+                margin: 2.0,
+                margin_auto: false,
+                tool_id: Some("t-endmill".into()),
+            });
+            p.base.thickness = 10.0;
+            p
+        };
+        let p = facing(2.5, 0.0);
+        // Its file alone is simulated with the wood above the start gone
+        // over the area.
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        let cuts = cuts(&preview.built);
+        let lowest = cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min);
+        let highest = cuts.iter().map(|q| q[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert!((lowest + 4.0).abs() < 1e-9, "{lowest}");
+        // Nothing is cut above the start: the highest feed is where the
+        // same facing at the surface comes down from, 2.5 mm lower.
+        let (_, at_surface) = cut_range(&build(&facing(0.0, 0.0), "j", Part::Pocket).unwrap());
+        assert!(
+            (highest - (at_surface - 2.5)).abs() < 1e-9,
+            "{highest} {at_surface}"
+        );
+        let length = |p: &Project| build(p, "j", Part::Pocket).unwrap().stats.cutting_length;
+        assert!(length(&p) < length(&facing(0.0, 0.0)));
+
+        // It has to start above where it ends, and not on wood above the surface too.
+        let reasons = |p: &Project| build(p, "j", Part::Pocket).unwrap_err().join(" | ");
+        assert!(reasons(&facing(4.0, 0.0)).contains("starts 4 mm deep"));
+        assert!(reasons(&facing(1.0, 2.0)).contains("not both"));
+        let mut listed = facing(1.0, 0.0);
+        if let Task::Facing { above_auto, .. } = &mut listed.steps[0].task {
+            *above_auto = true;
+        }
+        assert!(reasons(&listed).contains("not both"));
+        assert!(facing(-1.0, 0.0).validate().is_err());
+        use crate::project::project_to_file_json;
+        assert!(!project_to_file_json(&facing(0.0, 0.0)).contains("startDepth"));
+        assert!(project_to_file_json(&p).contains("\"startDepth\": 2.5"));
+    }
+
+    /// The lowest and highest the moves of a file cut.
+    fn cut_range(built: &Built) -> (f64, f64) {
+        let cuts = cuts(built);
+        (
+            cuts.iter().map(|q| q[2]).fold(f64::INFINITY, f64::min),
+            cuts.iter().map(|q| q[2]).fold(f64::NEG_INFINITY, f64::max),
+        )
+    }
+
+    fn set_inlay_start(p: &mut Project, start: f64) {
+        match &mut p.steps[0].task {
+            Task::Vcarve { start_depth, .. } | Task::Flat { start_depth, .. } => {
+                *start_depth = start
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn a_v_carved_inlay_can_be_cut_into_a_lower_surface() {
+        let at = |start: f64| {
+            let mut p = vcarve_project(true);
+            p.base.thickness = 12.0;
+            set_inlay_start(&mut p, start);
+            p
+        };
+        let (surface, lowered) = (at(0.0), at(3.0));
+        // The pocket is the same, 3 mm lower; the plug is not changed.
+        let pocket = |p: &Project| build(p, "j", Part::Pocket).unwrap();
+        let (low0, high0) = cut_range(&pocket(&surface));
+        let (low3, high3) = cut_range(&pocket(&lowered));
+        assert!((low3 - (low0 - 3.0)).abs() < 1e-9, "{low0} {low3}");
+        assert!((high3 - (high0 - 3.0)).abs() < 1e-9, "{high0} {high3}");
+        assert_eq!(
+            build(&surface, "j", Part::Plug).unwrap().gcode,
+            build(&lowered, "j", Part::Plug).unwrap().gcode
+        );
+        // Travel stays at the travel height; every rapid below it, down to
+        // where the cut starts, is 3 mm lower.
+        let safe = Setup::of(&surface, &surface.steps[0]).safe_height;
+        let rapids = |b: &Built| -> Vec<f64> {
+            b.interpreted
+                .segments
+                .iter()
+                .filter(|s| s.rapid)
+                .map(|s| s.to[2])
+                .collect()
+        };
+        let (r0, r3) = (rapids(&pocket(&surface)), rapids(&pocket(&lowered)));
+        assert_eq!(r0.len(), r3.len());
+        assert!(r0.iter().any(|z| *z < safe - 1e-9));
+        for (a, b) in r0.iter().zip(&r3) {
+            let wanted = if *a >= safe - 1e-9 { *a } else { a - 3.0 };
+            assert!((b - wanted).abs() < 1e-9, "{a} -> {b}");
+        }
+
+        // Its file alone is simulated with the wood above gone over the
+        // plug's blank, and the plug fits it as it fits one at the surface.
+        let check = check_fit(&lowered, "j").unwrap();
+        assert_eq!(check.pocket.problems, []);
+        let at_surface = check_fit(&surface, "j").unwrap();
+        assert!(at_surface.fit.verdict.good);
+        assert!(check.fit.verdict.good);
+        assert!(
+            (check.fit.report.proud - at_surface.fit.report.proud).abs() < 0.02,
+            "{} {}",
+            check.fit.report.proud,
+            at_surface.fit.report.proud
+        );
+
+        // It must stay in the stock.
+        let reasons = build(&at(10.0), "j", Part::Pocket).unwrap_err().join(" | ");
+        assert!(reasons.contains("starts 10 mm deep"), "{reasons}");
+        assert!(at(-1.0).validate().is_err());
+        use crate::project::project_to_file_json;
+        assert!(!project_to_file_json(&surface).contains("startDepth"));
+        assert!(project_to_file_json(&lowered).contains("\"startDepth\": 3"));
+    }
+
+    #[test]
+    fn a_flat_inlay_can_be_cut_into_a_lower_surface() {
+        for backer in [false, true] {
+            let at = |start: f64| {
+                let mut p = if backer { backer_project() } else { project() };
+                p.base.thickness = 12.0;
+                set_inlay_start(&mut p, start);
+                p
+            };
+            let pocket = |p: &Project| build(p, "j", Part::Pocket).unwrap();
+            let (low0, high0) = cut_range(&pocket(&at(0.0)));
+            let (low, high) = cut_range(&pocket(&at(2.0)));
+            assert!((low - (low0 - 2.0)).abs() < 1e-9, "{backer}: {low0} {low}");
+            assert!(
+                (high - (high0 - 2.0)).abs() < 1e-9,
+                "{backer}: {high0} {high}"
+            );
+            let preview = preview(&at(2.0), "j", Part::Pocket).unwrap();
+            assert_eq!(preview.problems, [], "{backer}");
+            // The floor of the pocket is 2 mm lower than at the surface.
+            let floor = preview.map.z.iter().copied().fold(f32::INFINITY, f32::min);
+            assert!((floor + 4.0).abs() < 1e-3, "{backer}: {floor}");
+        }
     }
 
     #[test]
@@ -5657,6 +5941,7 @@ pub(crate) mod tests {
     fn a_file_warns_when_wood_above_the_surface_is_faced_after_other_steps() {
         let mut p = three_ops();
         p.steps[2].task = Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Longer,
             above: 4.0,
@@ -5928,6 +6213,7 @@ pub(crate) mod tests {
         // The test board is wider than it is deep, so the longer side is X.
         let facing = |direction| {
             let mut p = op_project(Task::Facing {
+                start_depth: 0.0,
                 pattern: Pattern::Raster,
                 direction,
                 above: 0.0,
@@ -5967,6 +6253,7 @@ pub(crate) mod tests {
 
         // A file without a direction means the longer side, and one with it keeps it.
         let mut p = op_project(Task::Facing {
+            start_depth: 0.0,
             pattern: Pattern::Raster,
             direction: PassDirection::Y,
             above: 0.0,
@@ -5989,6 +6276,7 @@ pub(crate) mod tests {
     fn facing_goes_side_to_side_unless_rings_are_asked_for() {
         let facing = |pattern| {
             let mut p = op_project(Task::Facing {
+                start_depth: 0.0,
                 pattern,
                 direction: PassDirection::Longer,
                 above: 0.0,

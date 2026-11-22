@@ -186,6 +186,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
     let tools = vec!["t-endmill".to_string()];
     let inlay = match kind {
         Kind::Vcarve => Task::Vcarve {
+            start_depth: 0.0,
             engagement_depth: 2.0,
             glue_gap: 0.3,
             saw_gap: 1.5,
@@ -199,6 +200,7 @@ fn project_of(import: &SvgImport, region_ids: &[u32], kind: Kind) -> Project {
             tuning: Default::default(),
         },
         Kind::Flat | Kind::FlatBacker => Task::Flat {
+            start_depth: 0.0,
             pocket_depth: 2.0,
             allowance: 0.1,
             tabs: true,

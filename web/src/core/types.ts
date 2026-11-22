@@ -273,6 +273,8 @@ export interface VcarveInlay {
   engagementDepth: number;
   glueGap: number;
   sawGap: number;
+  /** How deep the surface the pocket is cut into lies, as the floor of an earlier cut: the wood above it, over the plug's blank, is gone already. Absent means the stock's surface. */
+  startDepth?: number;
   clearingToolIds: string[];
   vbitToolId: string | null;
   /** Cut the finished plug out of a larger board, as one piece. */
@@ -296,6 +298,8 @@ export interface VcarveInlay {
 export interface FlatInlay {
   type: "flat";
   pocketDepth: number;
+  /** How deep the surface the pocket is cut into lies, as the floor of an earlier cut: the wood above it, over the insert or the plug's blank, is gone already. Absent means the stock's surface. */
+  startDepth?: number;
   allowance: number;
   tabs: boolean;
   /** End mills that cut the pocket, in the order they are used. The smallest cuts the insert out. */
@@ -342,6 +346,8 @@ export interface FacingOp {
   aboveAuto?: boolean;
   /** How far below the stock's surface the area ends up. Less than 0: that far above it. Never less than `-above`. */
   depth: number;
+  /** How deep the first pass starts, where the wood above, over the area, is gone already. Absent means at the surface, or on the wood above it. Not with wood above the surface. */
+  startDepth?: number;
   /** How far beyond the rectangle around the chosen shapes the area reaches. */
   margin: number;
   /** Take the margin from the inlays instead: the widest plug margin of the inlays the shapes belong to. `margin` is used while they belong to none with a plug. */

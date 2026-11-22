@@ -162,7 +162,17 @@ export function sawStep(owner: Step, existing: Step[]): Step | null {
   if (!isInlay(owner.task) || !hasBacker(owner.task)) return null;
   let name = `Saw the backer off ${owner.name}`;
   for (let n = 2; existing.some((j) => j.name === name); n++) name = `Saw the backer off ${owner.name} ${n}`;
-  return { id: newId(), name, material: owner.material, regionIds: [], task: { type: "saw", inlayId: owner.id, leave: owner.task.sawGap } };
+  return { id: newId(), name, material: owner.material, regionIds: [], task: { type: "saw", inlayId: owner.id, leave: sawRoom(owner.task) } };
+}
+
+/**
+ * How far above the stock's surface the backer of an inlay's plug lies once
+ * glued in: the saw gap, less how deep the surface its pocket is cut into
+ * lies. At 0 or under, there is no room for a saw that rides on the stock.
+ */
+export function sawRoom(inlay: Task): number {
+  if (!isInlay(inlay)) return 0;
+  return Math.round((inlay.sawGap - (inlay.startDepth ?? 0)) * 100) / 100;
 }
 
 /** The step that saws this inlay's backer off, if the list has one. */
@@ -301,15 +311,34 @@ export function newStep(type: StepType, regionIds: number[], existing: Step[], s
 }
 
 /**
- * How far a glued-in part of an inlay stands above the stock, and how far
- * its blank reaches beyond its shapes. Null for a plain operation.
+ * How far a glued-in part of an inlay stands above the stock's surface (under
+ * 0: how far below it its top lies), how far its blank reaches beyond its
+ * shapes, and how deep the surface its pocket is cut into lies, `floor`, 0
+ * for the stock's own. Null for a plain operation.
  */
-export function standingPart(owner: Step): { above: number; margin: number; what: "plug" | "inserts" } | null {
+export function standingPart(owner: Step): { above: number; margin: number; floor: number; what: "plug" | "inserts" } | null {
   const inlay = owner.task;
-  if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth, margin: inlay.plugMargin, what: "plug" };
-  if (inlay.type !== "flat") return null;
-  const above = inlay.insertThickness - inlay.pocketDepth;
-  return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, what: "plug" } : { above, margin: 1, what: "inserts" };
+  if (inlay.type !== "vcarve" && inlay.type !== "flat") return null;
+  const floor = inlay.startDepth ?? 0;
+  if (inlay.type === "vcarve") return { above: inlay.plugThickness - inlay.engagementDepth - floor, margin: inlay.plugMargin, floor, what: "plug" };
+  const above = inlay.insertThickness - inlay.pocketDepth - floor;
+  return inlay.insertStyle === "backer" ? { above, margin: inlay.insertMargin, floor, what: "plug" } : { above, margin: 1, floor, what: "inserts" };
+}
+
+/** How high something stands, said from the stock's surface: "2 mm above" or "1 mm below". */
+export function aboveOrBelow(mm: number): string {
+  const v = Math.round(mm * 100) / 100;
+  return v < 0 ? `${fmt(-v)} mm below` : `${fmt(v)} mm above`;
+}
+
+/**
+ * The numbers of a facing that trims a glued-in part flush with the surface
+ * its pocket was cut into: from the top of the part, above the stock's
+ * surface or below it, down to that surface.
+ */
+export function flushTrim(part: { above: number; floor: number }): { above: number; startDepth?: number; depth: number } {
+  const above = Math.round(part.above * 100) / 100;
+  return above > 0 ? { above, depth: part.floor } : { above: 0, startDepth: -above > 0 ? -above : undefined, depth: part.floor };
 }
 
 /**
@@ -321,7 +350,7 @@ export function standingPart(owner: Step): { above: number; margin: number; what
  */
 export function trimFacing(owner: Step, existing: Step[], setup: Setup): Step | null {
   const part = standingPart(owner);
-  if (!part || part.what !== "plug" || !(part.above > 0) || owner.regionIds.length === 0) return null;
+  if (!part || part.what !== "plug" || !(part.above + part.floor > 0) || owner.regionIds.length === 0) return null;
   const step = newStep("facing", [...owner.regionIds], existing, setup);
   let name = `Trim ${owner.name}`;
   for (let n = 2; existing.some((j) => j.name === name); n++) name = `Trim ${owner.name} ${n}`;
@@ -329,7 +358,8 @@ export function trimFacing(owner: Step, existing: Step[], setup: Setup): Step | 
     ...step,
     name,
     // The height is taken from the list and the margin from the inlay, so that both follow it; the numbers are what is used by hand.
-    task: { type: "facing", above: Math.round(part.above * 100) / 100, aboveAuto: true, depth: 0, margin: part.margin, marginAuto: true, pattern: "raster", toolId: null },
+    // A plug whose top is below the stock's surface is trimmed from there: nothing of it stands for the list to find.
+    task: { type: "facing", ...flushTrim(part), ...(part.above > 0 ? { aboveAuto: true } : {}), margin: part.margin, marginAuto: true, pattern: "raster", toolId: null },
   };
 }
 
@@ -353,7 +383,9 @@ export function inlayMargin(step: Step, steps: Step[]): number | null {
  */
 export function trimOf(owner: Step, steps: Step[]): Step | undefined {
   const shapes = new Set(owner.regionIds);
-  return steps.find((j) => j.task.type === "facing" && (j.task.above > 0 || j.task.aboveAuto === true) && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
+  const after = steps.indexOf(owner);
+  // One that starts below the surface counts only below the inlay: one above it may be what lowered the surface it is cut into.
+  return steps.find((j, i) => j.task.type === "facing" && (j.task.above > 0 || j.task.aboveAuto === true || ((j.task.startDepth ?? 0) > 0 && i > after)) && j.regionIds.length === shapes.size && j.regionIds.every((id) => shapes.has(id)));
 }
 
 export function stepToolIds(step: Step): string[] {
@@ -397,9 +429,13 @@ export function missingFor(step: Step): string | null {
     case "facing":
       return inlay.toolId === null
         ? "Choose an end mill first."
-        : !inlay.aboveAuto && inlay.above + inlay.depth <= 0
-          ? "Give the wood above the surface, a depth below it, or both."
-          : null;
+        : (inlay.startDepth ?? 0) > 0
+          ? inlay.depth <= (inlay.startDepth ?? 0)
+            ? "Give a depth below the surface deeper than where it starts."
+            : null
+          : !inlay.aboveAuto && inlay.above + inlay.depth <= 0
+            ? "Give a start above the surface, a depth below it, or both."
+            : null;
     case "contour":
       return inlay.toolId === null ? "Choose an end mill first." : null;
     case "glue":

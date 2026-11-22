@@ -9,7 +9,7 @@ import { fmt } from "../state/model";
 import { HelpTip } from "./HelpTip";
 
 /** Which numbers to mark out: those of the field being typed in. */
-export type ChamferHot = "width" | "clearance" | null;
+export type ChamferHot = "width" | "clearance" | "start" | null;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -43,6 +43,7 @@ export function ChamferDiagram({
   width,
   clearance,
   side,
+  start = 0,
   hot,
   plan,
   blocked,
@@ -51,6 +52,8 @@ export function ChamferDiagram({
   width: number;
   clearance: number;
   side: "inside" | "outside";
+  /** How deep the edge lies below the stock's surface, where the wood above it is gone already. */
+  start?: number;
   hot: ChamferHot;
   /** The core's passes, once known. */
   plan: EdgePlan | null;
@@ -109,6 +112,9 @@ export function ChamferDiagram({
   const across_ = (from: number, to: number, y: number) => `M${X(from)} ${y - 3}V${y + 3}M${X(from)} ${y}H${X(to)}M${X(to)} ${y - 3}V${y + 3}`;
   const upright = (x: number, from: number, to: number) => `M${x - 3} ${Y(from)}H${x + 3}M${x} ${Y(from)}V${Y(to)}M${x - 3} ${Y(to)}H${x + 3}`;
   const yTop = Y(0) - 22;
+  // An edge below the surface: the wood above it is gone on both sides (dashed), drawn short, not to scale.
+  const lowered = start > 0 ? 14 : 0;
+  const yEdge = Y(0) - lowered;
 
   return (
     <figure className={`diagram${blocked ? " blocked" : ""}`}>
@@ -119,6 +125,7 @@ export function ChamferDiagram({
           </clipPath>
         </defs>
         <rect className="ch-gone" x={X(0)} y={Y(0)} width={X(right) - X(0)} height={Y(bottom) - Y(0)} />
+        {lowered > 0 && <rect className="ch-gone" x={X(left)} y={yEdge} width={X(right) - X(left)} height={lowered} />}
         <path className="wood-base" d={wood} />
         <path className="ch-bit" clipPath={`url(#${clip})`} d={body} />
         {/* Over the bit, which stands where the last of them ends. */}
@@ -152,6 +159,14 @@ export function ChamferDiagram({
             {fmt(round2(depth))} deep
           </text>
         </g>
+        {lowered > 0 && (
+          <g className={mark("start", " on-wood")}>
+            {/* On the wood, clear of the bit above it and of the bevel's height beside it. */}
+            <text x={X(left) + 4} y={Math.min(Y(down) + 14, Y(bottom) - 4)}>
+              {fmt(start)} down
+            </text>
+          </g>
+        )}
         {!rounding && (
           <g className={mark("clearance")}>
             <path d={across_(0, clearance, Y(depth) + 9)} />
@@ -162,7 +177,8 @@ export function ChamferDiagram({
         )}
       </svg>
       <figcaption>
-        The bit's tip ends {fmt(round2(aside))} mm {side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm deep.
+        The bit's tip ends {fmt(round2(aside))} mm {side === "inside" ? "inside" : "outside"} the outline, {fmt(round2(depth))} mm{" "}
+        {start > 0 ? `below the edge, ${fmt(round2(start + depth))} mm below the surface; the edge lies ${fmt(start)} mm down, where the wood above is gone (dashed).` : "deep."}
         {plan && (
           <>
             {" "}

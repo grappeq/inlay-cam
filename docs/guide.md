@@ -488,6 +488,11 @@ The plug is glued in face down and its backer is sawn off.
 - **Engagement**: how deep the plug goes into the pocket.
 - **Glue gap**: space left under the plug.
 - **Saw gap**: space between the board's surface and the plug's backer, for the saw.
+- **Start depth**: for a pocket cut into a surface below the stock's, such as the floor of
+  an earlier pocket or facing. The pocket is cut as it would be at the top, that much
+  lower; the plug is cut as before. The wood above must be gone over the plug's blank,
+  which the cross-section shows dashed. The fit check measures from that surface, and the
+  glue-up seats the plug on it.
 - **End mills for the flat floor**: optional. They clear the flat floor before the V-bit,
   which is much quicker than the V-bit alone.
 
@@ -523,6 +528,8 @@ mill chosen; the outline that will really be cut is drawn dashed after generatin
 
 - **Pocket depth** and **fit allowance**. The allowance is the gap all round: half comes
   off the insert and half is added to the pocket.
+- **Start depth**, as for a V-carve inlay: the pocket cut into a lower surface. The wood
+  above must be gone over the plug's blank, or over loose inserts.
 - The insert can be made two ways, under "Insert":
   - **Loose pieces**: each shape is cut right through its board as its own piece, the same
     way up as it goes in. A board thicker than the pocket is deep leaves the insert proud,
@@ -640,10 +647,12 @@ click adds a shape to it or takes it away.
   cut it from one track.
 - **Facing**: mills an area flat with an end mill. Without shapes that is the whole stock,
   and the tool runs out over every edge. With shapes it is the rectangle around them plus
-  a margin. Give a *depth below the surface* to flatten the stock, and the *wood above the
-  surface* to remove what stands on it. With wood above the surface, the depth may be less
-  than 0: the cut then ends that far above the surface. The panel draws it in section: the
-  wood above the surface, what comes off, and the margin. The tool goes side to side in straight passes;
+  a margin. Give a *depth below the surface* to flatten the stock, and *start above the
+  surface* to remove what stands on it, such as a glued-in plug. With a start above the
+  surface, the depth may be less than 0: the cut then ends that far above the surface. A
+  start under 0 begins the facing below the surface instead, for one in the floor of
+  another: nothing is cut above it, and the wood there must be gone over the area. The
+  panel draws it in section: where the cut starts, what comes off, and the margin. The tool goes side to side in straight passes;
   "The passes run" chooses along the longer side of the area (the fewest turns), left and
   right along X, or to and from the front along Y, which matters for the look of a faced
   surface in wood. "The tool's path" can make it go in rings instead.
@@ -656,7 +665,7 @@ facing will take off. Its **Add** adds a facing to the list as an operation of i
 inlay's name, over the inlay's shapes and in its wood, and opens it. It goes in after the
 inlay's glue-up when the list has one, else at the end:
 
-- *Take the wood above the surface from the list* is ticked. The height the cut starts at
+- *Take the start from the wood the list leaves above the surface* is ticked. The height the cut starts at
   is then how far the plug stands above the stock by the inlay's own numbers, as long as
   the inlay's glue-up is above the facing in the list; it follows when the inlay changes.
   That is the number the panel shows. The facing's files, its own and its part of a file

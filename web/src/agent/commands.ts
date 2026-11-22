@@ -439,10 +439,10 @@ function leaveGuard() {
 
 /** The keys of a step's settings that a default does not have, and may be set or taken away (null). */
 const OPTIONAL_KEYS: Record<StepType, string[]> = {
-  vcarve: ["floorRidge", "reliefKeep", "trimDepth"],
-  flat: [],
+  vcarve: ["startDepth", "floorRidge", "reliefKeep", "trimDepth"],
+  flat: ["startDepth"],
   pocket: ["startDepth", "direction"],
-  facing: ["aboveAuto", "marginAuto", "direction"],
+  facing: ["startDepth", "aboveAuto", "marginAuto", "direction"],
   contour: ["startDepth"],
   chamfer: ["startDepth", "tipClearance"],
   glue: [],
@@ -481,7 +481,7 @@ const SETTING_NOTES: Record<string, string> = {
   depth:
     "How deep the cut goes below the surface. Contour: null cuts right through the stock. Facing: how far below the surface the area ends up.",
   startDepth:
-    "How deep the cut starts, where the wood above is gone already. Absent: at the surface.",
+    "How deep the cut starts, where the wood above is gone already. Absent: at the surface. Inlay: the surface its pocket is cut into, such as an earlier pocket's floor; the plug is cut as before. Facing: not with wood above the surface.",
   pattern:
     '"offset": rings that follow the outline. "raster": straight passes side to side.',
   direction: 'Which way raster passes run: "longer" (default), "x" or "y".',

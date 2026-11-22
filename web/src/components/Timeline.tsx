@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
-import { fmt, isByHand, stepColor, stockColor } from "../state/model";
+import { aboveOrBelow, fmt, isByHand, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { StepIcon } from "./icons";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
@@ -258,7 +258,7 @@ function StepNote({ step, at, result, made }: { step: TimelineStep | null; at: n
       <p className="status-line" role="status">
         Step {at} of {result.steps.length}: the stock after "{name}".{" "}
         {seat
-          ? `Glued in by hand, it stands ${fmt(Math.round(seat.above * 100) / 100)} mm above the surface${
+          ? `Glued in by hand, its top is ${aboveOrBelow(seat.above)} the surface${
               Math.abs(seat.proud) >= 0.02 ? `, ${fmt(Math.round(Math.abs(seat.proud) * 100) / 100)} mm ${seat.proud > 0 ? "higher" : "lower"} than designed` : ""
             }.`
           : step.byHand

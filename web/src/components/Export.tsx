@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { BuildStats, Built, Step, StepType, StockTimeline } from "../core/types";
-import { fmt, isByHand, isInlay, stepColor } from "../state/model";
+import { aboveOrBelow, isByHand, isInlay, stepColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
@@ -68,7 +68,7 @@ function rowsOf(result: StockTimeline, steps: Step[]): Row[] {
         name: listed.name,
         type: listed.task.type,
         color: inlay ? stepColor(inlay, steps) : undefined,
-        seat: step.seat ? `Stands ${fmt(Math.round(step.seat.above * 100) / 100)} mm above the surface.` : "",
+        seat: step.seat ? `Its top is ${aboveOrBelow(step.seat.above)} the surface.` : "",
         notes: step.errors,
         at: index + 1,
       });

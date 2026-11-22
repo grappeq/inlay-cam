@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, Step } from "../core/types";
-import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, isSuppressed, sawOf, sawStep, standingPart, trimFacing, trimOf, withSuppressed, withoutStep } from "../state/model";
+import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, isSuppressed, sawOf, sawRoom, sawStep, standingPart, trimFacing, trimOf, withSuppressed, withoutStep } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { downloadText } from "../util/files";
 import { focusSoon, useDismiss, walkMenu } from "./Layers";
@@ -46,8 +46,10 @@ export function useAfterCut(step: Step) {
 
   return {
     part,
-    /** Whether there is a plug above the surface, to saw off and to trim. */
-    trims: part !== null && part.what === "plug" && part.above > 0,
+    /** Whether there is a plug above the surface its pocket is cut into, to trim. */
+    trims: part !== null && part.what === "plug" && part.above + part.floor > 0,
+    /** Whether its backer lies above the stock's surface, for a saw that rides on the stock. */
+    saws: part !== null && part.what === "plug" && part.above + part.floor > 0 && sawRoom(step.task) > 0,
     glue: glueOf(step, project.steps),
     saw: sawOf(step, project.steps),
     trim: trimOf(step, project.steps),
@@ -204,7 +206,7 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
     dispatch({ type: "updateProject", update: (p) => ({ ...p, steps: withoutStep(p.steps, step.id) }) });
   };
 
-  const adds = after.part !== null && (!after.glue || (after.trims && (!after.saw || !after.trim)));
+  const adds = after.part !== null && (!after.glue || ((after.saws && !after.saw) || (after.trims && !after.trim)));
   return (
     <div ref={menu} className="menu-items context-menu layer-menu" role="menu" aria-label={step.name} style={{ left: at.x, top: at.y }} onKeyDown={(e) => (e.key === "Tab" ? (e.preventDefault(), done()) : walkMenu(e))} onContextMenu={(e) => e.preventDefault()}>
       <button type="button" role="menuitem" onClick={then(() => dispatch({ type: "setActiveStep", id: step.id }))}>
@@ -219,7 +221,7 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
           Add its glue-up
         </button>
       )}
-      {after.trims && !after.saw && (
+      {after.saws && !after.saw && (
         <button type="button" role="menuitem" disabled={!after.glue} title={after.glue ? undefined : "After the glue-up, once that is in the list."} onClick={then(after.addSaw)}>
           Saw off its backer
         </button>

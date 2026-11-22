@@ -337,6 +337,7 @@ through them.
 | `engagementDepth` | How deep the plug sits in the pocket. Greater than 0. |
 | `glueGap` | Space left under the plug. 0 or more. Pocket depth = engagement depth + glue gap. |
 | `sawGap` | Space between the pocket surface and the plug's backer. Greater than 0. |
+| `startDepth` | How deep the surface the pocket is cut into lies below the stock's, such as the floor of an earlier pocket or facing: the pocket's moves are those of one at the surface, that much lower, but for travel, which stays at the travel height; the plug is not changed. The wood above it is taken to be gone over the plug's blank. 0 or more; the pocket must stay above the bottom of the stock. Default 0; may be missing, and is not written when it is 0. The fit check measures from that surface, a glue-up seats the plug on it, and `aboveAuto` heights are that much lower. |
 | `clearingToolIds` | Flat end mills that clear the flat floor, in the order they are used. Each cuts only what those before it left. May be empty: the V-bit then clears the floor too. |
 | `vbitToolId` | The V-bit, or `null` when not chosen yet. |
 | `plugMargin` | Width of blank left around the shapes on the plug. Greater than 0. Default 8. The plug blank is the shapes' bounding box grown by this on every side. |
@@ -357,6 +358,7 @@ have their defaults.
 |---|---|
 | `type` | `flat` |
 | `pocketDepth` | Greater than 0. |
+| `startDepth` | How deep the surface the pocket is cut into lies below the stock's, such as the floor of an earlier pocket or facing: the pocket's moves are those of one at the surface, that much lower, but for travel, which stays at the travel height; the plug is not changed. The wood above it is taken to be gone over the plug's blank, or over loose inserts. 0 or more; the pocket must stay above the bottom of the stock. Default 0; may be missing, and is not written when it is 0. |
 | `allowance` | Gap between insert and pocket wall all round. 0 or more. Half is added to the pocket and half taken off the insert. |
 | `tabs` | Leave tabs that hold whatever is cut out of the insert board (the loose inserts, or the plug) to it. Default false. |
 | `insertStyle` | `loose` (default): each shape is cut right through the board as its own piece, the same way up as it goes in. `backer`: the shapes are left standing on a shared backer as one plug, mirrored, to be glued in face down. |
@@ -386,6 +388,7 @@ have their defaults.
 | `marginAuto` | `true`: `margin` is not used while any of the facing's regions belongs to a V-carve inlay or to a flat one with `insertStyle` `backer`; the margin is then the widest `plugMargin` or `insertMargin` of those inlays. Default `false`; may be missing, and is not written when `false`. |
 | `aboveAuto` | `true`: `above` is not used, and the height is taken from the steps before this one instead. It is the highest of the plugs and inserts glued in before it (`glue` steps) whose blanks reach into the facing's area: the inlay's `plugThickness` less `engagementDepth`, or `insertThickness` less `pocketDepth`, or what an earlier `saw` step or facing over that blank left of it. 0 when there are none; a build is then refused unless `depth` is greater than 0. That is what `facing_start` gives; the app builds the facing's files, its own and its part of a file for the stock, for what stands on the simulated stock where the facing cuts when the steps get to it, rounded up to 0.01. Default `false`; may be missing, and is not written when `false`. |
 | `depth` | How far below the stock's surface the area ends up. Less than 0 ends it that far above the surface, in the wood standing there. Never less than `-above`. Default 0. `above` + `depth` must be greater than 0 for there to be anything to cut. |
+| `startDepth` | How deep the first pass starts: the wood above it, over the area, is taken to be gone already, as for a facing in the floor of another. 0 or more. A file is made only when it is less than `depth`, and only with no wood above the surface: `above` 0 and `aboveAuto` not set. Default 0; may be missing, and is not written when it is 0. |
 | `margin` | How far beyond the rectangle around the regions the area reaches. 0 or more. Default 0. Not used without regions. |
 | `pattern` | The shape of the tool's path, as for a pocket, but `raster` is the default and has no pass round the edge. |
 | `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of the area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
