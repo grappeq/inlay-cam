@@ -85,6 +85,7 @@ import {
 } from "../state/store";
 import { hasUnsaved } from "../state/unsaved";
 import * as db from "../storage/home";
+import { isFolderPath } from "../state/folders";
 import { fileStem } from "../util/files";
 import type { Host } from "./host";
 import { drawingSvg, reliefPng, svgToPng } from "./render";
@@ -713,17 +714,62 @@ export const COMMANDS: Command[] = [
     name: "projects_list",
     title: "List the kept projects",
     description:
-      "The projects kept in this browser (or on the server the page came from), last changed first, and which one is open.",
+      "The projects kept in this browser (or on the server the page came from), last changed first, which one is open, and the folders they are filed in. A folder is its path, with / between nested ones (Gifts/Christmas); a project's folder is empty when it is in none.",
     inputSchema: object({}),
     readOnly: true,
-    run: async (_input, host) => ({
-      open: host.state().project.id,
-      projects: (await db.listProjects()).map((p) => ({
-        id: p.id,
-        name: p.name,
-        modified: new Date(p.modified).toISOString(),
-      })),
-    }),
+    run: async (_input, host) => {
+      const shelf = await db.readShelf();
+      return {
+        open: host.state().project.id,
+        folders: shelf.folders,
+        projects: shelf.projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          folder: p.folder,
+          modified: new Date(p.modified).toISOString(),
+        })),
+      };
+    },
+  },
+  {
+    name: "project_move",
+    title: "File a project in a folder",
+    description:
+      "Files a kept project (the open one unless an id from projects_list is given) in a folder, which is made when it is not there, or in none with an empty folder. The project itself is not changed. A folder is up to four names with / between them.",
+    inputSchema: object(
+      {
+        id: { type: "string", description: "Default: the open project." },
+        folder: {
+          type: "string",
+          description: "Such as Gifts/Christmas. Empty for no folder.",
+        },
+      },
+      ["folder"],
+    ),
+    run: async (input, host) => {
+      const id = input.id ?? host.state().project.id;
+      if (input.folder !== "" && !isFolderPath(input.folder))
+        throw new CommandError(
+          "invalid_input",
+          `"${input.folder}" cannot be a folder: up to four names with / between them, each up to 60 characters, none of / \\ : * ? " < > | in a name, and no dot or space at either end of one.`,
+        );
+      if (!(await db.listProjects()).some((p) => p.id === id))
+        throw new CommandError(
+          "not_found",
+          id === host.state().project.id
+            ? "The open project is not kept yet: it is once it has a drawing."
+            : `No project "${id}" is kept. projects_list lists them.`,
+        );
+      let folder: string;
+      try {
+        folder = await db.moveProject(id, input.folder);
+      } catch (e) {
+        throw new CommandError("failed", message(e));
+      }
+      const shelf = await db.readShelf();
+      await host.apply({ type: "setProjects", ...shelf });
+      return { project: { id, folder }, folders: shelf.folders };
+    },
   },
   {
     name: "project_open",
@@ -2220,9 +2266,12 @@ export const COMMANDS: Command[] = [
     name: "view_show",
     title: "Show something on the page",
     description:
-      "Turns the page to what the user should look at: a view (design, tools, settings), a step's panel (stepId; null for the list), or what the large area shows (drawing, pocket, plug, fit, timeline). Changes nothing in the project.",
+      "Turns the page to what the user should look at: a view (projects, design, tools, settings), a step's panel (stepId; null for the list), or what the large area shows (drawing, pocket, plug, fit, timeline). Changes nothing in the project.",
     inputSchema: object({
-      view: { type: "string", enum: ["design", "tools", "settings"] },
+      view: {
+        type: "string",
+        enum: ["projects", "design", "tools", "settings"],
+      },
       stepId: { type: "string", nullable: true },
       stage: {
         type: "string",
@@ -2233,8 +2282,8 @@ export const COMMANDS: Command[] = [
       if (input.view !== undefined) {
         leaveGuard();
         await host.apply(
-          input.view === "design"
-            ? { type: "setView", view: "design" }
+          input.view === "design" || input.view === "projects"
+            ? { type: "setView", view: input.view }
             : {
                 type: "setView",
                 view: "settings",

@@ -46,7 +46,7 @@ browser. It is one or the other, never some of each (`web/src/storage/home.ts`).
 | In the data folder | What | In a browser instead |
 |---|---|---|
 | `tools.json` | Tools, their cutting rows and logs, materials, profiles, groups: a [tool file](formats.md#tool-library-kind-tool-library) | IndexedDB |
-| `projects/<id>.json` | One [project file](formats.md#project-kind-project) per project | IndexedDB |
+| `projects/<id>.json`, `projects/<folder>/<id>.json` | One [project file](formats.md#project-kind-project) per project, in the folder it is filed in: a folder of the app is a folder here | IndexedDB, the folder beside the project |
 | `settings.json` | The machine, the inlay defaults, the last open project, what the screens remember | IndexedDB and local storage |
 | `backups/` | The tool file before each change, and deleted projects | (none) |
 
@@ -116,6 +116,26 @@ are told apart as well. The same is looked for when the page is come back to and
 minute: a project that was not changed here is simply shown as it was saved there, and
 says so.
 
+## Folders
+
+Projects are filed in folders, up to four deep, and a folder of the app is a folder in
+`projects/`: `projects/Gifts/Christmas/<id>.json`. There is no index beside the files.
+The list of projects is made by walking the folders, so files moved by hand, or put back
+from a backup of the data folder, are listed where they lie.
+
+- **Filing a project is a rename.** The file's text does not change, so neither does its
+  token nor the time it was last written: a project moved while it is open elsewhere
+  saves as before, and the list's "last changed" stays true.
+- **A project is named by its id whatever folder it is in.** A save writes the file where
+  it is; only a project that is new takes the folder its first save names.
+- **Deleting a folder deletes no project.** The projects in it, and in the folders in it,
+  are moved to no folder first.
+- **Names are ones every file system takes**, so that a data folder can be copied between
+  Linux, macOS and Windows. Two names that differ only in case are one folder.
+
+In a browser there are no files: each stored project says which folder it is in, beside
+its text, and the list of folders is one stored setting, so that an empty folder stays.
+
 This works in a browser without a server too, between two tabs. Settings are not checked:
 the last write is kept.
 
@@ -159,6 +179,7 @@ its text to `/api/library`. The file it replaces is backed up in turn.
 | Other programs | `GET /api/export/<kind>` | Makera CAM, Makera Studio, Fusion 360, `tools.yaml`, made on the spot |
 | History | `GET /api/backups` | The backups kept, and each as a file |
 | Projects | `GET, PUT, DELETE /api/projects/<id>` | One project file each; `If-Match` on a `PUT` |
+| Folders | `PATCH /api/projects/<id>`, `/api/folders` | Filing a project renames its file; folders are made, renamed and taken away |
 | Settings | `GET /api/settings`, `PUT /api/settings/<key>` | One text per key |
 
 Every write to the tool list takes `dryRun` and `diff`, so an agent can show the exact

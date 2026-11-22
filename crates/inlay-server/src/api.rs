@@ -24,7 +24,7 @@ use inlay_core::tools::{
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
-use crate::store::{is_project_id, iso, Loaded, Store};
+use crate::store::{is_folder_path, is_project_id, iso, Loaded, Store};
 use inlay_core::project::project_from_file_json;
 use lists::List;
 
@@ -180,10 +180,15 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/api/export/<kind>", "A library as a file: tools.yaml, cam, studio, fusion."),
     ("GET", "/api/backups", "The backups kept, newest first."),
     ("GET", "/api/backups/<name>", "One backup: a tool file, to PUT back to /api/library."),
-    ("GET", "/api/projects", "The projects kept, last written first: {id, name, modified}."),
+    ("GET", "/api/projects", "The projects kept, last written first: {id, name, modified, folder, steps}, and the folders they are filed in."),
     ("GET", "/api/projects/<id>", "One project file."),
-    ("PUT", "/api/projects/<id>", "Keep a project file under its id."),
+    ("PUT", "/api/projects/<id>", "Keep a project file under its id. ?folder=<path>: where one that is new goes."),
+    ("PATCH", "/api/projects/<id>", "File a project in another folder. {folder: <path> | \"\"}"),
     ("DELETE", "/api/projects/<id>", "Take a project off the list. Its file goes to backups/."),
+    ("GET", "/api/folders", "The folders projects are filed in, with / between nested ones, and how many projects each holds."),
+    ("POST", "/api/folders", "Make a folder. {path}"),
+    ("PATCH", "/api/folders/<path>", "Rename a folder or move it into another, with what is in it. {path: the new one}"),
+    ("DELETE", "/api/folders/<path>", "Take a folder away. Its projects stay, in no folder."),
     ("GET", "/api/settings", "What the app keeps besides: the machine, the inlay defaults, the last project, the view."),
     ("PUT", "/api/settings/<key>", "Keep one setting. {value: <text> | null}"),
 ];
@@ -330,7 +335,12 @@ impl Api {
             ("GET", ["api", "projects"]) => self.projects(),
             ("GET", ["api", "projects", id]) => self.project(id),
             ("PUT", ["api", "projects", id]) => self.save_project(request, id),
+            ("PATCH", ["api", "projects", id]) => self.move_project(request, id),
             ("DELETE", ["api", "projects", id]) => self.delete_project(id),
+            ("GET", ["api", "folders"]) => self.folders(),
+            ("POST", ["api", "folders"]) => self.add_folder(request),
+            ("PATCH", ["api", "folders", path]) => self.rename_folder(request, path),
+            ("DELETE", ["api", "folders", path]) => self.delete_folder(path),
             ("GET", ["api", "settings"]) => self.settings(),
             ("PUT", ["api", "settings", key]) => self.save_setting(request, key),
             (_, path) => Err(if known_path(path) {
@@ -746,30 +756,127 @@ impl Api {
     }
 
     fn projects(&self) -> Answer {
+        // Read under the lock, like the folders and a single project
+        // below: a list made while a folder is renamed would miss what is
+        // in it, and a project read while it is moved would not be found.
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut projects: Vec<(u64, Value)> = self
             .store
             .projects()
             .map_err(Refusal::internal)?
             .iter()
             .map(|kept| {
-                // The name is read from the file as plain JSON, so that a
-                // project of an older format is listed without being upgraded.
-                let name = serde_json::from_str::<Value>(&kept.text)
+                // The name and the steps are read from the file as plain
+                // JSON, so that a project of an older format is listed
+                // without being upgraded. Its steps were once its `jobs`.
+                let project = serde_json::from_str::<Value>(&kept.text)
                     .ok()
-                    .and_then(|file| {
-                        let name = file.get("project")?.get("name")?;
-                        name.as_str().map(str::to_string)
-                    })
+                    .and_then(|mut file| file.get_mut("project").map(Value::take));
+                let name = project
+                    .as_ref()
+                    .and_then(|project| project.get("name")?.as_str())
                     .unwrap_or_default();
+                let steps = project
+                    .as_ref()
+                    .and_then(|project| project.get("steps").or_else(|| project.get("jobs")))
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
                 (
                     kept.modified,
-                    json!({ "id": kept.id, "name": name, "modified": kept.modified }),
+                    json!({ "id": kept.id, "name": name, "modified": kept.modified, "folder": kept.folder, "steps": steps }),
                 )
             })
             .collect();
         projects.sort_by_key(|project| std::cmp::Reverse(project.0));
         let projects: Vec<Value> = projects.into_iter().map(|(_, project)| project).collect();
-        Ok(Response::json(200, &json!({ "projects": projects })))
+        let folders = self.store.folders().map_err(Refusal::internal)?;
+        Ok(Response::json(
+            200,
+            &json!({ "projects": projects, "folders": folders }),
+        ))
+    }
+
+    fn folders(&self) -> Answer {
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = self.store.projects().map_err(Refusal::internal)?;
+        let folders: Vec<Value> = self
+            .store
+            .folders()
+            .map_err(Refusal::internal)?
+            .into_iter()
+            .map(|path| {
+                let projects = kept.iter().filter(|kept| kept.folder == path).count();
+                json!({ "path": path, "projects": projects })
+            })
+            .collect();
+        Ok(Response::json(200, &json!({ "folders": folders })))
+    }
+
+    fn add_folder(&self, request: &Request) -> Answer {
+        let mut body = body_object(request, &["path"])?;
+        let path = folder_of(body.remove("path"), "path", false)?;
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let folder = self.store.create_folder(&path).map_err(folder_refusal)?;
+        Ok(Response::json(
+            201,
+            &json!({ "ok": true, "folder": folder }),
+        ))
+    }
+
+    fn rename_folder(&self, request: &Request, path: &str) -> Answer {
+        let mut body = body_object(request, &["path"])?;
+        let to = folder_of(body.remove("path"), "path", false)?;
+        if !is_folder_path(path) {
+            return Err(Refusal::not_found(format!(
+                "There is no folder \"{path}\"."
+            )));
+        }
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let folder = self
+            .store
+            .rename_folder(path, &to)
+            .map_err(folder_refusal)?;
+        Ok(Response::json(
+            200,
+            &json!({ "ok": true, "folder": folder }),
+        ))
+    }
+
+    fn delete_folder(&self, path: &str) -> Answer {
+        if !is_folder_path(path) {
+            return Err(Refusal::not_found(format!(
+                "There is no folder \"{path}\"."
+            )));
+        }
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let (folder, moved) = self.store.delete_folder(path).map_err(folder_refusal)?;
+        Ok(Response::json(
+            200,
+            &json!({ "ok": true, "deleted": folder, "moved": moved }),
+        ))
+    }
+
+    /// Files a project in another folder, or in none: `{"folder": ""}`.
+    /// Its file is renamed, not written, so its token and its time of
+    /// writing stay, and a copy of it open somewhere saves as before.
+    fn move_project(&self, request: &Request, id: &str) -> Answer {
+        let mut body = body_object(request, &["folder"])?;
+        let folder = folder_of(body.remove("folder"), "folder", true)?;
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let moved = if is_project_id(id) {
+            self.store
+                .move_project(id, &folder)
+                .map_err(folder_refusal)?
+        } else {
+            None
+        };
+        match moved {
+            Some(folder) => Ok(Response::json(
+                200,
+                &json!({ "ok": true, "id": id, "folder": folder }),
+            )),
+            None => Err(Refusal::not_found(format!("There is no project \"{id}\"."))),
+        }
     }
 
     fn project(&self, id: &str) -> Answer {
@@ -777,6 +884,7 @@ impl Api {
         if !is_project_id(id) {
             return Err(none());
         }
+        let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let kept = self
             .store
             .project(id)
@@ -816,6 +924,11 @@ impl Api {
                 "a project's id must be 1 to 64 letters, digits, - or _ to be kept here",
             ));
         }
+        let folder = folder_of(
+            request.query("folder").map(|path| path.into()),
+            "folder",
+            true,
+        )?;
         let based_on = request
             .header("if-match")
             .map(|tag| tag.trim().trim_matches('"').to_string());
@@ -838,14 +951,14 @@ impl Api {
                 }
             }
         }
-        let modified = self
+        let (modified, folder) = self
             .store
-            .save_project(id, text)
-            .map_err(Refusal::internal)?;
+            .save_project(id, text, &folder)
+            .map_err(folder_refusal)?;
         let token = crate::store::token_of(text.as_bytes());
         Ok(Response::json(
             200,
-            &json!({ "ok": true, "id": id, "name": project.name, "modified": modified, "token": token }),
+            &json!({ "ok": true, "id": id, "name": project.name, "modified": modified, "token": token, "folder": folder }),
         ))
     }
 
@@ -998,7 +1111,32 @@ fn query_names(method: &str, segments: &[&str]) -> &'static [&'static str] {
         ("GET", ["api", "tools"]) => &["q", "material"],
         ("GET", ["api", "tools", _, "suggestions"]) => &["row", "all"],
         ("PUT", ["api", "library"]) => &["token", "dryRun", "diff"],
+        ("PUT", ["api", "projects", _]) => &["folder"],
         _ => &[],
+    }
+}
+
+/// A folder path out of a request: a text that `is_folder_path` takes, or,
+/// where `none` allows it, the empty text or nothing at all for no folder.
+fn folder_of(value: Option<Value>, key: &str, none: bool) -> Result<String, Refusal> {
+    match value {
+        None if none => Ok(String::new()),
+        Some(Value::String(path)) if (none && path.is_empty()) || is_folder_path(&path) => Ok(path),
+        Some(Value::String(_)) => Err(Refusal::bad(format!(
+            "{key} is not a folder path: one to four names with / between them, each 1 to 60 characters, without / \\ : * ? \" < > |, a dot at either end, a space at either end, or a name Windows keeps (CON, NUL, COM1 …)"
+        ))),
+        _ => Err(Refusal::bad(format!("{key} is required: a folder path"))),
+    }
+}
+
+/// Why a folder could not be made, renamed, removed or moved into.
+fn folder_refusal(e: std::io::Error) -> Refusal {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => Refusal::not_found(e.to_string()),
+        std::io::ErrorKind::AlreadyExists => Refusal::new(409, "exists", e.to_string()),
+        std::io::ErrorKind::DirectoryNotEmpty => Refusal::new(409, "not_empty", e.to_string()),
+        std::io::ErrorKind::InvalidInput => Refusal::bad(e.to_string()),
+        _ => Refusal::internal(e),
     }
 }
 
@@ -1082,11 +1220,12 @@ fn known_path(segments: &[&str]) -> bool {
                     | "export"
                     | "backups"
                     | "projects"
+                    | "folders"
                     | "settings"
             ]
             | [
                 "api",
-                "tools" | "export" | "backups" | "projects" | "settings",
+                "tools" | "export" | "backups" | "projects" | "folders" | "settings",
                 _
             ]
             | ["api", "tools", _, "suggestions"]

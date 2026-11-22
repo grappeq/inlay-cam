@@ -1583,3 +1583,45 @@ against the code. What they found and was mended:
   missing block is named also when nothing else is drawn.
 - A gap of exactly the distance asked closes: an SVG's points are single precision.
 - The `.zip`'s names are checked after folding for names Windows keeps and for length.
+
+### Folders for projects, and a Projects tab (2026-11-22)
+
+- **Projects are filed in folders**, up to four deep, a folder being its path
+  (`Gifts/Christmas`). On a server a folder of the app is a folder under `projects/`, and
+  filing a project renames its file: there is no index to fall out of step with the
+  files, a move does not touch the project's text, token or time of writing, and the data
+  folder can be read and rearranged by hand. A project is still named by its id alone;
+  the store finds its file by walking the folders. In a browser the folder is kept beside
+  the project's text, and the list of folders is a setting, so empty folders stay.
+- **The rules for names are the same in `store.rs` and `state/folders.ts`**: names every
+  file system takes, and two that differ only in case are one folder. The page's rules
+  are pure functions over a list of folders, tested without a browser; the server's are
+  tested on a real folder.
+- **The API**: `GET /api/projects` also answers `folders` and each project's `folder` and
+  `steps`; `PUT /api/projects/<id>?folder=` places a new project; `PATCH
+  /api/projects/<id>` files one; `/api/folders` makes, renames, moves and takes away.
+- **The Projects tab** takes the place of the "Projects…" dialog and of the header's
+  buttons: folders on the left with counts, the projects of the one shown on the right,
+  search, order, a menu per row, several at once, and rows dragged onto a folder. The
+  open project's folder is shown before its name.
+- **An agent** reads folders with `projects_list` and files a project with
+  `project_move`.
+- Left out: pictures of the drawings in the list, which would need every project read or
+  a picture kept beside each; and a bin for projects deleted in a browser.
+- Tried by a tester and read by a reviewer, two agents apart from the one that built it.
+  What they found and was mended: an id that differs only in case from a kept one is
+  refused, since on Windows its file went over the other's; a folder that cannot be read,
+  a name that is not UTF-8 or a link no longer fails the whole list, and nothing is put
+  through a link; lists and single projects are read under the lock that moves hold; a
+  folder with a file of someone else's is refused before anything in it is moved, and
+  what a system leaves by itself goes with the folder; names a device has under Windows
+  with a space or a superscript digit, and characters that are not seen, are refused in
+  both sets of rules; a project started in a folder follows that folder when it is
+  renamed or deleted before the first save; the selection bar acts on the rows shown;
+  the name field no longer takes a half-typed name when another window is turned to; and
+  the header's folder link works while the tab is shown.
+- Known and left: names are compared by case, not by Unicode normal form, so a folder
+  typed on Linux beside one copied from an old macOS disk can look the same; two folders
+  made by hand on Linux that differ only in case show as one; a menu near the bottom of a
+  long list of folders needs scrolling to; and in a browser two tabs changing folders at
+  the same moment can bring a deleted folder's name back.

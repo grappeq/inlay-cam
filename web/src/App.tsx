@@ -10,6 +10,7 @@ import { DesignCanvas } from "./components/DesignCanvas";
 import { DesignPanel } from "./components/DesignPanel";
 import { FitView } from "./components/FitView";
 import { Header } from "./components/Header";
+import { ProjectsView } from "./components/ProjectsView";
 import { partName } from "./components/OutputPanel";
 import { isInlay, stepColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
@@ -85,6 +86,8 @@ function Shell() {
       <MakeraIncoming />
       {!ready ? (
         <p className="loading">Loading…</p>
+      ) : view === "projects" ? (
+        <ProjectsView />
       ) : view === "design" ? (
         <DesignView />
       ) : (
@@ -291,8 +294,11 @@ function ConflictBar() {
       name: copy.name,
       modified: Date.now(),
       text: await core.call("projectToFile", copy),
+      steps: copy.steps.length,
+      // Beside the one it is a version of.
+      folder: projects.find((p) => p.id === project.id)?.folder,
     });
-    dispatch({ type: "setProjects", projects: await db.listProjects() });
+    dispatch({ type: "setProjects", ...(await db.readShelf()) });
     await openOther();
     dispatch({
       type: "notice",

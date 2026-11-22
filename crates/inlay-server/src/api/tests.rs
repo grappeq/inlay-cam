@@ -718,6 +718,292 @@ fn projects_are_kept_listed_and_taken_off() {
     assert_eq!(served.get("/api/projects").1["projects"], json!([]));
 }
 
+/// The text of a project file with this id and name.
+fn project_text(id: &str, name: &str) -> String {
+    let mut project = inlay_core::project::project_from_file_json(include_str!(
+        "../../../inlay-core/tests/fixtures/project-v2.json"
+    ))
+    .unwrap();
+    project.id = id.into();
+    project.name = name.into();
+    inlay_core::project::project_to_file_json(&project)
+}
+
+#[test]
+fn projects_are_filed_in_folders_and_moved() {
+    let served = served();
+    assert_eq!(served.get("/api/projects").1["folders"], json!([]));
+    assert_eq!(served.get("/api/folders").1["folders"], json!([]));
+
+    // A new project goes to the folder its first write names.
+    let text = project_text("p-1", "A box lid");
+    let saved = served.send(
+        "PUT",
+        "/api/projects/p-1?folder=Gifts%2FChristmas",
+        &[],
+        text.as_bytes(),
+    );
+    assert_eq!(saved.status, 200);
+    let saved: Value = serde_json::from_slice(&saved.body).unwrap();
+    assert_eq!(saved["folder"], "Gifts/Christmas");
+    let (_, list) = served.get("/api/projects");
+    assert_eq!(list["folders"], json!(["Gifts", "Gifts/Christmas"]));
+    assert_eq!(list["projects"][0]["folder"], "Gifts/Christmas");
+    assert!(list["projects"][0]["steps"].as_u64().is_some());
+    // Saved again, with another folder or with none, it stays where it is.
+    for target in ["/api/projects/p-1?folder=Orders", "/api/projects/p-1"] {
+        let again = served.send("PUT", target, &[], text.as_bytes());
+        let again: Value = serde_json::from_slice(&again.body).unwrap();
+        assert_eq!(again["folder"], "Gifts/Christmas", "{target}");
+    }
+    assert_eq!(
+        served.get("/api/projects").1["folders"],
+        json!(["Gifts", "Gifts/Christmas"])
+    );
+
+    // Moved, it is the same file: the token it is read with has not changed.
+    let etag = |served: &Served| {
+        let read = served.send("GET", "/api/projects/p-1", &[], b"");
+        assert_eq!(read.status, 200);
+        let tag = read.headers.iter().find(|(n, _)| n == "ETag").unwrap();
+        (tag.1.clone(), read.body)
+    };
+    let before = etag(&served);
+    let (status, moved) = served.write("PATCH", "/api/projects/p-1", json!({ "folder": "Orders" }));
+    assert_eq!((status, &moved["folder"]), (200, &json!("Orders")));
+    assert_eq!(etag(&served), before);
+    assert_eq!(
+        served.get("/api/projects").1["projects"][0]["folder"],
+        "Orders"
+    );
+    // A save made over the version read before the move is taken.
+    let token = before.0.trim_matches('"').to_string();
+    let second = project_text("p-1", "Second");
+    let saved = served.send(
+        "PUT",
+        "/api/projects/p-1",
+        &[("if-match", &token)],
+        second.as_bytes(),
+    );
+    assert_eq!(saved.status, 200);
+    assert_eq!(
+        served.get("/api/projects").1["projects"][0]["folder"],
+        "Orders"
+    );
+    // To no folder.
+    let (status, moved) = served.write("PATCH", "/api/projects/p-1", json!({ "folder": "" }));
+    assert_eq!((status, &moved["folder"]), (200, &json!("")));
+
+    // What is refused: a project nobody has, a path that is none, a key that is not folder.
+    let (status, answer) =
+        served.write("PATCH", "/api/projects/p-9", json!({ "folder": "Orders" }));
+    assert_eq!((status, code(&answer)), (404, "not_found"));
+    for folder in [
+        "..",
+        "a/../b",
+        "a//b",
+        "/a",
+        ".git",
+        "CON",
+        "a/b/c/d/e",
+        "a\\b",
+    ] {
+        let (status, answer) =
+            served.write("PATCH", "/api/projects/p-1", json!({ "folder": folder }));
+        assert_eq!((status, code(&answer)), (400, "bad_request"), "{folder}");
+        let target = format!("/api/projects/p-2?folder={}", folder.replace('/', "%2F"));
+        let put = served.send("PUT", &target, &[], project_text("p-2", "x").as_bytes());
+        assert_eq!(put.status, 400, "{folder}");
+    }
+    let (status, _) = served.write("PATCH", "/api/projects/p-1", json!({ "folder": 3 }));
+    assert_eq!(status, 400);
+    let (status, _) = served.write("PATCH", "/api/projects/p-1", json!({ "name": "x" }));
+    assert_eq!(status, 400);
+    let unguarded = served.send(
+        "PATCH",
+        "/api/projects/p-1",
+        &[("x-inlay", "")],
+        b"{\"folder\":\"Orders\"}",
+    );
+    assert_eq!(unguarded.status, 403);
+    // Nothing of that made a folder or a project.
+    let (_, list) = served.get("/api/projects");
+    assert_eq!(
+        list["folders"],
+        json!(["Gifts", "Gifts/Christmas", "Orders"])
+    );
+    assert_eq!(list["projects"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn an_id_in_another_case_and_a_folder_with_other_files_are_refused() {
+    let served = served();
+    let first = project_text("p-1", "First");
+    assert_eq!(
+        served
+            .send(
+                "PUT",
+                "/api/projects/p-1?folder=Gifts",
+                &[],
+                first.as_bytes()
+            )
+            .status,
+        200
+    );
+    // P-1 beside p-1: on Windows and macOS the two are one file.
+    let other = project_text("P-1", "Other");
+    let put = served.send("PUT", "/api/projects/P-1", &[], other.as_bytes());
+    let answer: Value = serde_json::from_slice(&put.body).unwrap();
+    assert_eq!((put.status, code(&answer)), (409, "exists"));
+    let read = served.send("GET", "/api/projects/p-1", &[], b"");
+    assert_eq!(read.body, first.as_bytes());
+
+    // A folder named in another case is answered as it is spelt on disk.
+    let gone = served.send("DELETE", "/api/folders/GIFTS", &[("content-type", "")], b"");
+    let gone: Value = serde_json::from_slice(&gone.body).unwrap();
+    assert_eq!(
+        (&gone["deleted"], &gone["moved"]),
+        (&json!("Gifts"), &json!(1))
+    );
+
+    // A file of someone else's keeps its folder as it is, and the answer names the file, not the system's error.
+    served.write("POST", "/api/folders", json!({ "path": "Notes" }));
+    served.write("PATCH", "/api/projects/p-1", json!({ "folder": "Notes" }));
+    std::fs::write(served._scratch.0.join("projects/Notes/mine.txt"), "mine").unwrap();
+    let left = served.send("DELETE", "/api/folders/Notes", &[("content-type", "")], b"");
+    let answer: Value = serde_json::from_slice(&left.body).unwrap();
+    assert_eq!((left.status, code(&answer)), (409, "not_empty"));
+    assert!(!answer["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("os error"));
+    assert!(answer["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("mine.txt"));
+    assert!(served._scratch.0.join("projects/Notes/mine.txt").is_file());
+    assert_eq!(
+        served.get("/api/projects").1["projects"][0]["folder"],
+        "Notes"
+    );
+
+    // A folder goes into folders that are not there yet.
+    let (status, moved) = served.write(
+        "PATCH",
+        "/api/folders/Notes",
+        json!({ "path": "Kept/Notes" }),
+    );
+    assert_eq!((status, &moved["folder"]), (200, &json!("Kept/Notes")));
+    assert_eq!(
+        served.get("/api/projects").1["projects"][0]["folder"],
+        "Kept/Notes"
+    );
+}
+
+#[test]
+fn folders_are_made_renamed_and_taken_away() {
+    let served = served();
+    let (status, made) = served.write("POST", "/api/folders", json!({ "path": "Gifts/Christmas" }));
+    assert_eq!((status, &made["folder"]), (201, &json!("Gifts/Christmas")));
+    // There already, in whatever case.
+    for path in ["Gifts", "gifts/christmas"] {
+        let (status, answer) = served.write("POST", "/api/folders", json!({ "path": path }));
+        assert_eq!((status, code(&answer)), (409, "exists"), "{path}");
+    }
+    for path in [json!(""), json!("a/"), json!(".."), json!(7), Value::Null] {
+        let (status, answer) = served.write("POST", "/api/folders", json!({ "path": path }));
+        assert_eq!((status, code(&answer)), (400, "bad_request"), "{path}");
+    }
+    assert_eq!(served.write("POST", "/api/folders", json!({})).0, 400);
+
+    for (id, folder) in [("p-1", "Gifts"), ("p-2", "Gifts%2FChristmas"), ("p-3", "")] {
+        let target = format!("/api/projects/{id}?folder={folder}");
+        let put = served.send("PUT", &target, &[], project_text(id, id).as_bytes());
+        assert_eq!(put.status, 200);
+    }
+    assert_eq!(
+        served.get("/api/folders").1["folders"],
+        json!([
+            { "path": "Gifts", "projects": 1 },
+            { "path": "Gifts/Christmas", "projects": 1 }
+        ])
+    );
+
+    // Renamed, with what is in it; the path is one segment of the URL.
+    let (status, renamed) =
+        served.write("PATCH", "/api/folders/Gifts", json!({ "path": "Presents" }));
+    assert_eq!((status, &renamed["folder"]), (200, &json!("Presents")));
+    let folder_of = |id: &str| {
+        let (_, list) = served.get("/api/projects");
+        let projects = list["projects"].as_array().unwrap().clone();
+        let project = projects.into_iter().find(|p| p["id"] == id).unwrap();
+        project["folder"].as_str().unwrap().to_string()
+    };
+    assert_eq!(folder_of("p-1"), "Presents");
+    assert_eq!(folder_of("p-2"), "Presents/Christmas");
+    // A folder in a folder, moved out to the top.
+    let (status, moved) = served.write(
+        "PATCH",
+        "/api/folders/Presents%2FChristmas",
+        json!({ "path": "Christmas" }),
+    );
+    assert_eq!((status, &moved["folder"]), (200, &json!("Christmas")));
+    assert_eq!(folder_of("p-2"), "Christmas");
+
+    let (status, answer) = served.write("PATCH", "/api/folders/Nothing", json!({ "path": "X" }));
+    assert_eq!((status, code(&answer)), (404, "not_found"));
+    let (status, answer) = served.write(
+        "PATCH",
+        "/api/folders/Presents",
+        json!({ "path": "christmas" }),
+    );
+    assert_eq!((status, code(&answer)), (409, "exists"));
+    let (status, answer) = served.write(
+        "PATCH",
+        "/api/folders/Presents",
+        json!({ "path": "Presents/Inner" }),
+    );
+    assert_eq!((status, code(&answer)), (400, "bad_request"));
+    assert_eq!(
+        served
+            .write("PATCH", "/api/folders/..", json!({ "path": "X" }))
+            .0,
+        404
+    );
+
+    // Taken away: its projects stay, in no folder.
+    let gone = served.send(
+        "DELETE",
+        "/api/folders/Presents",
+        &[("content-type", "")],
+        b"",
+    );
+    assert_eq!(gone.status, 200);
+    let gone: Value = serde_json::from_slice(&gone.body).unwrap();
+    assert_eq!(gone["moved"], 1);
+    assert_eq!(gone["deleted"], "Presents");
+    assert_eq!(folder_of("p-1"), "");
+    assert_eq!(folder_of("p-3"), "");
+    assert_eq!(
+        served.get("/api/projects").1["folders"],
+        json!(["Christmas"])
+    );
+    for path in ["Presents", "..", "..%2Fbackups"] {
+        let target = format!("/api/folders/{path}");
+        let again = served.send("DELETE", &target, &[("content-type", "")], b"");
+        assert_eq!(again.status, 404, "{path}");
+    }
+    assert_eq!(
+        served
+            .send("DELETE", "/api/folders/Christmas", &[("x-inlay", "")], b"")
+            .status,
+        403
+    );
+    // The routes say what they are when asked the wrong way.
+    assert_eq!(served.send("PUT", "/api/folders", &[], b"{}").status, 405);
+    assert_eq!(served.get("/api/folders/Christmas").0, 405);
+}
+
 #[test]
 fn settings_are_kept_one_text_per_key() {
     let served = served();

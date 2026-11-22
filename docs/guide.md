@@ -21,9 +21,30 @@ this browser" or "Saved on this server". When the server cannot be reached the h
 was saved from another window or browser while you changed it here, the app stops saving it
 and asks: keep both (yours becomes a copy under Projects), use the other, or keep yours.
 
+## Your projects
+
+The **Projects** tab lists every project kept, with its folders on the left.
+
+- **Folders.** "+ New folder" makes one; a folder's "⋯" renames it, makes a folder inside
+  it (up to four deep), moves it into another or deletes it. Deleting a folder deletes no
+  project: the ones in it go to **Unfiled**.
+- **All projects** shows every project, **Unfiled** the ones in no folder, and a folder
+  its own and those of the folders in it, each with where it is.
+- **A project's row** opens it. Its "⋯" renames, duplicates, moves it to a folder, saves
+  it to a file or deletes it. The open project is not deleted from here.
+- **Several at once.** Tick projects to move them, save them (as one `.zip` of project
+  files) or delete them together. Rows can be dragged onto a folder.
+- **New project** starts one in the folder shown, and **Open file…** opens a project file
+  from disk. A project is kept as soon as it has a drawing.
+- **Search** finds by name in what is shown; the list is in order of last change or name.
+
+Moving a project to a folder does not change it, nor when it was last changed. The
+folder of the open project is shown before its name at the top, and leads to it.
+
 ## 1. List your tools
 
-The header has three tabs. **Design** is the project you are working on. **Tools** holds
+The header has four tabs. **Projects** is the list of what you have made, **Design** the
+project you are working on. **Tools** holds
 your tools, and **Settings** the materials and profiles they refer to, your machine, and
 what a new inlay starts with. What is under Tools and Settings is kept in this browser and
 used by every project.

@@ -14,7 +14,7 @@
  {
   "name": "projects_list",
   "title": "List the kept projects",
-  "description": "The projects kept in this browser (or on the server the page came from), last changed first, and which one is open.",
+  "description": "The projects kept in this browser (or on the server the page came from), last changed first, which one is open, and the folders they are filed in. A folder is its path, with / between nested ones (Gifts/Christmas); a project's folder is empty when it is in none.",
   "inputSchema": {
    "type": "object",
    "properties": {},
@@ -22,6 +22,28 @@
    "additionalProperties": false
   },
   "readOnly": true
+ },
+ {
+  "name": "project_move",
+  "title": "File a project in a folder",
+  "description": "Files a kept project (the open one unless an id from projects_list is given) in a folder, which is made when it is not there, or in none with an empty folder. The project itself is not changed. A folder is up to four names with / between them.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "Default: the open project."
+    },
+    "folder": {
+     "type": "string",
+     "description": "Such as Gifts/Christmas. Empty for no folder."
+    }
+   },
+   "required": [
+    "folder"
+   ],
+   "additionalProperties": false
+  }
  },
  {
   "name": "project_open",
@@ -967,13 +989,14 @@
  {
   "name": "view_show",
   "title": "Show something on the page",
-  "description": "Turns the page to what the user should look at: a view (design, tools, settings), a step's panel (stepId; null for the list), or what the large area shows (drawing, pocket, plug, fit, timeline). Changes nothing in the project.",
+  "description": "Turns the page to what the user should look at: a view (projects, design, tools, settings), a step's panel (stepId; null for the list), or what the large area shows (drawing, pocket, plug, fit, timeline). Changes nothing in the project.",
   "inputSchema": {
    "type": "object",
    "properties": {
     "view": {
      "type": "string",
      "enum": [
+      "projects",
       "design",
       "tools",
       "settings"

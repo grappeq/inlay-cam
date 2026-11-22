@@ -112,8 +112,13 @@ ids. `<row>` names a cutting row: its material's key for the plain row, or
 | GET | `/api/export/<kind>` | | A library as a file: `tools.yaml`, `cam`, `studio`, `fusion` |
 | GET | `/api/backups` | | The backups kept, newest first |
 | GET | `/api/backups/<name>` | | One backup: a tool file |
-| GET | `/api/projects` | | The projects kept, last written first |
-| GET, PUT, DELETE | `/api/projects/<id>` | a project file | One project: read, kept, taken off the list. `PUT` takes `If-Match` |
+| GET | `/api/projects` | | The projects kept, last written first, and the folders they are filed in |
+| GET, PUT, DELETE | `/api/projects/<id>` | a project file | One project: read, kept, taken off the list. `PUT` takes `If-Match`, and `?folder=` for a new one |
+| PATCH | `/api/projects/<id>` | `{folder}` | Files a project in another folder, or in none |
+| GET | `/api/folders` | | The folders, and how many projects each holds |
+| POST | `/api/folders` | `{path}` | Makes a folder |
+| PATCH | `/api/folders/<path>` | `{path}` | Renames a folder, or moves it into another |
+| DELETE | `/api/folders/<path>` | | Takes a folder away; its projects stay |
 | GET | `/api/settings` | | The settings kept, one text per key |
 | PUT | `/api/settings/<key>` | `{value}` | Keeps one setting |
 
@@ -270,17 +275,54 @@ gives it.
 
 The page's own routes, for what it keeps besides the tool list.
 
-`GET /api/projects` answers `{"projects": [{"id", "name", "modified"}]}`, `modified` in
-milliseconds since 1970. `GET /api/projects/<id>` answers the project file's text, with
+`GET /api/projects` answers `{"projects": [{"id", "name", "modified", "folder", "steps"}],
+"folders": [...]}`, `modified` in milliseconds since 1970, `folder` the folder the project
+is filed in (empty for none) and `steps` how many steps it has. `GET /api/projects/<id>` answers the project file's text, with
 `X-Modified` and `ETag`, the SHA-256 of the text. `PUT` takes a project file, checks it as
 the app checks an opened one and that its id is the path's, and keeps it as
-`projects/<id>.json`; an id is 1 to 64 letters, digits, `-` or `_`. Up to 32 MB. It
-answers `{ok, id, name, modified, token}`. With `If-Match: "<token>"` it is kept only over
+`<id>.json` under `projects/`; an id is 1 to 64 letters, digits, `-` or `_`. Up to 32 MB.
+A new project whose id differs only in case from one that is kept is `409 exists`: on
+some disks the two would be one file. A project that is new goes to the folder
+`?folder=<path>` names, made when it is not there, or to none; one that is kept stays in the folder it is in, whatever the write
+names. It answers `{ok, id, name, modified, token, folder}`. With `If-Match: "<token>"` it is kept only over
 the version that token names, and is otherwise `409 conflict` with the present `token` and
 `modified`: so a project open in two places is not written over by the one that has not
 seen the other's change. A project deleted meanwhile is kept again. Without `If-Match`
 the last write is kept. `DELETE` moves the file to `backups/` as
 `project-<date>-<time>-<ms>-<id>.json`.
+
+#### Folders
+
+A folder is its path: one to four names with `/` between them, `Gifts/Christmas`. It is a
+folder on the server's disk, under `projects/`, and a project in it is the file
+`projects/Gifts/Christmas/<id>.json`. A name is 1 to 60 characters that every file system
+takes: none of `/ \ : * ? " < > |` or control characters, no dot or space at either end,
+none of the names Windows keeps (`CON`, `NUL`, `COM1` …), and no character that is not
+seen or that turns the text around. Two names that differ only
+in case are one folder, the one that is there. In a URL a path is one segment, its `/`
+written `%2F`.
+
+- `PATCH /api/projects/<id>` with `{"folder": "<path>"}` files a project there, making the
+  folder when it is not there; `{"folder": ""}` files it in none. The file is renamed, not
+  written: its text, its token and its `modified` stay, so a copy of it open somewhere
+  saves as before. It answers `{ok, id, folder}`, the folder as it is spelt on disk.
+- `GET /api/folders` answers `{"folders": [{"path", "projects"}]}`, a folder before the
+  ones in it, `projects` counting the ones filed in the folder itself.
+- `POST /api/folders` with `{"path"}` makes a folder and the ones it is in, and answers
+  `201` with `{ok, folder}`; `409 exists` when it is there.
+- `PATCH /api/folders/<path>` with `{"path": "<new path>"}` renames a folder, or moves it
+  into another, with everything in it. `409 exists` when the new path is taken, `400` for
+  a move into itself or one that would nest folders more than four deep.
+- `DELETE /api/folders/<path>` takes a folder away, and the folders in it. Their projects
+  are not deleted: they are moved to no folder, and the answer's `moved` counts them. A
+  folder that holds anything the app did not put there is left as it is, its projects
+  where they are, and that is a `409 not_empty` that names what was found. What a system
+  leaves by itself (`.DS_Store`, `Thumbs.db`, `desktop.ini`) goes with the folder.
+
+A file or folder put under `projects/` by hand is listed when it could have been made
+here: `<id>.json` with an id as above, in folders named as above, up to four deep. A
+link is not followed, and nothing is put through one. Of two files with one id, one is
+listed: the first in the order of the folders' names.
 
 Settings take no token: the last write is the one kept, as between two tabs of one
 browser.

@@ -3,9 +3,12 @@
 //!
 //! The folder holds `tools.json`, a tool-library file as the app writes it,
 //! and `backups/` with the file as it was before each write that changed
-//! it. `projects/` holds one project file per project, named by its id, and
-//! `settings.json` what the app keeps besides: one text per key. A write goes to a temporary file that is then renamed over
-//! `tools.json`, so a reader or a file-level backup never sees half a file.
+//! it. `projects/` holds one project file per project, named by its id, in
+//! the folders the user files them in: a folder of the app is a folder
+//! there, and a project is moved by renaming its file. `settings.json`
+//! holds what the app keeps besides: one text per key. A write goes to a
+//! temporary file that is then renamed over the file it replaces, so a
+//! reader or a file-level backup never sees half a file.
 
 use std::fs;
 use std::io::{self, Write};
@@ -44,14 +47,26 @@ pub struct Saved {
     pub backup: Option<String>,
 }
 
+/// How deep folders go: `a/b/c/d` is the deepest.
+pub const MAX_FOLDER_DEPTH: usize = 4;
+/// Characters in one folder's name.
+pub const MAX_FOLDER_NAME: usize = 60;
+
 /// A project as it is kept.
 pub struct Kept {
     pub id: String,
+    /// The folder it is filed in, with `/` between nested ones; empty for
+    /// a project in none.
+    pub folder: String,
     /// Project file text.
     pub text: String,
     /// When it was written, in milliseconds since 1970.
     pub modified: u64,
 }
+
+/// What is under `projects/`: the folders, and the project files as
+/// (folder, id).
+type Walked = (Vec<String>, Vec<(String, String)>);
 
 pub struct Backup {
     pub name: String,
@@ -126,29 +141,155 @@ impl Store {
         write_whole(&self.path(), text)
     }
 
-    fn project_path(&self, id: &str) -> PathBuf {
-        self.dir.join(PROJECTS).join(format!("{id}.json"))
+    /// The folder on disk for a folder of the app; `projects/` itself for
+    /// the empty path.
+    fn folder_dir(&self, folder: &str) -> PathBuf {
+        let mut dir = self.dir.join(PROJECTS);
+        for name in folder.split('/').filter(|name| !name.is_empty()) {
+            dir.push(name);
+        }
+        dir
     }
 
-    /// Every project's id, file text and time of writing, in no order.
+    fn project_path(&self, folder: &str, id: &str) -> PathBuf {
+        self.folder_dir(folder).join(format!("{id}.json"))
+    }
+
+    /// Every folder under `projects/`, a folder before the ones in it, and
+    /// every project file as its folder and id. Files come before folders
+    /// and both in the order of their names, so that of two files with one
+    /// id (one copied by hand) the same one is found every time. What is
+    /// not a project file or a folder the app could have made is passed
+    /// over: a link, a name that is not UTF-8, and a folder that cannot
+    /// be read as well, so that one of those does not hide all the rest.
+    fn walk(&self) -> io::Result<Walked> {
+        fn into(
+            dir: &Path,
+            folder: &str,
+            depth: usize,
+            folders: &mut Vec<String>,
+            files: &mut Vec<(String, String)>,
+        ) -> io::Result<()> {
+            let mut inner = Vec::new();
+            let mut ids = Vec::new();
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(_) if depth > 0 => return Ok(()),
+                Err(e) => return Err(e),
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let (Some(name), Ok(kind)) = (name.to_str(), entry.file_type()) else {
+                    continue;
+                };
+                if kind.is_dir() {
+                    if depth < MAX_FOLDER_DEPTH && is_folder_name(name) {
+                        inner.push(name.to_string());
+                    }
+                } else if kind.is_file() {
+                    if let Some(id) = name.strip_suffix(".json").filter(|id| is_project_id(id)) {
+                        ids.push(id.to_string());
+                    }
+                }
+            }
+            ids.sort();
+            inner.sort();
+            files.extend(ids.into_iter().map(|id| (folder.to_string(), id)));
+            for name in inner {
+                let path = if folder.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{folder}/{name}")
+                };
+                folders.push(path.clone());
+                into(&dir.join(&name), &path, depth + 1, folders, files)?;
+            }
+            Ok(())
+        }
+        let (mut folders, mut files) = (Vec::new(), Vec::new());
+        into(&self.dir.join(PROJECTS), "", 0, &mut folders, &mut files)?;
+        let mut seen = std::collections::HashSet::new();
+        files.retain(|(_, id)| seen.insert(id.clone()));
+        Ok((folders, files))
+    }
+
+    /// The folder a project's file is in; `None` for an id no project has.
+    fn locate(&self, id: &str) -> io::Result<Option<String>> {
+        if self.project_path("", id).is_file() {
+            return Ok(Some(String::new()));
+        }
+        let (_, files) = self.walk()?;
+        Ok(files
+            .into_iter()
+            .find(|(_, other)| other == id)
+            .map(|(folder, _)| folder))
+    }
+
+    /// A folder path as it is on disk: a folder that is there under a name
+    /// that differs only in case is the one meant, since on some systems
+    /// the two are one folder and on others they would be two that look
+    /// alike. Names that are not there stay as given. `InvalidInput` when
+    /// one of the names is there as something other than a folder: through
+    /// a link a project would leave `projects/`.
+    fn resolve(&self, folder: &str) -> io::Result<String> {
+        let mut dir = self.dir.join(PROJECTS);
+        let mut out: Vec<String> = Vec::new();
+        for name in folder.split('/').filter(|name| !name.is_empty()) {
+            let mut found = name.to_string();
+            if dir.is_dir() {
+                let mut same: Vec<String> = Vec::new();
+                for entry in fs::read_dir(&dir)?.flatten() {
+                    let other = entry.file_name();
+                    let (Some(other), Ok(kind)) = (other.to_str(), entry.file_type()) else {
+                        continue;
+                    };
+                    if kind.is_dir() && other.to_lowercase() == name.to_lowercase() {
+                        same.push(other.to_string());
+                    }
+                }
+                same.sort();
+                if !same.iter().any(|other| other == name) {
+                    if let Some(other) = same.into_iter().next() {
+                        found = other;
+                    }
+                }
+            }
+            dir.push(&found);
+            if fs::symlink_metadata(&dir).is_ok_and(|there| !there.is_dir()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("\"{found}\" is there already, and is not a folder of this app's."),
+                ));
+            }
+            out.push(found);
+        }
+        Ok(out.join("/"))
+    }
+
+    /// The folders, each with `/` between nested ones, in the order of
+    /// their names, a folder before the ones in it.
+    pub fn folders(&self) -> io::Result<Vec<String>> {
+        Ok(self.walk()?.0)
+    }
+
+    /// Every project's id, folder, file text and time of writing, in no
+    /// order.
     pub fn projects(&self) -> io::Result<Vec<Kept>> {
         let mut out = Vec::new();
-        for entry in fs::read_dir(self.dir.join(PROJECTS))? {
-            let name = entry?.file_name().to_string_lossy().into_owned();
-            let id = name.strip_suffix(".json").filter(|id| is_project_id(id));
-            if let Some(kept) = id.map(|id| self.project(id)).transpose()?.flatten() {
+        for (folder, id) in self.walk()?.1 {
+            if let Some(kept) = self.read_project(&folder, &id)? {
                 out.push(kept);
             }
         }
         Ok(out)
     }
 
-    /// `None` for an id no project has. The id is one `is_project_id` takes.
-    pub fn project(&self, id: &str) -> io::Result<Option<Kept>> {
-        let path = self.project_path(id);
+    fn read_project(&self, folder: &str, id: &str) -> io::Result<Option<Kept>> {
+        let path = self.project_path(folder, id);
         match fs::read_to_string(&path) {
             Ok(text) => Ok(Some(Kept {
                 id: id.to_string(),
+                folder: folder.to_string(),
                 text,
                 modified: millis(fs::metadata(&path)?.modified()?),
             })),
@@ -157,22 +298,212 @@ impl Store {
         }
     }
 
-    /// Writes a project, unless it is there as given already. Gives its time
-    /// of writing.
-    pub fn save_project(&self, id: &str, text: &str) -> io::Result<u64> {
-        let path = self.project_path(id);
+    /// `None` for an id no project has. The id is one `is_project_id` takes.
+    pub fn project(&self, id: &str) -> io::Result<Option<Kept>> {
+        match self.locate(id)? {
+            Some(folder) => self.read_project(&folder, id),
+            None => Ok(None),
+        }
+    }
+
+    /// Writes a project, unless it is there as given already. A project
+    /// that is kept stays in the folder it is in; one that is new goes to
+    /// `folder`, which is made when it is not there. Gives its time of
+    /// writing and the folder it is in. `AlreadyExists` for a new project
+    /// whose id differs only in case from one that is kept: on a disk that
+    /// takes the two names for one, its file would go over the other's.
+    pub fn save_project(&self, id: &str, text: &str, folder: &str) -> io::Result<(u64, String)> {
+        let folder = match self.locate(id)? {
+            Some(folder) => folder,
+            None => {
+                let (_, files) = self.walk()?;
+                if let Some((_, other)) = files
+                    .iter()
+                    .find(|(_, other)| other.eq_ignore_ascii_case(id))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!("A project \"{other}\" is kept: an id that differs from it only in case cannot be kept beside it."),
+                    ));
+                }
+                let folder = self.resolve(folder)?;
+                fs::create_dir_all(self.folder_dir(&folder))?;
+                folder
+            }
+        };
+        let path = self.project_path(&folder, id);
         if fs::read(&path).ok().as_deref() != Some(text.as_bytes()) {
             write_whole(&path, text)?;
         }
-        Ok(millis(fs::metadata(&path)?.modified()?))
+        Ok((millis(fs::metadata(&path)?.modified()?), folder))
+    }
+
+    /// Files a project in another folder, made when it is not there: its
+    /// file is renamed, so its text and its time of writing stay. Gives the
+    /// folder as it is on disk; `None` for an id no project has.
+    pub fn move_project(&self, id: &str, folder: &str) -> io::Result<Option<String>> {
+        let Some(from) = self.locate(id)? else {
+            return Ok(None);
+        };
+        let to = self.resolve(folder)?;
+        if from == to {
+            return Ok(Some(to));
+        }
+        let target = self.project_path(&to, id);
+        if target.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("a file named {id}.json is in that folder already"),
+            ));
+        }
+        fs::create_dir_all(self.folder_dir(&to))?;
+        fs::rename(self.project_path(&from, id), target)?;
+        Ok(Some(to))
+    }
+
+    /// Makes a folder, and the ones it is in. `AlreadyExists` when it is
+    /// there, under this name or one that differs only in case.
+    pub fn create_folder(&self, folder: &str) -> io::Result<String> {
+        let folder = self.resolve(folder)?;
+        let dir = self.folder_dir(&folder);
+        if dir.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("There is a folder \"{folder}\" already."),
+            ));
+        }
+        fs::create_dir_all(dir)?;
+        Ok(folder)
+    }
+
+    /// Renames a folder, or moves it into another: `to` is its whole new
+    /// path. What is in it goes along. `NotFound` for a folder that is not
+    /// there, `AlreadyExists` when `to` is, `InvalidInput` for a move into
+    /// itself or one that would nest folders deeper than they go.
+    pub fn rename_folder(&self, from: &str, to: &str) -> io::Result<String> {
+        let from = self.resolve(from)?;
+        let folders = self.folders()?;
+        if !folders.contains(&from) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("There is no folder \"{from}\"."),
+            ));
+        }
+        let invalid = |message: &str| io::Error::new(io::ErrorKind::InvalidInput, message);
+        let lower = |path: &str| path.to_lowercase();
+        if lower(to).starts_with(&format!("{}/", lower(&from))) {
+            return Err(invalid("A folder cannot be moved into itself."));
+        }
+        // The folder's own new name is kept as given, so that a rename can
+        // change its case; the folders it goes into are the ones on disk.
+        let (parent, name) = to.rsplit_once('/').unwrap_or(("", to));
+        let parent = self.resolve(parent)?;
+        let to = if parent.is_empty() {
+            name.to_string()
+        } else {
+            format!("{parent}/{name}")
+        };
+        if from == to {
+            return Ok(to);
+        }
+        let below = folders
+            .iter()
+            .filter_map(|path| path.strip_prefix(&format!("{from}/")))
+            .map(|rest| rest.split('/').count())
+            .max()
+            .unwrap_or(0);
+        if to.split('/').count() + below > MAX_FOLDER_DEPTH {
+            return Err(invalid(
+                "Folders go four deep: this one holds folders that would end up deeper.",
+            ));
+        }
+        if lower(&from) != lower(&to) && folders.iter().any(|path| lower(path) == lower(&to)) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("There is a folder \"{to}\" already."),
+            ));
+        }
+        fs::create_dir_all(self.folder_dir(&parent))?;
+        fs::rename(self.folder_dir(&from), self.folder_dir(&to))?;
+        Ok(to)
+    }
+
+    /// Takes a folder away, and the folders in it. The projects in them
+    /// are not deleted: they are moved out, to no folder. Gives the folder
+    /// as it was on disk and how many projects were moved. `NotFound` for
+    /// a folder that is not there. A folder that holds something the app
+    /// did not put there is left as it is, with its projects where they
+    /// are: `DirectoryNotEmpty`. What a system leaves in a folder by
+    /// itself (`is_litter`) does not count, and goes with the folder.
+    pub fn delete_folder(&self, folder: &str) -> io::Result<(String, usize)> {
+        let folder = self.resolve(folder)?;
+        let (folders, files) = self.walk()?;
+        if !folders.contains(&folder) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("There is no folder \"{folder}\"."),
+            ));
+        }
+        let within = |path: &str| path == folder || path.starts_with(&format!("{folder}/"));
+        let mut inner: Vec<&String> = folders.iter().filter(|path| within(path)).collect();
+        // Looked at before anything is moved: everything in the folders
+        // must be a project that can go to no folder, a folder that goes
+        // too, or litter.
+        let going: Vec<PathBuf> = files
+            .iter()
+            .filter(|(from, id)| within(from) && !self.project_path("", id).exists())
+            .map(|(from, id)| self.project_path(from, id))
+            .collect();
+        let dirs: Vec<PathBuf> = inner.iter().map(|path| self.folder_dir(path)).collect();
+        let mut litter = Vec::new();
+        for dir in &dirs {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                let name = entry.file_name();
+                if going.contains(&path) || dirs.contains(&path) {
+                    continue;
+                }
+                if entry.file_type()?.is_file() && name.to_str().is_some_and(is_litter) {
+                    litter.push(path);
+                    continue;
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::DirectoryNotEmpty,
+                    format!(
+                        "The folder \"{folder}\" holds \"{}\", which is not a project of this app. Nothing was changed.",
+                        name.to_string_lossy()
+                    ),
+                ));
+            }
+        }
+        for path in &going {
+            let file = path.file_name().expect("a project file has a name");
+            fs::rename(path, self.folder_dir("").join(file))?;
+        }
+        for path in litter {
+            fs::remove_file(path)?;
+        }
+        // The deepest first: a folder is removed only once it is empty.
+        inner.sort_by_key(|path| std::cmp::Reverse(path.split('/').count()));
+        for path in inner {
+            fs::remove_dir(self.folder_dir(path))?;
+        }
+        Ok((folder, going.len()))
     }
 
     /// Takes a project off the list. Its file is not destroyed: it is moved
     /// to `backups/`. False for an id no project has.
     pub fn delete_project(&self, id: &str, now: SystemTime) -> io::Result<bool> {
+        let Some(folder) = self.locate(id)? else {
+            return Ok(false);
+        };
         let (y, mo, d, h, mi, s, ms) = civil(now);
         let kept = format!("project-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}-{ms:03}-{id}.json");
-        match fs::rename(self.project_path(id), self.dir.join(BACKUPS).join(kept)) {
+        match fs::rename(
+            self.project_path(&folder, id),
+            self.dir.join(BACKUPS).join(kept),
+        ) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e),
@@ -282,6 +613,54 @@ pub fn is_project_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Whether a name can be one folder's: 1 to 60 characters that every file
+/// system takes. Not `.` or `..` or anything else that starts with a dot,
+/// no `/ \ : * ? " < > |` or control characters, no space at either end,
+/// no dot at the end, none of the names Windows keeps for devices, and no
+/// character that is not seen or that turns the text around, with which
+/// two folders would look like one.
+pub fn is_folder_name(name: &str) -> bool {
+    const KEPT: [&str; 7] = ["con", "prn", "aux", "nul", "conin$", "conout$", "clock$"];
+    // Windows reads a device's name up to the first dot, spaces before it left out.
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_lowercase();
+    let numbered = |port: &str| {
+        let mut rest = stem.strip_prefix(port).unwrap_or("").chars();
+        matches!(
+            (rest.next(), rest.next()),
+            (Some('1'..='9' | '¹' | '²' | '³'), None)
+        )
+    };
+    let device = KEPT.contains(&stem.as_str()) || numbered("com") || numbered("lpt");
+    let unseen = |c: char| matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}');
+    (1..=MAX_FOLDER_NAME).contains(&name.chars().count())
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|c| c.is_control() || unseen(c) || r#"/\:*?"<>|"#.contains(c))
+        && !device
+}
+
+/// Whether a file is one a system leaves in a folder by itself, or this
+/// server left when it was stopped in the middle of a write: nothing a
+/// folder has to be kept for.
+fn is_litter(name: &str) -> bool {
+    [".ds_store", "thumbs.db", "desktop.ini"].contains(&name.to_lowercase().as_str())
+        || name.ends_with(".json.writing")
+}
+
+/// Whether a path can name a folder: one to four names `is_folder_name`
+/// takes, with `/` between them.
+pub fn is_folder_path(path: &str) -> bool {
+    path.split('/').count() <= MAX_FOLDER_DEPTH && path.split('/').all(is_folder_name)
 }
 
 /// Of backup names, newest first, the ones that are not kept.
@@ -463,10 +842,10 @@ pub mod tests {
         let scratch = Scratch::new();
         let store = Store::open(&scratch.0, "one").unwrap();
         assert!(store.projects().unwrap().is_empty());
-        let written = store.save_project("a-1", "first").unwrap();
+        let written = store.save_project("a-1", "first", "").unwrap();
         // The same text again is not a write.
-        assert_eq!(store.save_project("a-1", "first").unwrap(), written);
-        store.save_project("b_2", "second").unwrap();
+        assert_eq!(store.save_project("a-1", "first", "").unwrap(), written);
+        store.save_project("b_2", "second", "").unwrap();
         let mut ids: Vec<String> = store
             .projects()
             .unwrap()
@@ -491,6 +870,381 @@ pub mod tests {
         assert!(is_project_id("0b9f6c1e-8a55-4d0b-9d0e-3f3f2a1c7e11"));
         for id in ["", "../x", "a/b", "a.b", &"x".repeat(65)] {
             assert!(!is_project_id(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_project_is_filed_in_a_folder_and_moved_without_being_written() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        // A new project goes to the folder named, which is made for it.
+        let (_, folder) = store
+            .save_project("a-1", "first", "Gifts/Christmas")
+            .unwrap();
+        assert_eq!(folder, "Gifts/Christmas");
+        assert!(scratch
+            .0
+            .join("projects/Gifts/Christmas/a-1.json")
+            .is_file());
+        assert_eq!(store.folders().unwrap(), ["Gifts", "Gifts/Christmas"]);
+        let kept = store.project("a-1").unwrap().unwrap();
+        assert_eq!(kept.folder, "Gifts/Christmas");
+        assert_eq!(kept.text, "first");
+        // Kept, it stays where it is whatever folder a later write names.
+        let (_, folder) = store.save_project("a-1", "second", "Orders").unwrap();
+        assert_eq!(folder, "Gifts/Christmas");
+        assert_eq!(store.folders().unwrap(), ["Gifts", "Gifts/Christmas"]);
+        assert_eq!(store.projects().unwrap().len(), 1);
+
+        // Moved: the file is renamed, text and time of writing as they were.
+        let before = store.project("a-1").unwrap().unwrap().modified;
+        assert_eq!(
+            store.move_project("a-1", "Orders").unwrap().as_deref(),
+            Some("Orders")
+        );
+        assert!(!scratch.0.join("projects/Gifts/Christmas/a-1.json").exists());
+        let kept = store.project("a-1").unwrap().unwrap();
+        assert_eq!(kept.folder, "Orders");
+        assert_eq!(kept.text, "second");
+        assert_eq!(kept.modified, before);
+        // To no folder, to where it is already, and an id nobody has.
+        assert_eq!(store.move_project("a-1", "").unwrap().as_deref(), Some(""));
+        assert_eq!(store.move_project("a-1", "").unwrap().as_deref(), Some(""));
+        assert!(scratch.0.join("projects/a-1.json").is_file());
+        assert!(store.move_project("zz", "Orders").unwrap().is_none());
+        // The folders it left are still there, empty.
+        assert_eq!(
+            store.folders().unwrap(),
+            ["Gifts", "Gifts/Christmas", "Orders"]
+        );
+
+        // Deleted from a folder, it goes to the backups like any other.
+        store.move_project("a-1", "Gifts").unwrap();
+        assert!(store.delete_project("a-1", at(1_794_993_123)).unwrap());
+        assert!(scratch
+            .0
+            .join("backups/project-20261118-091203-000-a-1.json")
+            .is_file());
+        assert!(store.projects().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_id_that_differs_only_in_case_is_not_kept_beside_the_other() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        store.save_project("a3", "first", "Gifts").unwrap();
+        // Wherever it would go: on some disks a3.json and A3.json are one file.
+        for folder in ["", "Gifts", "Orders"] {
+            let refused = store.save_project("A3", "second", folder).unwrap_err();
+            assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists, "{folder}");
+        }
+        assert_eq!(store.project("a3").unwrap().unwrap().text, "first");
+        assert_eq!(store.projects().unwrap().len(), 1);
+        assert_eq!(store.folders().unwrap(), ["Gifts"]);
+        // The one that is kept is still written.
+        store.save_project("a3", "third", "").unwrap();
+        assert_eq!(store.project("a3").unwrap().unwrap().text, "third");
+    }
+
+    #[test]
+    fn a_folder_that_differs_only_in_case_is_the_one_there() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        assert_eq!(store.create_folder("Gifts").unwrap(), "Gifts");
+        for again in ["Gifts", "gifts", "GIFTS"] {
+            let refused = store.create_folder(again).unwrap_err();
+            assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists, "{again}");
+        }
+        assert_eq!(
+            store.create_folder("gifts/Christmas").unwrap(),
+            "Gifts/Christmas"
+        );
+        let (_, folder) = store
+            .save_project("a-1", "first", "GIFTS/christmas")
+            .unwrap();
+        assert_eq!(folder, "Gifts/Christmas");
+        assert_eq!(
+            store.move_project("a-1", "gifts").unwrap().as_deref(),
+            Some("Gifts")
+        );
+        assert_eq!(store.folders().unwrap(), ["Gifts", "Gifts/Christmas"]);
+    }
+
+    #[test]
+    fn a_folder_is_renamed_and_moved_with_what_is_in_it() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        store
+            .save_project("a-1", "first", "Gifts/Christmas")
+            .unwrap();
+        store.save_project("b-2", "second", "Gifts").unwrap();
+        store.create_folder("Orders").unwrap();
+
+        assert_eq!(
+            store.rename_folder("Gifts", "Presents").unwrap(),
+            "Presents"
+        );
+        assert_eq!(
+            store.folders().unwrap(),
+            ["Orders", "Presents", "Presents/Christmas"]
+        );
+        assert_eq!(
+            store.project("a-1").unwrap().unwrap().folder,
+            "Presents/Christmas"
+        );
+        assert_eq!(store.project("b-2").unwrap().unwrap().folder, "Presents");
+        // Only its case changed.
+        assert_eq!(
+            store.rename_folder("Presents", "presents").unwrap(),
+            "presents"
+        );
+        assert_eq!(store.project("b-2").unwrap().unwrap().folder, "presents");
+        // Into another folder, named in another case than it has.
+        assert_eq!(
+            store.rename_folder("presents", "orders/Presents").unwrap(),
+            "Orders/Presents"
+        );
+        assert_eq!(
+            store.folders().unwrap(),
+            ["Orders", "Orders/Presents", "Orders/Presents/Christmas"]
+        );
+
+        let kind = |result: io::Result<String>| result.unwrap_err().kind();
+        assert_eq!(
+            kind(store.rename_folder("Nothing", "X")),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            kind(store.rename_folder("Orders", "Orders/Presents/Orders")),
+            io::ErrorKind::InvalidInput
+        );
+        store.create_folder("Tests").unwrap();
+        assert_eq!(
+            kind(store.rename_folder("Tests", "orders")),
+            io::ErrorKind::AlreadyExists
+        );
+        // Four deep is as deep as folders go: under a/b, Orders/Presents/Christmas would be five.
+        store.create_folder("a/b").unwrap();
+        assert_eq!(
+            kind(store.rename_folder("Orders", "a/b/Orders")),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            store.project("a-1").unwrap().unwrap().folder,
+            "Orders/Presents/Christmas"
+        );
+    }
+
+    #[test]
+    fn a_deleted_folder_leaves_its_projects_in_no_folder() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        store
+            .save_project("a-1", "first", "Gifts/Christmas")
+            .unwrap();
+        store.save_project("b-2", "second", "Gifts").unwrap();
+        store.save_project("c-3", "third", "Orders").unwrap();
+        assert_eq!(
+            store.delete_folder("gifts").unwrap(),
+            ("Gifts".to_string(), 2)
+        );
+        assert_eq!(store.folders().unwrap(), ["Orders"]);
+        assert_eq!(store.project("a-1").unwrap().unwrap().folder, "");
+        assert_eq!(store.project("b-2").unwrap().unwrap().folder, "");
+        assert_eq!(store.project("c-3").unwrap().unwrap().folder, "Orders");
+        assert!(!scratch.0.join("projects/Gifts").exists());
+        assert_eq!(
+            store.delete_folder("Gifts").unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+
+        // A folder with a file of someone else's is left, and the file with it.
+        let notes = scratch.0.join("projects/Orders/notes.txt");
+        fs::write(&notes, "mine").unwrap();
+        store.create_folder("Orders/2026").unwrap();
+        assert_eq!(
+            store.delete_folder("Orders").unwrap_err().kind(),
+            io::ErrorKind::DirectoryNotEmpty
+        );
+        assert_eq!(fs::read_to_string(&notes).unwrap(), "mine");
+        // Nothing of it was done: the project and the folder in it are where they were.
+        assert_eq!(store.project("c-3").unwrap().unwrap().folder, "Orders");
+        assert_eq!(store.folders().unwrap(), ["Orders", "Orders/2026"]);
+
+        // What a system leaves behind, or a write that was cut short, does not keep a folder.
+        fs::remove_file(&notes).unwrap();
+        for litter in [".DS_Store", "Thumbs.db", "desktop.ini", "c-3.json.writing"] {
+            fs::write(scratch.0.join("projects/Orders").join(litter), "x").unwrap();
+        }
+        fs::write(scratch.0.join("projects/Orders/2026/.DS_Store"), "x").unwrap();
+        assert_eq!(
+            store.delete_folder("Orders").unwrap(),
+            ("Orders".to_string(), 1)
+        );
+        assert!(!scratch.0.join("projects/Orders").exists());
+        assert_eq!(store.project("c-3").unwrap().unwrap().text, "third");
+    }
+
+    #[test]
+    fn a_folder_goes_into_folders_that_are_made_for_it() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        store.save_project("a-1", "first", "Gifts").unwrap();
+        assert_eq!(
+            store.rename_folder("Gifts", "Years/2026/Gifts").unwrap(),
+            "Years/2026/Gifts"
+        );
+        assert_eq!(
+            store.folders().unwrap(),
+            ["Years", "Years/2026", "Years/2026/Gifts"]
+        );
+        assert_eq!(
+            store.project("a-1").unwrap().unwrap().folder,
+            "Years/2026/Gifts"
+        );
+    }
+
+    #[test]
+    fn a_file_where_a_folder_is_asked_for_is_not_gone_through() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        fs::write(scratch.0.join("projects/Notes"), "a file").unwrap();
+        store.save_project("a-1", "first", "").unwrap();
+        let kind = |e: io::Error| e.kind();
+        assert_eq!(
+            kind(store.create_folder("Notes").unwrap_err()),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(store.create_folder("notes/Inner").unwrap_err()),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(store.move_project("a-1", "Notes").unwrap_err()),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(store.save_project("b-2", "second", "Notes").unwrap_err()),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(store.project("a-1").unwrap().unwrap().folder, "");
+        assert!(store.project("b-2").unwrap().is_none());
+        assert_eq!(
+            fs::read_to_string(scratch.0.join("projects/Notes")).unwrap(),
+            "a file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_or_a_name_that_is_not_text_does_not_hide_the_rest() {
+        use std::os::unix::ffi::OsStrExt;
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        store.save_project("a-1", "first", "Gifts").unwrap();
+        let projects = scratch.0.join("projects");
+        // A folder whose name is Latin-1, as from an old archive.
+        let odd = projects.join(std::ffi::OsStr::from_bytes(b"\xafolw"));
+        fs::create_dir(&odd).unwrap();
+        fs::write(odd.join("o-1.json"), "odd").unwrap();
+        // A link to a folder outside projects/.
+        let outside = scratch.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, projects.join("Link")).unwrap();
+
+        assert_eq!(store.folders().unwrap(), ["Gifts"]);
+        assert_eq!(store.projects().unwrap().len(), 1);
+        // Nothing is put through the link.
+        for refused in [
+            store.create_folder("Link").map(|_| ()),
+            store.move_project("a-1", "Link").map(|_| ()),
+            store.save_project("b-2", "second", "link").map(|_| ()),
+        ] {
+            assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        }
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        assert_eq!(store.project("a-1").unwrap().unwrap().folder, "Gifts");
+    }
+
+    #[test]
+    fn only_what_the_app_could_have_made_is_listed() {
+        let scratch = Scratch::new();
+        let store = Store::open(&scratch.0, "one").unwrap();
+        let projects = scratch.0.join("projects");
+        fs::create_dir_all(projects.join(".hidden")).unwrap();
+        fs::create_dir_all(projects.join("a/b/c/d/e")).unwrap();
+        fs::write(projects.join(".hidden/h-1.json"), "hidden").unwrap();
+        fs::write(projects.join("a/b/c/d/e/deep.json"), "deep").unwrap();
+        fs::write(projects.join("a/not a project.json"), "x").unwrap();
+        fs::write(projects.join("a/readme.txt"), "x").unwrap();
+        // The same id twice, as when a file is copied by hand: one of them, the same every time.
+        fs::write(projects.join("twin.json"), "outer").unwrap();
+        fs::write(projects.join("a/twin.json"), "inner").unwrap();
+        assert_eq!(store.folders().unwrap(), ["a", "a/b", "a/b/c", "a/b/c/d"]);
+        let kept = store.projects().unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].id, "twin");
+        assert_eq!(kept[0].text, "outer");
+        assert!(store.project("h-1").unwrap().is_none());
+        assert!(store.project("deep").unwrap().is_none());
+    }
+
+    #[test]
+    fn folder_names_are_ones_every_file_system_takes() {
+        let long = "x".repeat(60);
+        for name in [
+            "Gifts",
+            "Test cuts",
+            "Zlecenia 2026",
+            "Żółw & co",
+            "a.b",
+            long.as_str(),
+        ] {
+            assert!(is_folder_name(name), "{name}");
+        }
+        let longer = "x".repeat(61);
+        for name in [
+            "",
+            ".",
+            "..",
+            ".git",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "a*b",
+            "a?b",
+            "a\"b",
+            "a<b",
+            "a>b",
+            "a|b",
+            " a",
+            "a ",
+            "a.",
+            "a\tb",
+            "CON",
+            "con",
+            "nul.txt",
+            "COM1",
+            "lpt9",
+            longer.as_str(),
+            "CON .txt",
+            "COM¹",
+            "lpt²",
+            "CLOCK$",
+            "conin$",
+            "a\u{200b}b",
+            "a\u{202e}b",
+            "\u{feff}a",
+        ] {
+            assert!(!is_folder_name(name), "{name:?}");
+        }
+        // Not devices: only COM1 to COM9 and LPT1 to LPT9 are.
+        for name in ["COM0", "COM10", "console", "lpt"] {
+            assert!(is_folder_name(name), "{name}");
+        }
+        assert!(is_folder_path("a/b/c/d"));
+        for path in ["", "a/b/c/d/e", "a//b", "/a", "a/", "a/../b"] {
+            assert!(!is_folder_path(path), "{path:?}");
         }
     }
 

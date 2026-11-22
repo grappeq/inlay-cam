@@ -13,6 +13,9 @@
 // While it is out of reach it is asked again every few seconds, so that the
 // page finds out, and saves what waits, without anything else being done.
 
+import { allFolders } from "../state/folders";
+import type { ProjectSummary, Shelf } from "./db";
+
 type Reach = "reachable" | "unreachable";
 let reach: Reach = "reachable";
 const watchers = new Set<() => void>();
@@ -134,10 +137,42 @@ async function answer(response: Response): Promise<Response> {
   return response;
 }
 
-/** The projects kept on the server, last written first. */
-export async function listProjects(): Promise<{ id: string; name: string; modified: number }[]> {
+/** The projects kept on the server, last written first, and the folders they are filed in: folders of the server's own, under `projects/`. */
+export async function readShelf(): Promise<Shelf> {
   const body = await (await answer(await call("api/projects", { cache: "no-store" }))).json();
-  return body.projects;
+  const projects: ProjectSummary[] = (body.projects as Partial<ProjectSummary>[]).map((p) => ({
+    id: String(p.id),
+    name: typeof p.name === "string" ? p.name : "",
+    modified: Number(p.modified) || 0,
+    folder: typeof p.folder === "string" ? p.folder : "",
+    steps: typeof p.steps === "number" ? p.steps : undefined,
+  }));
+  // A server from before folders names none.
+  return { projects, folders: allFolders(Array.isArray(body.folders) ? body.folders : [], projects) };
+}
+
+/** Files a project in another folder, or in none. Its file is renamed, not written. Gives the folder as the server spells it. */
+export async function moveProject(id: string, folder: string): Promise<string> {
+  const response = await call(`api/projects/${encodeURIComponent(id)}`, { method: "PATCH", headers: WRITE, body: JSON.stringify({ folder }) });
+  if (response.status === 404) throw new Error("That project is no longer kept.");
+  return (await (await answer(response)).json()).folder;
+}
+
+export async function createFolder(path: string): Promise<string> {
+  const response = await call("api/folders", { method: "POST", headers: WRITE, body: JSON.stringify({ path }) });
+  return (await (await answer(response)).json()).folder;
+}
+
+/** Renames a folder, or moves it into another: `to` is its whole new path. */
+export async function renameFolder(from: string, to: string): Promise<string> {
+  const response = await call(`api/folders/${encodeURIComponent(from)}`, { method: "PATCH", headers: WRITE, body: JSON.stringify({ path: to }) });
+  return (await (await answer(response)).json()).folder;
+}
+
+/** Takes a folder away. Its projects stay, in no folder. Gives how many were moved out. */
+export async function deleteFolder(path: string): Promise<number> {
+  const response = await call(`api/folders/${encodeURIComponent(path)}`, { method: "DELETE", headers: { "X-Inlay": "1" } });
+  return Number((await (await answer(response)).json()).moved) || 0;
 }
 
 export async function getProject(id: string): Promise<{ id: string; name: string; modified: number; text: string; token?: string } | undefined> {
@@ -149,10 +184,11 @@ export async function getProject(id: string): Promise<{ id: string; name: string
   return { id, name: "", modified: Number(response.headers.get("X-Modified")) || 0, text: await response.text(), token: etag?.replace(/^W\//, "").replace(/"/g, "") };
 }
 
-/** Keeps a project. With `basedOn`, the token of the version this page read, it is refused when the project was saved from elsewhere since: "conflict". Gives the token of the version kept. */
-export async function putProject(id: string, text: string, basedOn?: string): Promise<string | undefined | "conflict"> {
+/** Keeps a project. With `basedOn`, the token of the version this page read, it is refused when the project was saved from elsewhere since: "conflict". `folder` is where one that is not kept yet goes; a kept one stays where it is. Gives the token of the version kept. */
+export async function putProject(id: string, text: string, basedOn?: string, folder?: string): Promise<string | undefined | "conflict"> {
   const headers: Record<string, string> = basedOn ? { ...WRITE, "If-Match": `"${basedOn}"` } : WRITE;
-  const response = await call(`api/projects/${encodeURIComponent(id)}`, { method: "PUT", headers, body: text });
+  const where = folder ? `?folder=${encodeURIComponent(folder)}` : "";
+  const response = await call(`api/projects/${encodeURIComponent(id)}${where}`, { method: "PUT", headers, body: text });
   if (response.status === 409) return "conflict";
   const body = await (await answer(response)).json();
   return typeof body?.token === "string" ? body.token : undefined;

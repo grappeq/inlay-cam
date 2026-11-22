@@ -118,8 +118,8 @@ that instead of building, put it in `compose.yaml` as the `image:` and take out 
 - The tool list is `tools.json` in the data folder (the volume `inlay-data`, `/data` in the
   container): a tool file as "Export a tool file" writes it. A new folder starts with an
   empty list; add the starter set or import your own in the app.
-- Projects are project files in `projects/`, one per project, and the rest is
-  `settings.json`. A project deleted in the app is moved to `backups/`, not destroyed.
+- Projects are project files in `projects/`, one per project, in the folders you file
+  them in under the Projects tab, and the rest is `settings.json`. A project deleted in the app is moved to `backups/`, not destroyed.
   Projects from a browser come over as files: "Save to file" there, "Open file…" here.
 - Before each change to the tool list the file as it was is kept in `backups/` beside it: the newest 30,
   and of older ones the last of each day, for 60 days.

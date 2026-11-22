@@ -88,7 +88,8 @@ has, it offers the list it was shipped with: the page's commands of the same ver
 | Tool | What |
 |---|---|
 | `project_get` | The stock, the shapes with their ids and places, the steps and what each still lacks |
-| `projects_list`, `project_open`, `project_new`, `project_rename` | The kept projects |
+| `projects_list`, `project_open`, `project_new`, `project_rename` | The kept projects, and the folders they are filed in |
+| `project_move` | Files a kept project in a folder, or in none |
 | `project_save`, `project_load` | A project as a file on disk |
 | `stock_set` | The stock's size, thickness, material and colour |
 | `drawing_import` | An SVG or DXF drawing, text or binary, from disk onto the stock; `joinGap` joins wider gaps |

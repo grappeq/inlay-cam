@@ -1430,44 +1430,227 @@ legend .check {
 .form-error {
   color: var(--danger);
 }
-.project-list {
+/* ---- The Projects tab: folders on the left, the projects of one on the right. ---- */
+.projects-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+.pf-nav {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line-strong);
+}
+.pf-tree {
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.pf-tree:empty {
+  display: none;
+}
+.pf-folder-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.pf-folder-line > .pf-naming {
+  grid-column: 1 / -1;
+}
+button.pf-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+button.pf-folder:hover {
+  background: var(--surface-2);
+}
+button.pf-folder[aria-current="page"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+/* Projects dragged over it: they would be moved here. */
+button.pf-folder[data-drop] {
+  background: var(--accent-soft);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+.pf-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-folder .count {
+  font-weight: 400;
+}
+.pf-naming {
+  padding: 4px 10px;
+}
+button.pf-new {
+  margin: 8px 10px;
+  align-self: flex-start;
+  border-style: dashed;
+  color: var(--muted);
+}
+/* The "⋯" of a folder or a project, and what it opens. */
+.menu.pf-menu > summary {
+  border: 0;
+  padding: 4px 9px;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.menu.pf-menu > summary::after {
+  content: none;
+}
+.menu.pf-menu > summary:hover,
+.menu.pf-menu[open] > summary {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.menu.pf-menu.worded > summary {
+  border: 1px solid var(--line-strong);
+  padding: 5px 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: inherit;
+  line-height: inherit;
+}
+.menu.pf-menu .menu-items {
+  min-width: 170px;
+}
+.menu.pf-menu.left .menu-items {
+  left: 0;
+  right: auto;
+}
+.menu.pf-menu .menu-items button.danger:hover {
+  background: var(--danger-soft);
+}
+.pf-pick {
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.pf-pick button[aria-checked="true"] {
+  color: var(--muted);
+  opacity: 1;
+}
+.pf-pick button[aria-checked="true"]::after {
+  content: " ✓";
+}
+.pf-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+}
+.pf-bar,
+.pf-picked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.pf-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+}
+.pf-title {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.pf-search {
+  flex: 0 1 220px;
+  min-width: 120px;
+}
+.pf-bar select {
+  width: auto;
+}
+.pf-picked {
+  background: var(--accent-soft);
+}
+.pf-empty {
+  padding: 28px 18px;
+}
+.pf-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.project-list li {
+.pf-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 4px;
-  padding: 2px 0;
+  gap: 4px 10px;
+  padding: 2px 10px 2px 18px;
   border-bottom: 1px solid var(--line);
 }
-/* A project's name and date: a button that opens it, unless it is the open one. */
-.project-row {
+.pf-list li.pf-head {
+  grid-template-columns: auto minmax(0, 1fr);
+  padding-top: 6px;
+  padding-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.pf-row[data-picked] {
+  background: var(--accent-soft);
+}
+/* A project's name, and where it is: a button that opens it. */
+button.pf-open {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 6px;
+  gap: 2px 8px;
+  min-width: 0;
+  padding: 9px 6px;
   border: 0;
   border-radius: 5px;
   background: none;
   text-align: left;
+  color: var(--text);
 }
-button.project-row {
-  cursor: pointer;
-}
-button.project-row:hover {
+button.pf-open:hover {
   background: var(--accent-soft);
 }
-.project-title {
-  flex: 1;
+.pf-name {
   min-width: 0;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
-.project-date {
+.pf-in {
+  font-size: 12px;
+}
+.pf-facts {
   font-size: 12px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .project-open-tag {
   padding: 1px 8px;
@@ -1476,27 +1659,68 @@ button.project-row:hover {
   color: var(--accent);
   font-size: 12px;
 }
-.project-list .menu > summary {
-  border: 0;
-  padding: 4px 9px;
-  background: none;
+.pf-row[data-picked] .project-open-tag {
+  background: var(--surface);
+}
+.pf-name-input {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pf-name-input input {
+  width: 100%;
+}
+.pf-problem {
+  font-size: 12px;
+  color: var(--danger);
+}
+/* The folder the open project is in, before its name at the top. */
+.topbar .project-folder {
+  max-width: 28ch;
+  margin-right: -6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
-  font-size: 18px;
-  line-height: 1;
+  text-decoration: none;
 }
-.project-list .menu > summary::after {
-  content: none;
+.topbar .project-folder:hover {
+  color: var(--accent);
 }
-.project-list .menu > summary:hover,
-.project-list .menu[open] > summary {
-  background: var(--accent-soft);
-  color: var(--text);
-}
-.project-list .menu-items {
-  min-width: 140px;
-}
-.project-list .menu-items button.danger:hover {
-  background: var(--danger-soft);
+@media (max-width: 800px) {
+  /* One column that scrolls as a whole: a folder's menu is not cut off by the list under it. */
+  .projects-split {
+    display: block;
+    overflow-y: auto;
+  }
+  .pf-nav {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .pf-main {
+    overflow: visible;
+  }
+  .pf-bar {
+    position: static;
+  }
+  .pf-nav .set-nav-foot {
+    display: none;
+  }
+  .pf-list li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding-left: 10px;
+  }
+  .pf-facts {
+    grid-column: 2;
+    grid-row: 2;
+    padding: 0 6px 6px;
+  }
+  .pf-row > .pf-menu {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }
 
 @media (max-width: 800px) {

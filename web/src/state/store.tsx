@@ -33,6 +33,7 @@ import type {
 import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
+import { startOf, started } from "./folders";
 import { pickable } from "./layers";
 import {
   DEFAULT_DRAW_OPTIONS,
@@ -59,7 +60,8 @@ import {
   withoutOrphans,
 } from "./model";
 
-export type View = "design" | "settings";
+/** What the page shows: the list of projects, the open one, or what all projects share. */
+export type View = "projects" | "design" | "settings";
 /** The pages of the settings view. */
 export type SettingsPage =
   "tools" | "materials" | "profiles" | "machine" | "defaults" | "agent";
@@ -90,6 +92,8 @@ export interface AppState {
   defaults: Setup;
   project: Project;
   projects: db.ProjectSummary[];
+  /** The folders projects are filed in, each with `/` between nested ones, a folder before the ones in it. Empty ones too. */
+  folders: string[];
   view: View;
   settingsPage: SettingsPage;
   /** Regions picked for a new inlay. */
@@ -166,6 +170,7 @@ export type Action =
       defaults: Setup;
       project: Project;
       projects: db.ProjectSummary[];
+      folders: string[];
     }
   | {
       type: "openProject";
@@ -177,7 +182,7 @@ export type Action =
   | { type: "setTools"; tools: Tool[]; lists?: ToolLists }
   | { type: "setMachine"; machine: Machine }
   | { type: "setDefaults"; defaults: Setup }
-  | { type: "setProjects"; projects: db.ProjectSummary[] }
+  | { type: "setProjects"; projects: db.ProjectSummary[]; folders: string[] }
   | { type: "setView"; view: View; page?: SettingsPage }
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
@@ -225,6 +230,7 @@ const initial: AppState = {
   defaults: DEFAULT_SETUP,
   project: newProject(),
   projects: [],
+  folders: [],
   view: "design",
   settingsPage: "tools",
   selection: [],
@@ -301,6 +307,7 @@ export function reducer(state: AppState, action: Action): AppState {
         defaults: action.defaults,
         project: relinkTools(normalised(action.project), action.tools),
         projects: action.projects,
+        folders: action.folders,
       });
     case "openProject":
       return withSnapshots({
@@ -348,7 +355,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "setDefaults":
       return { ...state, defaults: action.defaults };
     case "setProjects":
-      return { ...state, projects: action.projects };
+      return { ...state, projects: action.projects, folders: action.folders };
     case "setView":
       return {
         ...state,
@@ -745,7 +752,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         problem ??= `The last project could not be reopened: ${message(e)}`;
       }
-      const projects = await db.listProjects().catch(() => []);
+      const { projects, folders } = await db
+        .readShelf()
+        .catch((): db.Shelf => ({ projects: [], folders: [] }));
       const machine = readMachine(
         await db.getSetting("machine").catch(() => undefined),
       );
@@ -763,6 +772,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         defaults,
         project,
         projects,
+        folders,
       });
       if (problem)
         dispatch({ type: "notice", notice: { kind: "error", text: problem } });
@@ -814,9 +824,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 name: project.name,
                 modified: Date.now(),
                 text,
+                steps: project.steps.length,
+                // One that is not kept: the folder it was started in, or,
+                // deleted somewhere else while open here, the one it was in.
+                folder: stored
+                  ? undefined
+                  : (startOf(project.id) ??
+                    live.current.projects.find((p) => p.id === project.id)
+                      ?.folder),
               },
               stored?.token,
             );
+            if (token !== "conflict") started(project.id);
             if (token === "conflict") {
               const kept = await db.getProject(project.id);
               if (kept) return conflict(kept);
@@ -825,10 +844,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               text,
               token: token === "conflict" ? undefined : token,
             });
-            dispatch({
-              type: "setProjects",
-              projects: await db.listProjects(),
-            });
+            dispatch({ type: "setProjects", ...(await db.readShelf()) });
           } else if (stored) {
             bases.set(project.id, { text: stored.text, token: stored.token });
           }
