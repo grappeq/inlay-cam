@@ -3,6 +3,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { core } from "../core/client";
+import { tasks } from "../state/tasks";
+import { GCODE, STOCK, stockOf } from "../state/work";
+import { useTask } from "./Progress";
 import type { Built, Step } from "../core/types";
 import { duplicateStep, glueOf, glueStep, insertAfter, isByHand, isInlay, isSuppressed, sawOf, sawRoom, sawStep, standingPart, trimFacing, trimOf, withSuppressed, withoutStep } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
@@ -61,20 +64,35 @@ export function useAfterCut(step: Step) {
 
 /**
  * What takes the stock through the list for one line of it: showing the
- * stock as the line leaves it, and saving the line's G-code. `busy` says, in
- * words, what is being worked on meanwhile.
+ * stock as the line leaves it, and saving the line's G-code. `busy` is the
+ * task that is going on meanwhile.
  */
 export function useStepFiles() {
   const { project, timeline } = useApp();
   const dispatch = useDispatch();
-  const [busy, setBusy] = useState<string | null>(null);
+  const making = useTask(GCODE);
+  const cutting = useTask(STOCK);
+  // How many of the menu's own askings are going on: the line under the list is theirs, not that of a run a tab started.
+  const [asked, setAsked] = useState(0);
+  const mine = async (work: () => Promise<void>) => {
+    setAsked((n) => n + 1);
+    try {
+      await work();
+    } finally {
+      setAsked((n) => n - 1);
+    }
+  };
+  // The stock's line while the stock is cut; the G-code's own while its file is joined.
+  const busy = asked > 0 ? (cutting ?? making) : null;
+  // While either goes on, whoever started it, the menu does not start it again.
+  const working = cutting !== null || making !== null;
 
   /** The stock taken through the list as the project is now: what there is, or worked out. */
   const current = async (): Promise<Timeline> => {
     if (timeline?.result && timeline.project === project) return timeline;
     let made: Timeline;
     try {
-      made = { project, result: await core.call("stockTimeline", project), errors: [] };
+      made = { project, result: await stockOf(project), errors: [] };
     } catch (e) {
       made = { project, result: null, errors: message(e).split("\n") };
     }
@@ -82,21 +100,18 @@ export function useStepFiles() {
     return made;
   };
 
-  const showAfter = async (step: Step) => {
-    setBusy("Cutting the stock, one step after the other…");
-    try {
+  const showAfter = (step: Step) =>
+    mine(async () => {
       await current();
       dispatch({ type: "setTimelineAt", at: project.steps.indexOf(step) + 1 });
       dispatch({ type: "setStage", stage: "timeline" });
-    } finally {
-      setBusy(null);
-    }
-  };
+    });
 
   /** Saves the file that cuts the step into the stock, and for an inlay that of its plug or inserts. Nothing is saved when either cannot be made or went wrong in the simulation. */
-  const exportGcode = async (step: Step) => {
-    setBusy(`Making the G-code of "${step.name}"…`);
-    try {
+  const exportGcode = (step: Step) =>
+    mine(() =>
+    // It stands for the cutting of the stock while that goes on inside it.
+    tasks.run({ key: GCODE, label: `Making the G-code of "${step.name}"`, cover: true, heavy: true, view: "design" }, async () => {
       const { result, errors, project: made } = await current();
       const files: Built[] = [];
       const why: string[] = [...errors];
@@ -127,12 +142,9 @@ export function useStepFiles() {
       }
       for (const file of files) downloadText(file.fileName, file.gcode, "text/plain");
       dispatch({ type: "notice", notice: { kind: "info", text: [`Saved ${files.map((f) => f.fileName).join(" and ")}.`, ...notes].join(" ") } });
-    } finally {
-      setBusy(null);
-    }
-  };
+    }));
 
-  return { busy, showAfter, exportGcode };
+  return { busy, working, showAfter, exportGcode };
 }
 
 type StepFiles = ReturnType<typeof useStepFiles>;
@@ -184,7 +196,7 @@ export function StepMenu({ step, x, y, files, close }: { step: Step; x: number; 
     act();
   };
   const byHand = isByHand(step.task);
-  const working = files.busy !== null;
+  const working = files.working;
   const suppressed = isSuppressed(step, project.steps);
   // A step done by hand is left out with its inlay, and comes back with it.
   const inlay = byHand && !step.suppressed && suppressed ? project.steps.find((j) => isByHand(step.task) && j.id === step.task.inlayId) : undefined;

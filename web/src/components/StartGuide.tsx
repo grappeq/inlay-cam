@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useFileActions } from "../state/files";
 import { emptyDesign } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { ReportNotes, useImportSvg } from "./DesignPanel";
+import { BusyButton } from "./Progress";
 
 /** What a project without a drawing shows: the way from tools to files, and where the user is on it. */
 export function StartGuide() {
@@ -16,13 +18,26 @@ export function StartGuide() {
   const openTools = () => dispatch({ type: "setView", view: "settings", page: "tools" });
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+  // What of the guide is being fetched or read, so that it is not asked for twice.
+  const [busy, setBusy] = useState<"sample" | "starter" | null>(null);
   const trySample = async () => {
+    setBusy("sample");
     try {
       const response = await fetch(`${import.meta.env.BASE_URL}samples/sample.svg`);
       if (!response.ok) throw new Error("The sample drawing could not be loaded.");
       await files.importSvg({ name: "sample.svg", text: await response.text() });
     } catch (e) {
       dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const addStarter = async () => {
+    setBusy("starter");
+    try {
+      await files.addStarterSetHere();
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -51,9 +66,9 @@ export function StartGuide() {
               <button className="primary" onClick={openTools}>
                 Add tools
               </button>
-              <button onClick={files.addStarterSetHere} title={'50 bits for a 1/8" collet, with cutting settings to start from. Delete the ones you do not own.'}>
+              <BusyButton busy={busy === "starter"} onClick={addStarter} title={'50 bits for a 1/8" collet, with cutting settings to start from. Delete the ones you do not own.'}>
                 Use the starter tools
-              </button>
+              </BusyButton>
             </div>
           ) : (
             <button onClick={openTools}>Open tool list</button>
@@ -70,7 +85,9 @@ export function StartGuide() {
             <button className={tools.length > 0 ? "primary" : ""} onClick={importSvg}>
               Import drawing…
             </button>
-            <button onClick={trySample}>Try the sample drawing</button>
+            <BusyButton busy={busy === "sample"} onClick={trySample}>
+              Try the sample drawing
+            </BusyButton>
             <button onClick={() => dispatch({ type: "addDrawing", design: emptyDesign(), replace: false })} title="A stock of 200 × 150 mm with nothing on it yet, to draw shapes on, to add drawings to or to face">
               Start with an empty stock
             </button>

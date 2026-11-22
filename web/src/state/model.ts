@@ -1,7 +1,7 @@
 // Pure helpers over the data model: no React, no storage.
 
 import { freeName, layersOf } from "./layers";
-import type { CutOverride, CutResult, CuttingSettings, Design, Layer, GlueStep, SawStep, Task, Step, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
+import type { CutOverride, CutResult, CuttingSettings, Design, Layer, GlueStep, SawStep, Task, Step, Part, StepType, Machine, Material, MaterialInfo, Profile, Project, Ring, Setup, Tool, ToolKind, ToolLists, TrueInlay } from "../core/types";
 
 import coreValues from "../core/core-values.json";
 
@@ -1153,4 +1153,20 @@ export function makeraWarnings(tool: Tool, lists: ToolLists): string[] {
     }
   }
   return [...new Set(out)];
+}
+
+/**
+ * What a part of a step is called. An inlay has a pocket and a second part: a
+ * plug for a V-carve inlay, an insert for a flat one. A plain operation has
+ * one part, named after what it does.
+ */
+export function partName(part: Part, step: Step): string {
+  const inlay = step.task;
+  if (!isInlay(inlay)) return STEP_LABELS[inlay.type].toLowerCase();
+  return part === "pocket" ? "pocket" : inlay.type === "vcarve" || inlay.insertStyle === "backer" ? "plug" : "insert";
+}
+
+/** The parts a step has a file for. */
+export function partsOf(step: Step): Part[] {
+  return isInlay(step.task) ? ["pocket", "plug"] : ["pocket"];
 }

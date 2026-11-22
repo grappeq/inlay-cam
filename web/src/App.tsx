@@ -31,6 +31,8 @@ import { core } from "./core/client";
 import * as db from "./storage/home";
 import { duplicateProject } from "./state/model";
 import { MakeraImportDialog } from "./components/LibraryDialogs";
+import { TaskNotices } from "./components/Progress";
+import { tasks } from "./state/tasks";
 
 export function App() {
   return (
@@ -59,7 +61,8 @@ function Shell() {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragging(false);
-    const files = await Promise.all([...e.dataTransfer.files].map(readFile));
+    const dropped = [...e.dataTransfer.files];
+    const files = await tasks.run({ key: "read", label: dropped.length === 1 ? `Reading ${dropped[0].name}` : `Reading ${dropped.length} files`, place: "notice" }, () => Promise.all(dropped.map(readFile)));
     await importAll(files);
   };
 
@@ -81,6 +84,7 @@ function Shell() {
     >
       <Header />
       <NoticeBar />
+      <TaskNotices />
       <ConflictBar />
       <AgentPairing />
       <MakeraIncoming />

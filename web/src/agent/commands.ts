@@ -26,7 +26,7 @@ import type {
   Tool,
   ToolKind,
 } from "../core/types";
-import { partName, partsOf } from "../components/OutputPanel";
+import { makeOutput, stockOf } from "../state/work";
 import {
   addShape,
   duplicateShapes,
@@ -58,6 +58,8 @@ import {
   isSuppressed,
   withSuppressed,
   isInlay,
+  partName,
+  partsOf,
   missingFor,
   missingSettings,
   newId,
@@ -625,7 +627,7 @@ async function workOut(
     throw new CommandError("invalid_state", "The project has no stock yet.");
   let result: StockTimeline;
   try {
-    result = await core.call("stockTimeline", project);
+    result = await stockOf(project, "agent");
   } catch (e) {
     const timeline = { project, result: null, errors: message(e).split("\n") };
     await host.apply({ type: "setTimeline", timeline });
@@ -1948,35 +1950,15 @@ export const COMMANDS: Command[] = [
         missingSettings(step, everyTool(state), state.lists, state.project);
       if (missing) throw new CommandError("invalid_state", missing);
       const project = state.project;
-      const out: Output = {
-        stepId: step.id,
-        project,
-        parts: {},
-        errors: [],
-        fit: null,
-        fitErrors: [],
-      };
-      for (const part of partsOf(step)) {
-        try {
-          out.parts[part] = await core.call(
-            "previewPart",
-            project,
-            step.id,
-            part,
-          );
-        } catch (e) {
-          for (const line of message(e).split("\n"))
-            if (!out.errors.includes(line)) out.errors.push(line);
-        }
-      }
-      if (step.task.type === "vcarve" && out.parts.pocket && out.parts.plug) {
-        try {
-          out.fit = await core.call("checkFit", project, step.id);
-        } catch (e) {
-          out.fitErrors = message(e).split("\n");
-        }
-      }
+      // The step is opened first, so that its panel shows the files being made.
       await host.apply({ type: "setActiveStep", id: step.id });
+      // Each part is shown as it is made, and all of it before the work is said to be over.
+      const out: Output = await makeOutput(
+        project,
+        step,
+        (output) => void host.apply({ type: "setOutput", output }),
+        "agent",
+      );
       await host.apply({ type: "setOutput", output: out });
       const stage: Stage = out.fit
         ? "fit"

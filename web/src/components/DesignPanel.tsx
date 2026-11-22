@@ -65,6 +65,7 @@ import { CHAMFER_PICTURES, CONTOUR_PICTURES, DIRECTION_PICTURES, PATTERN_PICTURE
 import { GenerateBar, Results, useOutput } from "./OutputPanel";
 import { CutOutFields, EntryFields, HeightFields, TabFields } from "./SetupFields";
 import { ExportList } from "./Export";
+import { ProgressLine } from "./Progress";
 import { StepMenu, deleteQuestion, useAfterCut, useStepFiles } from "./StepMenu";
 
 /** A step that is an inlay proper, with a pocket and a plug or insert. */
@@ -469,11 +470,7 @@ function StepsSection({ design }: { design: Design }) {
         </ul>
       )}
       {menuStep && menu && <StepMenu key={`${menu.id} ${menu.x} ${menu.y}`} step={menuStep} x={menu.x} y={menu.y} files={files} close={() => setMenu(null)} />}
-      {files.busy && (
-        <p className="status-line" role="status">
-          {files.busy}
-        </p>
-      )}
+      <ProgressLine task={files.busy} />
 
       <div className="new-job">
         <h3>{project.steps.length === 0 ? "Make the first one" : "Add another"}</h3>

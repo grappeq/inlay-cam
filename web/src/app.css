@@ -5232,3 +5232,168 @@ button.layer-count.holds {
   color: var(--muted);
   border-style: dotted;
 }
+
+/* Work that takes time: a line with a bar where its result will land */
+.spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+button.primary .spinner {
+  border-color: color-mix(in srgb, var(--accent-text) 40%, transparent);
+  border-top-color: var(--accent-text);
+}
+.progress-line {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.progress-top,
+.progress-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.progress-top {
+  font-size: 13px;
+}
+.progress-count,
+.progress-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.progress-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.progress-stage {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+}
+.progress-bar > span {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line);
+}
+.progress-bar > span.done,
+.progress-bar i,
+.activity-strip i {
+  background: var(--accent);
+}
+.progress-bar i,
+.activity-strip i {
+  position: absolute;
+  inset: 0 auto 0 0;
+}
+/* Going on, with no count of how far: stripes that move. */
+.progress-bar > span.now,
+.activity-strip i.now {
+  background: repeating-linear-gradient(-45deg, transparent 0 5px, var(--accent-soft) 5px 10px) var(--accent);
+  background-size: 28.28px 100%;
+}
+.activity-strip i.now {
+  width: 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spinner {
+    animation: spinner-turn 0.8s linear infinite;
+  }
+  .progress-bar > span.now,
+  .activity-strip i.now {
+    animation: progress-slide 0.9s linear infinite;
+  }
+  .progress-bar i,
+  .activity-strip i {
+    transition: width 0.2s;
+  }
+}
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes progress-slide {
+  to {
+    background-position: 28.28px 0;
+  }
+}
+/* In the header: what is going on, from every tab */
+.topbar {
+  position: relative;
+}
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.activity-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--line);
+}
+/* Under the header: work that has no place of its own on the page */
+.notice.task-notice {
+  display: block;
+}
+.task-notice .progress-line {
+  max-width: 520px;
+}
+/* Where a line takes the place of a sentence */
+.generate-bar .progress-line {
+  margin-top: 8px;
+}
+.generate-bar .progress-line button,
+.pf-picked .progress-line button {
+  width: auto;
+  padding: 0;
+  font-size: inherit;
+}
+.timeline-start .progress-line {
+  width: min(320px, 70vw);
+}
+.jobs + .progress-line {
+  margin: 8px 0;
+}
+.export > .progress-line {
+  margin: 14px 16px 0;
+}
+.export-file .progress-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  margin: 3px 0;
+}
+.pf-picked .progress-line {
+  flex: 1;
+  max-width: 520px;
+}
+.pf-open .spinner {
+  margin-right: 6px;
+}

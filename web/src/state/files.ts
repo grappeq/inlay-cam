@@ -6,9 +6,13 @@ import type { ImportReport } from "../core/types";
 import { addStarter, mergeLists, mergeTools, newId } from "./model";
 import { message, useApp, useDispatch } from "./store";
 import type { InFile } from "../util/files";
+import { tasks } from "./tasks";
 
 /** A file as it is brought in: text, and bytes for a DXF or a Makera library. */
 export type TextFile = InFile;
+
+/** The key of the task that reads drawings. */
+export const IMPORT = "import";
 
 export function useFileActions() {
   const { project, tools, lists } = useApp();
@@ -29,39 +33,45 @@ export function useFileActions() {
     const read: string[] = [];
     const failed: string[] = [];
     let merged: ImportReport | null = null;
-    for (const file of files) {
-      const dxf = file.name.toLowerCase().endsWith(".dxf");
-      let result;
-      try {
-        result = dxf
-          ? await core.call("importDxf", file.bytes ?? new TextEncoder().encode(file.text), file.name, gap)
-          : await core.call("importSvg", file.text, file.name, gap);
-      } catch (e) {
-        failed.push(`${file.name}: ${message(e)}`);
-        continue;
+    const task = tasks.start({ key: IMPORT, label: files.length === 1 ? `Reading ${files[0].name}` : "Reading the drawings", total: files.length > 1 ? files.length : null, place: "notice", view: "design" });
+    try {
+      for (const [index, file] of files.entries()) {
+        task.update({ done: index, stage: files.length > 1 ? file.name : null });
+        const dxf = file.name.toLowerCase().endsWith(".dxf");
+        let result;
+        try {
+          result = dxf
+            ? await core.call("importDxf", file.bytes ?? new TextEncoder().encode(file.text), file.name, gap)
+            : await core.call("importSvg", file.text, file.name, gap);
+        } catch (e) {
+          failed.push(`${file.name}: ${message(e)}`);
+          continue;
+        }
+        const { design, report } = result;
+        merged = merged
+          ? {
+              unsupported: [...new Set([...merged.unsupported, ...report.unsupported])],
+              unitNote: merged.unitNote ?? report.unitNote,
+              openOutlines: merged.openOutlines + report.openOutlines,
+              hiddenLayers: [...merged.hiddenLayers, ...report.hiddenLayers],
+              hasText: merged.hasText || report.hasText,
+              images: merged.images + report.images,
+              specks: merged.specks + report.specks,
+              // Offered for one file at a time only: see `again` below.
+              joinable: null,
+              joinedAt: merged.joinedAt ?? report.joinedAt,
+            }
+          : report;
+        if (design.regions.length === 0) {
+          failed.push(`No closed shapes were found in ${file.name}. The app needs filled shapes, or lines that join into closed outlines.`);
+          continue;
+        }
+        dispatch({ type: "addDrawing", design, replace: replace && read.length === 0 });
+        shapes += design.regions.length;
+        read.push(file.name);
       }
-      const { design, report } = result;
-      merged = merged
-        ? {
-            unsupported: [...new Set([...merged.unsupported, ...report.unsupported])],
-            unitNote: merged.unitNote ?? report.unitNote,
-            openOutlines: merged.openOutlines + report.openOutlines,
-            hiddenLayers: [...merged.hiddenLayers, ...report.hiddenLayers],
-            hasText: merged.hasText || report.hasText,
-            images: merged.images + report.images,
-            specks: merged.specks + report.specks,
-            // Offered for one file at a time only: see `again` below.
-            joinable: null,
-            joinedAt: merged.joinedAt ?? report.joinedAt,
-          }
-        : report;
-      if (design.regions.length === 0) {
-        failed.push(`No closed shapes were found in ${file.name}. The app needs filled shapes, or lines that join into closed outlines.`);
-        continue;
-      }
-      dispatch({ type: "addDrawing", design, replace: replace && read.length === 0 });
-      shapes += design.regions.length;
-      read.push(file.name);
+    } finally {
+      task.end();
     }
     dispatch({ type: "setView", view: "design" });
     // One file can be brought in again with its gaps joined: in place of

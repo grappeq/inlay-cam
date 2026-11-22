@@ -13,6 +13,7 @@
 import { version as APP_VERSION } from "../../package.json";
 import { CommandError, listCommands, runCommand } from "./commands";
 import { host } from "./host";
+import { tasks } from "../state/tasks";
 
 /** Where the link stands: switched off; no relay answering yet; connected; or turned away by the relay. */
 export type LinkStatus = "off" | "waiting" | "connected" | "refused";
@@ -33,6 +34,9 @@ export interface AgentLink {
   /** A pairing link was opened and waits for the user's yes. */
   asking: boolean;
 }
+
+/** The key of the task that is an agent's command running. */
+export const AGENT_COMMAND = "agent";
 
 export const DEFAULT_PORT = 7391;
 const KEY = "inlay-cam.agent";
@@ -166,7 +170,10 @@ function connect(port: number, token: string): () => void {
     running = running.then(async () => {
       let body: object;
       try {
-        body = { session: to, id: call.id, result: (await runCommand(call.name, call.input, host())) ?? null };
+        // Shown as the agent's while it runs: the command by its title, unless work inside it says more.
+        const title = listCommands().find((c) => c.name === call.name)?.title ?? call.name;
+        const result = await tasks.run({ key: AGENT_COMMAND, label: title, cover: true, by: "agent" }, () => runCommand(call.name, call.input, host()));
+        body = { session: to, id: call.id, result: result ?? null };
       } catch (e) {
         const error = e instanceof CommandError ? { code: e.code, message: e.message } : { code: "failed", message: e instanceof Error ? e.message : String(e) };
         body = { session: to, id: call.id, error };

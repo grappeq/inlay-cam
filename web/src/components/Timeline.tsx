@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { core } from "../core/client";
+import { useEffect, useMemo, useRef } from "react";
 import type { Built, Step, PocketPreview, Project, StockTimeline, TimelineStep } from "../core/types";
 import { aboveOrBelow, fmt, isByHand, stepColor, stockColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
+import { STOCK, stockOf } from "../state/work";
 import { StepIcon } from "./icons";
+import { ProgressLine, useTask } from "./Progress";
 import { Viewer3D, type KeptCamera } from "./Viewer3D";
 
 /** Whether a step has something to say: it could not be done, went wrong, or wants a look. */
@@ -15,20 +16,18 @@ function troubled(step: TimelineStep): boolean {
 export function useWorkOut() {
   const { project } = useApp();
   const dispatch = useDispatch();
-  const [busy, setBusy] = useState(false);
+  // The one run there is, whichever tab or menu started it.
+  const task = useTask(STOCK);
   const workOut = async (at?: number) => {
-    setBusy(true);
     try {
-      const result = await core.call("stockTimeline", project);
+      const result = await stockOf(project);
       dispatch({ type: "setTimeline", timeline: { project, result, errors: [] } });
       dispatch({ type: "setTimelineAt", at: at ?? result.steps.length });
     } catch (e) {
       dispatch({ type: "setTimeline", timeline: { project, result: null, errors: message(e).split("\n") } });
-    } finally {
-      setBusy(false);
     }
   };
-  return { busy, workOut };
+  return { busy: task !== null, task, workOut };
 }
 
 /** What is wrong with a step, in a few words. */
@@ -47,7 +46,7 @@ function summary(step: TimelineStep): string {
  */
 export function TimelineStart({ at }: { at?: number }) {
   const { timeline } = useApp();
-  const { busy, workOut } = useWorkOut();
+  const { busy, task, workOut } = useWorkOut();
   const started = useRef(false);
   useEffect(() => {
     if (timeline !== null || started.current) return;
@@ -58,9 +57,15 @@ export function TimelineStart({ at }: { at?: number }) {
   }, []);
 
   return (
-    <div className="timeline-start" role="status">
+    <div className="timeline-start">
       {timeline === null || busy ? (
-        <p className="status-line">Cutting the stock, one step after the other…</p>
+        task?.shown ? (
+          <ProgressLine task={task} />
+        ) : (
+          <p className="status-line" role="status">
+            Cutting the stock, one step after the other…
+          </p>
+        )
       ) : (
         <>
           <div className="callout error">

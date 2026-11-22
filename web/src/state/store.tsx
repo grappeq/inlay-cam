@@ -120,6 +120,8 @@ export interface AppState {
   makeraImport: { plan: MakeraImportPlan; fileName: string } | null;
   notice: Notice | null;
   saveError: string | null;
+  /** The open project is being saved right now. */
+  saving: boolean;
   /** The open project was saved from another window or browser while it was changed here too. Until it is settled, it is not saved. */
   projectConflict: ProjectConflict | null;
   /** Counts the times the server came back after it was out of reach, so that what waits is saved again. */
@@ -211,6 +213,7 @@ export type Action =
     }
   | { type: "setMakeraImport"; incoming: AppState["makeraImport"] }
   | { type: "notice"; notice: Notice | null }
+  | { type: "saving" }
   | { type: "saveResult"; error: string | null }
   | { type: "projectConflict"; conflict: ProjectConflict | null }
   | { type: "reconnected" }
@@ -262,6 +265,7 @@ export const initial: AppState = {
   makeraImport: null,
   notice: null,
   saveError: null,
+  saving: false,
   projectConflict: null,
   reconnects: 0,
   output: null,
@@ -445,10 +449,13 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, makeraImport: action.incoming };
     case "notice":
       return { ...state, notice: action.notice };
+    case "saving":
+      return { ...state, saving: true };
     case "saveResult":
-      return { ...state, saveError: action.error };
+      return { ...state, saveError: action.error, saving: false };
     case "projectConflict":
-      return { ...state, projectConflict: action.conflict };
+      // A save that ran into the other version is over: nothing is saved until one is chosen.
+      return { ...state, projectConflict: action.conflict, saving: action.conflict ? false : state.saving };
     case "reconnected":
       return { ...state, reconnects: state.reconnects + 1 };
     case "setOutput":
@@ -876,6 +883,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const blank =
             !stored && project.design === null && project.steps.length === 0;
           if (!blank && stored?.text !== text) {
+            // Said only now: most changes are checked and found kept already.
+            dispatch({ type: "saving" });
             const token = await db.putProject(
               {
                 id: project.id,

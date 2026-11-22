@@ -1,27 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { core } from "../core/client";
+import { useEffect, useRef } from "react";
 import type { Built, FitCheck, Step, Part, PocketPreview } from "../core/types";
-import { STEP_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
+import { fmt, isInlay, missingFor, missingSettings, partName, partsOf } from "../state/model";
 import { stageMade } from "../state/route";
-import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
+import { useApp, useDispatch, type Stage } from "../state/store";
+import { tasks } from "../state/tasks";
+import { generateKey, makeOutput } from "../state/work";
 import { downloadText } from "../util/files";
+import { ProgressLine, Spinner, useTask } from "./Progress";
 import { ToolRack } from "./ProjectTools";
 
-/**
- * What a part of a step is called. An inlay has a pocket and a second part: a
- * plug for a V-carve inlay, an insert for a flat one. A plain operation has
- * one part, named after what it does.
- */
-export function partName(part: Part, step: Step): string {
-  const inlay = step.task;
-  if (!isInlay(inlay)) return STEP_LABELS[inlay.type].toLowerCase();
-  return part === "pocket" ? "pocket" : inlay.type === "vcarve" || inlay.insertStyle === "backer" ? "plug" : "insert";
-}
-
-/** The parts a step has a file for. */
-export function partsOf(step: Step): Part[] {
-  return isInlay(step.task) ? ["pocket", "plug"] : ["pocket"];
-}
+export { partName, partsOf };
 
 function capital(text: string): string {
   return text.replace(/^./, (c) => c.toUpperCase());
@@ -34,8 +22,8 @@ function capital(text: string): string {
 export function useOutput(step: Step) {
   const { project, output, tools, lists, restore } = useApp();
   const dispatch = useDispatch();
-  // What is being worked on right now, in words, or null when idle.
-  const [busy, setBusy] = useState<string | null>(null);
+  // The making of this step's files while it goes on, whoever asked for it and whatever the panel showed meanwhile.
+  const busy = useTask(generateKey(step.id));
 
   const mine = output?.stepId === step.id ? output : null;
   // Any edit since generating may have changed the result.
@@ -45,34 +33,10 @@ export function useOutput(step: Step) {
 
   /** `want`: the stage to show when it is made, in place of the one that says most. */
   const generate = async (want?: Stage) => {
-    const out: Output = { stepId: step.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
-    const publish = () => dispatch({ type: "setOutput", output: { ...out, parts: { ...out.parts }, errors: [...out.errors] } });
-    const vcarve = step.task.type === "vcarve";
-    const parts = partsOf(step);
-    const steps = parts.length + (vcarve ? 1 : 0);
-    try {
-      for (const [i, part] of parts.entries()) {
-        setBusy(steps === 1 ? `Working out the ${partName(part, step)}…` : `Working out the ${partName(part, step)} (step ${i + 1} of ${steps})…`);
-        try {
-          out.parts[part] = await core.call("previewPart", project, step.id, part);
-        } catch (e) {
-          for (const line of message(e).split("\n")) if (!out.errors.includes(line)) out.errors.push(line);
-        }
-        publish();
-      }
-      if (vcarve && out.parts.pocket && out.parts.plug) {
-        setBusy(`Fitting the plug into the pocket (step 3 of 3)…`);
-        try {
-          out.fit = await core.call("checkFit", project, step.id);
-        } catch (e) {
-          out.fitErrors = message(e).split("\n");
-        }
-        publish();
-      }
-      dispatch({ type: "setStage", stage: stageMade(out, want) });
-    } finally {
-      setBusy(null);
-    }
+    // Already being made: a second asking does not start it again.
+    if (tasks.find(generateKey(step.id))) return;
+    const out = await makeOutput(project, step, (output) => dispatch({ type: "setOutput", output }));
+    dispatch({ type: "setStage", stage: stageMade(out, want) });
   };
 
   // The page was loaded at an address that names this step's pocket, plug or
@@ -100,11 +64,10 @@ export function GenerateBar({ step, state }: { step: Step; state: OutputState })
   const { mine, stale, busy, missing, generate } = state;
   const second = partName("plug", step);
   const single = !isInlay(step.task);
-  const status = busy
-    ? busy
-    : missing
-      ? missing
-      : !mine
+  // While the files are made, this stands for the first moments only: then the line with the bar takes its place.
+  const status = missing
+    ? missing
+    : !mine
       ? single
         ? "Makes the file for this operation and simulates it."
         : `Makes the pocket file and the ${second} file${step.task.type === "vcarve" ? ", and checks how they fit" : ""}.`
@@ -115,12 +78,26 @@ export function GenerateBar({ step, state }: { step: Step; state: OutputState })
           : "The files match the current settings.";
   return (
     <div className="generate-bar">
-      <button className="primary" disabled={busy !== null || missing !== null} onClick={generate}>
-        {busy ? "Working…" : mine ? "Generate again" : single ? "Generate file" : "Generate files"}
+      <button className="primary" disabled={busy !== null || missing !== null} aria-busy={busy !== null || undefined} onClick={generate}>
+        {busy ? (
+          <>
+            <Spinner /> Working…
+          </>
+        ) : mine ? (
+          "Generate again"
+        ) : single ? (
+          "Generate file"
+        ) : (
+          "Generate files"
+        )}
       </button>
-      <p className={`bar-status${!busy && (missing || (mine && stale)) ? " warn" : ""}`} role="status">
-        {status}
-      </p>
+      {busy?.shown ? (
+        <ProgressLine task={busy} />
+      ) : (
+        <p className={`bar-status${!busy && (missing || (mine && stale)) ? " warn" : ""}`} role="status">
+          {status}
+        </p>
+      )}
     </div>
   );
 }

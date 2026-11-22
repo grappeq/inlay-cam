@@ -26,14 +26,22 @@ import {
 } from "../state/folders";
 import { duplicateProject, newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch } from "../state/store";
+import { deletedText, movedText, partWayText, waitText } from "../state/several";
+import { inTurn, tasks, type TaskHandle, type TaskStart } from "../state/tasks";
 import { mayLeave } from "../state/unsaved";
 import * as db from "../storage/home";
 import { recall, remember } from "../storage/view";
 import { downloadBytes, downloadText, fileStem, pickTextFile } from "../util/files";
 import { zipFiles } from "../util/zip";
+import { ProgressLine, Spinner, useTask, useTasks } from "./Progress";
 
 /** What a drag of projects carries: their ids. */
 const DRAGGED = "application/x-inlay-projects";
+
+/** The key of the task that does something to several projects, one after the other. */
+export const SEVERAL = "projects";
+/** The key of the task that opens a kept project. */
+export const openKey = (id: string) => `open:${id}`;
 
 /** What is being named in place: a new folder in `parent`, a folder, or a project. */
 type Naming = { kind: "new"; parent: string } | { kind: "folder"; path: string } | { kind: "project"; id: string };
@@ -58,16 +66,31 @@ export function ProjectsView() {
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
   const info = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
   const refresh = useCallback(async () => dispatch({ type: "setProjects", ...(await db.readShelf()) }), [dispatch]);
-  /** Does something to what is kept, says so when it fails, and shows what is kept afterwards either way. */
-  const run = async (work: () => Promise<void>) => {
+  // What is being done to several projects, while it is: it takes the place of the bar that started it.
+  const several = useTask(SEVERAL);
+  const opening = useTasks().filter((t) => t.key.startsWith("open:"));
+  /**
+   * Does something to what is kept, says so when it fails, and shows what is
+   * kept afterwards either way. `what` names it while it goes on: under the
+   * header, unless it has a place of its own.
+   */
+  const run = async (work: (task: TaskHandle) => Promise<void>, what: TaskStart) => {
     setMenu(null);
+    // One thing at a time is done to what is kept, and what has to wait is told so.
+    // The same thing asked for again, as by a double click, is the one that is going on.
+    if (tasks.find(what.key)) return;
+    const going = tasks.find(SEVERAL) ?? (what.key.startsWith("open:") ? tasks.get().find((t) => t.key.startsWith("open:")) : null);
+    if (going) return info(waitText(going.label));
     try {
-      await work();
+      await tasks.run({ place: "notice", view: "projects", ...what }, work);
     } catch (e) {
       fail(e);
     }
     await refresh().catch(() => undefined);
   };
+  /** What doing something to these projects is called, and how it is counted and stopped when there are several. */
+  const each = (label: string, ids: string[]): TaskStart =>
+    ids.length > 1 ? { key: SEVERAL, label, total: ids.length, stoppable: true, place: "inline" } : { key: SEVERAL, label, place: "notice" };
 
   // What is kept changes from other windows and browsers too: read when the tab is come to, and come back to.
   useEffect(() => {
@@ -105,7 +128,7 @@ export function ProjectsView() {
   const open = (id: string) => {
     if (id === project.id) return dispatch({ type: "setView", view: "design" });
     if (!mayLeave()) return;
-    return run(async () => dispatch({ type: "openProject", project: await loadStoredProject(id) }));
+    return run(async () => dispatch({ type: "openProject", project: await loadStoredProject(id) }), { key: openKey(id), label: `Opening "${nameOfProject(id)}"`, place: "inline" });
   };
 
   const startNew = () => {
@@ -130,7 +153,7 @@ export function ProjectsView() {
       const text = await core.call("projectToFile", copy);
       const folder = projects.find((p) => p.id === id)?.folder;
       await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text, steps: copy.steps.length, folder });
-    });
+    }, { key: "projects:copy", label: `Duplicating "${nameOfProject(id)}"` });
 
   const rename = (id: string, name: string) =>
     run(async () => {
@@ -143,30 +166,38 @@ export function ProjectsView() {
       const text = await core.call("projectToFile", renamed);
       const kept = await db.putProject({ id, name, modified: Date.now(), text, steps: renamed.steps.length }, stored.token);
       if (kept === "conflict") throw new Error(`"${stored.name || nameOfProject(id)}" was saved from somewhere else just now, and was not renamed. Try again.`);
-    });
+    }, { key: "projects:name", label: `Renaming "${nameOfProject(id)}"` });
 
-  const move = (ids: string[], folder: string) =>
-    run(async () => {
-      const going = ids.filter((id) => projects.find((p) => p.id === id)?.folder !== folder);
-      for (const id of going) await db.moveProject(id, folder);
-      if (going.length > 0) info(`${going.length === 1 ? `"${nameOfProject(going[0])}"` : plural(going.length, "project")} moved to ${label(folder)}.`);
-      setPicked([]);
-    });
+  const move = (ids: string[], folder: string) => {
+    const going = ids.filter((id) => projects.find((p) => p.id === id)?.folder !== folder);
+    return run(async (task) => {
+      const { done: moved, error } = await inTurn(task, going, nameOfProject, (id) => db.moveProject(id, folder));
+      // What was not moved stays ticked.
+      setPicked(going.slice(moved));
+      if (error) throw new Error(partWayText(moved, `moved to ${label(folder)}`, message(error)));
+      // What was moved is said, also when it stopped part of the way.
+      const said = movedText(moved, going.length, going.length === 1 ? nameOfProject(going[0]) : "", label(folder));
+      if (said) info(said);
+    }, each(`Moving to ${label(folder)}`, going));
+  };
 
   const saveFiles = (ids: string[]) =>
-    run(async () => {
+    run(async (task) => {
       const taken = new Set<string>();
       const files: { name: string; text: string }[] = [];
-      for (const id of ids) {
+      const { done, error } = await inTurn(task, ids, nameOfProject, async (id) => {
         const stem = fileStem(nameOfProject(id));
         let name = `${stem}.task.json`;
         for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${stem} (${n}).task.json`;
         taken.add(name.toLowerCase());
         files.push({ name, text: await textOf(id) });
-      }
+      });
+      if (error) throw error;
+      // Stopped: nothing is saved, as a .zip of some of them would pass for all.
+      if (done < ids.length) return info("Stopped: no file was saved.");
       if (files.length === 1) downloadText(files[0].name, files[0].text);
       else if (files.length > 1) downloadBytes("projects.zip", zipFiles(files), "application/zip");
-    });
+    }, each("Reading the projects to save", ids));
 
   const remove = (ids: string[]) => {
     // The open project is on screen, and would be kept again by its next change.
@@ -177,10 +208,14 @@ export function ProjectsView() {
       ? `Delete ${what} from this server? ${going.length === 1 ? "It goes" : "They go"} for everyone who opens the app here. ${going.length === 1 ? "Its file is" : "Their files are"} moved to the server's backups folder.`
       : `Delete ${what} from this browser? This cannot be undone. Save ${going.length === 1 ? "it" : "them"} to ${going.length === 1 ? "a file" : "files"} first if you want a copy.`;
     if (!confirm(asked)) return;
-    return run(async () => {
-      for (const id of going) await db.deleteProject(id);
-      setPicked(going.length < ids.length ? [project.id] : []);
-    });
+    return run(async (task) => {
+      const { done: deleted, error } = await inTurn(task, going, nameOfProject, (id) => db.deleteProject(id));
+      // What was not deleted stays ticked, as does the open project.
+      setPicked([...going.slice(deleted), ...(going.length < ids.length ? [project.id] : [])]);
+      if (error) throw new Error(partWayText(deleted, "deleted", message(error)));
+      const said = deletedText(deleted, going.length);
+      if (said) info(said);
+    }, each("Deleting", going));
   };
 
   // ---- Folders ----
@@ -189,7 +224,7 @@ export function ProjectsView() {
     run(async () => {
       const made = await db.createFolder(joinFolder(parent, name));
       setScope({ kind: "folder", path: made });
-    });
+    }, { key: "projects:folder", label: `Making the folder "${name}"` });
 
   /** Renames a folder or moves it into another: `to` is its whole new path. The folder shown follows. */
   const renameFolder = (from: string, to: string) =>
@@ -199,7 +234,7 @@ export function ProjectsView() {
       // A project started in it and not kept yet goes where the folder went.
       refileStarts((folder) => (within(folder, from) ? now + folder.slice(from.length) : folder));
       if (scope.kind === "folder" && within(scope.path, from)) setScope({ kind: "folder", path: now + scope.path.slice(from.length) });
-    });
+    }, { key: "projects:folder", label: `Moving the folder "${nameOf(from)}"` });
 
   const deleteFolder = (path: string) => {
     const inside = folders.filter((other) => other !== path && within(other, path)).length;
@@ -211,7 +246,7 @@ export function ProjectsView() {
     return run(async () => {
       await db.deleteFolder(path);
       refileStarts((folder) => (within(folder, path) ? "" : folder));
-    });
+    }, { key: "projects:folder", label: `Deleting the folder "${nameOf(path)}"` });
   };
 
   // ---- Dragging projects onto a folder ----
@@ -367,7 +402,11 @@ export function ProjectsView() {
           </button>
         </div>
 
-        {chosen.length > 0 && (
+        {several?.shown && several.place === "inline" ? (
+          <div className="pf-picked">
+            <ProgressLine task={several} />
+          </div>
+        ) : chosen.length > 0 && (
           <div className="pf-picked" role="toolbar" aria-label="The selected projects">
             <span>{chosen.length} selected</span>
             <Menu label="Move the selected projects to a folder" text="Move to…" open={menu === "picked"} onToggle={() => toggle("picked")} left>
@@ -418,7 +457,8 @@ export function ProjectsView() {
                       }}
                     />
                   ) : (
-                    <button className="pf-open" onClick={() => void open(p.id)} title={isOpen ? "Go to this project" : "Open this project"}>
+                    <button className="pf-open" aria-busy={opening.some((t) => t.key === openKey(p.id)) || undefined} onClick={() => void open(p.id)} title={isOpen ? "Go to this project" : "Open this project"}>
+                      {opening.some((t) => t.shown && t.key === openKey(p.id)) && <Spinner />}
                       <span className="pf-name">{name}</span>
                       {isOpen && <span className="project-open-tag">Open</span>}
                       {p.folder !== here && <span className="muted pf-in">{label(p.folder)}</span>}

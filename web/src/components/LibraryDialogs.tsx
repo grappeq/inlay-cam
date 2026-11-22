@@ -8,6 +8,7 @@ import type { MakeraImportChange, MakeraImportPlan } from "../core/types";
 import { fmt } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { useEscape } from "../util/files";
+import { BusyButton } from "./Progress";
 
 /** What a library written for another program holds, and its warnings. */
 export interface ExportReport {
@@ -113,6 +114,7 @@ export function MakeraImportDialog({
     all.filter((c) => c.selected).map((c) => c.id),
   );
   const [error, setError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
   const toggle = (id: string) =>
     setTicked(
       ticked.includes(id) ? ticked.filter((t) => t !== id) : [...ticked, id],
@@ -120,6 +122,7 @@ export function MakeraImportDialog({
   const skipped = plan.notImported.length + plan.notImportedMore;
 
   const apply = async () => {
+    setApplying(true);
     try {
       const next = await core.call(
         "applyMakeraImport",
@@ -138,6 +141,7 @@ export function MakeraImportDialog({
       onClose();
     } catch (e) {
       setError(message(e));
+      setApplying(false);
     }
   };
 
@@ -293,13 +297,14 @@ export function MakeraImportDialog({
             {all.length === 0 ? "Close" : "Cancel"}
           </button>
           {all.length > 0 && (
-            <button
+            <BusyButton
               className="primary"
+              busy={applying}
               disabled={ticked.length === 0}
               onClick={apply}
             >
               Take {ticked.length} value{ticked.length === 1 ? "" : "s"}
-            </button>
+            </BusyButton>
           )}
         </div>
       </div>

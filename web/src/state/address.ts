@@ -12,6 +12,7 @@ import type { Project } from "../core/types";
 import { newProject } from "./model";
 import { formatRoute, moveFor, parseRoute, routeOf, writeFor, type Route } from "./route";
 import type { Action, AppState } from "./store";
+import { tasks } from "./tasks";
 import { mayLeave } from "./unsaved";
 
 const TAB_PROJECT = "inlay.tabProject";
@@ -94,7 +95,8 @@ export function useAddress(state: AppState, dispatch: Dispatch<Action>, load: (i
       if (move.kind === "stay") return stay(move.how);
       if (move.open !== undefined) {
         try {
-          const project = move.open === null ? newProject() : await load(move.open);
+          const id = move.open;
+          const project = id === null ? newProject() : await tasks.run({ key: "open", label: "Opening the project", place: "notice" }, () => load(id));
           if (turn !== latest) return;
           dispatch({ type: "openProject", project });
         } catch (e) {

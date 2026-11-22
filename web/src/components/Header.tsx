@@ -3,9 +3,17 @@ import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import * as server from "../storage/server";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { mayLeave } from "../state/unsaved";
+import { Activity, useLasting, useTasks } from "./Progress";
+
+/** How long a save goes on before the header says so, ms. */
+const SAVING_AFTER = 400;
 
 export function Header() {
-  const { project, projects, view, settingsPage, saveError, ready, home } = useApp();
+  const { project, projects, view, settingsPage, saveError, saving, ready, home } = useApp();
+  // A save that takes a while is said; one that is over at once is not.
+  const slow = useLasting(saving, SAVING_AFTER);
+  // The core does one thing at a time: a save waits for long work in it to end.
+  const behind = useTasks().some((t) => t.heavy);
   const inTools = view === "settings" && settingsPage === "tools";
   // The settings page last looked at, to come back to after the tools.
   const lastPage = useRef<SettingsPage>("materials");
@@ -62,10 +70,11 @@ export function Header() {
           Server out of reach: changes wait here
         </span>
       ) : (
-        <span className={`save-state${saveError ? " error" : ""}`} role="status">
-          {!ready ? "Loading…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
+        <span className={`save-state${saveError && !slow ? " error" : ""}`} role="status" title={slow && behind ? "It is saved as soon as the work that is going on is done." : undefined}>
+          {!ready ? "Loading…" : slow ? "Saving…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
         </span>
       )}
+      <Activity />
       {agent.status !== "off" && (
         <button
           className={`agent-chip ${agent.status}`}

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { core } from "../core/client";
 import type { BuildStats, Built, Step, StepType, StockTimeline } from "../core/types";
 import { aboveOrBelow, isByHand, isInlay, stepColor } from "../state/model";
 import { message, useApp, useDispatch, type Timeline } from "../state/store";
 import { downloadText } from "../util/files";
 import { StepIcon } from "./icons";
 import { BeforeCut } from "./BeforeCut";
+import { FILES, joinedFile } from "../state/work";
 import { formatMinutes, partName } from "./OutputPanel";
+import { ProgressLine, Spinner, useTask } from "./Progress";
 import { useWorkOut } from "./Timeline";
 
 /** Something a file can cut: an entry of the list on the stock, or an inlay's plug or inserts on a board of their own. */
@@ -121,7 +122,8 @@ const short = (minutes: number) => (minutes < 1 ? "< 1 min" : formatMinutes(minu
 export function ExportList() {
   const { project, timeline } = useApp();
   const dispatch = useDispatch();
-  const { busy, workOut } = useWorkOut();
+  const { busy, task, workOut } = useWorkOut();
+  const joining = useTask(FILES);
   const result = timeline?.result ?? null;
   const started = useRef(false);
   useEffect(() => {
@@ -183,7 +185,7 @@ export function ExportList() {
       if (asked.current.ids.has(ids)) continue;
       asked.current.ids.add(ids);
       const put = (value: Built | string[]) => setJoined((was) => ({ of: timeline, files: { ...(was.of === timeline ? was.files : {}), [ids]: value } }));
-      core.call("exportSteps", timeline.project, ids.split("\n")).then(put, (e) => put(message(e).split("\n")));
+      joinedFile(timeline.project, ids.split("\n")).then(put, (e) => put(message(e).split("\n")));
     }
     // `wanted` is what `wantedKey` says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,6 +270,11 @@ export function ExportList() {
             <span className="export-time">{out.built ? short(out.built.stats.minutes + out.built.stats.toolChangeMinutes) : ""}</span>
             {out.errors.length > 0 && <span className="export-notes">{out.errors.join(" ")}</span>}
             {out.built && <BeforeCut texts={out.built.before} />}
+            {!out.built && out.errors.length === 0 && joining?.shown && (
+              <div className="progress-bar" aria-hidden="true">
+                <span className="now" />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -276,11 +283,14 @@ export function ExportList() {
 
   return (
     <section className="export">
-      {(busy || timeline === null) && (
-        <p className="status-line" role="status">
-          Making the files and cutting the stock with them…
-        </p>
-      )}
+      {(busy || timeline === null) &&
+        (task?.shown ? (
+          <ProgressLine task={task} />
+        ) : (
+          <p className="status-line" role="status">
+            Making the files and cutting the stock with them…
+          </p>
+        ))}
       {!busy && timeline && timeline.errors.length > 0 && (
         <div className="callout error" role="alert">
           <p>The files could not be made:</p>
@@ -341,7 +351,15 @@ export function ExportList() {
           <p className="muted export-origin">The work origin of every file is its board's bottom-left corner, on its top face.</p>
           <div className="export-foot">
             <button className="primary" disabled={stale || waiting || ready.length === 0} onClick={download}>
-              {ready.length > 1 ? `Download ${ready.length} files` : "Download file"}
+              {waiting ? (
+                <>
+                  <Spinner /> {ready.length} of {outs.length} files ready
+                </>
+              ) : ready.length > 1 ? (
+                `Download ${ready.length} files`
+              ) : (
+                "Download file"
+              )}
             </button>
             <span className="muted">
               {outs.length === 0
