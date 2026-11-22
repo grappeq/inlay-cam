@@ -1,7 +1,7 @@
 // The project's tools and the number each goes by: the machine is loaded
 // once, and every file of the project calls for a tool by the same number.
 
-import { showInToolList } from "./ToolsView";
+import { showWholeToolList } from "./ToolsView";
 import type { Project, Tool } from "../core/types";
 import { MAX_TOOL_NUMBER, describeTool, forgetTool, renumberTool, stepToolIds } from "../state/model";
 
@@ -61,7 +61,8 @@ export function ProjectTools() {
   const tools = numberedTools(project);
   // To the tool in the tool list, where its sizes and cutting settings are.
   const open = (id: string) => {
-    showInToolList(id);
+    showWholeToolList();
+    dispatch({ type: "showTool", id });
     dispatch({ type: "setView", view: "settings", page: "tools" });
   };
   const usedBy = (id: string) => project.steps.filter((step) => stepToolIds(step).includes(id));

@@ -3,7 +3,6 @@ import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import * as server from "../storage/server";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
 import { mayLeave } from "../state/unsaved";
-import { showProjectsIn } from "./ProjectsView";
 
 export function Header() {
   const { project, projects, view, settingsPage, saveError, ready, home } = useApp();
@@ -44,7 +43,7 @@ export function Header() {
           title="The folder this project is filed in. Show it."
           onClick={() => {
             if (!mayLeave()) return;
-            showProjectsIn(folder);
+            dispatch({ type: "setScope", scope: { kind: "folder", path: folder } });
             dispatch({ type: "setView", view: "projects" });
           }}
         >

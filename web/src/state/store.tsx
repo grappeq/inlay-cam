@@ -33,7 +33,9 @@ import type {
 import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
-import { startOf, started } from "./folders";
+import { scopeThatIs, startOf, started, type Scope } from "./folders";
+import { keepTabProject, readAddress, tabProject, useAddress } from "./address";
+import { applyRoute, projectAtStart, type Restore, type Route } from "./route";
 import { pickable } from "./layers";
 import {
   DEFAULT_DRAW_OPTIONS,
@@ -96,6 +98,14 @@ export interface AppState {
   folders: string[];
   view: View;
   settingsPage: SettingsPage;
+  /** What the Projects tab lists: every project, the ones in no folder, or a folder's. */
+  scope: Scope;
+  /** The tool whose sheet the tool list shows; null for none. */
+  toolId: string | null;
+  /** A step's pocket, plug or fit that the address named when the page was loaded: made again, since it is not kept. */
+  restore: Restore | null;
+  /** The point of the list an address named before the stock was worked out: shown once it is. */
+  stockAt: number | null;
   /** Regions picked for a new inlay. */
   selection: number[];
   /** The inlay being edited; region clicks then add to or remove from it. */
@@ -171,6 +181,8 @@ export type Action =
       project: Project;
       projects: db.ProjectSummary[];
       folders: string[];
+      /** Where the address says the page was. */
+      route?: Route | null;
     }
   | {
       type: "openProject";
@@ -184,6 +196,11 @@ export type Action =
   | { type: "setDefaults"; defaults: Setup }
   | { type: "setProjects"; projects: db.ProjectSummary[]; folders: string[] }
   | { type: "setView"; view: View; page?: SettingsPage }
+  | { type: "setScope"; scope: Scope }
+  | { type: "showTool"; id: string | null }
+  /** Turns the page to where an address leads. `rebuild`: see applyRoute. */
+  | { type: "goTo"; route: Route; rebuild?: boolean }
+  | { type: "restored" }
   | { type: "clickRegion"; id: number; add?: boolean }
   | { type: "setSelection"; ids: number[] }
   | { type: "setActiveStep"; id: string | null }
@@ -221,7 +238,8 @@ export type Action =
   | { type: "undoDrawing" }
   | { type: "redoDrawing" };
 
-const initial: AppState = {
+/** The state before anything is loaded. */
+export const initial: AppState = {
   ready: false,
   tools: [],
   lists: {},
@@ -233,6 +251,10 @@ const initial: AppState = {
   folders: [],
   view: "design",
   settingsPage: "tools",
+  scope: { kind: "all" },
+  toolId: null,
+  restore: null,
+  stockAt: null,
   selection: [],
   activeStepId: null,
   importReport: null,
@@ -296,8 +318,8 @@ function withSnapshots(state: AppState): AppState {
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "loaded":
-      return withSnapshots({
+    case "loaded": {
+      const loaded = withSnapshots({
         ...state,
         ready: true,
         tools: action.tools,
@@ -309,6 +331,8 @@ export function reducer(state: AppState, action: Action): AppState {
         projects: action.projects,
         folders: action.folders,
       });
+      return action.route ? applyRoute(loaded, action.route, true) : loaded;
+    }
     case "openProject":
       return withSnapshots({
         ...state,
@@ -322,6 +346,8 @@ export function reducer(state: AppState, action: Action): AppState {
         timeline: null,
         timelineAt: 0,
         stage: "drawing",
+        restore: null,
+        stockAt: null,
         view: "design",
         arranging: false,
         drawTool: null,
@@ -355,13 +381,37 @@ export function reducer(state: AppState, action: Action): AppState {
     case "setDefaults":
       return { ...state, defaults: action.defaults };
     case "setProjects":
-      return { ...state, projects: action.projects, folders: action.folders };
+      // A folder shown that is gone since, renamed, moved or deleted from somewhere else, gives way to all projects.
+      return {
+        ...state,
+        projects: action.projects,
+        folders: action.folders,
+        scope: scopeThatIs(state.scope, action.folders),
+      };
     case "setView":
       return {
         ...state,
         view: action.view,
         settingsPage: action.page ?? state.settingsPage,
       };
+    case "setScope":
+      return { ...state, scope: action.scope };
+    case "showTool":
+      return { ...state, toolId: action.id };
+    case "goTo": {
+      const next = applyRoute(state, action.route, action.rebuild);
+      // A step come to by its address is opened as from the list: nothing picked, the drawing not being edited.
+      const opened =
+        next.view === "design" && next.activeStepId !== state.activeStepId;
+      return {
+        ...next,
+        selection: opened ? [] : next.selection,
+        arranging: opened && next.activeStepId ? false : next.arranging,
+        drawTool: opened && next.activeStepId ? null : next.drawTool,
+      };
+    }
+    case "restored":
+      return { ...state, restore: null };
     case "clickRegion":
       return clickRegion(state, action.id, action.add ?? false);
     case "setSelection": {
@@ -379,6 +429,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         activeStepId: action.id,
         selection: [],
+        restore: null,
         stage:
           action.id === null && state.stage === "timeline"
             ? "timeline"
@@ -408,6 +459,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         timeline: action.timeline,
+        stockAt: null,
         timelineAt: Math.min(
           state.timelineAt,
           action.timeline?.result?.steps.length ?? 0,
@@ -746,12 +798,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? `The tool list could not be read from the server, and changes to it will not be kept: ${message(e)}`
             : `Your stored tool list could not be read: ${message(e)}`;
       }
-      try {
-        const last = await db.getSetting("lastProjectId");
-        if (last) project = await loadStoredProject(last);
-      } catch (e) {
-        problem ??= `The last project could not be reopened: ${message(e)}`;
-      }
+      // The project the address names, else the one this tab had open, else
+      // the one last saved from anywhere.
+      const opened = await projectAtStart(
+        readAddress(),
+        tabProject(),
+        () => db.getSetting("lastProjectId"),
+        loadStoredProject,
+      );
+      if (opened.project) project = opened.project;
+      const route = opened.route;
+      problem ??= opened.problem;
       const { projects, folders } = await db
         .readShelf()
         .catch((): db.Shelf => ({ projects: [], folders: [] }));
@@ -773,6 +830,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         project,
         projects,
         folders,
+        route,
       });
       if (problem)
         dispatch({ type: "notice", notice: { kind: "error", text: problem } });
@@ -848,7 +906,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else if (stored) {
             bases.set(project.id, { text: stored.text, token: stored.token });
           }
-          if (!blank) await db.putSetting("lastProjectId", project.id);
+          if (!blank) {
+            keepTabProject(project.id);
+            await db.putSetting("lastProjectId", project.id);
+          }
           dispatch({ type: "saveResult", error: null });
         } catch (e) {
           dispatch({ type: "saveResult", error: message(e) });
@@ -1218,6 +1279,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     [refreshShared],
   );
+
+  useAddress(state, dispatch, loadStoredProject);
 
   const value = useMemo(() => state, [state]);
   return (

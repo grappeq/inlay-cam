@@ -18,7 +18,6 @@ import {
   nameOf,
   parentOf,
   refileStarts,
-  scopeThatIs,
   shownProjects,
   startIn,
   within,
@@ -36,26 +35,14 @@ import { zipFiles } from "../util/zip";
 /** What a drag of projects carries: their ids. */
 const DRAGGED = "application/x-inlay-projects";
 
-// The folder last shown, for as long as the page is open.
-let lastScope: Scope = { kind: "all" };
-
-/** Sent to the window when the tab is to show another folder while it is on screen. */
-const SHOW = "inlay-projects-show";
-
-/** Has the Projects tab show a folder: now when it is on screen, or the next time it is. */
-export function showProjectsIn(folder: string) {
-  lastScope = folder ? { kind: "folder", path: folder } : { kind: "all" };
-  window.dispatchEvent(new Event(SHOW));
-}
-
 /** What is being named in place: a new folder in `parent`, a folder, or a project. */
 type Naming = { kind: "new"; parent: string } | { kind: "folder"; path: string } | { kind: "project"; id: string };
 
 export function ProjectsView() {
-  const { projects, folders, project, home } = useApp();
+  // The folder shown is the app's (`scope`), so that the address names it.
+  const { projects, folders, project, home, scope } = useApp();
   const dispatch = useDispatch();
   const { openProject: openFile } = useFileActions();
-  const [scope, setScopeState] = useState<Scope>(() => scopeThatIs(lastScope, folders));
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ProjectSort>(() => (recall<string>("projects.sort", "modified") === "name" ? "name" : "modified"));
   const [picked, setPicked] = useState<string[]>([]);
@@ -64,11 +51,10 @@ export function ProjectsView() {
   const [menu, setMenu] = useState<string | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
 
-  const setScope = (next: Scope) => {
-    lastScope = next;
-    setScopeState(next);
-    setPicked([]);
-  };
+  const setScope = (next: Scope) => dispatch({ type: "setScope", scope: next });
+  // Another folder, however it was come to: what was ticked in the last one is let go.
+  const scopeKey = scope.kind === "folder" ? `in:${scope.path}` : scope.kind;
+  useEffect(() => setPicked([]), [scopeKey]);
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
   const info = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
   const refresh = useCallback(async () => dispatch({ type: "setProjects", ...(await db.readShelf()) }), [dispatch]);
@@ -91,10 +77,7 @@ export function ProjectsView() {
     return () => window.removeEventListener("focus", look);
   }, [refresh]);
 
-  // A folder shown, or a project picked, that is gone since.
-  useEffect(() => {
-    setScopeState((now) => (lastScope = scopeThatIs(now, folders)));
-  }, [folders]);
+  // A project picked that is gone since.
   useEffect(() => {
     setPicked((now) => (now.every((id) => projects.some((p) => p.id === id)) ? now : now.filter((id) => projects.some((p) => p.id === id))));
   }, [projects]);
@@ -103,16 +86,8 @@ export function ProjectsView() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMenu(null);
     };
-    const onShow = () => {
-      setScopeState(lastScope);
-      setPicked([]);
-    };
     window.addEventListener("keydown", onKey);
-    window.addEventListener(SHOW, onShow);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener(SHOW, onShow);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const onServer = home === "server";

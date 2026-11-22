@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { core } from "../core/client";
 import type { Built, FitCheck, Step, Part, PocketPreview } from "../core/types";
 import { STEP_LABELS, fmt, isInlay, missingFor, missingSettings } from "../state/model";
+import { stageMade } from "../state/route";
 import { message, useApp, useDispatch, type Output, type Stage } from "../state/store";
 import { downloadText } from "../util/files";
 import { ToolRack } from "./ProjectTools";
@@ -31,7 +32,7 @@ function capital(text: string): string {
  * V-carve inlay the plug is then fitted into the pocket.
  */
 export function useOutput(step: Step) {
-  const { project, output, tools, lists } = useApp();
+  const { project, output, tools, lists, restore } = useApp();
   const dispatch = useDispatch();
   // What is being worked on right now, in words, or null when idle.
   const [busy, setBusy] = useState<string | null>(null);
@@ -42,7 +43,8 @@ export function useOutput(step: Step) {
   // What has to be chosen before anything can be made.
   const missing = missingFor(step) ?? missingSettings(step, [...project.tools, ...tools.filter((t) => !project.tools.some((p) => p.id === t.id))], lists, project);
 
-  const generate = async () => {
+  /** `want`: the stage to show when it is made, in place of the one that says most. */
+  const generate = async (want?: Stage) => {
     const out: Output = { stepId: step.id, project, parts: {}, errors: [], fit: null, fitErrors: [] };
     const publish = () => dispatch({ type: "setOutput", output: { ...out, parts: { ...out.parts }, errors: [...out.errors] } });
     const vcarve = step.task.type === "vcarve";
@@ -67,14 +69,28 @@ export function useOutput(step: Step) {
         }
         publish();
       }
-      const stage: Stage = out.fit ? "fit" : out.parts.pocket ? "pocket" : out.parts.plug ? "plug" : "drawing";
-      dispatch({ type: "setStage", stage });
+      dispatch({ type: "setStage", stage: stageMade(out, want) });
     } finally {
       setBusy(null);
     }
   };
 
-  return { mine, stale, busy, missing, generate };
+  // The page was loaded at an address that names this step's pocket, plug or
+  // fit: they are not kept, so they are made again, once, and that one shown.
+  const restoring = useRef<typeof restore>(null);
+  useEffect(() => {
+    if (!restore || restore.stepId !== step.id || restoring.current === restore) return;
+    restoring.current = restore;
+    const done = () => dispatch({ type: "restored" });
+    if (mine || missing !== null) return done();
+    void generate(restore.stage)
+      .catch(() => undefined)
+      .finally(done);
+    // Once for each asking.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restore, step.id]);
+
+  return { mine, stale, busy, missing, generate: () => generate() };
 }
 
 type OutputState = ReturnType<typeof useOutput>;

@@ -205,18 +205,19 @@ function LibraryMenu() {
 type Mode = { kind: "read" } | { kind: "new"; tool: Tool };
 
 /** What the list was narrowed to and showed when it was last on screen, for as long as the page is open. */
-const left: { query: string; selected: string | null; closed: string[]; onlyAttention: boolean; category: Attention["kind"] | null } = { query: "", selected: null, closed: [], onlyAttention: false, category: null };
+const left: { query: string; closed: string[]; onlyAttention: boolean; category: Attention["kind"] | null } = { query: "", closed: [], onlyAttention: false, category: null };
 
-/** Has the tool list show one tool when it is next opened, whatever it was narrowed to. */
-export function showInToolList(id: string): void {
-  Object.assign(left, { selected: id, query: "", onlyAttention: false, category: null });
+/** Has the tool list show every tool, with no search or filter, when it is next opened: so that a tool chosen from elsewhere with `showTool` is in it. */
+export function showWholeToolList(): void {
+  Object.assign(left, { query: "", onlyAttention: false, category: null });
 }
 
 export function ToolsArea() {
-  const { tools, lists, project, home } = useApp();
+  // The tool shown is the app's (`toolId`), so that the address names it.
+  const { tools, lists, project, home, toolId: selected } = useApp();
   const dispatch = useDispatch();
   const actions = useFileActions();
-  const [selected, setSelected] = useState<string | null>(left.selected);
+  const setSelected = (id: string | null) => dispatch({ type: "showTool", id });
   const [mode, setMode] = useState<Mode>({ kind: "read" });
   const [query, setQuery] = useState(left.query);
   const [sort, setSortState] = useState<SortKey>(() => {
@@ -227,7 +228,7 @@ export function ToolsArea() {
   const [onlyAttention, setOnlyAttention] = useState(left.onlyAttention);
   const [category, setCategory] = useState<Attention["kind"] | null>(left.category);
   const [closed, setClosed] = useState<string[]>(left.closed);
-  Object.assign(left, { query, selected, closed, onlyAttention, category });
+  Object.assign(left, { query, closed, onlyAttention, category });
   const setSort = (key: SortKey) => (setSortState(key), remember("tools.sort", key));
   const setChips = (next: Chips) => (setChipsState(next), remember("tools.chips", next));
 

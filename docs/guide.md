@@ -41,6 +41,31 @@ The **Projects** tab lists every project kept, with its folders on the left.
 Moving a project to a folder does not change it, nor when it was last changed. The
 folder of the open project is shown before its name at the top, and leads to it.
 
+### The address
+
+The address says where you are, after its `#`: the project, the inlay or operation that is
+open, what the large area shows, the folder or tool shown, the settings page.
+
+- **Reloading** comes back to the same place of the same project. A pocket, plug or fit in
+  3D is made again, and so is the stock, step by step.
+- **Back and Forward** go from view to view, project to project and step to step.
+- **A bookmark or a copied address** opens that place, in a browser that keeps the project.
+  When the project is gone the app says so, and shows the Projects tab; when Back or
+  Forward leads to one that is gone, it says so and stays where it is.
+- **Two tabs** each keep their own project when they are reloaded.
+
+| Address | Shows |
+|---|---|
+| `#/p/<project>` | The project: its drawing and list |
+| `#/p/<project>/tools`, `/export` | The panel's Tools or Export page |
+| `#/p/<project>/step/<step>` | An inlay or operation |
+| `…/pocket`, `/plug`, `/fit` | That step's part in 3D, or its fit |
+| `…/stock/<n>` | The stock after the nth entry of the list |
+| `#/new` | A new project, until it has a drawing |
+| `#/projects`, `/unfiled`, `/in/<folder>/<folder>` | The Projects tab and the folder shown |
+| `#/tools`, `#/tools/<tool>` | The tool list, or a tool's sheet |
+| `#/settings/<page>` | Materials, profiles, machine, defaults or agent |
+
 ## 1. List your tools
 
 The header has four tabs. **Projects** is the list of what you have made, **Design** the

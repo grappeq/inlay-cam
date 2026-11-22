@@ -104,7 +104,7 @@ function Shell() {
 }
 
 function DesignView() {
-  const { project, output, timeline, stage, activeStepId, arranging } =
+  const { project, output, timeline, stockAt, stage, activeStepId, arranging } =
     useApp();
   const dispatch = useDispatch();
   if (!project.design) return <StartGuide />;
@@ -168,7 +168,8 @@ function DesignView() {
         ) : shown === "timeline" && timeline && steps ? (
           <TimelineView timeline={timeline} result={steps} />
         ) : shown === "timeline" ? (
-          <TimelineStart at={mineAt} />
+          // The point of the list an address named is the one shown.
+          <TimelineStart at={stockAt ?? mineAt} />
         ) : preview ? (
           <Viewer3D
             key={shown}
