@@ -17,6 +17,7 @@ pub mod progress;
 pub mod project;
 pub mod sim;
 pub mod starter;
+pub mod thumbnail;
 pub mod timeline;
 pub mod toolpath;
 pub mod tools;

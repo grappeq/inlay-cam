@@ -1,7 +1,8 @@
 // Messages between the page and the core worker. Every core call is listed
 // here once, so the worker and the client cannot drift apart.
 
-import type { Attention, Built, EdgePlan, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
+import type { Thumb } from "../storage/db";
+import type { Attention, Built, Design, EdgePlan, FusionExport, MakeraExport, Machine, MakeraImportPlan, FeedEntry, Profile, FeedFlags, FeedOptions, FeedSuggestion, RowCheck, FitCheck, Part, PocketPreview, Project, StockTimeline, SvgImport, Tool, ToolLibrary, ToolsYamlImport } from "./types";
 
 export interface CoreApi {
   coreVersion(): string;
@@ -14,6 +15,8 @@ export interface CoreApi {
   projectFromFile(text: string): Project;
   /** Validates the project and returns the file text. */
   projectToFile(project: Project): string;
+  /** A small picture of a drawing, for the list of projects; null for one without a size. */
+  designThumbnail(design: Design): Thumb | null;
   /** The tools, materials and profiles the app can start a tool list with. */
   starterLibrary(): ToolLibrary;
   /** Reads a tool-library file of any supported format version. */

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFileActions } from "../state/files";
+import { startOf } from "../state/folders";
 import { emptyDesign } from "../state/model";
 import { message, useApp, useDispatch } from "../state/store";
 import { ReportNotes, useImportSvg } from "./DesignPanel";
@@ -7,7 +8,9 @@ import { BusyButton } from "./Progress";
 
 /** What a project without a drawing shows: the way from tools to files, and where the user is on it. */
 export function StartGuide() {
-  const { tools, importReport } = useApp();
+  const { tools, importReport, project, projects } = useApp();
+  // A project started in a folder goes there when it is first kept.
+  const startFolder = projects.some((p) => p.id === project.id) ? undefined : startOf(project.id);
   const dispatch = useDispatch();
   const importSvg = useImportSvg();
   const files = useFileActions();
@@ -44,6 +47,7 @@ export function StartGuide() {
   return (
     <main className="start">
       <h1>From a drawing to two files that fit</h1>
+      {startFolder && <p className="start-folder">Kept in {startFolder.split("/").join(" / ")} as soon as it has a drawing.</p>}
       <p className="start-lead">
         This app turns the shapes of SVG or DXF drawings into G-code for a Carvera Air. For an inlay it writes one file for the pocket and one for the
         piece that fills it; it also cuts plain pockets, contours and chamfers, and faces the stock. It simulates every file before you cut.

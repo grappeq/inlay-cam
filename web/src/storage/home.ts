@@ -10,7 +10,7 @@
 import * as db from "./db";
 import * as server from "./server";
 
-export type { ProjectSummary, Shelf, StoredProject } from "./db";
+export type { ProjectSummary, Shelf, StoredProject, Thumb } from "./db";
 export type Home = "browser" | "server";
 /** What is kept besides tools and projects. `tools` is the tool list in a browser; `view` what the screens remember on a server. */
 export type SettingKey = db.SettingKey | "view";
@@ -74,6 +74,11 @@ export async function putProject(project: db.StoredProject, basedOn?: string): P
   if ((await findHome()) === "server") return server.putProject(project.id, project.text, basedOn, project.folder);
   await db.putProject(project);
   return undefined;
+}
+
+/** Gives a project kept in this browser the picture it was kept without. A server makes its own. */
+export async function fillThumb(id: string, thumb: db.Thumb | null, modified: number): Promise<void> {
+  if ((await findHome()) === "browser") await db.setThumb(id, thumb, modified);
 }
 
 export async function deleteProject(id: string): Promise<void> {

@@ -14,7 +14,7 @@
 // page finds out, and saves what waits, without anything else being done.
 
 import { allFolders } from "../state/folders";
-import type { ProjectSummary, Shelf } from "./db";
+import type { ProjectSummary, Shelf, Thumb } from "./db";
 
 type Reach = "reachable" | "unreachable";
 let reach: Reach = "reachable";
@@ -146,9 +146,18 @@ export async function readShelf(): Promise<Shelf> {
     modified: Number(p.modified) || 0,
     folder: typeof p.folder === "string" ? p.folder : "",
     steps: typeof p.steps === "number" ? p.steps : undefined,
+    thumb: thumbOf(p.thumb),
   }));
   // A server from before folders names none.
   return { projects, folders: allFolders(Array.isArray(body.folders) ? body.folders : [], projects) };
+}
+
+/** A picture as the server lists it: null for none, undefined for one it gave none for or that is not one. */
+function thumbOf(value: unknown): Thumb | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "object") return undefined;
+  const { w, h, d } = value as Partial<Thumb>;
+  return typeof w === "number" && typeof h === "number" && typeof d === "string" && w > 0 && h > 0 ? { w, h, d } : undefined;
 }
 
 /** Files a project in another folder, or in none. Its file is renamed, not written. Gives the folder as the server spells it. */

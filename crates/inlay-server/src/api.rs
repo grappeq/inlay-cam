@@ -17,11 +17,14 @@ use inlay_core::export::{fusion, makera};
 use inlay_core::feeds;
 use inlay_core::import::tools_yaml;
 use inlay_core::naming::display_name;
+use inlay_core::project::Design;
+use inlay_core::thumbnail::thumbnail;
 use inlay_core::tools::{
     library_from_file_json, library_to_file_json, needs_attention, CutResult, CuttingSettings,
     Material, Tool, ToolLibrary,
 };
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use crate::store::{is_folder_path, is_project_id, iso, Loaded, Store};
@@ -781,10 +784,22 @@ impl Api {
                     .and_then(|project| project.get("steps").or_else(|| project.get("jobs")))
                     .and_then(Value::as_array)
                     .map_or(0, Vec::len);
-                (
-                    kept.modified,
-                    json!({ "id": kept.id, "name": name, "modified": kept.modified, "folder": kept.folder, "steps": steps }),
-                )
+                // A small picture of its drawing; null for one without, and
+                // left out for a drawing this core cannot read.
+                let thumb = project.as_ref().and_then(|project| project.get("design")).map(|design| {
+                    if design.is_null() {
+                        Some(Value::Null)
+                    } else {
+                        Design::deserialize(design)
+                            .ok()
+                            .map(|design| serde_json::to_value(thumbnail(&design)).unwrap_or(Value::Null))
+                    }
+                });
+                let mut listed = json!({ "id": kept.id, "name": name, "modified": kept.modified, "folder": kept.folder, "steps": steps });
+                if let Some(Some(thumb)) = thumb {
+                    listed["thumb"] = thumb;
+                }
+                (kept.modified, listed)
             })
             .collect();
         projects.sort_by_key(|project| std::cmp::Reverse(project.0));

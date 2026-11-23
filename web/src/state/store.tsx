@@ -34,6 +34,7 @@ import * as db from "../storage/home";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { scopeThatIs, startOf, started, type Scope } from "./folders";
+import { thumbOf } from "./thumbs";
 import { keepTabProject, readAddress, tabProject, useAddress } from "./address";
 import { applyRoute, projectAtStart, type Restore, type Route } from "./route";
 import { pickable } from "./layers";
@@ -71,7 +72,8 @@ export type SettingsPage =
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
 export type PanelPage = "list" | "tools" | "export";
-export type Notice = { kind: "info" | "error"; text: string };
+/** A line under the header. `action` is a button on it, as Undo after a move: the notice goes when it is pressed. */
+export type Notice = { kind: "info" | "error"; text: string; action?: { label: string; run: () => void } };
 /** The open project as it was saved from somewhere else, over what this page last read or wrote. */
 export interface ProjectConflict {
   id: string;
@@ -197,6 +199,8 @@ export type Action =
   | { type: "setMachine"; machine: Machine }
   | { type: "setDefaults"; defaults: Setup }
   | { type: "setProjects"; projects: db.ProjectSummary[]; folders: string[] }
+  /** Shows projects in another folder at once, while they are moved there: what is kept is read again afterwards. */
+  | { type: "refileProjects"; ids: string[]; folder: string }
   | { type: "setView"; view: View; page?: SettingsPage }
   | { type: "setScope"; scope: Scope }
   | { type: "showTool"; id: string | null }
@@ -321,6 +325,18 @@ function withSnapshots(state: AppState): AppState {
 }
 
 export function reducer(state: AppState, action: Action): AppState {
+  const next = step(state, action);
+  // What was said of one view is not said on another, however the view changed:
+  // an Undo on it would act on a view that is gone. An error stays until it is dismissed.
+  return next.view !== state.view &&
+    next.notice !== null &&
+    next.notice === state.notice &&
+    next.notice.kind === "info"
+    ? { ...next, notice: null }
+    : next;
+}
+
+function step(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "loaded": {
       const loaded = withSnapshots({
@@ -391,6 +407,13 @@ export function reducer(state: AppState, action: Action): AppState {
         projects: action.projects,
         folders: action.folders,
         scope: scopeThatIs(state.scope, action.folders),
+      };
+    case "refileProjects":
+      return {
+        ...state,
+        projects: state.projects.map((p) =>
+          action.ids.includes(p.id) ? { ...p, folder: action.folder } : p,
+        ),
       };
     case "setView":
       return {
@@ -892,6 +915,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 modified: Date.now(),
                 text,
                 steps: project.steps.length,
+                thumb: await thumbOf(project.design),
                 // One that is not kept: the folder it was started in, or,
                 // deleted somewhere else while open here, the one it was in.
                 folder: stored

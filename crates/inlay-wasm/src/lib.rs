@@ -78,6 +78,14 @@ pub fn project_to_file(project_json: &str) -> Result<String, JsError> {
     Ok(project::project_to_file_json(&project))
 }
 
+/// A small picture of a design, for the list of projects. Takes `Design`
+/// as JSON; returns `Thumbnail` as JSON, or null for a design without a size.
+#[wasm_bindgen(js_name = designThumbnail)]
+pub fn design_thumbnail(design_json: &str) -> Result<String, JsError> {
+    let design: inlay_core::project::Design = from_json(design_json, "design")?;
+    Ok(to_json(&inlay_core::thumbnail::thumbnail(&design)))
+}
+
 /// The starter set: tools with their cutting rows, and the materials those
 /// rows are for. Returns `ToolLibrary` as JSON.
 #[wasm_bindgen(js_name = starterLibrary)]

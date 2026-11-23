@@ -9,6 +9,13 @@ const DB_VERSION = 1;
 const PROJECTS = "projects";
 const SETTINGS = "settings";
 
+/** A small picture of a project's drawing: the stock is `w` by `h`, the shapes on it the SVG path `d`, Y down. */
+export interface Thumb {
+  w: number;
+  h: number;
+  d: string;
+}
+
 export interface StoredProject {
   id: string;
   name: string;
@@ -20,6 +27,8 @@ export interface StoredProject {
   folder?: string;
   /** How many steps it has, for the list of projects. Missing on one kept before folders were. */
   steps?: number;
+  /** A picture of its drawing, for the list of projects: null for none. Missing on one kept before there were pictures, and on one put without it, which keeps the one it had. */
+  thumb?: Thumb | null;
 }
 
 export type ProjectSummary = Omit<StoredProject, "text" | "folder"> & { folder: string };
@@ -59,7 +68,7 @@ async function run<T>(store: string, mode: IDBTransactionMode, work: (s: IDBObje
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   const all = await run<StoredProject[]>(PROJECTS, "readonly", (s) => s.getAll());
-  return all.map(({ id, name, modified, folder, steps }) => ({ id, name, modified, folder: folder ?? "", steps })).sort((a, b) => b.modified - a.modified);
+  return all.map(({ id, name, modified, folder, steps, thumb }) => ({ id, name, modified, folder: folder ?? "", steps, thumb })).sort((a, b) => b.modified - a.modified);
 }
 
 /** The folders as they were last written: the empty ones are only here. */
@@ -91,11 +100,22 @@ export async function putProject(project: StoredProject): Promise<void> {
     read.onsuccess = () => {
       const kept = read.result as StoredProject | undefined;
       const folder = kept ? (kept.folder ?? "") : resolveFolder(folders, asked);
-      store.put({ ...project, folder, steps: project.steps ?? kept?.steps });
+      store.put({ ...project, folder, steps: project.steps ?? kept?.steps, thumb: project.thumb !== undefined ? project.thumb : kept?.thumb });
     };
   });
   // A folder first named by a project is listed, so that it stays when the project leaves it.
   if (asked) await keepFolders(await folderList());
+}
+
+/** Gives a kept project its picture, unless it was changed since `modified`: the picture would be of a drawing it no longer has. */
+export async function setThumb(id: string, thumb: Thumb | null, modified: number): Promise<void> {
+  await change(PROJECTS, (store) => {
+    const read = store.get(id);
+    read.onsuccess = () => {
+      const kept = read.result as StoredProject | undefined;
+      if (kept && kept.modified === modified) store.put({ ...kept, thumb });
+    };
+  });
 }
 
 export async function deleteProject(id: string): Promise<void> {

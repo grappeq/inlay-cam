@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
   allFolders,
+  byFolder,
   createFolderIn,
   deleteFolderIn,
   folderNameProblem,
   folderRows,
+  heldBy,
   isFolderPath,
+  missingFolders,
+  rowShowing,
+  undoMove,
   refileStarts,
   renameFolderIn,
   resolveFolder,
   scopeThatIs,
+  shownFolders,
   shownProjects,
   startIn,
   startOf,
   started,
+  unfoldTo,
+  unfoldedRows,
 } from "./folders";
 
 const project = (id: string, name: string, folder: string, modified: number) => ({ id, name, folder, modified });
@@ -163,8 +171,8 @@ describe("what a list of projects shows", () => {
   const ids = (scope: Parameters<typeof shownProjects>[1], query = "", sort: "modified" | "name" = "modified") =>
     shownProjects(projects, scope, query, sort).map((p) => p.id);
 
-  it("shows a folder with the folders in it, and nothing that only begins with its name", () => {
-    expect(ids({ kind: "folder", path: "Gifts" })).toEqual(["1", "2"]);
+  it("shows the projects right in a folder, not those of the folders in it, nor of one that only begins with its name", () => {
+    expect(ids({ kind: "folder", path: "Gifts" })).toEqual(["1"]);
     expect(ids({ kind: "folder", path: "Gifts/Christmas" })).toEqual(["2"]);
     expect(ids({ kind: "unfiled" })).toEqual(["3", "6", "5"]);
     expect(ids({ kind: "all" })).toEqual(["1", "2", "3", "4", "6", "5"]);
@@ -177,6 +185,14 @@ describe("what a list of projects shows", () => {
     expect(ids({ kind: "unfiled" }, "walnut")).toEqual([]);
   });
 
+  it("searches a folder with the folders in it", () => {
+    expect(ids({ kind: "folder", path: "Gifts" }, "o")).toEqual(["1", "2"]);
+    expect(ids({ kind: "folder", path: "Gifts" }, "star")).toEqual(["2"]);
+    expect(ids({ kind: "folder", path: "Gifts/Christmas" }, "walnut")).toEqual([]);
+    // A space is no search.
+    expect(ids({ kind: "folder", path: "Gifts" }, "  ")).toEqual(["1"]);
+  });
+
   it("sorts by name with numbers in their order", () => {
     expect(ids({ kind: "unfiled" }, "", "name")).toEqual(["6", "5", "3"]);
   });
@@ -187,18 +203,95 @@ describe("what a list of projects shows", () => {
     expect(projects.map((p) => p.id)).toEqual(before);
   });
 
-  it("counts a folder's projects with those of the folders in it", () => {
+  it("counts what is right in a folder: what it shows when it is opened", () => {
     expect(folderRows(["Gifts", "Gifts/Christmas", "Gifts 2"], projects)).toEqual([
-      { path: "Gifts", name: "Gifts", depth: 0, count: 2 },
-      { path: "Gifts/Christmas", name: "Christmas", depth: 1, count: 1 },
-      { path: "Gifts 2", name: "Gifts 2", depth: 0, count: 1 },
+      { path: "Gifts", name: "Gifts", depth: 0, count: 1, folders: 1 },
+      { path: "Gifts/Christmas", name: "Christmas", depth: 1, count: 1, folders: 0 },
+      { path: "Gifts 2", name: "Gifts 2", depth: 0, count: 1, folders: 0 },
     ]);
+  });
+
+  const folders = ["Gifts", "Gifts/Christmas", "Gifts/Christmas/Tree", "Gifts/birthdays", "Gifts 2", "Orders", "Orders/Christmas market"];
+
+  it("shows the folders right in the folder shown, by name, and none for all or unfiled projects", () => {
+    expect(shownFolders(folders, { kind: "folder", path: "Gifts" }, "")).toEqual(["Gifts/birthdays", "Gifts/Christmas"]);
+    expect(shownFolders(folders, { kind: "folder", path: "Gifts/Christmas/Tree" }, "")).toEqual([]);
+    expect(shownFolders(folders, { kind: "all" }, "")).toEqual([]);
+    expect(shownFolders(folders, { kind: "unfiled" }, "")).toEqual([]);
+  });
+
+  it("finds folders by name when searched: in the folder shown and the ones in it, or anywhere", () => {
+    expect(shownFolders(folders, { kind: "all" }, "christmas")).toEqual(["Gifts/Christmas", "Orders/Christmas market"]);
+    expect(shownFolders(folders, { kind: "folder", path: "Gifts" }, "CHRIST")).toEqual(["Gifts/Christmas"]);
+    expect(shownFolders(folders, { kind: "folder", path: "Gifts" }, "tree")).toEqual(["Gifts/Christmas/Tree"]);
+    // Not the folder shown itself, nor anything for unfiled projects.
+    expect(shownFolders(folders, { kind: "folder", path: "Gifts" }, "gifts")).toEqual([]);
+    expect(shownFolders(folders, { kind: "unfiled" }, "gifts")).toEqual([]);
+  });
+
+  it("hides the folders in a folder folded up, and unfolds what a folder is in to show it", () => {
+    const rows = folderRows(folders, []);
+    const seen = (folded: string[]) => unfoldedRows(rows, folded).map((row) => row.path);
+    expect(seen(["Gifts"])).toEqual(["Gifts", "Gifts 2", "Orders", "Orders/Christmas market"]);
+    expect(seen(["Gifts/Christmas"])).toEqual(folders.filter((path) => path !== "Gifts/Christmas/Tree"));
+    // A name that only begins like a folded one is not in it.
+    expect(seen(["Gifts"]).includes("Gifts 2")).toBe(true);
+    expect(unfoldTo(["Gifts", "Gifts/Christmas", "Orders"], "Gifts/Christmas/Tree")).toEqual(["Orders"]);
+    // The folder shown, folded away, is stood for by the one it is folded into; seen, by its own row.
+    expect(rowShowing(unfoldedRows(rows, ["Gifts"]), "Gifts/Christmas/Tree")).toBe("Gifts");
+    expect(rowShowing(unfoldedRows(rows, ["Gifts/Christmas"]), "Gifts/Christmas/Tree")).toBe("Gifts/Christmas");
+    expect(rowShowing(unfoldedRows(rows, []), "Gifts/Christmas/Tree")).toBe("Gifts/Christmas/Tree");
+    expect(rowShowing(unfoldedRows(rows, ["Gifts"]), "Gifts 2")).toBe("Gifts 2");
+    // A folder folded up stays so when it is the one shown: its own folders stay hidden.
+    expect(unfoldTo(["Gifts", "Orders"], "Gifts")).toEqual(["Gifts", "Orders"]);
   });
 
   it("falls back to all projects when the folder shown is gone", () => {
     expect(scopeThatIs({ kind: "folder", path: "Gifts" }, ["Orders"])).toEqual({ kind: "all" });
     expect(scopeThatIs({ kind: "folder", path: "Gifts" }, ["Gifts"])).toEqual({ kind: "folder", path: "Gifts" });
     expect(scopeThatIs({ kind: "unfiled" }, [])).toEqual({ kind: "unfiled" });
+  });
+});
+
+describe("putting back what was done to folders", () => {
+  const projects = [project("1", "a", "Gifts", 1), project("2", "b", "Gifts/Christmas", 2), project("3", "c", "", 3), project("4", "d", "Gifts 2", 4)];
+
+  it("says what deleting a folder takes, the folders in it after it", () => {
+    expect(heldBy(["Gifts", "Gifts/Christmas", "Gifts 2"], projects, "Gifts")).toEqual({
+      folders: ["Gifts", "Gifts/Christmas"],
+      projects: [
+        { id: "1", folder: "Gifts" },
+        { id: "2", folder: "Gifts/Christmas" },
+      ],
+    });
+  });
+
+  it("groups projects by the folder they go back to, in their order", () => {
+    expect(byFolder([{ id: "1", folder: "A" }, { id: "2", folder: "" }, { id: "3", folder: "A" }])).toEqual([
+      ["A", ["1", "3"]],
+      ["", ["2"]],
+    ]);
+  });
+
+  it("puts back on Undo only the projects that are still where the move took them", () => {
+    const now = [project("1", "a", "Orders", 1), project("2", "b", "Elsewhere", 2), project("3", "c", "Orders", 3)];
+    const from = [
+      { id: "1", folder: "Gifts" },
+      { id: "2", folder: "" },
+      { id: "3", folder: "" },
+      { id: "gone", folder: "Gifts" },
+    ];
+    expect(undoMove(from, "Orders", now)).toEqual({
+      back: [
+        { id: "1", folder: "Gifts" },
+        { id: "3", folder: "" },
+      ],
+      left: 2,
+    });
+  });
+
+  it("makes again only the folders that are not there, whatever their case", () => {
+    expect(missingFolders(["gifts", "Orders"], ["Gifts", "Gifts/Christmas"])).toEqual(["Gifts/Christmas"]);
   });
 });
 

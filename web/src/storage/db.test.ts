@@ -131,3 +131,31 @@ describe("folders in a browser", () => {
     expect((await db.readShelf()).folders).toEqual(["Gifts", "Orders"]);
   });
 });
+
+describe("the picture of a project kept in a browser", () => {
+  const thumb = { w: 100, h: 50, d: "M0 0L10 0L10 10Z" };
+
+  it("is listed, and kept by a save that brings none, as a rename", async () => {
+    const db = await load();
+    await db.putProject({ ...stored("a"), thumb });
+    await db.putProject({ id: "a", name: "Renamed", modified: 300, text: "again" });
+    expect((await db.listProjects())[0].thumb).toEqual(thumb);
+    // A drawing taken away takes it away.
+    await db.putProject({ id: "a", name: "Renamed", modified: 400, text: "blank", thumb: null });
+    expect((await db.listProjects())[0].thumb).toBeNull();
+  });
+
+  it("is given to one kept without, unless it was changed since it was read", async () => {
+    const db = await load();
+    await db.putProject(stored("a", "", 100));
+    expect((await db.listProjects())[0].thumb).toBeUndefined();
+    await db.setThumb("a", thumb, 99);
+    expect((await db.listProjects())[0].thumb).toBeUndefined();
+    await db.setThumb("a", thumb, 100);
+    expect((await db.listProjects())[0].thumb).toEqual(thumb);
+    // Its folder and the rest stay as they were; a project that is gone is not made again.
+    expect((await db.getProject("a"))?.text).toBe("text of a");
+    await db.setThumb("gone", thumb, 100);
+    expect(await db.getProject("gone")).toBeUndefined();
+  });
+});

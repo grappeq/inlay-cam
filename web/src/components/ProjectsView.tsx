@@ -1,26 +1,38 @@
 // The Projects tab: every kept project, filed in folders. The folders are on
-// the left, the projects of the one picked on the right, to open, rename,
-// copy, move, save as files or delete, one at a time or several.
+// the left, what is right in the one picked on the right: its folders, then
+// its projects, to open, rename, copy, move, save as files or delete, one at
+// a time or several. A move, a copy and what is done to a folder can be
+// undone from the notice that says it was done.
 //
 // A folder is its path (state/folders.ts). Filing a project does not change
 // it: on a server its file is renamed into the folder, in a browser the
 // folder is noted beside it.
 
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { core } from "../core/client";
 import { useFileActions } from "../state/files";
 import {
   MAX_FOLDER_DEPTH,
+  byFolder,
+  undoMove,
   depthOf,
   folderNameProblem,
   folderRows,
+  heldBy,
   joinFolder,
+  missingFolders,
   nameOf,
   parentOf,
   refileStarts,
+  resolveFolder,
+  shownFolders,
   shownProjects,
   startIn,
+  rowShowing,
+  unfoldTo,
+  unfoldedRows,
   within,
+  type FolderRow,
   type ProjectSort,
   type Scope,
 } from "../state/folders";
@@ -28,8 +40,10 @@ import { duplicateProject, newProject } from "../state/model";
 import { loadStoredProject, message, useApp, useDispatch } from "../state/store";
 import { deletedText, movedText, partWayText, waitText } from "../state/several";
 import { inTurn, tasks, type TaskHandle, type TaskStart } from "../state/tasks";
+import { fillThumbs, thumbOf } from "../state/thumbs";
 import { mayLeave } from "../state/unsaved";
 import * as db from "../storage/home";
+import type { Thumb } from "../storage/db";
 import { recall, remember } from "../storage/view";
 import { downloadBytes, downloadText, fileStem, pickTextFile } from "../util/files";
 import { zipFiles } from "../util/zip";
@@ -43,8 +57,8 @@ export const SEVERAL = "projects";
 /** The key of the task that opens a kept project. */
 export const openKey = (id: string) => `open:${id}`;
 
-/** What is being named in place: a new folder in `parent`, a folder, or a project. */
-type Naming = { kind: "new"; parent: string } | { kind: "folder"; path: string } | { kind: "project"; id: string };
+/** What is being named in place: a new folder in `parent`, a folder, on the left or in the list, or a project. */
+type Naming = { kind: "new"; parent: string } | { kind: "folder"; path: string; where: "nav" | "list" } | { kind: "project"; id: string };
 
 export function ProjectsView() {
   // The folder shown is the app's (`scope`), so that the address names it.
@@ -58,13 +72,35 @@ export function ProjectsView() {
   // The menu that is open, by a key of its own: one at a time.
   const [menu, setMenu] = useState<string | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
+  // Projects are being dragged: every folder they can be dropped on says so.
+  const [dragging, setDragging] = useState(false);
+  // The folders whose folders are not listed on the left.
+  const [folded, setFolded] = useState<string[]>(() => {
+    const kept = recall<unknown>("projects.folded", []);
+    return Array.isArray(kept) ? kept.filter((path): path is string => typeof path === "string") : [];
+  });
+  // On a narrow screen the folders fold away above the list, and are opened to pick one.
+  const [foldersOpen, setFoldersOpen] = useState(false);
 
   const setScope = (next: Scope) => dispatch({ type: "setScope", scope: next });
-  // Another folder, however it was come to: what was ticked in the last one is let go.
+  const fold = (next: string[]) => {
+    setFolded(next);
+    remember("projects.folded", next);
+  };
+  // Another folder, however it was come to: what was ticked in the last one is let go, and so is the search, unless it was carried along.
   const scopeKey = scope.kind === "folder" ? `in:${scope.path}` : scope.kind;
-  useEffect(() => setPicked([]), [scopeKey]);
+  const keepQuery = useRef(false);
+  useEffect(() => {
+    setPicked([]);
+    setFoldersOpen(false);
+    if (!keepQuery.current) setQuery("");
+    keepQuery.current = false;
+    // The folder shown is seen on the left, whatever it is in.
+    if (scope.kind === "folder") setFolded((now) => unfoldTo(now, scope.path));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
   const fail = (e: unknown) => dispatch({ type: "notice", notice: { kind: "error", text: message(e) } });
-  const info = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
+  const info = (text: string, undo?: () => void) => dispatch({ type: "notice", notice: { kind: "info", text, action: undo ? { label: "Undo", run: undo } : undefined } });
   const refresh = useCallback(async () => dispatch({ type: "setProjects", ...(await db.readShelf()) }), [dispatch]);
   // What is being done to several projects, while it is: it takes the place of the bar that started it.
   const several = useTask(SEVERAL);
@@ -94,11 +130,22 @@ export function ProjectsView() {
 
   // What is kept changes from other windows and browsers too: read when the tab is come to, and come back to.
   useEffect(() => {
-    const look = () => void refresh().catch(() => undefined);
+    // Not while something is done to what is kept: what it shows at once would be read back from part of the way, and jump.
+    const look = () => {
+      if (tasks.get().some((t) => t.key === SEVERAL || t.key.startsWith("projects:"))) return;
+      void refresh().catch(() => undefined);
+    };
     look();
     window.addEventListener("focus", look);
     return () => window.removeEventListener("focus", look);
   }, [refresh]);
+
+  // Projects kept before there were pictures are given theirs, once.
+  useEffect(() => {
+    if (projects.some((p) => p.thumb === undefined)) void fillThumbs(projects).then((any) => {
+        if (any) void refresh().catch(() => undefined);
+      });
+  }, [projects, refresh]);
 
   // A project picked that is gone since.
   useEffect(() => {
@@ -115,13 +162,25 @@ export function ProjectsView() {
 
   const onServer = home === "server";
   const here = scope.kind === "folder" ? scope.path : "";
+  const searching = query.trim() !== "";
   const shown = shownProjects(projects, scope, query, sort);
+  const subfolders = shownFolders(folders, scope, query);
   const rows = folderRows(folders, projects);
+  const rowOf = (path: string) => rows.find((row) => row.path === path);
   // What the bar acts on: the ticked projects that are shown. One that a search has hidden keeps its tick, and is left alone.
   const chosen = picked.filter((id) => shown.some((p) => p.id === id));
   const nameOfProject = (id: string) => projects.find((p) => p.id === id)?.name || "Untitled";
+  const folderOfProject = (id: string) => projects.find((p) => p.id === id)?.folder ?? "";
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
   const label = (folder: string) => (folder ? folder.split("/").join(" / ") : "Unfiled");
+  /** What a folder holds, in a few words. */
+  const holds = (row: FolderRow | undefined) => {
+    if (!row || (row.count === 0 && row.folders === 0)) return "Empty";
+    return [row.folders > 0 ? plural(row.folders, "folder") : "", row.count > 0 ? plural(row.count, "project") : ""].filter(Boolean).join(" · ");
+  };
+
+  // What Undo does is done by the view as it is when it is pressed, not as it was when the work was.
+  const later = useRef<Later>(null as unknown as Later);
 
   // ---- Projects ----
 
@@ -151,9 +210,21 @@ export function ProjectsView() {
       const source = id === project.id ? project : await core.call("projectFromFile", await textOf(id));
       const copy = duplicateProject(source, projects.map((p) => p.name));
       const text = await core.call("projectToFile", copy);
-      const folder = projects.find((p) => p.id === id)?.folder;
-      await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text, steps: copy.steps.length, folder });
+      const folder = folderOfProject(id);
+      await db.putProject({ id: copy.id, name: copy.name, modified: Date.now(), text, steps: copy.steps.length, folder, thumb: await thumbOf(copy.design) });
+      info(`Duplicated as "${copy.name}"${folder === here || scope.kind === "all" ? "" : `, in ${label(folder)}`}.`, () => void later.current.unduplicate(copy.id, copy.name, text));
     }, { key: "projects:copy", label: `Duplicating "${nameOfProject(id)}"` });
+
+  /** Takes away a copy that was just made, `text` as it was made: one that was changed since is kept. */
+  const unduplicate = (id: string, name: string, text: string) =>
+    run(async () => {
+      if (id === project.id) throw new Error(`"${name}" is open now, and is not deleted from here.`);
+      const stored = await db.getProject(id);
+      if (!stored) return info(`"${name}" is gone already.`);
+      if (stored.text !== text) throw new Error(`"${name}" was changed since it was made, and is kept. Delete it from its menu if you want it gone.`);
+      await db.deleteProject(id);
+      info(`"${name}" deleted.`);
+    }, { key: SEVERAL, label: `Deleting "${name}"` });
 
   const rename = (id: string, name: string) =>
     run(async () => {
@@ -169,16 +240,34 @@ export function ProjectsView() {
     }, { key: "projects:name", label: `Renaming "${nameOfProject(id)}"` });
 
   const move = (ids: string[], folder: string) => {
-    const going = ids.filter((id) => projects.find((p) => p.id === id)?.folder !== folder);
+    const going = ids.filter((id) => folderOfProject(id) !== folder);
+    // Where each was, to put it back.
+    const from = going.map((id) => ({ id, folder: folderOfProject(id) }));
     return run(async (task) => {
+      // Shown where it goes at once; what is kept is read again when it is over.
+      dispatch({ type: "refileProjects", ids: going, folder });
       const { done: moved, error } = await inTurn(task, going, nameOfProject, (id) => db.moveProject(id, folder));
-      // What was not moved stays ticked.
-      setPicked(going.slice(moved));
+      // What was moved is no longer ticked; what was not, and what else was, stays so.
+      const gone = going.slice(0, moved);
+      setPicked((now) => now.filter((id) => !gone.includes(id)));
       if (error) throw new Error(partWayText(moved, `moved to ${label(folder)}`, message(error)));
       // What was moved is said, also when it stopped part of the way.
       const said = movedText(moved, going.length, going.length === 1 ? nameOfProject(going[0]) : "", label(folder));
-      if (said) info(said);
+      if (said) info(said, moved > 0 ? () => void later.current.putBack(from.slice(0, moved), folder) : undefined);
     }, each(`Moving to ${label(folder)}`, going));
+  };
+
+  /** Files projects that were moved to `to` again where they were; one moved again since, or gone, is left as it is. */
+  const putBack = (places: { id: string; folder: string }[], to: string) => {
+    const { back, left } = undoMove(places, to, projects);
+    const stays = left > 0 ? ` ${left === 1 ? "One was" : `${left} were`} moved again or deleted since, and ${left === 1 ? "is" : "are"} left as ${left === 1 ? "it is" : "they are"}.` : "";
+    if (back.length === 0) return info(`Nothing to put back.${stays}`);
+    return run(async (task) => {
+      for (const [folder, ids] of byFolder(back)) dispatch({ type: "refileProjects", ids, folder });
+      const { done, error } = await inTurn(task, back, (place) => nameOfProject(place.id), (place) => db.moveProject(place.id, place.folder));
+      if (error) throw new Error(partWayText(done, "put back", message(error)));
+      info((back.length === 1 ? `"${nameOfProject(back[0].id)}" is back in ${label(back[0].folder)}.` : `${plural(done, "project")} put back.`) + stays);
+    }, each("Putting back", back.map((place) => place.id)));
   };
 
   const saveFiles = (ids: string[]) =>
@@ -226,14 +315,22 @@ export function ProjectsView() {
       setScope({ kind: "folder", path: made });
     }, { key: "projects:folder", label: `Making the folder "${name}"` });
 
-  /** Renames a folder or moves it into another: `to` is its whole new path. The folder shown follows. */
-  const renameFolder = (from: string, to: string) =>
+  /** Renames a folder or moves it into another: `to` is its whole new path. The folder shown follows. Said, with an Undo, unless it is the undoing. */
+  const renameFolder = (from: string, to: string, undoing = false) =>
     run(async () => {
       if (from === to) return;
       const now = await db.renameFolder(from, to);
       // A project started in it and not kept yet goes where the folder went.
       refileStarts((folder) => (within(folder, from) ? now + folder.slice(from.length) : folder));
       if (scope.kind === "folder" && within(scope.path, from)) setScope({ kind: "folder", path: now + scope.path.slice(from.length) });
+      // A folder folded up stays so under its new name.
+      if (folded.some((path) => within(path, from))) fold(folded.map((path) => (within(path, from) ? now + path.slice(from.length) : path)));
+      if (undoing) return info(`The folder "${nameOf(now)}" is back in ${parentOf(now) ? label(parentOf(now)) : "the top level"}.`);
+      const said =
+        parentOf(from).toLowerCase() === parentOf(now).toLowerCase()
+          ? `The folder "${nameOf(from)}" is now "${nameOf(now)}".`
+          : `The folder "${nameOf(now)}" moved to ${parentOf(now) ? label(parentOf(now)) : "the top level"}.`;
+      info(said, () => void later.current.renameFolder(now, from, true));
     }, { key: "projects:folder", label: `Moving the folder "${nameOf(from)}"` });
 
   const deleteFolder = (path: string) => {
@@ -243,21 +340,51 @@ export function ProjectsView() {
       `Delete the folder "${label(path)}"${inside > 0 ? ` and the ${plural(inside, "folder")} in it` : ""}?` +
       (held > 0 ? ` ${held === 1 ? "Its project is" : `The ${held} projects in it are`} kept, and ${held === 1 ? "goes" : "go"} to Unfiled.` : "");
     if (!confirm(asked)) return;
+    // What it held, to put back.
+    const was = heldBy(folders, projects, path);
     return run(async () => {
       await db.deleteFolder(path);
       refileStarts((folder) => (within(folder, path) ? "" : folder));
+      info(`The folder "${nameOf(path)}" is deleted${held > 0 ? `; ${held === 1 ? "its project is" : `its ${held} projects are`} in Unfiled` : ""}.`, () => void later.current.undelete(path, was));
     }, { key: "projects:folder", label: `Deleting the folder "${nameOf(path)}"` });
   };
+
+  /** Makes a deleted folder again, with the folders that were in it, and files its projects in them again. */
+  const undelete = (path: string, was: ReturnType<typeof heldBy>) =>
+    run(async () => {
+      const now = (await db.readShelf()).folders;
+      const missing = missingFolders(now, was.folders);
+      // One of that name was made since: what was in the deleted one goes into it.
+      const madeSince = !missing.some((folder) => folder.toLowerCase() === path.toLowerCase());
+      for (const folder of missing) await db.createFolder(folder);
+      let lost = 0;
+      for (const place of was.projects) {
+        await db.moveProject(place.id, place.folder).catch(() => lost++);
+      }
+      const spelt = nameOf(resolveFolder(now, path));
+      const lostText = lost > 0 ? ` ${plural(lost, "project")} that ${lost === 1 ? "was" : "were"} in it ${lost === 1 ? "is" : "are"} no longer kept.` : "";
+      info((madeSince ? `What was in the folder "${nameOf(path)}" is back, in the folder "${spelt}" made since.` : `The folder "${nameOf(path)}" is back.`) + lostText);
+    }, { key: "projects:folder", label: `Putting the folder "${nameOf(path)}" back` });
+
+  later.current = { putBack, unduplicate, renameFolder, undelete };
 
   // ---- Dragging projects onto a folder ----
 
   const dragStart = (e: DragEvent, id: string) => {
-    const ids = picked.includes(id) ? picked : [id];
+    // The ticked projects that are shown, as the bar takes them: one a search hides is left alone.
+    const ids = chosen.includes(id) ? chosen : [id];
     e.dataTransfer.setData(DRAGGED, JSON.stringify(ids));
     e.dataTransfer.effectAllowed = "move";
+    setDragging(true);
+  };
+  // However the drag ends, dropped, given up or let go elsewhere, nothing is marked any more.
+  const dragEnd = () => {
+    setDragging(false);
+    setDropOn(null);
   };
   const dropTarget = (key: string, folder: string) => ({
     "data-drop": dropOn === key || undefined,
+    "data-target": true,
     onDragOver: (e: DragEvent) => {
       if (!e.dataTransfer.types.includes(DRAGGED)) return;
       e.preventDefault();
@@ -266,7 +393,7 @@ export function ProjectsView() {
     },
     onDragLeave: () => setDropOn((now) => (now === key ? null : now)),
     onDrop: (e: DragEvent) => {
-      setDropOn(null);
+      dragEnd();
       let ids: unknown;
       try {
         ids = JSON.parse(e.dataTransfer.getData(DRAGGED));
@@ -283,170 +410,305 @@ export function ProjectsView() {
   });
 
   const toggle = (key: string) => setMenu(menu === key ? null : key);
+  /** A right click opens a line's own menu, not the browser's; in a name being typed it is the browser's. */
+  const contextMenu = (key: string) => (e: ReactMouseEvent) => {
+    if (e.target instanceof HTMLInputElement) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu(key);
+  };
   const allPicked = shown.length > 0 && shown.every((p) => picked.includes(p.id));
   const count = (n: number) => <span className="count">{n}</span>;
 
+  /** The menu of a folder, on the left (`nav`) or in the list. */
+  const folderMenu = (path: string, where: "nav" | "list") => {
+    const key = `${where === "nav" ? "f" : "l"}:${path}`;
+    const name = nameOf(path);
+    return (
+      <Menu label={`More for the folder ${name}`} title="Rename, move or delete" open={menu === key || menu === `${key}:move`} onToggle={() => toggle(key)}>
+        {menu === `${key}:move` ? (
+          <FolderPick
+            folders={folders.filter((other) => !within(other, path) && depthOf(other) + 1 + Math.max(0, ...folders.filter((f) => within(f, path)).map((f) => depthOf(f) - depthOf(path))) <= MAX_FOLDER_DEPTH)}
+            current={parentOf(path)}
+            none="Top level"
+            onPick={(parent) => void renameFolder(path, joinFolder(parent, name))}
+          />
+        ) : (
+          <>
+            <button type="button" role="menuitem" onClick={() => (setMenu(null), setNaming({ kind: "folder", path, where }))}>
+              Rename
+            </button>
+            {depthOf(path) < MAX_FOLDER_DEPTH && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(null);
+                  if (folded.includes(path)) fold(folded.filter((other) => other !== path));
+                  setFoldersOpen(true);
+                  setNaming({ kind: "new", parent: path });
+                }}
+              >
+                New folder inside
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenu(`${key}:move`);
+              }}
+            >
+              Move to…
+            </button>
+            <button type="button" role="menuitem" className="danger" onClick={() => void deleteFolder(path)}>
+              Delete…
+            </button>
+          </>
+        )}
+      </Menu>
+    );
+  };
+
+  /** A folder's name, typed in place of it. */
+  const folderNaming = (path: string) => (
+    <NameInput
+      label={`New name for the folder ${nameOf(path)}`}
+      initial={nameOf(path)}
+      problem={(name) => folderNameProblem(name) ?? (folders.some((other) => other !== path && other.toLowerCase() === joinFolder(parentOf(path), name).toLowerCase()) ? "There is one already" : null)}
+      onDone={(name) => {
+        setNaming(null);
+        if (name !== null) void renameFolder(path, joinFolder(parentOf(path), name));
+      }}
+    />
+  );
+
+  const title =
+    scope.kind === "all" ? (
+      "All projects"
+    ) : scope.kind === "unfiled" ? (
+      "Unfiled"
+    ) : (
+      // The folders it is in, each a step up.
+      <>
+        {here.split("/").map((name, i, names) => {
+          const path = names.slice(0, i + 1).join("/");
+          return i < names.length - 1 ? (
+            <span key={path}>
+              <button className="link pf-crumb" onClick={() => setScope({ kind: "folder", path })} title={`Show ${name}`}>
+                {name}
+              </button>
+              <span className="pf-crumb-sep"> / </span>
+            </span>
+          ) : (
+            <span key={path}>{name}</span>
+          );
+        })}
+      </>
+    );
+  const where = scope.kind === "all" ? "All projects" : label(here);
+  const seenRows = unfoldedRows(rows, folded);
+  const showing = scope.kind === "folder" ? rowShowing(seenRows, here) : undefined;
+
   return (
-    <div className="projects-split" onClick={() => setMenu(null)}>
+    <div className="projects-split" onClick={() => setMenu(null)} data-dragging={dragging || undefined}>
       <nav className="pf-nav" aria-label="Folders">
-        <button className="pf-folder" aria-current={scope.kind === "all" ? "page" : undefined} onClick={() => setScope({ kind: "all" })}>
-          <span className="pf-folder-name">All projects</span>
-          {count(projects.length)}
+        <button className="pf-drawer" aria-expanded={foldersOpen} onClick={(e) => (e.stopPropagation(), setFoldersOpen(!foldersOpen))}>
+          <span className="muted">Folders:</span> <span className="pf-folder-name">{where}</span>
+          <span aria-hidden="true">{foldersOpen ? "▴" : "▾"}</span>
         </button>
-        <button className="pf-folder" aria-current={scope.kind === "unfiled" ? "page" : undefined} onClick={() => setScope({ kind: "unfiled" })} title="Projects in no folder" {...dropTarget("unfiled", "")}>
-          <span className="pf-folder-name">Unfiled</span>
-          {count(projects.filter((p) => p.folder === "").length)}
-        </button>
-        <div className="pf-tree">
-          {rows.map((row) => {
-            const key = `f:${row.path}`;
-            const current = scope.kind === "folder" && scope.path === row.path;
-            const indent = { paddingLeft: 10 + row.depth * 16 };
-            if (naming?.kind === "folder" && naming.path === row.path) {
+        <div className="pf-nav-body" data-open={foldersOpen || undefined}>
+          <button className="pf-folder" aria-current={scope.kind === "all" ? "page" : undefined} onClick={() => setScope({ kind: "all" })}>
+            <span className="pf-folder-name">All projects</span>
+            {count(projects.length)}
+          </button>
+          <button className="pf-folder" aria-current={scope.kind === "unfiled" ? "page" : undefined} onClick={() => setScope({ kind: "unfiled" })} title="Projects in no folder" {...dropTarget("unfiled", "")}>
+            <span className="pf-folder-name">Unfiled</span>
+            {count(projects.filter((p) => p.folder === "").length)}
+          </button>
+          <div className="pf-tree">
+            {seenRows.map((row) => {
+              const key = `f:${row.path}`;
+              const current = scope.kind === "folder" && scope.path === row.path;
+              // The folder shown is folded away in this one.
+              const holdsShown = !current && scope.kind === "folder" && showing === row.path;
+              const indent = 10 + row.depth * 16;
+              if (naming?.kind === "folder" && naming.where === "nav" && naming.path === row.path) {
+                return (
+                  <div key={row.path} className="pf-naming" style={{ paddingLeft: indent + 18 }}>
+                    {folderNaming(row.path)}
+                  </div>
+                );
+              }
+              const isFolded = folded.includes(row.path);
               return (
-                <div key={row.path} className="pf-naming" style={indent}>
-                  <NameInput
-                    label={`New name for the folder ${row.name}`}
-                    initial={row.name}
-                    problem={(name) => folderNameProblem(name) ?? (folders.some((other) => other !== row.path && other.toLowerCase() === joinFolder(parentOf(row.path), name).toLowerCase()) ? "There is one already" : null)}
-                    onDone={(name) => {
-                      setNaming(null);
-                      if (name !== null) void renameFolder(row.path, joinFolder(parentOf(row.path), name));
-                    }}
-                  />
+                <div key={row.path} className="pf-folder-line" onContextMenu={contextMenu(key)}>
+                  <button className="pf-folder" style={{ paddingLeft: indent + 18 }} aria-current={current ? "page" : undefined} data-holds-shown={holdsShown || undefined} onClick={() => setScope({ kind: "folder", path: row.path })} title={holds(row)} {...dropTarget(key, row.path)}>
+                    <span className="pf-folder-name">{row.name}</span>
+                    {row.count > 0 && count(row.count)}
+                  </button>
+                  {row.folders > 0 && (
+                    <button
+                      className="pf-fold"
+                      style={{ left: indent - 2 }}
+                      aria-expanded={!isFolded}
+                      aria-label={`${isFolded ? "Show" : "Hide"} the folders in ${row.name}`}
+                      title={`${isFolded ? "Show" : "Hide"} the folders in it`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fold(isFolded ? folded.filter((path) => path !== row.path) : [...folded, row.path]);
+                      }}
+                    >
+                      {isFolded ? "▸" : "▾"}
+                    </button>
+                  )}
+                  {folderMenu(row.path, "nav")}
+                  {naming?.kind === "new" && naming.parent === row.path && (
+                    <div className="pf-naming" style={{ paddingLeft: indent + 16 + 18 }}>
+                      <NewFolder parent={row.path} folders={folders} onDone={(name) => (setNaming(null), name !== null && void createFolder(row.path, name))} />
+                    </div>
+                  )}
                 </div>
               );
-            }
-            return (
-              <div key={row.path} className="pf-folder-line">
-                <button className="pf-folder" style={indent} aria-current={current ? "page" : undefined} onClick={() => setScope({ kind: "folder", path: row.path })} {...dropTarget(key, row.path)}>
-                  <span className="pf-folder-name">{row.name}</span>
-                  {count(row.count)}
-                </button>
-                <Menu label={`More for the folder ${row.name}`} title="Rename, move or delete" open={menu === key || menu === `${key}:move`} onToggle={() => toggle(key)}>
-                  {menu === `${key}:move` ? (
-                    <FolderPick
-                      folders={folders.filter((other) => !within(other, row.path) && depthOf(other) + 1 + Math.max(0, ...folders.filter((f) => within(f, row.path)).map((f) => depthOf(f) - depthOf(row.path))) <= MAX_FOLDER_DEPTH)}
-                      current={parentOf(row.path)}
-                      none="Top level"
-                      onPick={(parent) => void renameFolder(row.path, joinFolder(parent, row.name))}
-                    />
-                  ) : (
-                    <>
-                      <button type="button" role="menuitem" onClick={() => (setMenu(null), setNaming({ kind: "folder", path: row.path }))}>
-                        Rename
-                      </button>
-                      {depthOf(row.path) < MAX_FOLDER_DEPTH && (
-                        <button type="button" role="menuitem" onClick={() => (setMenu(null), setNaming({ kind: "new", parent: row.path }))}>
-                          New folder inside
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMenu(`${key}:move`);
-                        }}
-                      >
-                        Move to…
-                      </button>
-                      <button type="button" role="menuitem" className="danger" onClick={() => void deleteFolder(row.path)}>
-                        Delete…
-                      </button>
-                    </>
-                  )}
-                </Menu>
-                {naming?.kind === "new" && naming.parent === row.path && (
-                  <div className="pf-naming" style={{ paddingLeft: 10 + (row.depth + 1) * 16 }}>
-                    <NewFolder parent={row.path} folders={folders} onDone={(name) => (setNaming(null), name !== null && void createFolder(row.path, name))} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {naming?.kind === "new" && naming.parent === "" ? (
-          <div className="pf-naming">
-            <NewFolder parent="" folders={folders} onDone={(name) => (setNaming(null), name !== null && void createFolder("", name))} />
+            })}
           </div>
-        ) : (
-          <button className="pf-new" onClick={() => setNaming({ kind: "new", parent: "" })}>
-            + New folder
-          </button>
-        )}
-        <p className="set-nav-foot">{onServer ? "Kept on this server, for everyone who opens it." : "Kept in this browser."}</p>
+          {naming?.kind === "new" && naming.parent === "" ? (
+            <div className="pf-naming">
+              <NewFolder parent="" folders={folders} onDone={(name) => (setNaming(null), name !== null && void createFolder("", name))} />
+            </div>
+          ) : (
+            <button className="pf-new" onClick={(e) => (e.stopPropagation(), setNaming({ kind: "new", parent: "" }))}>
+              + New folder
+            </button>
+          )}
+          {folders.length > 0 && projects.length > 0 && <p className="pf-hint">Drag projects onto a folder to move them.</p>}
+          <p className="set-nav-foot">{onServer ? "Kept on this server, for everyone who opens it." : "Kept in this browser."}</p>
+        </div>
       </nav>
 
       <main className="pf-main">
         <div className="pf-bar">
-          <h2 className="pf-title">{scope.kind === "all" ? "All projects" : label(here)}</h2>
-          <input className="pf-search" type="text" aria-label="Search projects by name" placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <select
-            aria-label="Order"
-            value={sort}
-            onChange={(e) => {
-              const next = e.target.value === "name" ? "name" : "modified";
-              setSort(next);
-              remember("projects.sort", next);
-            }}
-          >
-            <option value="modified">Last changed</option>
-            <option value="name">Name</option>
-          </select>
+          <h2 className="pf-title">{title}</h2>
+          <input className="pf-search" type="text" aria-label="Search projects and folders by name" placeholder={scope.kind === "all" ? "Search by name" : `Search in ${scope.kind === "unfiled" ? "Unfiled" : nameOf(here)}`} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <label className="pf-sort">
+            <span className="muted">Sort</span>
+            <select
+              value={sort}
+              onChange={(e) => {
+                const next = e.target.value === "name" ? "name" : "modified";
+                setSort(next);
+                remember("projects.sort", next);
+              }}
+            >
+              <option value="modified">Last changed</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
           <button onClick={async () => mayLeave() && openFile(await pickTextFile(".json,application/json"))} title="Open a project file from disk">
             Open file…
           </button>
           <button className="primary" onClick={startNew} title={here ? `Start a project in ${label(here)}` : "Start a project"}>
-            New project
+            {here ? `New project in ${nameOf(here)}` : "New project"}
           </button>
         </div>
 
-        {several?.shown && several.place === "inline" ? (
-          <div className="pf-picked">
-            <ProgressLine task={several} />
+        {shown.length === 0 && subfolders.length === 0 ? (
+          <div className="muted pf-empty">
+            <p>
+              {searching
+                ? `Nothing ${scope.kind === "all" ? "" : `in ${where} `}has that in its name.`
+                : projects.length === 0 && folders.length === 0
+                  ? "Nothing kept yet. A project is kept as soon as it has a drawing."
+                  : scope.kind === "folder"
+                    ? "Nothing in this folder. Drag projects onto it, or start a new one here."
+                    : scope.kind === "unfiled"
+                      ? "Every project is in a folder."
+                      : "Nothing kept yet. A project is kept as soon as it has a drawing."}
+            </p>
+            {searching && scope.kind !== "all" && (
+              <button
+                onClick={() => {
+                  keepQuery.current = true;
+                  setScope({ kind: "all" });
+                }}
+              >
+                Search all projects
+              </button>
+            )}
           </div>
-        ) : chosen.length > 0 && (
-          <div className="pf-picked" role="toolbar" aria-label="The selected projects">
-            <span>{chosen.length} selected</span>
-            <Menu label="Move the selected projects to a folder" text="Move to…" open={menu === "picked"} onToggle={() => toggle("picked")} left>
-              <FolderPick folders={folders} current={sameFolderOf(chosen, projects)} none="Unfiled" onPick={(folder) => void move(chosen, folder)} />
-            </Menu>
-            <button onClick={() => void saveFiles(chosen)} title={chosen.length > 1 ? "As project files, in one .zip" : "As a project file"}>
-              {chosen.length > 1 ? "Save to files" : "Save to file"}
-            </button>
-            <button className="danger" onClick={() => void remove(chosen)}>
-              Delete…
-            </button>
-            <button className="link" onClick={() => setPicked([])}>
-              Clear
-            </button>
-          </div>
-        )}
-
-        {shown.length === 0 ? (
-          <p className="muted pf-empty">
-            {query.trim() ? "No project here has that in its name." : projects.length === 0 ? "Nothing kept yet. A project is kept as soon as it has a drawing." : scope.kind === "folder" ? "Nothing in this folder. Drag projects onto it, or start a new one here." : "Every project is in a folder."}
-          </p>
         ) : (
           <ul className="pf-list">
-            <li className="pf-head">
-              <input
-                type="checkbox"
-                aria-label="Select all shown"
-                checked={allPicked}
-                onChange={() => setPicked(allPicked ? picked.filter((id) => !shown.some((p) => p.id === id)) : [...new Set([...picked, ...shown.map((p) => p.id)])])}
-              />
-              <span>{plural(shown.length, "project")}</span>
+            <li className="pf-head" data-picked={chosen.length > 0 || undefined}>
+              {shown.length > 0 ? (
+                <input
+                  type="checkbox"
+                  aria-label="Select all shown"
+                  checked={allPicked}
+                  disabled={several?.shown === true && several.place === "inline"}
+                  onChange={() => setPicked(allPicked ? picked.filter((id) => !shown.some((p) => p.id === id)) : [...new Set([...picked, ...shown.map((p) => p.id)])])}
+                />
+              ) : (
+                <span />
+              )}
+              {several?.shown && several.place === "inline" ? (
+                <ProgressLine task={several} />
+              ) : chosen.length > 0 ? (
+                // In place of the count: the list under it does not move.
+                <div className="pf-picked" role="toolbar" aria-label="The selected projects">
+                  <span>{chosen.length} selected</span>
+                  <Menu label="Move the selected projects to a folder" text="Move to…" open={menu === "picked"} onToggle={() => toggle("picked")} left>
+                    <FolderPick folders={folders} current={sameFolderOf(chosen, projects)} none="Unfiled" onPick={(folder) => void move(chosen, folder)} />
+                  </Menu>
+                  <button onClick={() => void saveFiles(chosen)} title={chosen.length > 1 ? "As project files, in one .zip" : "As a project file"}>
+                    {chosen.length > 1 ? "Save to files" : "Save to file"}
+                  </button>
+                  <button className="danger" onClick={() => void remove(chosen)}>
+                    Delete…
+                  </button>
+                  <button className="link" onClick={() => setPicked([])}>
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <span>
+                  {[subfolders.length > 0 ? plural(subfolders.length, "folder") : "", shown.length > 0 ? plural(shown.length, "project") : ""].filter(Boolean).join(" · ")}
+                  {searching && scope.kind === "folder" && " (with the folders in it)"}
+                </span>
+              )}
             </li>
+            {subfolders.map((path) => {
+              const key = `l:${path}`;
+              if (naming?.kind === "folder" && naming.where === "list" && naming.path === path) {
+                return (
+                  <li key={key} className="pf-row pf-sub">
+                    <span />
+                    {folderNaming(path)}
+                  </li>
+                );
+              }
+              return (
+                <li key={key} className="pf-row pf-sub" onContextMenu={contextMenu(key)} {...dropTarget(key, path)}>
+                  <span />
+                  <button className="pf-open" onClick={() => setScope({ kind: "folder", path })} title={`Show ${nameOf(path)}`}>
+                    <FolderIcon />
+                    <span className="pf-name">{nameOf(path)}</span>
+                    {parentOf(path) !== here && <span className="muted pf-in">{label(parentOf(path)) === "Unfiled" ? "Top level" : label(parentOf(path))}</span>}
+                  </button>
+                  <span className="muted pf-facts">{holds(rowOf(path))}</span>
+                  {folderMenu(path, "list")}
+                </li>
+              );
+            })}
             {shown.map((p) => {
               const isOpen = p.id === project.id;
               const name = p.name || "Untitled";
               const key = `p:${p.id}`;
+              const isNaming = naming?.kind === "project" && naming.id === p.id;
               return (
-                <li key={p.id} className="pf-row" data-picked={picked.includes(p.id) || undefined} draggable={naming?.kind !== "project" || naming.id !== p.id} onDragStart={(e) => dragStart(e, p.id)}>
+                <li key={p.id} className="pf-row" data-picked={picked.includes(p.id) || undefined} draggable={!isNaming} onDragStart={(e) => dragStart(e, p.id)} onDragEnd={dragEnd} onContextMenu={isNaming ? undefined : contextMenu(key)}>
                   <input type="checkbox" aria-label={`Select ${name}`} checked={picked.includes(p.id)} onChange={() => setPicked(picked.includes(p.id) ? picked.filter((id) => id !== p.id) : [...picked, p.id])} />
-                  {naming?.kind === "project" && naming.id === p.id ? (
+                  {isNaming ? (
                     <NameInput
                       label={`New name for ${name}`}
                       initial={p.name}
@@ -458,6 +720,7 @@ export function ProjectsView() {
                     />
                   ) : (
                     <button className="pf-open" aria-busy={opening.some((t) => t.key === openKey(p.id)) || undefined} onClick={() => void open(p.id)} title={isOpen ? "Go to this project" : "Open this project"}>
+                      <Thumbnail thumb={p.thumb} />
                       {opening.some((t) => t.shown && t.key === openKey(p.id)) && <Spinner />}
                       <span className="pf-name">{name}</span>
                       {isOpen && <span className="project-open-tag">Open</span>}
@@ -473,6 +736,9 @@ export function ProjectsView() {
                       <FolderPick folders={folders} current={p.folder} none="Unfiled" onPick={(folder) => void move([p.id], folder)} />
                     ) : (
                       <>
+                        <button type="button" role="menuitem" onClick={() => void open(p.id)}>
+                          {isOpen ? "Go to it" : "Open"}
+                        </button>
                         <button type="button" role="menuitem" onClick={() => (setMenu(null), setNaming({ kind: "project", id: p.id }))}>
                           Rename
                         </button>
@@ -507,6 +773,35 @@ export function ProjectsView() {
         )}
       </main>
     </div>
+  );
+}
+
+/** What Undo calls, as the view is when it is pressed. */
+interface Later {
+  putBack: (places: { id: string; folder: string }[], to: string) => Promise<void> | void;
+  unduplicate: (id: string, name: string, text: string) => Promise<void>;
+  renameFolder: (from: string, to: string, undoing?: boolean) => Promise<void>;
+  undelete: (path: string, was: ReturnType<typeof heldBy>) => Promise<void>;
+}
+
+/** A folder in the list, before its name. */
+function FolderIcon() {
+  return (
+    <svg className="pf-thumb pf-folder-icon" viewBox="-12 -9 44 34" aria-hidden="true">
+      <path d="M1.5 3.5a1.5 1.5 0 0 1 1.5-1.5h4.2l1.8 2h8a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5z" />
+    </svg>
+  );
+}
+
+/** A small picture of a project's drawing on its stock; an empty place for one without a drawing. */
+function Thumbnail({ thumb }: { thumb: Thumb | null | undefined }) {
+  if (!thumb) return <span className="pf-thumb" aria-hidden="true" />;
+  const pad = 2;
+  return (
+    <svg className="pf-thumb" viewBox={`${-pad} ${-pad} ${thumb.w + 2 * pad} ${thumb.h + 2 * pad}`} aria-hidden="true">
+      <rect className="pf-thumb-stock" width={thumb.w} height={thumb.h} />
+      <path className="pf-thumb-shapes" d={thumb.d} />
+    </svg>
   );
 }
 

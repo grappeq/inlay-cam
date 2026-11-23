@@ -730,6 +730,26 @@ fn project_text(id: &str, name: &str) -> String {
 }
 
 #[test]
+fn the_list_of_projects_has_a_picture_of_each_drawing() {
+    let served = served();
+    let text = project_text("p-1", "A box lid");
+    assert_eq!(served.send("PUT", "/api/projects/p-1", &[], text.as_bytes()).status, 200);
+    let mut blank = inlay_core::project::project_from_file_json(&text).unwrap();
+    blank.id = "p-2".into();
+    blank.design = None;
+    blank.steps.clear();
+    let blank = inlay_core::project::project_to_file_json(&blank);
+    assert_eq!(served.send("PUT", "/api/projects/p-2", &[], blank.as_bytes()).status, 200);
+    let (_, list) = served.get("/api/projects");
+    let of = |id: &str| list["projects"].as_array().unwrap().iter().find(|p| p["id"] == id).unwrap().clone();
+    let thumb = &of("p-1")["thumb"];
+    assert!(thumb["w"].as_f64().unwrap() > 0.0 && thumb["h"].as_f64().unwrap() > 0.0, "{thumb}");
+    assert!(thumb["d"].as_str().unwrap().starts_with('M'), "{thumb}");
+    // Without a drawing there is nothing to picture.
+    assert_eq!(of("p-2")["thumb"], Value::Null);
+}
+
+#[test]
 fn projects_are_filed_in_folders_and_moved() {
     let served = served();
     assert_eq!(served.get("/api/projects").1["folders"], json!([]));

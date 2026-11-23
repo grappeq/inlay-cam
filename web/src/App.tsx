@@ -34,6 +34,7 @@ import { MakeraImportDialog } from "./components/LibraryDialogs";
 import { Spinner, TaskNotices, useTask } from "./components/Progress";
 import { generateKey } from "./state/work";
 import { tasks } from "./state/tasks";
+import { thumbOf } from "./state/thumbs";
 
 export function App() {
   return (
@@ -84,9 +85,12 @@ function Shell() {
       onDrop={onDrop}
     >
       <Header />
-      <NoticeBar />
-      <TaskNotices />
       <ConflictBar />
+      {/* Over the page, not in it: what comes and goes does not push what is under the header down. */}
+      <div className="toasts">
+        <NoticeBar />
+        <TaskNotices />
+      </div>
       <AgentPairing />
       <MakeraIncoming />
       {!ready ? (
@@ -310,6 +314,7 @@ function ConflictBar() {
       modified: Date.now(),
       text: await core.call("projectToFile", copy),
       steps: copy.steps.length,
+      thumb: await thumbOf(copy.design),
       // Beside the one it is a version of.
       folder: projects.find((p) => p.id === project.id)?.folder,
     });
@@ -361,30 +366,51 @@ function ConflictBar() {
 function NoticeBar() {
   const { notice } = useApp();
   const dispatch = useDispatch();
+  // Pointed at or in focus, it stays: its Undo is not taken away under the pointer.
+  const [held, setHeld] = useState(false);
 
-  // Confirmations fade by themselves; errors stay until dismissed.
+  // Confirmations fade by themselves, one that can be undone a little later; errors stay until dismissed.
   useEffect(() => {
-    if (notice?.kind !== "info") return;
+    if (notice?.kind !== "info" || held) return;
     const timer = setTimeout(
       () => dispatch({ type: "notice", notice: null }),
-      8000,
+      notice.action ? 12000 : 8000,
     );
     return () => clearTimeout(timer);
-  }, [notice, dispatch]);
+  }, [notice, held, dispatch]);
+  // A new notice starts its own time.
+  useEffect(() => setHeld(false), [notice]);
 
   if (!notice) return null;
+  const action = notice.action;
   return (
     <div
       className={`notice ${notice.kind}`}
       role={notice.kind === "error" ? "alert" : "status"}
+      onMouseEnter={() => setHeld(true)}
+      onMouseLeave={() => setHeld(false)}
+      onFocus={() => setHeld(true)}
+      onBlur={() => setHeld(false)}
     >
       <span>{notice.text}</span>
-      <button
-        className="link"
-        onClick={() => dispatch({ type: "notice", notice: null })}
-      >
-        Dismiss
-      </button>
+      <span className="notice-actions">
+        {action && (
+          <button
+            onClick={() => {
+              dispatch({ type: "notice", notice: null });
+              action.run();
+            }}
+          >
+            {action.label}
+          </button>
+        )}
+        <button
+          className="link"
+          onClick={() => dispatch({ type: "notice", notice: null })}
+        >
+          Dismiss
+        </button>
+      </span>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useRef, useSyncExternalStore } from "react";
 import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import * as server from "../storage/server";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
+import { startOf } from "../state/folders";
 import { mayLeave } from "../state/unsaved";
 import { Activity, useLasting, useTasks } from "./Progress";
 
@@ -19,8 +20,8 @@ export function Header() {
   const lastPage = useRef<SettingsPage>("materials");
   if (settingsPage !== "tools") lastPage.current = settingsPage;
   const dispatch = useDispatch();
-  // The folder the open project is filed in; none for one that is not kept yet.
-  const folder = projects.find((p) => p.id === project.id)?.folder ?? "";
+  // The folder the open project is filed in; for one that is not kept yet, the one it was started in.
+  const folder = projects.find((p) => p.id === project.id)?.folder ?? startOf(project.id) ?? "";
   const agent = useSyncExternalStore(subscribeLink, getLink);
   const reach = useSyncExternalStore(server.subscribeReach, server.getReach);
   const out = ready && home === "server" && reach === "unreachable";

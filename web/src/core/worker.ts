@@ -34,6 +34,7 @@ const api: CoreApi = {
   importToolsYaml: (text) => JSON.parse(wasm.importToolsYaml(text)),
   projectFromFile: (text) => JSON.parse(wasm.projectFromFile(text)),
   projectToFile: (project) => wasm.projectToFile(JSON.stringify(project)),
+  designThumbnail: (design) => JSON.parse(wasm.designThumbnail(JSON.stringify(design))),
   starterLibrary: () => JSON.parse(wasm.starterLibrary()),
   libraryFromFile: (text) => JSON.parse(wasm.libraryFromFile(text)),
   libraryToFile: (library) => wasm.libraryToFile(JSON.stringify(library)),
