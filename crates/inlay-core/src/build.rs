@@ -370,8 +370,12 @@ pub fn build_with(
         )
     );
     let name = part_name(part, &step.task);
-    // A contour without a depth goes right through the stock on purpose.
-    let through_stock = matches!(&step.task, Task::Contour { depth: None, .. });
+    // A contour without a depth goes right through the stock on purpose, and
+    // a pocket as deep as the stock or deeper makes holes, with a warning.
+    let through_stock = matches!(
+        &step.task,
+        Task::Contour { depth: None, .. } | Task::Pocket { .. }
+    );
 
     // An inlay's pocket cut into a surface below the stock's: worked out
     // as at the surface, then lowered.
@@ -2413,6 +2417,32 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
         ));
         return None;
     }
+    let thickness = ctx.project.base.thickness;
+    if start >= thickness {
+        ctx.errors.push(format!(
+            "The pocket starts {} mm deep, but the stock is only {} mm thick. Start it higher.",
+            num(start),
+            num(thickness)
+        ));
+        return None;
+    }
+    // As deep as the stock or deeper, the pocket's shapes come out as holes.
+    let past = (ctx.depth - thickness).max(0.0);
+    if ctx.depth >= thickness {
+        ctx.warnings.push(format!(
+            "The pocket is {} mm deep and the stock {} mm thick, so its shapes are cut right through as holes.",
+            num(ctx.depth),
+            num(thickness)
+        ));
+        ctx.before.push(if past > 0.0 {
+            format!(
+                "Put a spoilboard under the stock: the pocket goes {} mm past its bottom.",
+                num(past)
+            )
+        } else {
+            "Put a spoilboard under the stock: the pocket goes down to its bottom.".into()
+        });
+    }
     let smallest = end_mills
         .iter()
         .map(|(tool, _)| *tool)
@@ -2448,16 +2478,33 @@ fn plain_pocket(ctx: &mut Context, regions: &[Region], tool_ids: &[String]) -> O
             num(smallest.diameter)
         ));
     }
+    if ctx.depth >= thickness && cuts_loose(ctx.project, &cleared) {
+        ctx.before.push("Hold what the pocket cuts loose down with tape: cut right through all round, it comes free of the stock and can be thrown by the tool.".into());
+    }
     Some(Cut {
         tools,
         moves: path.finish(),
         cuttable: outlines(&cleared),
         pocket: cleared,
+        through: past,
         // Over the shapes, down to where it starts, and a little over for
         // the grid the simulation runs on.
         gone: (start > 0.0).then(|| Gone::over(&offset(regions, 0.2), start)),
         ..Cut::default()
     })
+}
+
+/// Whether cutting `through` right through the stock leaves it in more than
+/// one piece: an island inside a shape, or a strip across the stock.
+fn cuts_loose(project: &Project, through: &[Region]) -> bool {
+    let Some(design) = project.design.as_ref() else {
+        return false;
+    };
+    let (width, height) = design.placed_size();
+    let stock = Region::new(vec![[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]]);
+    // Slivers thinner than the simulation sees are not pieces.
+    let pieces = difference(&stock, through);
+    pieces.iter().filter(|r| total_area(std::slice::from_ref(r)) > 0.01).count() > 1
 }
 
 /// The rectangle a facing covers: the whole stock without shapes, else the
@@ -5860,6 +5907,87 @@ pub(crate) mod tests {
         assert!(chamfer(-1.0, Side::Outside).validate().is_err());
         use crate::project::project_to_file_json;
         assert!(!project_to_file_json(&chamfer(0.0, Side::Outside)).contains("startDepth"));
+    }
+
+    #[test]
+    fn a_pocket_as_deep_as_the_stock_or_deeper_cuts_holes_with_a_warning() {
+        let pocket = |depth: f64, start_depth: f64| {
+            let mut p = op_project(Task::Pocket {
+                start_depth,
+                pattern: Pattern::Offset,
+                direction: PassDirection::Longer,
+                depth,
+                clearing_tool_ids: vec!["t-endmill".into()],
+            });
+            p.base.thickness = 0.8;
+            p
+        };
+        // 0.2 mm past the bottom: built and simulated without problems.
+        let p = pocket(1.0, 0.0);
+        let preview = preview(&p, "j", Part::Pocket).unwrap();
+        assert_eq!(preview.problems, []);
+        assert!((preview.built.stock.through - 0.2).abs() < 1e-9);
+        let bottom = cuts(&preview.built)
+            .iter()
+            .map(|q| q[2])
+            .fold(f64::INFINITY, f64::min);
+        assert!((bottom + 1.0).abs() < 1e-9, "bottom at {bottom}");
+        let notes = preview.built.warnings.join(" | ");
+        assert!(notes.contains("cut right through as holes"), "{notes}");
+        let to_do = preview.built.before.join(" | ");
+        assert!(to_do.contains("0.2 mm past its bottom"), "{to_do}");
+        assert!(!to_do.contains("tape"), "{to_do}");
+
+        // Exactly as deep as the stock: a hole, nothing cut below it, but the
+        // tool reaches what is under it.
+        let built = build(&pocket(0.8, 0.0), "j", Part::Pocket).unwrap();
+        assert_eq!(built.stock.through, 0.0);
+        assert!(built.warnings.iter().any(|w| w.contains("as holes")));
+        let to_do = built.before.join(" | ");
+        assert!(to_do.contains("spoilboard") && to_do.contains("down to its bottom"), "{to_do}");
+
+        // Not as deep: no warning.
+        let built = build(&pocket(0.5, 0.0), "j", Part::Pocket).unwrap();
+        assert_eq!(built.stock.through, 0.0);
+        assert!(!built.warnings.iter().any(|w| w.contains("as holes")));
+        assert!(!built.before.iter().any(|w| w.contains("spoilboard")));
+
+        // An island in a shape cut through comes loose.
+        let mut ring = pocket(1.0, 0.0);
+        ring.design.as_mut().unwrap().regions[0].holes =
+            vec![vec![[15.0, 10.0], [15.0, 20.0], [25.0, 20.0], [25.0, 10.0]]];
+        let built = build(&ring, "j", Part::Pocket).unwrap();
+        assert!(built.before.iter().any(|w| w.contains("tape")), "{:?}", built.before);
+        // So does the stock on either side of a strip right across it, exactly
+        // as deep as the stock too.
+        for depth in [1.0, 0.8] {
+            let mut strip = pocket(depth, 0.0);
+            strip.design.as_mut().unwrap().regions[0].outer =
+                vec![[-5.0, 10.0], [65.0, 10.0], [65.0, 20.0], [-5.0, 20.0]];
+            let built = build(&strip, "j", Part::Pocket).unwrap();
+            assert!(built.before.iter().any(|w| w.contains("tape")), "{:?}", built.before);
+            // Not as deep, nothing comes loose.
+            let mut shallow = strip.clone();
+            if let Task::Pocket { depth, .. } = &mut shallow.steps[0].task {
+                *depth = 0.5;
+            }
+            let built = build(&shallow, "j", Part::Pocket).unwrap();
+            assert!(!built.before.iter().any(|w| w.contains("tape")), "{:?}", built.before);
+        }
+        // A notch in the edge of the stock leaves it whole.
+        let mut notch = pocket(1.0, 0.0);
+        notch.design.as_mut().unwrap().regions[0].outer =
+            vec![[-5.0, 10.0], [20.0, 10.0], [20.0, 20.0], [-5.0, 20.0]];
+        let built = build(&notch, "j", Part::Pocket).unwrap();
+        assert!(!built.before.iter().any(|w| w.contains("tape")), "{:?}", built.before);
+
+        // A start below the bottom of the stock leaves nothing to cut.
+        let reasons = build(&pocket(1.0, 0.9), "j", Part::Pocket)
+            .unwrap_err()
+            .join(" | ");
+        assert!(reasons.contains("stock is only 0.8 mm thick"), "{reasons}");
+        // A start inside it is fine.
+        assert!(build(&pocket(1.0, 0.5), "j", Part::Pocket).is_ok());
     }
 
     #[test]

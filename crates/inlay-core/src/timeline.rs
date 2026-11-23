@@ -2139,6 +2139,32 @@ mod tests {
         assert!(z.abs() < 0.02 && owner == 1);
     }
 
+    #[test]
+    fn a_pocket_deeper_than_the_stock_cuts_a_hole_in_it() {
+        let mut p = backer_project();
+        p.base.thickness = 2.0;
+        p.steps = vec![Step {
+            region_ids: vec![0],
+            ..step(
+                "hole",
+                Task::Pocket {
+                    start_depth: 0.0,
+                    depth: 2.5,
+                    pattern: Pattern::Offset,
+                    direction: PassDirection::Longer,
+                    clearing_tool_ids: vec!["t-endmill".into()],
+                },
+            )
+        }];
+        let t = timeline(&p).unwrap();
+        let s = &t.steps[0];
+        assert!(s.errors.is_empty(), "{:?}", s.errors);
+        assert!(s.problems.is_empty(), "{:?}", s.problems);
+        // Down past the bottom of the stock, which it is drawn open at.
+        let (z, _) = at(&t, 1, 20.0, 15.0);
+        assert!((z + 2.5).abs() < 0.02, "{z}");
+    }
+
     /// What the work of `work` reports, with what it gives.
     fn watched<T>(work: impl FnOnce() -> T) -> (T, Vec<progress::Report>) {
         let seen = Rc::new(std::cell::RefCell::new(Vec::new()));

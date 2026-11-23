@@ -373,8 +373,8 @@ have their defaults.
 | Field | Meaning |
 |---|---|
 | `type` | `pocket` |
-| `depth` | Greater than 0, and less than the stock's thickness. |
-| `startDepth` | How deep the clearing starts: the wood above it, over the regions, is taken to be gone already, and the first pass goes down from there. 0 or more. A file is made only when it is less than `depth`. Default 0; may be missing, and is not written when it is 0. |
+| `depth` | Greater than 0. As deep as the stock's thickness or deeper, the regions are cut right through as holes, with a warning. |
+| `startDepth` | How deep the clearing starts: the wood above it, over the regions, is taken to be gone already, and the first pass goes down from there. 0 or more. A file is made only when it is less than `depth` and than the stock's thickness. Default 0; may be missing, and is not written when it is 0. |
 | `pattern` | The shape of the tool's path. `offset` (default): rings that follow the outline, from the middle outwards. `raster`: straight passes side to side, then once round the edge of each area at each depth. |
 | `direction` | Which way `raster` passes run: `longer` (default; may be missing), along the longer side of each area; `x`, left and right; `y`, to and from the front. Rings take no direction. |
 | `clearingToolIds` | Flat end mills, in the order they are used. Each cuts only what those before it left. Inside corners are left rounded to the smallest. |

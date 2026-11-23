@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PocketPreview } from "../core/types";
 import { dimensionMarks, edgeMarks, pathReach, surfaceHit, type Mark, type Vec3 } from "./dimensions";
+import { isHole, openSurface } from "./holes";
 
 /** Most vertices per side of the displayed surface; finer height maps are thinned for display only. */
 const MAX_DISPLAY = 600;
@@ -517,37 +518,36 @@ function buildStock(
         }
       }
       z[j * dx + i] = min;
-      if (min < lowest) lowest = min;
     }
+  }
+  const bodies = below !== undefined && wood.some((w) => w > 0);
+  // With glued-in wood drawn as bodies of its own, the board is what lies under it.
+  const lifted = (k: number) => bodies && wood[k] > 0 && !Number.isNaN(floor[k]);
+  const board = (k: number) => (lifted(k) ? floor[k] : z[k]);
+  // Where the board is cut right through, nothing of it is drawn.
+  const hole = new Uint8Array(dx * dy);
+  for (let k = 0; k < dx * dy; k++) {
+    hole[k] = isHole(board(k), thickness) ? 1 : 0;
+    // The deepest floor that is drawn is the darkest.
+    if (!hole[k] && board(k) < lowest) lowest = board(k);
   }
   const xAt = (i: number) => Math.min(nx * cell, (i + 0.5) * step * cell);
   const yAt = (j: number) => Math.min(ny * cell, (j + 0.5) * step * cell);
 
-  const bodies = below !== undefined && wood.some((w) => w > 0);
   const positions = new Float32Array(dx * dy * 3);
   const colors = new Float32Array(dx * dy * 3);
   const colour = new THREE.Color();
   for (let j = 0; j < dy; j++) {
     for (let i = 0; i < dx; i++) {
       const k = j * dx + i;
-      // With glued-in wood drawn as bodies of its own, the board is what lies under it.
-      const lifted = bodies && wood[k] > 0 && !Number.isNaN(floor[k]);
-      const height = lifted ? floor[k] : z[k];
-      const of = lifted ? 0 : wood[k];
+      const height = board(k);
+      const of = lifted(k) ? 0 : wood[k];
       positions.set([xAt(i), yAt(j), height], k * 3);
-      colour.copy(woods[of]).lerp(deeps[of], lowest < 0 && height < 0 ? (height / lowest) * 0.85 : 0);
+      colour.copy(woods[of]).lerp(deeps[of], lowest < 0 && height < 0 ? Math.min(1, height / lowest) * 0.85 : 0);
       colors.set([colour.r, colour.g, colour.b], k * 3);
     }
   }
-  const index = new Uint32Array((dx - 1) * (dy - 1) * 6);
-  let n = 0;
-  for (let j = 0; j < dy - 1; j++) {
-    for (let i = 0; i < dx - 1; i++) {
-      const a = j * dx + i;
-      index.set([a, a + 1, a + dx, a + 1, a + dx + 1, a + dx], n);
-      n += 6;
-    }
-  }
+  const { index, rims } = openSurface(dx, dy, hole);
   const surface = new THREE.BufferGeometry();
   surface.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   surface.setAttribute("color", new THREE.BufferAttribute(colors, 3));
@@ -564,7 +564,8 @@ function buildStock(
   const sideIndex = new Uint32Array(edge.length * 6);
   edge.forEach((k, e) => {
     const [x, y, top] = [positions[k * 3], positions[k * 3 + 1], positions[k * 3 + 2]];
-    sidePositions.set([x, y, top, x, y, -thickness], e * 6);
+    // Where a hole reaches the edge, the side is cut away there too.
+    sidePositions.set([x, y, Math.max(top, -thickness), x, y, -thickness], e * 6);
     const next = (e + 1) % edge.length;
     sideIndex.set([e * 2, e * 2 + 1, next * 2, next * 2, e * 2 + 1, next * 2 + 1], e * 6);
   });
@@ -573,11 +574,24 @@ function buildStock(
   sides.setIndex(new THREE.BufferAttribute(sideIndex, 1));
   sides.computeVertexNormals();
 
+  // The walls of the holes: from the surface's edge round each down to the bottom of the board.
+  const wallPositions = new Float32Array(rims.length * 9);
+  for (let r = 0; r < rims.length; r += 2) {
+    const [p, q] = [rims[r] * 3, rims[r + 1] * 3];
+    const [px, py, pz, qx, qy, qz] = [positions[p], positions[p + 1], positions[p + 2], positions[q], positions[q + 1], positions[q + 2]];
+    wallPositions.set([px, py, pz, px, py, -thickness, qx, qy, qz, qx, qy, qz, px, py, -thickness, qx, qy, -thickness], r * 9);
+  }
+  const walls = new THREE.BufferGeometry();
+  walls.setAttribute("position", new THREE.BufferAttribute(wallPositions, 3));
+  walls.computeVertexNormals();
+
   // Pushed back a little in depth, so that the tool path lying on the cut surface shows through cleanly.
   const behind = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
   const group = new THREE.Group();
   group.add(new THREE.Mesh(surface, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, ...behind })));
-  group.add(new THREE.Mesh(sides, new THREE.MeshStandardMaterial({ color: side, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, ...behind })));
+  const sideMaterial = new THREE.MeshStandardMaterial({ color: side, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, ...behind });
+  group.add(new THREE.Mesh(sides, sideMaterial));
+  if (rims.length > 0) group.add(new THREE.Mesh(walls, sideMaterial));
   if (bodies) group.add(buildBodies({ dx, dy, z, wood, under, lowest, xAt, yAt, woods, deeps, behind }));
   return group;
 }

@@ -2156,7 +2156,7 @@ export const COMMANDS: Command[] = [
     name: "stock_render",
     title: "Picture of the cut wood",
     description:
-      "A picture from above of wood as the simulation leaves it, darker the deeper it is cut, each inlay's wood in its colour. Without input: the stock after the whole list (worked out first if need be). `at`: the stock after that many steps of the list (0 is the fresh stock). `stepId` with `part`: that part of a step as step_build last made it, on its own board. part is pocket (default; for a plain operation, its one cut) or plug (an inlay's plug or insert).",
+      "A picture from above of wood as the simulation leaves it, darker the deeper it is cut, each inlay's wood in its colour, and clear where it is cut right through (`cutThrough` says so; `deepest` leaves that out). Without input: the stock after the whole list (worked out first if need be). `at`: the stock after that many steps of the list (0 is the fresh stock). `stepId` with `part`: that part of a step as step_build last made it, on its own board. part is pocket (default; for a plain operation, its one cut) or plug (an inlay's plug or insert).",
     inputSchema: object({
       at: { type: "integer", minimum: 0 },
       stepId: { type: "string" },
@@ -2199,6 +2199,7 @@ export const COMMANDS: Command[] = [
           upToDate: state.output?.project === state.project,
           board: preview.built.stock,
           deepest: r3(-picture.lowest),
+          ...(picture.through ? { cutThrough: true } : {}),
           images: [
             {
               mimeType: "image/png",
@@ -2242,6 +2243,7 @@ export const COMMANDS: Command[] = [
         at,
         of: result.steps.length,
         deepest: r3(-picture.lowest),
+        ...(picture.through ? { cutThrough: true } : {}),
         standsAbove: r3(Math.max(0, picture.highest)),
         images: [
           {

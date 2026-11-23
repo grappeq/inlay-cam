@@ -4,6 +4,7 @@
 // the same whatever the page is showing, and in a tab that is hidden.
 
 import type { Project } from "../core/types";
+import { isHole } from "../components/holes";
 import { isInlay, regionOwners, stepColor, stockColor } from "../state/model";
 
 const round = (n: number) => n.toFixed(2);
@@ -107,8 +108,16 @@ export interface Relief {
   thickness: number;
 }
 
-/** A board seen from above as a PNG, base64: each cell in its wood's colour, darker the deeper it is cut, lit from the upper left. */
-export function reliefPng(relief: Relief, width: number): { data: string; width: number; height: number; lowest: number; highest: number } {
+/**
+ * A board seen from above as a PNG, base64: each cell in its wood's colour,
+ * darker the deeper it is cut, lit from the upper left; clear where it is
+ * cut right through. `lowest` is the deepest floor left, `through` whether
+ * any of it is cut right through.
+ */
+export function reliefPng(
+  relief: Relief,
+  width: number,
+): { data: string; width: number; height: number; lowest: number; highest: number; through: boolean } {
   const { nx, ny, cell, heights, owners, thickness } = relief;
   const colors = relief.colors.map(rgb);
   const small = document.createElement("canvas");
@@ -121,13 +130,7 @@ export function reliefPng(relief: Relief, width: number): { data: string; width:
     const h = heights[Math.max(0, Math.min(ny - 1, y)) * nx + Math.max(0, Math.min(nx - 1, x))];
     return Number.isFinite(h) ? h : 0;
   };
-  let lowest = 0;
-  let highest = 0;
-  for (const h of heights) {
-    if (!Number.isFinite(h)) continue;
-    lowest = Math.min(lowest, h);
-    highest = Math.max(highest, h);
-  }
+  const { lowest, highest, through } = reliefRange(heights, thickness);
   // The deepest cut is the darkest, however shallow it is on a thick board.
   const deepest = Math.max(-lowest, Math.min(thickness, 0.5), 1e-6);
   for (let y = 0; y < ny; y++) {
@@ -146,7 +149,7 @@ export function reliefPng(relief: Relief, width: number): { data: string; width:
       pixels.data[i] = Math.max(0, Math.min(255, r * shade));
       pixels.data[i + 1] = Math.max(0, Math.min(255, g * shade));
       pixels.data[i + 2] = Math.max(0, Math.min(255, b * shade));
-      pixels.data[i + 3] = 255;
+      pixels.data[i + 3] = isHole(h, thickness) ? 0 : 255;
     }
   }
   ctx.putImageData(pixels, 0, 0);
@@ -158,5 +161,22 @@ export function reliefPng(relief: Relief, width: number): { data: string; width:
   if (!out) throw new Error("This browser gave no canvas to draw on.");
   out.imageSmoothingEnabled = width < nx;
   out.drawImage(small, 0, 0, width, height);
-  return { data: large.toDataURL("image/png").split(",")[1], width, height, lowest, highest };
+  return { data: large.toDataURL("image/png").split(",")[1], width, height, lowest, highest, through };
+}
+
+/** The deepest floor and the highest top of a board's cells, leaving out where it is cut right through; and whether any is. */
+export function reliefRange(heights: Float32Array, thickness: number): { lowest: number; highest: number; through: boolean } {
+  let lowest = 0;
+  let highest = 0;
+  let through = false;
+  for (const h of heights) {
+    if (!Number.isFinite(h)) continue;
+    if (isHole(h, thickness)) {
+      through = true;
+      continue;
+    }
+    lowest = Math.min(lowest, h);
+    highest = Math.max(highest, h);
+  }
+  return { lowest, highest, through };
 }
