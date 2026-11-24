@@ -42,7 +42,7 @@ function project(d = design()): Project {
     tools: [],
     base: { thickness: 18, material: "hardwood" },
     machine: { name: "Carvera Air", minRpm: 5000, maxRpm: 13000, rapidRate: 2000, travel: [300, 200], firstTool: 1 },
-    setup: { safeHeight: 5, plungeClearance: 1, throughCut: 0.2, tabWidth: 4, tabSpacing: 40, tabThickness: 1, cutOutBorder: 5, rampAngle: 5, finishAllowance: 0.1 },
+    setup: { safeHeight: 5, plungeClearance: 1, throughCut: 0.2, tabWidth: 4, tabSpacing: 40, tabThickness: 1, cutOutBorder: 5, rampAngle: 5, finishAllowance: 0.1, insertFitExtra: 0.5 },
     steps: [
       { id: "a", name: "Recess", material: "hardwood", regionIds: [2], task: { type: "pocket" } as never },
       { id: "b", name: "Plate", material: "hardwood", regionIds: [0, 2], task: { type: "contour" } as never },

@@ -79,6 +79,24 @@ const FINISH = (
   </Frame>
 );
 
+/** In section through an inward corner of an insert in its pocket, face down: cut to the pocket's wall a little past its depth, and left round above that. */
+const SHARP = (
+  <Frame>
+    <path className="help-wood" d="M0 80H96V52H160V90H0Z" />
+    <path className="help-plug" d="M0 6H118V44H93V80H0Z" />
+    <path className="help-dim" d="M123 44H129M126 44V52" />
+    <text className="help-text" x="133" y="50">
+      extra
+    </text>
+    <text className="help-text" x="123" y="26">
+      round
+    </text>
+    <text className="help-text on-wood" x="100" y="70">
+      sharp
+    </text>
+  </Frame>
+);
+
 /** From above: the cut round a part, with bridges of wood left across it. */
 const TABS = (
   <Frame>
@@ -202,6 +220,11 @@ export const HELP = {
   finishAllowance: { title: "Left for a finishing pass", text: "Left on walls and edges while cutting down, and taken off in one light pass at the end. 0 for none.", picture: FINISH },
   throughCut: { title: "Cut past the bottom", text: "How far into the spoilboard the tool goes where a cut goes right through." },
   cutOutBorder: { title: "Board around a cut-out plug", text: "Left on every side, beyond the cut." },
+  insertFitExtra: {
+    title: "Sharp corners: extra depth",
+    text: "The long end mill that cuts these inserts out leaves their inward corners too round for the pocket. The short end mills sharpen them from the face down to the pocket's depth plus this much. Further up the corners stay round, above the surface.",
+    picture: SHARP,
+  },
   tabs: {
     title: "Tabs",
     text: "Bridges of wood that hold a part to its board until you cut it free. An outline gets one about every spacing, and at least three where it is long enough. A tab is never thicker than half the board.",

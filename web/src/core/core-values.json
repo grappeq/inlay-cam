@@ -23,6 +23,7 @@
     "defaults": {
       "cutOutBorder": 5.0,
       "finishAllowance": 0.1,
+      "insertFitExtra": 0.5,
       "plungeClearance": 1.0,
       "rampAngle": 5.0,
       "safeHeight": 5.0,
@@ -34,6 +35,7 @@
     "highest": {
       "cutOutBorder": 100.0,
       "finishAllowance": 1.0,
+      "insertFitExtra": 10.0,
       "plungeClearance": 50.0,
       "rampAngle": 45.0,
       "safeHeight": 50.0,
@@ -45,6 +47,7 @@
     "lowest": {
       "cutOutBorder": 0.0,
       "finishAllowance": 0.0,
+      "insertFitExtra": 0.0,
       "plungeClearance": 0.1,
       "rampAngle": 0.0,
       "safeHeight": 1.0,

@@ -44,6 +44,7 @@ import {
   toolChoices,
   usualCutOutTool,
   insertCutter,
+  fittedDepth,
   withSuppressed,
   withoutStep,
 } from "../state/model";
@@ -1345,6 +1346,10 @@ function StepEditor({ step }: { step: InlayStep }) {
   const vbit = inlay.type === "vcarve" ? resolveTool(inlay.vbitToolId, tools, project) : undefined;
   const halfAngle = (((vbit?.tipAngle ?? 60) / 2) * Math.PI) / 180;
   const shapes = `${step.regionIds.length} shape${step.regionIds.length === 1 ? "" : "s"}`;
+  // Loose inserts a longer end mill has to cut out are cut mirrored, with an end fitted to the pocket.
+  const insertTools = insertCutter(step, tools, project);
+  const mirroredInserts = insertTools?.mirrored === true;
+  const sharpTo = fittedDepth(step, tools, project);
   // A backer too thin for what hangs on it, said beside the numbers that make it so.
   const short = backerShort(inlay, setup);
   const board = inlay.type === "flat" ? inlay.insertThickness : inlay.plugThickness;
@@ -1479,7 +1484,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                 const smallest = chosen.reduce((a, b) => (b.diameter < a.diameter ? b : a));
                 // Loose inserts are cut out by a longer tool where the smallest does not reach through their board.
                 const loose = insertCutter(step, tools, project);
-                const longer = loose?.cutter && loose.cutter.id !== loose.smallest.id ? loose.cutter : undefined;
+                const longer = loose?.mirrored ? loose.cutter : undefined;
                 return (
                   <>
                     <p className="derived">
@@ -1488,7 +1493,7 @@ function StepEditor({ step }: { step: InlayStep }) {
                     </p>
                     {longer && (
                       <p className="derived">
-                        "{longer.name}" cuts the inserts out: "{smallest.name}" is too short for the {fmt(inlay.insertThickness)} mm board. Their inward corners are rounded to {fmt(longer.diameter / 2)} mm.
+                        "{longer.name}" cuts the inserts out: "{smallest.name}" is too short for the {fmt(inlay.insertThickness)} mm board.
                       </p>
                     )}
                     {loose && !loose.cutter && (
@@ -1527,7 +1532,9 @@ function StepEditor({ step }: { step: InlayStep }) {
                   </select>
                   <span className="hint">
                     {inlay.insertStyle === "loose"
-                      ? "Each shape becomes its own piece, the same way up as it goes in."
+                      ? mirroredInserts
+                        ? "Each shape becomes its own piece, cut mirrored: it goes in face down."
+                        : "Each shape becomes its own piece, the same way up as it goes in."
                       : "The shapes stay together on a backer, mirrored. Glue the plug in face down, then saw or plane the backer off."}
                   </span>
                 </label>
@@ -1589,7 +1596,12 @@ function StepEditor({ step }: { step: InlayStep }) {
             <HeightFields setup={setup} onChange={setSetup} />
             <EntryFields setup={setup} onChange={setSetup} finish={inlay.type === "flat"} />
             <TabFields setup={setup} onChange={setSetup} />
-            <CutOutFields setup={setup} onChange={setSetup} />
+            <CutOutFields setup={setup} onChange={setSetup} fitted={mirroredInserts} />
+            {sharpTo !== null && inlay.type === "flat" && (
+              <p className="derived">
+                The inserts' inward corners are sharp for {fmt(sharpTo)} mm from the face: the {fmt(inlay.pocketDepth)} mm pocket and {fmt(Math.round((sharpTo - inlay.pocketDepth) * 1000) / 1000)} mm more.
+              </p>
+            )}
             <button disabled={!ownSetup} onClick={() => update({ setup: defaults })}>
               Back to your defaults
             </button>

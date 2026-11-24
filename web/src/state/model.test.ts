@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, FlatInlay, Profile, Project, Step, Tool, VcarveInlay } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch, backerOf, backerShort, tabThicknessOn, insertCutter } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch, backerOf, backerShort, tabThicknessOn, insertCutter, fittedDepth } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -570,6 +570,29 @@ describe("the end mill that cuts loose inserts out", () => {
     expect(names(step({ insertThickness: 30 }))).toEqual(["small", undefined]);
     // A tool of unknown length is taken to reach, as the core takes it.
     expect(insertCutter(step({ insertThickness: 30 }, ["tall"]), [mill("tall", 3)], project)?.cutter?.id).toBe("tall");
+  });
+
+  it("makes the inserts mirrored only where it is wider than the smallest", () => {
+    expect(insertCutter(step({ insertThickness: 26 }), tools, project)?.mirrored).toBe(true);
+    expect(insertCutter(step({ insertThickness: 6 }), tools, project)?.mirrored).toBe(false);
+    expect(insertCutter(step({ insertThickness: 30 }), tools, project)?.mirrored).toBe(false);
+    // A short tool and a long one of the same width: the long one cuts alone, as in the core.
+    const twins = [mill("short", 3, 5), mill("long", 3, 28)];
+    const found = insertCutter(step({ insertThickness: 26 }, ["short", "long"]), twins, project);
+    expect([found?.cutter?.id, found?.mirrored]).toEqual(["long", false]);
+  });
+
+  it("says how deep the inserts' corners are cut to the pocket's, as the core does", () => {
+    const deep = (over: Partial<FlatInlay>, extra = 0.5) => fittedDepth({ ...step({ insertThickness: 26, pocketDepth: 6, tabs: false, ...over }), setup: { ...DEFAULT_SETUP, insertFitExtra: extra, tabThickness: 1 } }, tools, project);
+    expect(deep({})).toBe(6.5);
+    expect(deep({}, 0)).toBe(6);
+    // Held to the short tool's 12 mm of cutting edge, and with tabs to the board above them.
+    expect(deep({}, 10)).toBe(12);
+    expect(deep({ insertThickness: 12.5, tabs: true }, 10)).toBe(11.5);
+    // Never less than the pocket's depth.
+    expect(deep({ insertThickness: 12.5, pocketDepth: 12, tabs: true })).toBe(12);
+    // Not mirrored: nothing to say.
+    expect(deep({ insertThickness: 6 })).toBeNull();
   });
 
   it("is not asked of a plug on a backer, nor of an inlay with no end mill", () => {

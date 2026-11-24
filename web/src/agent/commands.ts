@@ -478,7 +478,7 @@ const SETTING_NOTES: Record<string, string> = {
   pocketDepth: "Depth of the pocket.",
   allowance: "Clearance between insert and pocket, per side.",
   insertStyle:
-    '"loose": pieces cut right through their board. "backer": one mirrored plug on a backer.',
+    '"loose": pieces cut right through their board; mirrored, to go in face down, where an end mill wider than the smallest has to cut them out. "backer": one mirrored plug on a backer.',
   insertThickness: "Thickness of the board the insert is cut from.",
   insertMargin: "Width of board left around the shapes on the insert's board.",
   depth:

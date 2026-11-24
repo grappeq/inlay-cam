@@ -572,8 +572,12 @@ one is not the usual:
 Upright walls cut with an end mill. Corners are rounded to the radius of the smallest end
 mill chosen; the outline that will really be cut is drawn dashed after generating. Loose
 inserts are cut out by the smallest end mill whose cutting edges reach through their
-board: where a longer, wider one has to do it, the inward corners of the inserts are
-rounded to its radius, and the pocket is cut to match.
+board. Where a longer, wider one has to do it, the inserts are cut mirrored and go in
+face down: the long end mill cuts round them a little deeper than the pocket, the shorter
+ones cut the corners there as they do in the pocket, and the long one comes back to go
+through the board. What it leaves in the inward corners further down stands above the
+surface. "Sharp corners: extra depth" in the clearances (0.5 mm) sets how much
+deeper than the pocket the shorter end mills go.
 
 - **Pocket depth** and **fit allowance**. The allowance is the gap all round: half comes
   off the insert and half is added to the pocket.
@@ -581,7 +585,7 @@ rounded to its radius, and the pocket is cut to match.
   above must be gone over the plug's blank, or over loose inserts.
 - The insert can be made two ways, under "Insert":
   - **Loose pieces**: each shape is cut right through its board as its own piece, the same
-    way up as it goes in. A board thicker than the pocket is deep leaves the insert proud,
+    way up as it goes in, or mirrored where a longer end mill has to cut it out (above). A board thicker than the pocket is deep leaves the insert proud,
     to sand flush.
   - **One plug**: the shapes stay together on a shared backer, mirrored. Glue it in face
     down, then saw or plane the backer off. This keeps many small shapes in their places.

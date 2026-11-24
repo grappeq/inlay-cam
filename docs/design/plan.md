@@ -366,8 +366,13 @@ Results (2026-11-15): built and checked in simulation; not cut on the machine.
   but flagged as hardly worth its tool change.
 - Flat inlays: the smallest end mill in the list, whatever its place, sets the corner
   radius and cuts the insert out on its own. Where its cutting edges are too short for
-  the insert board, the smallest that reaches cuts loose inserts out instead, and both
-  parts take their inward corners (as the insert has them) from that tool.
+  the insert board, the smallest that reaches cuts loose inserts out instead, in three
+  stages and mirrored, as the end cut first is the one that goes into the pocket: it cuts
+  round the inserts to the pocket's depth and `insertFitExtra`, short of the walls by the
+  finishing allowance; the smaller end mills clear what it left there, with its trench
+  given to `clear_after` as cut already, and the smallest finishes the walls; it is then
+  loaded again and goes through the board from that depth. Both parts keep the smallest
+  tool's corners. The timeline stands such inserts in their pockets as plain blocks.
 - The output lists each tool's number and its share of the time, and counts the tool
   changes.
 - In the app the list can be added to, reordered and trimmed; when a smaller tool comes

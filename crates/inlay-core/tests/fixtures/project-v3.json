@@ -92,6 +92,7 @@
     "setup": {
       "cutOutBorder": 5.0,
       "finishAllowance": 0.1,
+      "insertFitExtra": 0.5,
       "plungeClearance": 1.0,
       "rampAngle": 5.0,
       "safeHeight": 5.0,

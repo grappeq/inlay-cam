@@ -302,7 +302,7 @@ export interface FlatInlay {
   startDepth?: number;
   allowance: number;
   tabs: boolean;
-  /** End mills that cut the pocket, in the order they are used. The smallest that reaches through the insert board cuts loose inserts out. */
+  /** End mills that cut the pocket, in the order they are used. The smallest that reaches through the insert board cuts loose inserts out; the smaller ones then cut the end that goes into the pocket. */
   clearingToolIds: string[];
   /** Loose pieces cut right through the board, or one mirrored plug on a backer. */
   insertStyle: "loose" | "backer";
@@ -474,6 +474,8 @@ export interface Setup {
   rampAngle: number;
   /** Wood left on walls while clearing or cutting out, and taken off in one light pass at the end. 0 leaves none. */
   finishAllowance: number;
+  /** Loose inserts cut out by a longer end mill than the pocket's smallest: how much further than the pocket is deep the smaller ones cut the end that goes into it. */
+  insertFitExtra: number;
 }
 
 export interface Project {

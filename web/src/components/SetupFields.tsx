@@ -88,8 +88,8 @@ export function EntryFields({ setup, onChange, finish = true }: Props & { finish
   );
 }
 
-/** How a part is cut free of its board. */
-export function CutOutFields({ setup, onChange }: Props) {
+/** How a part is cut free of its board. `fitted` adds how deep the end of a loose insert that goes into the pocket is cut. */
+export function CutOutFields({ setup, onChange, fitted = false }: Props & { fitted?: boolean }) {
   return (
     <div className="row setup-row">
       <NumberField
@@ -110,6 +110,17 @@ export function CutOutFields({ setup, onChange }: Props) {
         onChange={(v) => v !== undefined && onChange({ cutOutBorder: v })}
         
       />
+      {fitted && (
+        <NumberField
+          label="Sharp corners: extra depth"
+          unit="mm"
+          min={SETUP_LIMITS.insertFitExtra[0]}
+          max={SETUP_LIMITS.insertFitExtra[1]}
+          value={setup.insertFitExtra}
+          onChange={(v) => v !== undefined && onChange({ insertFitExtra: v })}
+          help="insertFitExtra"
+        />
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ use serde::Serialize;
 use crate::analysis::PlugFrame;
 use crate::build::{self, Built, Part, Preview};
 use crate::gcode::Segment;
+use crate::geom::boolean::union;
 use crate::geom::{Point, Region};
 use crate::progress::{self, Stage};
 use crate::project::{InsertStyle, Project, Step, Task};
@@ -1236,29 +1237,39 @@ fn seat_plug(stock: &mut Workpiece, plug: &Preview, intended: f64) -> Result<Sea
 }
 
 /// Puts loose inserts into the stock where they were drawn, each the way up
-/// it was cut, resting on the highest wood under it.
+/// it was cut, or turned over where it was cut mirrored, resting on the
+/// highest wood under it. Each stands as a plain block of its outline.
 fn seat_inserts(
     stock: &mut Workpiece,
     inserts: &Built,
     intended: f64,
 ) -> Result<Seat, Vec<String>> {
     let off = || vec!["The inserts do not lie over the stock at all.".to_string()];
-    let [ox, oy] = inserts.origin.ok_or_else(|| {
-        vec!["Internal error: the inserts have no position on the stock.".to_string()]
-    })?;
+    // Cut the way up they go in, or mirrored and turned over.
+    let on_stock: Box<dyn Fn(&Point) -> Point> = match (inserts.origin, inserts.frame) {
+        (Some([ox, oy]), _) => Box::new(move |p| [p[0] + ox, p[1] + oy]),
+        (None, Some(PlugFrame { mirror_x, offset_y })) => {
+            Box::new(move |p| [mirror_x - p[0], p[1] + offset_y])
+        }
+        (None, None) => {
+            return Err(vec![
+                "Internal error: the inserts have no position on the stock.".to_string(),
+            ])
+        }
+    };
     let thickness = inserts.stock.thickness;
-    let on_stock = |p: &Point| [p[0] + ox, p[1] + oy];
+    // Turning a piece over turns its rings round: the union turns them back.
     let pieces: Vec<Region> = inserts
         .pocket
         .iter()
-        .map(|r| {
-            Region::with_holes(
-                r.outer.iter().map(on_stock).collect(),
+        .flat_map(|r| {
+            union(&[Region::with_holes(
+                r.outer.iter().map(&on_stock).collect(),
                 r.holes
                     .iter()
-                    .map(|ring| ring.iter().map(on_stock).collect())
+                    .map(|ring| ring.iter().map(&on_stock).collect())
                     .collect(),
-            )
+            )])
         })
         .collect();
     let mut all = [
@@ -1316,7 +1327,7 @@ fn num(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::build::tests::{backer_project, project, vcarve_project};
+    use crate::build::tests::{backer_project, project, short_and_long, vcarve_project};
     use crate::project::{PassDirection, Pattern};
     use crate::tools::Material;
 
@@ -1577,6 +1588,29 @@ mod tests {
         let (z, owner) = at(&t, 2, 43.5, 30.0);
         assert!((z - 2.0).abs() < 1e-3 && owner == 1, "{z} {owner}");
         // Between the two shapes, and outside them, nothing was put down.
+        assert_eq!(at(&t, 2, 37.5, 30.0), (0.0, 0));
+        assert_eq!(at(&t, 2, 52.0, 30.0), (0.0, 0));
+    }
+
+    #[test]
+    fn inserts_cut_mirrored_by_a_longer_end_mill_stand_where_they_were_drawn() {
+        let mut p = short_and_long();
+        p.steps.push(glue_up());
+        let t = timeline(&p).unwrap();
+        assert!(t.steps[1].errors.is_empty(), "{:?}", t.steps[1].errors);
+        let seat = t.steps[1].seat.unwrap();
+        assert!(
+            seat.proud.abs() < 1e-3 && (seat.above - 2.0).abs() < 1e-3,
+            "{seat:?}"
+        );
+        // The rectangle and the L's upright, on the side they were drawn.
+        for (x, y) in [(20.0, 15.0), (43.5, 30.0)] {
+            let (z, owner) = at(&t, 2, x, y);
+            assert!(
+                (z - 2.0).abs() < 1e-3 && owner == 1,
+                "({x}, {y}): {z} {owner}"
+            );
+        }
         assert_eq!(at(&t, 2, 37.5, 30.0), (0.0, 0));
         assert_eq!(at(&t, 2, 52.0, 30.0), (0.0, 0));
     }

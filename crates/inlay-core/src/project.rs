@@ -234,6 +234,10 @@ pub struct Setup {
     /// Wood left on walls by the passes that clear or cut out, and taken off
     /// in one light pass at the end. 0 leaves none.
     pub finish_allowance: f64,
+    /// Loose inserts cut out by an end mill wider than the pocket's smallest:
+    /// how much further than the pocket is deep the smaller end mills cut the
+    /// end that goes into it.
+    pub insert_fit_extra: f64,
 }
 
 impl Default for Setup {
@@ -248,6 +252,7 @@ impl Default for Setup {
             cut_out_border: 5.0,
             ramp_angle: 5.0,
             finish_allowance: 0.1,
+            insert_fit_extra: 0.5,
         }
     }
 }
@@ -265,6 +270,7 @@ impl Setup {
         cut_out_border: 0.0,
         ramp_angle: 0.0,
         finish_allowance: 0.0,
+        insert_fit_extra: 0.0,
     };
     pub const HIGHEST: Setup = Setup {
         safe_height: 50.0,
@@ -276,6 +282,7 @@ impl Setup {
         cut_out_border: 100.0,
         ramp_angle: 45.0,
         finish_allowance: 1.0,
+        insert_fit_extra: 10.0,
     };
 
     /// The clearances and tabs a step's files are cut with.
@@ -334,6 +341,16 @@ impl Setup {
             high.finish_allowance,
         ) {
             return Err("the finishing allowance must be from 0 to 1 mm".into());
+        }
+        if !within(
+            self.insert_fit_extra,
+            low.insert_fit_extra,
+            high.insert_fit_extra,
+        ) {
+            return Err(
+                "the depth an insert's fitted end is cut past the pocket's must be from 0 to 10 mm"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -674,7 +691,8 @@ pub enum Task {
         /// Flat end mills that cut the pocket, in the order they are used.
         /// Each cuts only what those before it left. The smallest sets the
         /// corner radius, and the smallest whose cutting edges reach through
-        /// the insert board cuts loose inserts out. Files written when an
+        /// the insert board cuts loose inserts out, with the smaller ones
+        /// cutting the end that goes into the pocket. Files written when an
         /// inlay had one tool give it as `toolId`.
         #[serde(default, alias = "toolId", deserialize_with = "one_or_many_tool_ids")]
         clearing_tool_ids: Vec<String>,
@@ -974,7 +992,8 @@ pub enum Side {
 #[serde(rename_all = "snake_case")]
 pub enum InsertStyle {
     /// Each shape is cut right out of the insert board as a loose piece,
-    /// the same way up as it goes in.
+    /// the same way up as it goes in; or mirrored, to go in face down,
+    /// where an end mill wider than the smallest has to cut it out.
     #[default]
     Loose,
     /// The shapes are left standing on a shared backer, mirrored, like a

@@ -699,10 +699,12 @@ export function usualCutOutTool(step: Step, tools: Tool[], project: Project): To
  * Which end mills shape a flat inlay's corners, as the core picks them: the
  * smallest of all sets the pocket's, and the smallest whose cutting edges
  * reach through the insert board cuts loose inserts out. `cutter` is
- * undefined when none reaches. Null for anything else, a plug on a backer
- * included, and for an inlay with no end mill.
+ * undefined when none reaches. `mirrored` where it is wider than the
+ * smallest: the inserts are then cut face down, with the narrower end mills
+ * cutting the end that goes into the pocket. Null for anything else, a plug
+ * on a backer included, and for an inlay with no end mill.
  */
-export function insertCutter(step: Step, tools: Tool[], project: Project): { smallest: Tool; cutter: Tool | undefined } | null {
+export function insertCutter(step: Step, tools: Tool[], project: Project): { smallest: Tool; cutter: Tool | undefined; mirrored: boolean } | null {
   const inlay = step.task;
   if (inlay.type !== "flat" || inlay.insertStyle !== "loose") return null;
   const mills = inlay.clearingToolIds
@@ -711,7 +713,29 @@ export function insertCutter(step: Step, tools: Tool[], project: Project): { sma
     .sort((a, b) => a.diameter - b.diameter);
   if (mills.length === 0) return null;
   const depth = cutOutDepth(step, project);
-  return { smallest: mills[0], cutter: mills.find((t) => t.fluteLength === undefined || t.fluteLength >= depth) };
+  const cutter = mills.find((t) => t.fluteLength === undefined || t.fluteLength >= depth);
+  return { smallest: mills[0], cutter, mirrored: cutter !== undefined && cutter.diameter > mills[0].diameter + 1e-9 };
+}
+
+/**
+ * How deep from their face mirrored inserts are cut to the pocket's corners,
+ * as the core works it out: the pocket's depth and the setup's extra, held to
+ * what the narrower end mills reach and, with tabs, to the board above them,
+ * and never less than the pocket's depth. Null where the inserts are not
+ * mirrored.
+ */
+export function fittedDepth(step: Step, tools: Tool[], project: Project): number | null {
+  const found = insertCutter(step, tools, project);
+  const inlay = step.task;
+  if (!found?.mirrored || !found.cutter || inlay.type !== "flat") return null;
+  const setup = stepSetup(step, project);
+  const wide = found.cutter.diameter;
+  const reach = inlay.clearingToolIds
+    .map((id) => resolveTool(id, tools, project))
+    .filter((t): t is Tool => t !== undefined && t.kind === "flat_end" && t.diameter < wide - 1e-9)
+    .reduce((least, t) => Math.min(least, t.fluteLength ?? Infinity), inlay.insertThickness);
+  const room = inlay.tabs ? inlay.insertThickness - tabThicknessOn(setup, inlay.insertThickness) : inlay.insertThickness;
+  return Math.max(Math.min(inlay.pocketDepth + setup.insertFitExtra, reach, room), inlay.pocketDepth);
 }
 
 /** The tool a step refers to: the current one from the tool list, else the copy kept in the project. */

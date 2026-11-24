@@ -276,6 +276,7 @@ const SETUP_ROWS: { title: string; rows: { key: keyof Setup; label: string; unit
     rows: [
       { key: "throughCut", label: "Cut past the bottom", unit: "mm", what: HELP.throughCut.text },
       { key: "cutOutBorder", label: "Board around a cut-out plug", unit: "mm", what: HELP.cutOutBorder.text },
+      { key: "insertFitExtra", label: "Sharp corners: extra depth", unit: "mm", what: HELP.insertFitExtra.text },
     ],
   },
 ];
