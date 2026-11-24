@@ -23,6 +23,7 @@ use crate::geom::offset::offset;
 use crate::geom::simplify::simplify;
 use crate::geom::{distance, Point, Region};
 use crate::ops::clear::{nearest_vertex, stays_inside};
+use crate::ops::pass_count;
 use crate::toolpath::PathBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -362,7 +363,7 @@ pub fn plug_relief(
 }
 
 fn carve(path: &mut PathBuilder, step: &Carving, p: &VcarveParams, report: &mut VcarveReport) {
-    let passes = (step.floor / p.stepdown).ceil().max(1.0) as usize;
+    let passes = pass_count(step.floor, p.stepdown);
     for pass in 1..=passes {
         let z = step.floor * pass as f64 / passes as f64;
         let above = step.floor * (pass - 1) as f64 / passes as f64;
@@ -672,6 +673,36 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// 2.1 / 0.7 is a hair over 3: still three passes.
+    #[test]
+    fn a_depth_that_is_a_whole_number_of_stepdowns_takes_that_many_passes() {
+        let p = VcarveParams {
+            depth: 2.1,
+            stepdown: 0.7,
+            ..params()
+        };
+        let region = Region::new(rect(0.0, 0.0, 30.0, 20.0));
+        let (moves, _) = run(std::slice::from_ref(&region), &[], &p);
+        // The floor rings are cut at full depth, each pass's rings at its own.
+        let mut levels: Vec<f64> = Vec::new();
+        for w in feeds(&moves).windows(2) {
+            if (w[0][2] - w[1][2]).abs() < 1e-9 && w[0][2] < -1e-9 {
+                let d = -w[0][2];
+                if !levels.iter().any(|l| (l - d).abs() < 1e-9) {
+                    levels.push(d);
+                }
+            }
+        }
+        levels.sort_by(f64::total_cmp);
+        for e in [0.7, 1.4, 2.1] {
+            assert!(levels.iter().any(|l| (l - e).abs() < 1e-9), "levels {levels:?}");
+        }
+        assert!(
+            !levels.iter().any(|l| [0.525, 1.05, 1.575].iter().any(|e| (l - e).abs() < 1e-9)),
+            "four passes: {levels:?}"
+        );
     }
 
     /// The rule everything else rests on: at every cut point the bit is no

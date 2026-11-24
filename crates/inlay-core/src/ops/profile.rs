@@ -9,6 +9,7 @@
 use crate::geom::offset::offset;
 use crate::geom::{distance, Point, Region, Ring};
 use crate::ops::clear::{nearest_vertex, ramp_in, ring_run};
+use crate::ops::pass_count;
 use crate::toolpath::PathBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,7 +124,7 @@ pub fn follow(
             return;
         }
         let length = stations.last().map_or(0.0, |s| s.1);
-        let passes = ((to - from) / p.stepdown).ceil().max(1.0) as usize;
+        let passes = pass_count(to - from, p.stepdown);
         for pass in 1..=passes {
             let z = from + (to - from) * pass as f64 / passes as f64;
             let above = from + (to - from) * (pass - 1) as f64 / passes as f64;
@@ -419,6 +420,43 @@ mod tests {
             assert!((d - e).abs() < 1e-9);
         }
         assert_eq!(report.tabs, [0]);
+    }
+
+    /// The lens frame that showed it: 0.8 mm brass, a contour started 0.6
+    /// deep, tabs topped at 0.7, through 0.2 below. The 0.3 below the tabs
+    /// is three passes of 0.1, though 1.0 - 0.7 is a hair over 0.3.
+    #[test]
+    fn a_depth_that_is_a_whole_number_of_stepdowns_takes_that_many_passes() {
+        let p = ProfileParams {
+            tool_diameter: 2.0,
+            depth: 1.0,
+            start: 0.6,
+            stepdown: 0.1,
+            tabs: Some(Tabs {
+                height: 0.3,
+                width: 1.0,
+                spacing: 32.0,
+            }),
+            ramp: 0.05,
+            finish: 0.1,
+            ..params(false)
+        };
+        let (moves, _) = run(&[Region::new(rect(0.0, 0.0, 50.0, 60.0))], &p);
+        let mut depths: Vec<f64> = feeds(&moves).iter().map(|q| -q[2]).collect();
+        depths.sort_by(f64::total_cmp);
+        depths.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        // Levels held round the ring, ramps aside: where most moves are.
+        let level = |d: f64| {
+            feeds(&moves)
+                .windows(2)
+                .filter(|w| (w[0][2] + d).abs() < 1e-9 && (w[1][2] + d).abs() < 1e-9)
+                .count()
+        };
+        let held: Vec<f64> = depths.into_iter().filter(|d| level(*d) > 3).collect();
+        assert_eq!(held.len(), 4, "levels {held:?}");
+        for (d, e) in held.iter().zip([0.7, 0.8, 0.9, 1.0]) {
+            assert!((d - e).abs() < 1e-9, "levels {held:?}");
+        }
     }
 
     #[test]

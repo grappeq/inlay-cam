@@ -11,6 +11,7 @@
 use crate::geom::boolean::{difference, intersection};
 use crate::geom::offset::{offset, open};
 use crate::geom::{distance, Point, Region, Ring};
+use crate::ops::pass_count;
 use crate::project::PassDirection;
 use crate::toolpath::PathBuilder;
 
@@ -230,7 +231,7 @@ pub(crate) fn ring_run(ring: &Ring, start: usize, length: f64) -> Vec<Point> {
 /// `tracks` down to `p.depth`, in steps no deeper than the tool is wide. For
 /// taking off the little that roughing left on the walls.
 pub fn finish_walls(path: &mut PathBuilder, tracks: &[Region], p: &ClearParams) {
-    let passes = (p.cut() / p.tool_diameter).ceil().max(1.0) as usize;
+    let passes = pass_count(p.cut(), p.tool_diameter);
     for ring in tracks.iter().flat_map(|r| r.rings()) {
         for pass in 1..=passes {
             let z = p.level(pass, passes);
@@ -273,7 +274,7 @@ fn clear_one(path: &mut PathBuilder, allowed: &Region, p: &ClearParams) {
     let rings = rings_in_order(allowed, p);
     let allowed = vec![allowed.clone()];
 
-    let passes = (p.cut() / p.stepdown).ceil().max(1.0) as usize;
+    let passes = pass_count(p.cut(), p.stepdown);
     for pass in 1..=passes {
         let z = p.level(pass, passes);
         let floor_above = p.level(pass - 1, passes);
@@ -549,7 +550,7 @@ fn raster_one(
 
     // Links between passes run along the edge of the area, which counts as inside.
     let inside = offset(std::slice::from_ref(allowed), 0.01);
-    let passes = (p.cut() / p.stepdown).ceil().max(1.0) as usize;
+    let passes = pass_count(p.cut(), p.stepdown);
     for pass in 1..=passes {
         let z = p.level(pass, passes);
         let floor_above = p.level(pass - 1, passes);
@@ -693,6 +694,66 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// Distinct depths the tool cuts at.
+    fn depths(moves: &[Move]) -> Vec<f64> {
+        let mut d: Vec<f64> = feeds(moves).iter().map(|q| -q[2]).collect();
+        d.sort_by(f64::total_cmp);
+        d.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        d
+    }
+
+    /// Wall finishing steps down a tool's width at a time: 2.1 under a
+    /// 0.7 mm tool is three steps, though 2.1 / 0.7 is a hair over 3.
+    #[test]
+    fn finishing_walls_a_whole_number_of_tool_widths_deep_takes_that_many_passes() {
+        let p = ClearParams {
+            tool_diameter: 0.7,
+            depth: 2.1,
+            ..params()
+        };
+        let mut path = PathBuilder::new(5.0);
+        path.start_tool(7, 12000);
+        finish_walls(&mut path, &[Region::new(rect(0.0, 0.0, 30.0, 20.0))], &p);
+        let got = depths(&path.finish());
+        assert_eq!(got.len(), 3, "{got:?}");
+        for (d, e) in got.iter().zip([0.7, 1.4, 2.1]) {
+            assert!((d - e).abs() < 1e-9, "{got:?}");
+        }
+    }
+
+    /// 0.9 / 0.3 is a hair over 3, and 1.0 - 0.7 a hair over 0.3: neither
+    /// is a fourth pass.
+    #[test]
+    fn a_depth_that_is_a_whole_number_of_stepdowns_takes_that_many_passes() {
+        let region = Region::new(rect(0.0, 0.0, 30.0, 20.0));
+        for (start, depth, stepdown, levels) in [
+            (0.0, 0.9, 0.3, [0.3, 0.6, 0.9]),
+            (0.7, 1.0, 0.1, [0.8, 0.9, 1.0]),
+        ] {
+            let p = ClearParams {
+                start,
+                depth,
+                stepdown,
+                ..params()
+            };
+            for raster in [false, true] {
+                let centres = centres(std::slice::from_ref(&region), &[], p.tool_diameter);
+                let mut path = PathBuilder::new(5.0);
+                path.start_tool(7, 12000);
+                if raster {
+                    raster_centres(&mut path, &centres, &p, true, PassDirection::Longer);
+                } else {
+                    clear_centres(&mut path, &centres, &p);
+                }
+                let got = depths(&path.finish());
+                assert_eq!(got.len(), 3, "raster {raster}: {got:?}");
+                for (d, e) in got.iter().zip(levels) {
+                    assert!((d - e).abs() < 1e-9, "raster {raster}: {got:?}");
+                }
+            }
+        }
     }
 
     #[test]
