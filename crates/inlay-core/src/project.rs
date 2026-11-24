@@ -673,8 +673,9 @@ pub enum Task {
         cut_out: bool,
         /// Flat end mills that cut the pocket, in the order they are used.
         /// Each cuts only what those before it left. The smallest sets the
-        /// corner radius and cuts the insert out. Files written when an inlay
-        /// had one tool give it as `toolId`.
+        /// corner radius, and the smallest whose cutting edges reach through
+        /// the insert board cuts loose inserts out. Files written when an
+        /// inlay had one tool give it as `toolId`.
         #[serde(default, alias = "toolId", deserialize_with = "one_or_many_tool_ids")]
         clearing_tool_ids: Vec<String>,
         /// Thickness of the board the insert is cut from, mm. The insert is

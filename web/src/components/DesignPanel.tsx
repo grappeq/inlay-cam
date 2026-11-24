@@ -43,6 +43,7 @@ import {
   stockColor,
   toolChoices,
   usualCutOutTool,
+  insertCutter,
   withSuppressed,
   withoutStep,
 } from "../state/model";
@@ -1476,11 +1477,26 @@ function StepEditor({ step }: { step: InlayStep }) {
                 const chosen = inlay.clearingToolIds.map((id) => resolveTool(id, tools, project)).filter((t): t is Tool => t !== undefined);
                 if (chosen.length === 0) return null;
                 const smallest = chosen.reduce((a, b) => (b.diameter < a.diameter ? b : a));
+                // Loose inserts are cut out by a longer tool where the smallest does not reach through their board.
+                const loose = insertCutter(step, tools, project);
+                const longer = loose?.cutter && loose.cutter.id !== loose.smallest.id ? loose.cutter : undefined;
                 return (
-                  <p className="derived">
-                    Corners are rounded to {fmt(smallest.diameter / 2)} mm, the radius of{" "}
-                    {chosen.length > 1 ? `the smallest tool, "${smallest.name}", which also cuts the insert out` : "this tool"}.
-                  </p>
+                  <>
+                    <p className="derived">
+                      Corners are rounded to {fmt(smallest.diameter / 2)} mm, the radius of{" "}
+                      {chosen.length > 1 ? `the smallest tool, "${smallest.name}"${loose && (longer || !loose.cutter) ? "" : ", which also cuts the insert out"}` : "this tool"}.
+                    </p>
+                    {longer && (
+                      <p className="derived">
+                        "{longer.name}" cuts the inserts out: "{smallest.name}" is too short for the {fmt(inlay.insertThickness)} mm board. Their inward corners are rounded to {fmt(longer.diameter / 2)} mm.
+                      </p>
+                    )}
+                    {loose && !loose.cutter && (
+                      <p className="hint warn">
+                        {chosen.length > 1 ? "None of these end mills reaches" : "This end mill does not reach"} through the {fmt(inlay.insertThickness)} mm insert board: {fmt(cutOutDepth(step, project))} mm of cutting edge are needed. Add a longer one.
+                      </p>
+                    )}
+                  </>
                 );
               })()}
             </>

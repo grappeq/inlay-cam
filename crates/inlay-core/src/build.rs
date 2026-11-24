@@ -1285,7 +1285,7 @@ fn cut_out_diameter(ctx: &Context, thickness: f64, tool_ids: &[String]) -> Optio
 }
 
 /// The id of the smallest end mill among `ids`, which is the one that sets
-/// the corner radius of a flat inlay and cuts its insert out. When none of
+/// the corner radius of a flat inlay's pocket. When none of
 /// the ids is an end mill of the project, the first id, so that looking it
 /// up says what is wrong.
 fn smallest_end_mill<'a>(project: &Project, ids: &'a [String]) -> Option<&'a str> {
@@ -1300,6 +1300,35 @@ fn smallest_end_mill<'a>(project: &Project, ids: &'a [String]) -> Option<&'a str
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, _)| id.as_str())
         .or(ids.first().map(String::as_str))
+}
+
+/// The flat end mills of the project among `ids`.
+fn flat_end_mills<'a>(project: &'a Project, ids: &[String]) -> Vec<&'a Tool> {
+    ids.iter()
+        .filter_map(|id| {
+            project
+                .tools
+                .iter()
+                .find(|t| &t.id == id && t.kind == ToolKind::FlatEnd)
+        })
+        .collect()
+}
+
+/// The end mill that cuts the loose inserts of a flat inlay out of a board
+/// `thickness` thick: the smallest of the inlay's whose cutting edges reach
+/// through it, so that a short tool does not stop a long one from doing the
+/// work. A tool of unknown length is taken to reach. `None` when none does.
+fn insert_cutter<'a>(
+    project: &'a Project,
+    step: &Step,
+    ids: &[String],
+    thickness: f64,
+) -> Option<&'a Tool> {
+    let depth = thickness + Setup::of(project, step).through_cut;
+    flat_end_mills(project, ids)
+        .into_iter()
+        .filter(|t| t.flute_length.is_none_or(|flutes| flutes >= depth))
+        .min_by(|a, b| a.diameter.total_cmp(&b.diameter))
 }
 
 fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64, ramp: f64) -> ClearParams {
@@ -1317,9 +1346,10 @@ fn clear_params(tool: &Tool, cutting: &CuttingSettings, depth: f64, ramp: f64) -
 
 /// The shapes of a flat inlay as an end mill can cut them.
 struct FlatShapes {
-    /// The drawing with every corner the tool cannot cut rounded to its
-    /// radius: inward corners for the pocket's sake, outward ones for the
-    /// insert's. Both parts are cut to this, less the allowance.
+    /// The drawing with every corner the tools cannot cut rounded: outward
+    /// corners to the radius of the pocket's smallest tool, inward ones to
+    /// that of the tool that cuts the insert. Both parts are cut to this,
+    /// less the allowance.
     cuttable: Vec<Region>,
     /// The pocket: the cuttable shape grown by half the allowance.
     pocket: Vec<Region>,
@@ -1328,19 +1358,24 @@ struct FlatShapes {
     insert: Vec<Region>,
 }
 
-fn flat_shapes(regions: &[Region], radius: f64, allowance: f64) -> FlatShapes {
+fn flat_shapes(
+    regions: &[Region],
+    radius: f64,
+    insert_radius: f64,
+    allowance: f64,
+) -> FlatShapes {
     // One shape at a time: closing them together would join shapes that are
     // closer than the tool is wide, which is a matter for laying the inserts
     // out, not a reason to change the design.
     let cuttable: Vec<Region> = regions
         .iter()
-        .flat_map(|r| open(&close(std::slice::from_ref(r), radius), radius))
+        .flat_map(|r| open(&close(std::slice::from_ref(r), insert_radius), radius))
         .collect();
     let pocket = open(&offset(&cuttable, allowance / 2.0), radius);
     // Cutting round the outside leaves inward corners rounded once more.
     let insert: Vec<Region> = offset(&cuttable, -allowance / 2.0)
         .iter()
-        .flat_map(|r| close(std::slice::from_ref(r), radius))
+        .flat_map(|r| close(std::slice::from_ref(r), insert_radius))
         .collect();
     FlatShapes {
         cuttable,
@@ -1356,6 +1391,7 @@ fn flat_fit(
     regions: &[Region],
     shapes: &FlatShapes,
     tool: &Tool,
+    cutter: &Tool,
     proud: f64,
 ) -> FlatFit {
     let area_outside = |of: &[Region], clip: &[Region]| -> f64 {
@@ -1438,11 +1474,24 @@ fn flat_fit(
     let as_drawn = removed_area + added_area <= AS_DRAWN_SHARE * wanted;
     let interferes = interference_area > INTERFERENCE_AREA;
     if !as_drawn {
+        let rounds = if cutter.id == tool.id {
+            format!(
+                "\"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm",
+                tool.name,
+                num(tool.diameter / 2.0),
+                num(tool.diameter)
+            )
+        } else {
+            format!(
+                "\"{}\" rounds the pocket's corners to {} mm and \"{}\", which cuts the inserts out, rounds theirs to {} mm",
+                tool.name,
+                num(tool.diameter / 2.0),
+                cutter.name,
+                num(cutter.diameter / 2.0)
+            )
+        };
         ctx.warnings.push(format!(
-            "The parts cannot follow the drawing exactly: \"{}\" rounds every corner to its {} mm radius and cannot enter anything narrower than {} mm, which leaves out {} mm² and adds {} mm². What is cut is dashed on the drawing.",
-            tool.name,
-            num(tool.diameter / 2.0),
-            num(tool.diameter),
+            "The parts cannot follow the drawing exactly: {rounds}, which leaves out {} mm² and adds {} mm². What is cut is dashed on the drawing.",
             num((removed_area * 10.0).round() / 10.0),
             num((added_area * 10.0).round() / 10.0)
         ));
@@ -1491,7 +1540,23 @@ fn flat_pocket(
         .iter()
         .map(|(tool, _)| *tool)
         .min_by(|a, b| a.diameter.total_cmp(&b.diameter))?;
-    let shapes = flat_shapes(regions, smallest.diameter / 2.0, allowance);
+    // Loose inserts are cut out by a longer tool where the smallest does not
+    // reach through their board: the pocket is cut to what that tool leaves.
+    // Where none reaches, the insert's own file says so.
+    let cutter = match &ctx.step.task {
+        Task::Flat {
+            insert_style: InsertStyle::Loose,
+            insert_thickness,
+            ..
+        } => insert_cutter(ctx.project, ctx.step, tool_ids, *insert_thickness).unwrap_or(smallest),
+        _ => smallest,
+    };
+    let shapes = flat_shapes(
+        regions,
+        smallest.diameter / 2.0,
+        cutter.diameter / 2.0,
+        allowance,
+    );
     if shapes.pocket.is_empty() || shapes.insert.is_empty() {
         ctx.errors.push(format!(
             "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
@@ -1512,7 +1577,7 @@ fn flat_pocket(
         "the pocket",
         false,
     );
-    let fit = flat_fit(ctx, regions, &shapes, smallest, proud);
+    let fit = flat_fit(ctx, regions, &shapes, smallest, cutter, proud);
     Some(Cut {
         tools,
         moves: path.finish(),
@@ -1541,10 +1606,39 @@ fn flat_insert(
     insert: FlatInsert,
     tool_ids: &[String],
 ) -> Option<Cut> {
-    // The smallest end mill of the list cuts the insert out: the pocket's
-    // corners are as sharp as that tool makes them.
-    let tool_id = smallest_end_mill(ctx.project, tool_ids);
+    // The smallest end mill of the list that reaches through the board cuts
+    // the insert out. The pocket's corners are as sharp as the smallest of
+    // all makes them.
+    let project = ctx.project;
+    let known = flat_end_mills(project, tool_ids);
+    let cutter = insert_cutter(project, ctx.step, tool_ids, insert.thickness);
+    let smallest = known
+        .iter()
+        .copied()
+        .min_by(|a, b| a.diameter.total_cmp(&b.diameter));
+    if let (Some(smallest), None) = (smallest, cutter) {
+        ctx.errors.push(if known.len() == 1 {
+            format!(
+                "The cutting edges of \"{}\" are {} mm long, too short to cut the inserts out of a {} mm board: {} mm are needed. Add a longer end mill to the inlay.",
+                smallest.name,
+                smallest.flute_length.map_or_else(String::new, num),
+                num(insert.thickness),
+                num(ctx.depth)
+            )
+        } else {
+            format!(
+                "None of the inlay's end mills has cutting edges long enough to cut the inserts out of a {} mm board: {} mm are needed. Add a longer one to the inlay.",
+                num(insert.thickness),
+                num(ctx.depth)
+            )
+        });
+        return None;
+    }
+    let tool_id = cutter
+        .map(|t| t.id.as_str())
+        .or_else(|| smallest_end_mill(project, tool_ids));
     let (tool, cutting) = ctx.tool(tool_id, ToolKind::FlatEnd, "an end mill")?;
+    let smallest = smallest.unwrap_or(tool);
     if insert.thickness < insert.pocket_depth {
         ctx.errors.push(format!(
             "The insert board is {} mm thick but the pocket is {} mm deep, so the insert would sit below the surface.",
@@ -1564,14 +1658,28 @@ fn flat_insert(
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let shapes = flat_shapes(regions, tool.diameter / 2.0, insert.allowance);
+    let shapes = flat_shapes(
+        regions,
+        smallest.diameter / 2.0,
+        tool.diameter / 2.0,
+        insert.allowance,
+    );
     if shapes.insert.is_empty() || shapes.pocket.is_empty() {
         ctx.errors.push(format!(
             "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
-            tool.name,
-            num(tool.diameter)
+            smallest.name,
+            num(smallest.diameter)
         ));
         return None;
+    }
+    if tool.id != smallest.id {
+        ctx.warnings.push(format!(
+            "\"{}\" cuts the inserts out: the cutting edges of \"{}\" are too short for the {} mm board. Inward corners of the inserts are rounded to its {} mm radius, and the pocket is cut to match.",
+            tool.name,
+            smallest.name,
+            num(insert.thickness),
+            num(tool.diameter / 2.0)
+        ));
     }
 
     // The board is the inserts' bounding box plus the margin, with its
@@ -1636,6 +1744,7 @@ fn flat_insert(
         ctx,
         regions,
         &shapes,
+        smallest,
         tool,
         insert.thickness - insert.pocket_depth,
     );
@@ -1720,7 +1829,8 @@ fn flat_backer(
     if !ctx.errors.is_empty() || regions.is_empty() {
         return None;
     }
-    let shapes = flat_shapes(regions, smallest.diameter / 2.0, insert.allowance);
+    let radius = smallest.diameter / 2.0;
+    let shapes = flat_shapes(regions, radius, radius, insert.allowance);
     if shapes.insert.is_empty() || shapes.pocket.is_empty() {
         ctx.errors.push(format!(
             "\"{}\" ({} mm) is too wide to fit inside any of the selected shapes.",
@@ -1816,7 +1926,7 @@ fn flat_backer(
         return None;
     }
 
-    let fit = flat_fit(ctx, regions, &shapes, smallest, insert.saw_gap);
+    let fit = flat_fit(ctx, regions, &shapes, smallest, smallest, insert.saw_gap);
     ctx.warnings.push(format!(
         "The plug is mirrored: glue it in face down, then saw or plane off the backer, {} mm above the surface.",
         num(insert.saw_gap)
@@ -4896,6 +5006,84 @@ pub(crate) mod tests {
             assert_eq!(insert.stats.tools, ["Ø3.175×22 1F Downcut"]);
             assert_eq!(insert.gcode, alone.gcode);
         }
+    }
+
+    #[test]
+    fn a_longer_end_mill_cuts_the_inserts_out_where_the_smallest_is_too_short() {
+        // The insert board is 4 mm and the cut goes 4.2 mm deep: the small
+        // tool's 3 mm of cutting edge do for the 2 mm pocket and no more.
+        let short = |p: &mut Project| p.tools[0].flute_length = Some(3.0);
+        let mut big = big_end_mill();
+        // The shapes are 5 mm apart.
+        big.diameter = 4.5;
+        let mut p = project();
+        p.tools.push(big.clone());
+        set_clearing(&mut p, &["t-big", "t-endmill"]);
+        let usual = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(usual.stats.tools, ["Ø3.175×22 1F Downcut"]);
+
+        short(&mut p);
+        let insert = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(insert.problems, []);
+        let insert = insert.built;
+        assert_eq!(insert.stats.tools, ["Big 6 mm"]);
+        assert!(
+            insert.warnings.iter().any(|w| w
+                .contains("\"Big 6 mm\" cuts the inserts out")
+                && w.contains("rounded to its 2.25 mm radius")),
+            "{:?}",
+            insert.warnings
+        );
+        // The pocket is cut to the same shape, by both tools as before, and
+        // the insert still goes in with its allowance all round.
+        let pocket = build_pocket(&p, "j").unwrap();
+        assert_eq!(pocket.stats.tools, ["Big 6 mm", "Ø3.175×22 1F Downcut"]);
+        assert_eq!(pocket.cuttable, insert.cuttable);
+        assert_eq!(pocket.flat_fit, insert.flat_fit);
+        let fit = insert.flat_fit.unwrap();
+        assert!(fit.interference_area < 1e-6, "{fit:?}");
+        assert!((fit.gap_min - 0.1).abs() < 0.02, "gap min {}", fit.gap_min);
+        // The L's inward corner is rounded further than the small tool would.
+        let was = usual.flat_fit.unwrap();
+        assert!(fit.added_area > was.added_area + 0.3, "{fit:?} {was:?}");
+        assert!((fit.removed_area - was.removed_area).abs() < 1e-6);
+
+        // Cutting edges just as long as the cut is deep reach.
+        p.tools[0].flute_length = Some(4.2);
+        let exact = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(exact.stats.tools, ["Ø3.175×22 1F Downcut"]);
+
+        // A tool of unknown length is taken to reach, with the usual warning.
+        p.tools[0].flute_length = None;
+        let unknown = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(unknown.stats.tools, ["Ø3.175×22 1F Downcut"]);
+        assert!(unknown.warnings.iter().any(|w| w.contains("is unknown")));
+
+        // No tool that reaches: the insert says so, and the pocket is made.
+        let reasons = |p: &Project| build(p, "j", Part::Plug).unwrap_err().join(" | ");
+        short(&mut p);
+        p.tools[2].flute_length = Some(4.0);
+        assert!(
+            reasons(&p).contains("None of the inlay's end mills has cutting edges long enough to cut the inserts out of a 4 mm board: 4.2 mm are needed"),
+            "{}",
+            reasons(&p)
+        );
+        assert!(build_pocket(&p, "j").is_ok());
+        set_clearing(&mut p, &["t-endmill"]);
+        assert!(
+            reasons(&p).contains("The cutting edges of \"Ø3.175×22 1F Downcut\" are 3 mm long, too short to cut the inserts out of a 4 mm board: 4.2 mm are needed"),
+            "{}",
+            reasons(&p)
+        );
+
+        // A plug on a backer is not cut through: the smallest cuts it still.
+        let mut p = backer_project();
+        p.tools.push(big);
+        set_clearing(&mut p, &["t-big", "t-endmill"]);
+        let was = build(&p, "j", Part::Plug).unwrap();
+        p.tools[0].flute_length = Some(4.0);
+        let now = build(&p, "j", Part::Plug).unwrap();
+        assert_eq!(was.cuttable, now.cuttable);
     }
 
     #[test]

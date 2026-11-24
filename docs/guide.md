@@ -570,7 +570,10 @@ one is not the usual:
 ### Flat inlay
 
 Upright walls cut with an end mill. Corners are rounded to the radius of the smallest end
-mill chosen; the outline that will really be cut is drawn dashed after generating.
+mill chosen; the outline that will really be cut is drawn dashed after generating. Loose
+inserts are cut out by the smallest end mill whose cutting edges reach through their
+board: where a longer, wider one has to do it, the inward corners of the inserts are
+rounded to its radius, and the pocket is cut to match.
 
 - **Pocket depth** and **fit allowance**. The allowance is the gap all round: half comes
   off the insert and half is added to the pocket.

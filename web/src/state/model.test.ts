@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design, FlatInlay, Profile, Project, Step, Tool, VcarveInlay } from "../core/types";
-import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch, backerOf, backerShort, tabThicknessOn } from "./model";
+import { copyName, duplicateProject, duplicateStep, newProject, DEFAULT_SETUP, STARTER_NOTE, addDrawing, addStarter, fileNumbers, flushTrim, aboveOrBelow, sawRoom, glueOf, glueStep, inlayMargin, insertAfter, sawOf, sawStep, isByHand, isInlay, isSuppressed, withSuppressed, stepToolIds, missingFor, newStep, normaliseDesign, regionOwners, relinkTools, renumberTool, forgetTool, toolNumbers, toolSnapshots, standingPart, trimFacing, trimOf, withoutStep, withoutOrphans, changedCount, defaultProfile, missingSettings, stepMaterial, stepMaterials, withDefaultProfile, radiusMismatch, backerOf, backerShort, tabThicknessOn, insertCutter } from "./model";
 
 const square = (id: number, x: number, y: number, size: number) => ({
   id,
@@ -543,5 +543,38 @@ describe("a plug's backer", () => {
     const short = backerShort(thin, setup)!;
     expect(short).toEqual({ backer: 0.4, tabs: 0.95, sawGap: null, board: 2.5 });
     expect(backerShort({ ...thin, insertThickness: short.board }, setup)).toBeNull();
+  });
+});
+
+describe("the end mill that cuts loose inserts out", () => {
+  const mill = (id: string, diameter: number, fluteLength?: number): Tool => ({ id, name: id, kind: "flat_end", diameter, shankDiameter: diameter, ...(fluteLength !== undefined ? { fluteLength } : {}), cutting: [] }) as Tool;
+  const tools = [mill("small", 2, 12), mill("big", 6, 28), mill("mid", 4, 28)];
+  const step = (over: Partial<FlatInlay>, ids = ["big", "small"]): Step => {
+    const made = newStep("flat", [0], [], DEFAULT_SETUP);
+    return { ...made, task: { ...(made.task as FlatInlay), insertStyle: "loose", clearingToolIds: ids, ...over } };
+  };
+  const project = newProject("p");
+  const names = (s: Step) => {
+    const found = insertCutter(s, tools, project);
+    return found && [found.smallest.id, found.cutter?.id];
+  };
+
+  it("is the smallest where that reaches through the board, the core's through cut included", () => {
+    const through = project.setup.throughCut;
+    expect(names(step({ insertThickness: 12 - through }))).toEqual(["small", "small"]);
+    expect(names(step({ insertThickness: 12 }))).toEqual(["small", "big"]);
+  });
+
+  it("is the smallest of those that reach, and none where none does", () => {
+    expect(names(step({ insertThickness: 26 }, ["big", "small", "mid"]))).toEqual(["small", "mid"]);
+    expect(names(step({ insertThickness: 30 }))).toEqual(["small", undefined]);
+    // A tool of unknown length is taken to reach, as the core takes it.
+    expect(insertCutter(step({ insertThickness: 30 }, ["tall"]), [mill("tall", 3)], project)?.cutter?.id).toBe("tall");
+  });
+
+  it("is not asked of a plug on a backer, nor of an inlay with no end mill", () => {
+    expect(names(step({ insertThickness: 26, insertStyle: "backer" }))).toBeNull();
+    expect(names(step({ insertThickness: 26 }, []))).toBeNull();
+    expect(names(step({ insertThickness: 26 }, ["gone"]))).toBeNull();
   });
 });

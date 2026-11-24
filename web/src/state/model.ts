@@ -695,6 +695,25 @@ export function usualCutOutTool(step: Step, tools: Tool[], project: Project): To
     .find((t) => t.fluteLength === undefined || t.fluteLength >= depth);
 }
 
+/**
+ * Which end mills shape a flat inlay's corners, as the core picks them: the
+ * smallest of all sets the pocket's, and the smallest whose cutting edges
+ * reach through the insert board cuts loose inserts out. `cutter` is
+ * undefined when none reaches. Null for anything else, a plug on a backer
+ * included, and for an inlay with no end mill.
+ */
+export function insertCutter(step: Step, tools: Tool[], project: Project): { smallest: Tool; cutter: Tool | undefined } | null {
+  const inlay = step.task;
+  if (inlay.type !== "flat" || inlay.insertStyle !== "loose") return null;
+  const mills = inlay.clearingToolIds
+    .map((id) => resolveTool(id, tools, project))
+    .filter((t): t is Tool => t !== undefined && t.kind === "flat_end")
+    .sort((a, b) => a.diameter - b.diameter);
+  if (mills.length === 0) return null;
+  const depth = cutOutDepth(step, project);
+  return { smallest: mills[0], cutter: mills.find((t) => t.fluteLength === undefined || t.fluteLength >= depth) };
+}
+
 /** The tool a step refers to: the current one from the tool list, else the copy kept in the project. */
 export function resolveTool(id: string | null, tools: Tool[], project: Project): Tool | undefined {
   if (id === null) return undefined;

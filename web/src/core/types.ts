@@ -302,7 +302,7 @@ export interface FlatInlay {
   startDepth?: number;
   allowance: number;
   tabs: boolean;
-  /** End mills that cut the pocket, in the order they are used. The smallest cuts the insert out. */
+  /** End mills that cut the pocket, in the order they are used. The smallest that reaches through the insert board cuts loose inserts out. */
   clearingToolIds: string[];
   /** Loose pieces cut right through the board, or one mirrored plug on a backer. */
   insertStyle: "loose" | "backer";

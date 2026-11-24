@@ -365,7 +365,9 @@ Results (2026-11-15): built and checked in simulation; not cut on the machine.
   says why. With a V-bit to follow, a tool that removes under 1% of the floor is used
   but flagged as hardly worth its tool change.
 - Flat inlays: the smallest end mill in the list, whatever its place, sets the corner
-  radius and cuts the insert out on its own.
+  radius and cuts the insert out on its own. Where its cutting edges are too short for
+  the insert board, the smallest that reaches cuts loose inserts out instead, and both
+  parts take their inward corners (as the insert has them) from that tool.
 - The output lists each tool's number and its share of the time, and counts the tool
   changes.
 - In the app the list can be added to, reordered and trimmed; when a smaller tool comes
