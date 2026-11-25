@@ -696,7 +696,16 @@ good first cut. All of it is in the core.
   way of the test inlay's plug, the face unchanged. 202 core tests, 35 UI tests. A full
   bed takes 2 to 13 s per file, as before. Looked at in the browser: a V-carve inlay
   generated, simulated without problems and fitted.
-- Known limits: ramps along curves are straight cuts, not helical arcs; the finishing
+- Ramps were first written as they were worked out, a straight cut per point of the
+  outline, which round a corner is dozens of cuts a tenth or two of a millimetre long: the
+  machine cannot plan those at an even speed, and stutters. Since then a part that is cut
+  out, and the pass along a pocket's walls, are entered where the outline runs straight
+  for the length of the ramp (`ops::clear::ramp_start`), or at the end of its longest
+  straight stretch, so that the ramp is one cut; and `fit_arcs` takes a run that goes down
+  evenly round a curve as a helical arc, `G2`/`G3` with a `Z`, which the firmware
+  interpolates (`Robot::append_arc`, the height spread evenly over the arc's pieces). The
+  rings that clear a pocket are still entered at their nearest point.
+- Known limits: the finishing
   pass goes round every wall, also walls an earlier tool never touched; relief treats a
   corner edge as it does a ridge, which lowers it somewhat more than needed; nothing here
   has been cut in wood.

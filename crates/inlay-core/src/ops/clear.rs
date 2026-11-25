@@ -13,7 +13,7 @@ use crate::geom::offset::{offset, open};
 use crate::geom::{distance, Point, Region, Ring};
 use crate::ops::pass_count;
 use crate::project::PassDirection;
-use crate::toolpath::PathBuilder;
+use crate::toolpath::{PathBuilder, THIN_TOLERANCE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClearParams {
@@ -236,16 +236,13 @@ pub fn finish_walls(path: &mut PathBuilder, tracks: &[Region], p: &ClearParams) 
         for pass in 1..=passes {
             let z = p.level(pass, passes);
             let above = p.level(pass - 1, passes);
-            let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
-            let run = ring_run(
-                ring,
-                start,
-                if p.ramp > 0.0 {
-                    (above - z) / p.ramp
-                } else {
-                    0.0
-                },
-            );
+            let needed = if p.ramp > 0.0 {
+                (above - z) / p.ramp
+            } else {
+                0.0
+            };
+            let start = ramp_start(ring, path.position().map(|q| [q[0], q[1]]), needed);
+            let run = ring_run(ring, start, needed);
             ramp_in(
                 path,
                 &run,
@@ -641,6 +638,68 @@ pub(crate) fn nearest_vertex(ring: &Ring, from: Option<Point>) -> usize {
         }
     }
     best
+}
+
+/// A ramp shorter than this along a straight stretch is not worth going
+/// further for: the ring is then entered at its nearest point, mm.
+const MIN_STRAIGHT_RAMP: f64 = 1.0;
+
+/// Where to start round a ring that is entered down a ramp `needed` mm long:
+/// the point nearest `from` with that much straight path leading up to it, so
+/// that the ramp is one straight cut instead of a run of short ones round a
+/// curve, which a machine cannot take at an even speed. Where no stretch is
+/// that long, the end of the longest; on a ring with none to speak of, or
+/// with no ramp, the point nearest `from`.
+pub(crate) fn ramp_start(ring: &Ring, from: Option<Point>, needed: f64) -> usize {
+    let n = ring.len();
+    if needed <= 0.0 || n < 3 {
+        return nearest_vertex(ring, from);
+    }
+    // How far back from each point the path runs straight, as far as matters.
+    let straight = |i: usize| -> f64 {
+        let end = ring[i];
+        let first = ring[(i + n - 1) % n];
+        let along = [end[0] - first[0], end[1] - first[1]];
+        let unit = distance(end, first);
+        if unit < 1e-9 {
+            return 0.0;
+        }
+        let mut reached = 0.0;
+        let mut at = end;
+        for k in 1..n {
+            let q = ring[(i + n - k) % n];
+            // Off the line through the first piece by more than is left
+            // out of a cut when it is written, or turning back.
+            let v = [q[0] - end[0], q[1] - end[1]];
+            let off = (along[0] * v[1] - along[1] * v[0]).abs() / unit;
+            let back = -(along[0] * v[0] + along[1] * v[1]) / unit;
+            if off > THIN_TOLERANCE || back < reached - 1e-9 {
+                break;
+            }
+            reached += distance(at, q);
+            at = q;
+            if reached >= needed {
+                break;
+            }
+        }
+        reached
+    };
+    let lengths: Vec<f64> = (0..n).map(straight).collect();
+    let near = |i: usize| from.map_or(i as f64, |from| distance(ring[i], from));
+    let enough = (0..n)
+        .filter(|i| lengths[*i] >= needed - 1e-9)
+        .min_by(|a, b| near(*a).total_cmp(&near(*b)));
+    if let Some(i) = enough {
+        return i;
+    }
+    let longest = (0..n)
+        .max_by(|a, b| lengths[*a].total_cmp(&lengths[*b]).then(near(*b).total_cmp(&near(*a))))
+        .unwrap_or(0);
+    if lengths[longest] >= MIN_STRAIGHT_RAMP {
+        longest
+    } else {
+        nearest_vertex(ring, from)
+    }
 }
 
 /// True when the straight line from `a` to `b` keeps the tool centre inside
@@ -1442,5 +1501,70 @@ mod tests {
                 "tool cut through the neck at {p:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_ramp_starts_where_the_ring_runs_straight() {
+        // A 30 x 20 rectangle with corners rounded to 3 mm, counter-clockwise
+        // from the bottom side: each corner is 12 short pieces.
+        let mut ring: Ring = Vec::new();
+        for (cx, cy, a0) in [
+            (27.0, 3.0, -90.0_f64),
+            (27.0, 17.0, 0.0),
+            (3.0, 17.0, 90.0),
+            (3.0, 3.0, 180.0),
+        ] {
+            ring.extend((0..=12).map(|i| {
+                let a = (a0 + 90.0 * i as f64 / 12.0).to_radians();
+                [cx + 3.0 * a.cos(), cy + 3.0 * a.sin()]
+            }));
+        }
+        let straight_before = |i: usize| {
+            let (a, b) = (ring[(i + ring.len() - 1) % ring.len()], ring[i]);
+            distance(a, b)
+        };
+        // Nearest the top right corner's middle, a ramp of 10 mm fits the
+        // right side (14 mm), which ends where the corner begins.
+        let from = Some([29.1, 19.1]);
+        let start = ramp_start(&ring, from, 10.0);
+        assert_eq!(ring[start], [30.0, 17.0]);
+        assert!((straight_before(start) - 14.0).abs() < 1e-9);
+        // The run that leads up to it is that side and nothing else.
+        let run = ring_run(&ring, start, 10.0);
+        assert_eq!(run, vec![[30.0, 3.0], [30.0, 17.0]]);
+        // 20 mm fits only the long sides (24 mm): the nearer one's end.
+        let start = ramp_start(&ring, from, 20.0);
+        assert_eq!(ring[start], [27.0, 0.0]);
+        let start = ramp_start(&ring, Some([2.0, 21.0]), 20.0);
+        assert_eq!(ring[start], [3.0, 20.0]);
+        // Longer than any side: the end of a longest one.
+        let start = ramp_start(&ring, from, 50.0);
+        assert!((straight_before(start) - 24.0).abs() < 1e-9);
+        // No ramp, and a ring with no straight stretch: the nearest point.
+        assert_eq!(ramp_start(&ring, from, 0.0), nearest_vertex(&ring, from));
+        let round: Ring = (0..90)
+            .map(|i| {
+                let a = (i as f64 * 4.0).to_radians();
+                [10.0 * a.cos(), 10.0 * a.sin()]
+            })
+            .collect();
+        let from = Some([0.0, 11.0]);
+        assert_eq!(ramp_start(&round, from, 8.0), nearest_vertex(&round, from));
+        // Wobble of a thousandth along a side, as outlines have it, does
+        // not make it less of a straight stretch.
+        let mut wobbly = ring.clone();
+        wobbly.insert(13, [30.0005, 10.0]);
+        let start = ramp_start(&wobbly, Some([29.1, 19.1]), 10.0);
+        assert_eq!(wobbly[start], [30.0, 17.0]);
+        // A straight stretch made of several pieces in a line counts whole.
+        let pieces: Ring = vec![
+            [0.0, 0.0],
+            [4.0, 0.0],
+            [8.0, 0.0],
+            [12.0, 0.0],
+            [12.0, 3.0],
+            [0.0, 3.0],
+        ];
+        assert_eq!(pieces[ramp_start(&pieces, Some([12.0, -1.0]), 10.0)], [12.0, 0.0]);
     }
 }

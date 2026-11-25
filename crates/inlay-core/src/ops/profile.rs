@@ -8,7 +8,7 @@
 
 use crate::geom::offset::offset;
 use crate::geom::{distance, Point, Region, Ring};
-use crate::ops::clear::{nearest_vertex, ramp_in, ring_run};
+use crate::ops::clear::{nearest_vertex, ramp_in, ramp_start, ring_run};
 use crate::ops::pass_count;
 use crate::toolpath::PathBuilder;
 
@@ -111,6 +111,15 @@ pub fn follow(
 ) -> ProfileReport {
     let mut report = ProfileReport::default();
     let tab_top = p.tabs.map_or(p.depth, |t| p.depth - t.height);
+    // How long a ramp a pass from `from` down to `to` takes: each ring is
+    // entered where that much of it runs straight, if it has such a place.
+    let ramp_of = |from: f64, to: f64| -> f64 {
+        if p.ramp > 0.0 && to - from > 1e-9 {
+            (to - from) / pass_count(to - from, p.stepdown) as f64 / p.ramp
+        } else {
+            0.0
+        }
+    };
 
     // Round a ring from depth `from` to depth `to`, a stepdown at a time.
     let descend = |path: &mut PathBuilder,
@@ -151,7 +160,11 @@ pub fn follow(
             Some(further) if tab_top > p.start + 1e-9 => {
                 for track in further {
                     for (ring, _) in rings_of(track) {
-                        let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+                        let start = ramp_start(
+                            ring,
+                            path.position().map(|q| [q[0], q[1]]),
+                            ramp_of(p.start, tab_top),
+                        );
                         descend(
                             path,
                             ring,
@@ -169,7 +182,14 @@ pub fn follow(
         };
         for track in part {
             for (ring, outline) in rings_of(track) {
-                let start = nearest_vertex(ring, path.position().map(|q| [q[0], q[1]]));
+                // The pass that takes the wall goes down its whole height
+                // at once: the longest way down of all.
+                let longest = if roughed > p.start + 1e-9 && p.ramp > 0.0 {
+                    ((roughed - p.start) / p.ramp).max(ramp_of(roughed, p.depth))
+                } else {
+                    ramp_of(roughed, p.depth)
+                };
+                let start = ramp_start(ring, path.position().map(|q| [q[0], q[1]]), longest);
                 let stations = stations(ring, start);
                 let length = stations.last().map_or(0.0, |s| s.1);
                 let tabs = match p.tabs {

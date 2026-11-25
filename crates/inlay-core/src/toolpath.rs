@@ -183,9 +183,11 @@ pub const ARC_FIT_TOLERANCE: f64 = 0.008;
 /// several arcs, so that none comes near a full circle.
 const MAX_SWEEP: f64 = 4.0;
 
-/// Replaces runs of short straight cuts that lie on a circle by arcs. Only
-/// level cuts at one feed are looked at; everything else is passed through.
-/// A curve then takes a line or two of G-code instead of dozens.
+/// Replaces runs of short straight cuts that lie on a circle by arcs, at one
+/// feed and either level or going down or up evenly along the curve, which
+/// makes a helical arc: a ramp round a corner. Everything else is passed
+/// through. A curve then takes a line or two of G-code instead of dozens, and
+/// the machine runs it at an even speed.
 pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
     let mut out: Vec<Move> = Vec::with_capacity(moves.len());
     let mut at: Option<P3> = None;
@@ -201,31 +203,33 @@ pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
             i += 1;
             continue;
         };
-        // The run of level cuts at this feed that starts here.
-        let level = |q: &P3| (q[2] - from[2]).abs() < 1e-9;
-        let mut points: Vec<[f64; 2]> = vec![[from[0], from[1]]];
+        // The run of cuts at this feed that starts here.
+        let mut points: Vec<P3> = vec![from];
         let mut j = i;
         while let Some(Move::Feed { to: next, feed: f }) = moves.get(j) {
-            if f != feed || !level(next) {
+            if f != feed {
                 break;
             }
-            points.push([next[0], next[1]]);
+            points.push(*next);
             j += 1;
         }
         if j == i {
-            // A cut that changes height: as it is.
+            // A feed that equals nothing, itself included: as it is.
             at = Some(*to);
             out.push(moves[i].clone());
             i += 1;
             continue;
         }
+        let flat: Vec<[f64; 2]> = points.iter().map(|q| [q[0], q[1]]).collect();
         let mut s = 0;
         while s + 1 < points.len() {
             // The longest stretch from here that is one arc, of three pieces or more.
             let mut best: Option<(usize, [f64; 2], bool)> = None;
             let mut e = s + 3;
             while e < points.len() {
-                match arc_through(&points[s..=e], tolerance) {
+                match arc_through(&flat[s..=e], tolerance)
+                    .filter(|_| even_slope(&points[s..=e], SLOPE_TOLERANCE))
+                {
                     Some((center, clockwise)) => best = Some((e, center, clockwise)),
                     None => break,
                 }
@@ -234,7 +238,7 @@ pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
             match best {
                 Some((e, center, clockwise)) => {
                     out.push(Move::Arc {
-                        to: [points[e][0], points[e][1], from[2]],
+                        to: points[e],
                         center,
                         clockwise,
                         feed: *feed,
@@ -243,21 +247,45 @@ pub fn fit_arcs(moves: &[Move], tolerance: f64) -> Vec<Move> {
                 }
                 None => {
                     out.push(Move::Feed {
-                        to: [points[s + 1][0], points[s + 1][1], from[2]],
+                        to: points[s + 1],
                         feed: *feed,
                     });
                     s += 1;
                 }
             }
         }
-        at = Some([
-            points[points.len() - 1][0],
-            points[points.len() - 1][1],
-            from[2],
-        ]);
+        at = points.last().copied();
         i = j;
     }
     out
+}
+
+/// How far the height of a point may be from an even slope for the cuts
+/// through it to be one helical arc, mm. Ramps are worked out exactly even,
+/// so this only has to be more than the rounding of numbers: a level cut
+/// next to a ramp is never drawn into it.
+const SLOPE_TOLERANCE: f64 = 1e-6;
+
+/// Whether the height along `points` changes evenly with the distance gone
+/// in the plane, to within `tolerance`: level, or one slope from end to end.
+fn even_slope(points: &[P3], tolerance: f64) -> bool {
+    let (first, last) = (points[0], points[points.len() - 1]);
+    let rise = last[2] - first[2];
+    if rise.abs() < 1e-9 {
+        return points.iter().all(|q| (q[2] - first[2]).abs() < 1e-9);
+    }
+    let total: f64 = points
+        .windows(2)
+        .map(|w| ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt())
+        .sum();
+    if total < 1e-9 {
+        return false;
+    }
+    let mut gone = 0.0;
+    points.windows(2).all(|w| {
+        gone += ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt();
+        (w[1][2] - (first[2] + rise * gone / total)).abs() <= tolerance
+    })
 }
 
 /// How far a cut may be moved sideways by leaving out points along it, mm.
@@ -465,8 +493,8 @@ mod tests {
     }
 
     #[test]
-    fn straight_runs_ramps_and_other_moves_pass_through() {
-        // A zigzag, a cut that changes height along a curve, and a tool change in between.
+    fn straight_runs_uneven_ramps_and_other_moves_pass_through() {
+        // A zigzag, a cut that goes down a curve faster and faster, and a tool change in between.
         let mut moves = feeds(&[
             [0.0, 0.0, -1.0],
             [10.0, 0.0, -1.0],
@@ -479,11 +507,71 @@ mod tests {
         let spiral: Vec<[f64; 3]> = on_circle(0.0, 90.0, 30, 0.0)
             .iter()
             .enumerate()
-            .map(|(i, q)| [q[0], q[1], -(i as f64) * 0.01])
+            .map(|(i, q)| [q[0], q[1], -(i as f64).powi(2) * 0.01])
             .collect();
         moves.push(Move::RapidXy { to: [15.0, 5.0] });
         moves.extend(feeds(&spiral));
         assert_eq!(fit_arcs(&moves, ARC_FIT_TOLERANCE), moves);
+    }
+
+    #[test]
+    fn a_ramp_round_a_curve_becomes_a_helical_arc() {
+        // A quarter circle going down evenly, then on level, then a plunge.
+        let mut points: Vec<[f64; 3]> = on_circle(0.0, 90.0, 30, 0.0)
+            .iter()
+            .enumerate()
+            .map(|(i, q)| [q[0], q[1], -1.0 - (i as f64) * 0.01])
+            .collect();
+        let foot = points[30];
+        points.extend(on_circle(90.0, 180.0, 30, foot[2]).into_iter().skip(1));
+        let end = points[60];
+        points.push([end[0], end[1], end[2] - 0.5]);
+        let fitted = fit_arcs(&feeds(&points), ARC_FIT_TOLERANCE);
+        // The rapid, the ramp, the level quarter and the plunge.
+        assert_eq!(fitted.len(), 4, "{fitted:?}");
+        let Move::Arc { to, center, clockwise, .. } = &fitted[1] else {
+            panic!("not an arc: {:?}", fitted[1]);
+        };
+        assert_eq!(*to, foot);
+        assert!((center[0] - 5.0).abs() < 1e-6 && (center[1] - 5.0).abs() < 1e-6 && !clockwise);
+        assert!(matches!(&fitted[2], Move::Arc { to, .. } if *to == end));
+        assert!(matches!(&fitted[3], Move::Feed { to, .. } if to[2] == end[2] - 0.5));
+
+        // A ramp so gentle that it is within a hair of level still ends where
+        // the level cut begins: the level arc is as it would be alone.
+        let mut gentle: Vec<[f64; 3]> = on_circle(0.0, 20.0, 10, 0.0)
+            .iter()
+            .enumerate()
+            .map(|(i, q)| [q[0], q[1], -1.0 - (i as f64) * 0.0002])
+            .collect();
+        let knee = gentle[10];
+        gentle.extend(on_circle(20.0, 90.0, 30, knee[2]).into_iter().skip(1));
+        let fitted = fit_arcs(&feeds(&gentle), ARC_FIT_TOLERANCE);
+        assert_eq!(fitted.len(), 3, "{fitted:?}");
+        assert!(matches!(&fitted[1], Move::Arc { to, .. } if *to == knee));
+        let alone = fit_arcs(&feeds(&gentle[10..]), ARC_FIT_TOLERANCE);
+        assert_eq!(fitted[2], alone[1]);
+
+        // Back and forth along the same curve, as a ramp too short for its
+        // drop goes: an arc each way, turning where the cut did.
+        let there: Vec<[f64; 3]> = on_circle(0.0, 40.0, 20, 0.0)
+            .iter()
+            .enumerate()
+            .map(|(i, q)| [q[0], q[1], -(i as f64) * 0.01])
+            .collect();
+        let mut zigzag = there.clone();
+        zigzag.extend(
+            there
+                .iter()
+                .rev()
+                .skip(1)
+                .enumerate()
+                .map(|(i, q)| [q[0], q[1], -0.2 - (i as f64 + 1.0) * 0.01]),
+        );
+        let fitted = fit_arcs(&feeds(&zigzag), ARC_FIT_TOLERANCE);
+        assert_eq!(fitted.len(), 3, "{fitted:?}");
+        assert!(matches!(&fitted[1], Move::Arc { to, clockwise: false, .. } if *to == there[20]));
+        assert!(matches!(&fitted[2], Move::Arc { to, clockwise: true, .. } if (to[2] + 0.4).abs() < 1e-9));
     }
 
     #[test]

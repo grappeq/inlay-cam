@@ -5,7 +5,9 @@
 //! post-processors. Each is enforced here and checked again by [`lint`]:
 //!
 //! - Millimetres only: `G20` halts the machine.
-//! - Arcs as `G2`/`G3` with `I`/`J` in the XY plane; `R` arcs are not read.
+//! - Arcs as `G2`/`G3` with `I`/`J` in the XY plane; `R` arcs are not read. An
+//!   arc may carry a `Z`: the firmware spreads the change of height evenly
+//!   along it, which is how a ramp round a curve is written.
 //! - No `G43`: tool length is measured automatically after `M6`.
 //! - `M6` and `T` on the same line; the spindle is off after a tool change.
 //! - Uppercase, words separated by spaces (`Y0X50` is misread as hex).

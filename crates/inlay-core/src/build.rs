@@ -5456,6 +5456,76 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn ramps_are_straight_cuts_or_arcs_and_not_runs_of_short_ones() {
+        // Cuts that go down while they travel, by their length in the plane.
+        let ramps = |gcode: &str| -> (usize, usize) {
+            let (mut at, mut all, mut short) = ([0.0_f64; 2], 0, 0);
+            for line in gcode.lines() {
+                let word = |c: char| {
+                    line.split(' ')
+                        .find_map(|w| w.strip_prefix(c))
+                        .and_then(|v| v.parse::<f64>().ok())
+                };
+                let to = [word('X').unwrap_or(at[0]), word('Y').unwrap_or(at[1])];
+                let moved = distance(at, to);
+                if line.starts_with("G1 ") && word('Z').is_some() && moved > 0.0 {
+                    all += 1;
+                    if moved < 0.5 {
+                        short += 1;
+                    }
+                }
+                if line.starts_with('G') {
+                    at = to;
+                }
+            }
+            (all, short)
+        };
+        // One tool round a rectangle and an L, seven passes each, with a
+        // pass along the walls: every way down is on a straight side.
+        let insert = build(&project(), "j", Part::Plug).unwrap();
+        let (all, short) = ramps(&insert.gcode);
+        assert!(short == 0 && all > 10 && all < 80, "{all} ramps, {short} short");
+        assert!(insert.stats.lines < 400, "{} lines", insert.stats.lines);
+        // The three stages of a mirrored insert, tabs and all.
+        let mut p = short_and_long();
+        if let Task::Flat { tabs, .. } = &mut p.steps[0].task {
+            *tabs = true;
+        }
+        let cut = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(cut.problems, []);
+        // The long tool's two stages: the short one, between them, clears
+        // slivers in the corners, on paths no longer than they are.
+        let stages: Vec<&str> = cut.built.gcode.split("M6 T").collect();
+        assert_eq!(stages.len(), 4);
+        for stage in [stages[1], stages[3]] {
+            let (all, short) = ramps(stage);
+            assert!(all > 5 && short <= 1, "{all} ramps, {short} short");
+        }
+
+        // A disc has no straight side: its ramps go down round it as arcs.
+        let mut p = project();
+        let design = p.design.as_mut().unwrap();
+        design.regions[0].outer = (0..120)
+            .map(|i| {
+                let a = (i as f64 * 3.0).to_radians();
+                [20.0 + 12.0 * a.cos(), 17.0 + 12.0 * a.sin()]
+            })
+            .collect();
+        p.steps[0].region_ids = vec![0];
+        let cut = preview(&p, "j", Part::Plug).unwrap();
+        assert_eq!(cut.problems, []);
+        let (_, short) = ramps(&cut.built.gcode);
+        assert_eq!(short, 0);
+        let helical = cut
+            .built
+            .gcode
+            .lines()
+            .filter(|l| (l.starts_with("G2 ") || l.starts_with("G3 ")) && l.contains(" Z"))
+            .count();
+        assert!(helical >= 7, "{helical} helical arcs");
+    }
+
+    #[test]
     fn several_end_mills_clear_a_v_carved_floor_before_the_v_bit() {
         let mut p = vcarve_project(true);
         p.tools.push(big_end_mill());
