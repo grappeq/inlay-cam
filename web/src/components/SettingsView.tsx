@@ -1,4 +1,4 @@
-// What is kept in this browser and shared by all projects. The header's
+// What is kept and shared by all projects, and where (the Storage page). The header's
 // Tools tab shows the tools; its Settings tab the materials and profiles they
 // refer to, the machine, and what a new inlay starts with: a list of the four
 // on the left, the one picked on the right, as the tools are shown.
@@ -12,6 +12,8 @@ import { Num, PageHead } from "./Cells";
 import { HELP } from "./help";
 import { MaterialsPage } from "./MaterialsView";
 import { ProfilesPage } from "./ProfilesView";
+import { StoragePage } from "./StorageView";
+import { keptText, placeName } from "../storage/places";
 import { ToolsArea } from "./ToolsView";
 
 export function SettingsView() {
@@ -29,6 +31,7 @@ export function SettingsView() {
     { id: "profiles", label: "Profiles", summary: profiles.length === 0 ? "none: plain settings only" : profiles.map((p) => p.label).join(", ") },
     { id: "machine", label: "Machine", summary: `${machine.name}, ${fmt(machine.travel[0])} × ${fmt(machine.travel[1])} mm` },
     { id: "defaults", label: "New inlays", summary: changed === 0 ? "the app's values" : `${changed} of your own` },
+    { id: "storage", label: "Storage", summary: home === "server" ? "on this server" : `in ${placeName(home)}` },
     { id: "agent", label: "Agent", summary: STATUS_TEXT[agent.status].toLowerCase() },
   ];
   return (
@@ -41,11 +44,11 @@ export function SettingsView() {
           </button>
         ))}
         <p className="set-nav-foot">
-          {home === "server" ? "Kept on this server, for everyone who opens it." : "Kept in this browser, for all your projects."}
+          {keptText(home)}
         </p>
       </nav>
       <main className="tool-pane">
-        <div className="card set-card">{settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "profiles" ? <ProfilesPage /> : settingsPage === "machine" ? <MachinePage /> : settingsPage === "agent" ? <AgentPage /> : <DefaultsPage />}</div>
+        <div className="card set-card">{settingsPage === "materials" ? <MaterialsPage /> : settingsPage === "profiles" ? <ProfilesPage /> : settingsPage === "machine" ? <MachinePage /> : settingsPage === "storage" ? <StoragePage /> : settingsPage === "agent" ? <AgentPage /> : <DefaultsPage />}</div>
       </main>
     </div>
   );

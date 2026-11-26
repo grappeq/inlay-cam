@@ -1,37 +1,32 @@
 // Where the app keeps things: the tool list, projects, the machine, the
-// inlay defaults and what the screens remember. It is one place or the
-// other, never a mix. Served by inlay-server, everything is kept on the
-// server, for every browser that opens it; on a plain web host, everything
-// is kept in this browser.
+// inlay defaults and what the screens remember. It is one place at a time,
+// never a mix: this browser, a folder on this computer, or the server the
+// page came from (places.ts says which, and how it is chosen). The other
+// places are there to sync with, under Settings, Storage.
 //
 // The tool list on a server has its own two calls in server.ts, since its
-// writes are checked against the version they changed.
+// writes are checked against the version they changed. In a browser and in
+// a folder it is the setting `tools`.
 
 import * as db from "./db";
+import { findHome, folderStore, home, type Home } from "./places";
 import * as server from "./server";
 
 export type { ProjectSummary, Shelf, StoredProject, Thumb } from "./db";
-export type Home = "browser" | "server";
-/** What is kept besides tools and projects. `tools` is the tool list in a browser; `view` what the screens remember on a server. */
+export type { Home } from "./places";
+export { findHome, home };
+/** What is kept besides tools and projects. `tools` is the tool list in a browser and in a folder; `view` what the screens remember on a server. */
 export type SettingKey = db.SettingKey | "view";
 
-let finding: Promise<Home> | null = null;
-let found: Home = "browser";
-
-/** Finds out, once, where things are kept. Everything else here waits for it. */
-export function findHome(): Promise<Home> {
-  finding ??= server.findServer().then((yes) => (found = yes ? "server" : "browser"));
-  return finding;
-}
-
-/** Where things are kept, once `findHome` has answered. */
-export function home(): Home {
-  return found;
+/** The place in use, where it is not the server: the two keep things through the same calls. */
+async function local(): Promise<typeof db | ReturnType<typeof folderStore> | null> {
+  const at: Home = await findHome();
+  return at === "server" ? null : at === "folder" ? folderStore() : db;
 }
 
 /** The projects kept, last changed first, and the folders they are filed in, empty ones too. */
 export async function readShelf(): Promise<db.Shelf> {
-  return (await findHome()) === "server" ? server.readShelf() : db.readShelf();
+  return (await local())?.readShelf() ?? server.readShelf();
 }
 
 export async function listProjects(): Promise<db.ProjectSummary[]> {
@@ -40,27 +35,28 @@ export async function listProjects(): Promise<db.ProjectSummary[]> {
 
 /** Files a project in another folder, or in none (the empty path). Neither its text nor the time it was changed is touched. Gives the folder as it is spelt. */
 export async function moveProject(id: string, folder: string): Promise<string> {
-  return (await findHome()) === "server" ? server.moveProject(id, folder) : db.moveProject(id, folder);
+  return (await local())?.moveProject(id, folder) ?? server.moveProject(id, folder);
 }
 
 /** Makes a folder, and the ones it is in. Gives its path as it is spelt. */
 export async function createFolder(path: string): Promise<string> {
-  return (await findHome()) === "server" ? server.createFolder(path) : db.createFolder(path);
+  return (await local())?.createFolder(path) ?? server.createFolder(path);
 }
 
 /** Renames a folder, or moves it into another: `to` is its whole new path. What is in it goes along. */
 export async function renameFolder(from: string, to: string): Promise<string> {
-  return (await findHome()) === "server" ? server.renameFolder(from, to) : db.renameFolder(from, to);
+  return (await local())?.renameFolder(from, to) ?? server.renameFolder(from, to);
 }
 
 /** Takes a folder away, and the folders in it. Their projects stay, in no folder. Gives how many were moved out. */
 export async function deleteFolder(path: string): Promise<number> {
-  return (await findHome()) === "server" ? server.deleteFolder(path) : db.deleteFolder(path);
+  return (await local())?.deleteFolder(path) ?? server.deleteFolder(path);
 }
 
 /** A kept project. On a server, `token` names the version read. */
 export async function getProject(id: string): Promise<(db.StoredProject & { token?: string }) | undefined> {
-  return (await findHome()) === "server" ? server.getProject(id) : db.getProject(id);
+  const at = await local();
+  return at ? at.getProject(id) : server.getProject(id);
 }
 
 /**
@@ -71,26 +67,29 @@ export async function getProject(id: string): Promise<(db.StoredProject & { toke
  * is kept stays in the folder it is in.
  */
 export async function putProject(project: db.StoredProject, basedOn?: string): Promise<string | undefined | "conflict"> {
-  if ((await findHome()) === "server") return server.putProject(project.id, project.text, basedOn, project.folder);
-  await db.putProject(project);
+  const at = await local();
+  if (!at) return server.putProject(project.id, project.text, basedOn, project.folder);
+  await at.putProject(project);
   return undefined;
 }
 
-/** Gives a project kept in this browser the picture it was kept without. A server makes its own. */
+/** Gives a project kept in this browser or in a folder the picture it was kept without. A server makes its own. */
 export async function fillThumb(id: string, thumb: db.Thumb | null, modified: number): Promise<void> {
-  if ((await findHome()) === "browser") await db.setThumb(id, thumb, modified);
+  await (await local())?.setThumb(id, thumb, modified);
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  return (await findHome()) === "server" ? server.deleteProject(id) : db.deleteProject(id);
+  return (await local())?.deleteProject(id) ?? server.deleteProject(id);
 }
 
 export async function getSetting(key: SettingKey): Promise<string | undefined> {
-  if ((await findHome()) === "server") return server.getSetting(key);
-  return key === "view" ? undefined : db.getSetting(key);
+  const at = await local();
+  if (!at) return server.getSetting(key);
+  return key === "view" ? undefined : at.getSetting(key);
 }
 
 export async function putSetting(key: SettingKey, value: string): Promise<void> {
-  if ((await findHome()) === "server") return server.putSetting(key, value);
-  if (key !== "view") return db.putSetting(key, value);
+  const at = await local();
+  if (!at) return server.putSetting(key, value);
+  if (key !== "view") return at.putSetting(key, value);
 }

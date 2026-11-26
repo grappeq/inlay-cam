@@ -44,6 +44,7 @@ import { fillThumbs, thumbOf } from "../state/thumbs";
 import { mayLeave } from "../state/unsaved";
 import * as db from "../storage/home";
 import type { Thumb } from "../storage/db";
+import { keptText, placeName } from "../storage/places";
 import { recall, remember } from "../storage/view";
 import { downloadBytes, downloadText, fileStem, pickTextFile } from "../util/files";
 import { zipFiles } from "../util/zip";
@@ -295,7 +296,9 @@ export function ProjectsView() {
     const what = going.length === 1 ? `"${nameOfProject(going[0])}"` : plural(going.length, "project");
     const asked = onServer
       ? `Delete ${what} from this server? ${going.length === 1 ? "It goes" : "They go"} for everyone who opens the app here. ${going.length === 1 ? "Its file is" : "Their files are"} moved to the server's backups folder.`
-      : `Delete ${what} from this browser? This cannot be undone. Save ${going.length === 1 ? "it" : "them"} to ${going.length === 1 ? "a file" : "files"} first if you want a copy.`;
+      : home === "folder"
+        ? `Delete ${what} from ${placeName(home)}? ${going.length === 1 ? "Its file is" : "Their files are"} moved to the folder's backups folder.`
+        : `Delete ${what} from this browser? This cannot be undone. Save ${going.length === 1 ? "it" : "them"} to ${going.length === 1 ? "a file" : "files"} first if you want a copy.`;
     if (!confirm(asked)) return;
     return run(async (task) => {
       const { done: deleted, error } = await inTurn(task, going, nameOfProject, (id) => db.deleteProject(id));
@@ -583,7 +586,7 @@ export function ProjectsView() {
             </button>
           )}
           {folders.length > 0 && projects.length > 0 && <p className="pf-hint">Drag projects onto a folder to move them.</p>}
-          <p className="set-nav-foot">{onServer ? "Kept on this server, for everyone who opens it." : "Kept in this browser."}</p>
+          <p className="set-nav-foot">{keptText(home)}</p>
         </div>
       </nav>
 

@@ -2,6 +2,7 @@ import { useRef, useSyncExternalStore } from "react";
 import { STATUS_TEXT, getLink, subscribeLink } from "../agent/link";
 import * as server from "../storage/server";
 import { useApp, useDispatch, type SettingsPage } from "../state/store";
+import { placeName } from "../storage/places";
 import { startOf } from "../state/folders";
 import { mayLeave } from "../state/unsaved";
 import { Activity, useLasting, useTasks } from "./Progress";
@@ -29,7 +30,7 @@ export function Header() {
     <header className="topbar">
       <span className="brand">Wooden Inlays</span>
       <nav className="tabs" aria-label="Views">
-        <button aria-pressed={view === "projects"} onClick={() => mayLeave() && dispatch({ type: "setView", view: "projects" })} title={home === "server" ? "The projects kept on this server, in their folders" : "The projects kept in this browser, in their folders"}>
+        <button aria-pressed={view === "projects"} onClick={() => mayLeave() && dispatch({ type: "setView", view: "projects" })} title={`The projects kept ${home === "server" ? "on this server" : `in ${placeName(home)}`}, in their folders`}>
           Projects
         </button>
         <button aria-pressed={view === "design"} onClick={() => mayLeave() && dispatch({ type: "setView", view: "design" })}>
@@ -72,7 +73,7 @@ export function Header() {
         </span>
       ) : (
         <span className={`save-state${saveError && !slow ? " error" : ""}`} role="status" title={slow && behind ? "It is saved as soon as the work that is going on is done." : undefined}>
-          {!ready ? "Loading…" : slow ? "Saving…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : "Saved in this browser"}
+          {!ready ? "Loading…" : slow ? "Saving…" : saveError ? `Not saved: ${saveError}` : home === "server" ? "Saved on this server" : `Saved in ${placeName(home)}`}
         </span>
       )}
       <Activity />

@@ -62,7 +62,7 @@ export interface Place {
   timeline: { result: { steps: unknown[] } | null } | null;
 }
 
-const SETTINGS_PAGES: SettingsPage[] = ["materials", "profiles", "machine", "defaults", "agent"];
+const SETTINGS_PAGES: SettingsPage[] = ["materials", "profiles", "machine", "defaults", "storage", "agent"];
 const PARTS: Stage[] = ["pocket", "plug", "fit"];
 
 /** A design route with nothing but the project said. */

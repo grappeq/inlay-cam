@@ -99,7 +99,21 @@ host.
 On a static host everything is kept in the browser. Served by `inlay-server`, the same
 build keeps everything on the server instead, shared by every browser that opens the page:
 the tool list, projects, the machine, the inlay defaults and what the screens remember. It
-is one or the other; nothing is kept in the browser while there is a server.
+is one place at a time, never a mix.
+
+Under Settings, Storage, another place can be chosen, and two places synced:
+
+- **A folder on this computer**, in Chrome and Edge on a computer: the browser asks for the
+  folder once, and for leave to use it again on a later visit. It is laid out as the
+  server's data folder is (`tools.json`, `settings.json`, `projects/`), so its files can be
+  seen, copied and backed up, and a deleted project's file goes to `backups/` in it.
+  Do not point it at the folder of an `inlay-server` that is running: the two do not know
+  of each other's writes.
+- **This browser**, also when the page came from a server.
+- **Sync** lists what differs between two places (each project, the tool list, the machine
+  and the inlay defaults) and says what it will do to each before it does anything: what
+  one side changed goes to the other, and what both changed, or one deleted, is left alone
+  until you say which way it goes.
 
 ```bash
 docker compose up --build -d      # then open http://localhost:8000

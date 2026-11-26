@@ -16,6 +16,7 @@ import { isInlay, stepColor, stockColor } from "./state/model";
 import { StartGuide } from "./components/StartGuide";
 import { TimelineStart, TimelineView } from "./components/Timeline";
 import { SettingsView } from "./components/SettingsView";
+import { FolderGate } from "./components/StorageView";
 import { Viewer3D } from "./components/Viewer3D";
 import { useFileActions } from "./state/files";
 import { readFile } from "./util/files";
@@ -92,6 +93,7 @@ function Shell() {
         <TaskNotices />
       </div>
       <AgentPairing />
+      <FolderGate />
       <MakeraIncoming />
       {!ready ? (
         <p className="loading">Loading…</p>

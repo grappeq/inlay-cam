@@ -118,6 +118,19 @@ export async function setThumb(id: string, thumb: Thumb | null, modified: number
   });
 }
 
+/** Takes a kept project's picture away, so that it is drawn again: the one it has is of a drawing it no longer has. */
+export async function clearThumb(id: string): Promise<void> {
+  await change(PROJECTS, (store) => {
+    const read = store.get(id);
+    read.onsuccess = () => {
+      const kept = read.result as StoredProject | undefined;
+      if (!kept || kept.thumb === undefined) return;
+      const { thumb: _gone, ...rest } = kept;
+      store.put(rest);
+    };
+  });
+}
+
 export async function deleteProject(id: string): Promise<void> {
   await run(PROJECTS, "readwrite", (s) => s.delete(id));
 }

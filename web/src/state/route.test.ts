@@ -46,6 +46,7 @@ const ADDRESSES: [string, Route][] = [
   ["#/settings/machine", { view: "settings", page: "machine", tool: null }],
   ["#/settings/defaults", { view: "settings", page: "defaults", tool: null }],
   ["#/settings/agent", { view: "settings", page: "agent", tool: null }],
+  ["#/settings/storage", { view: "settings", page: "storage", tool: null }],
 ];
 
 describe("an address", () => {

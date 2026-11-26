@@ -31,6 +31,7 @@ import type {
   ToolLists,
 } from "../core/types";
 import * as db from "../storage/home";
+import { startProblem } from "../storage/places";
 import { loadView } from "../storage/view";
 import * as server from "../storage/server";
 import { scopeThatIs, startOf, started, type Scope } from "./folders";
@@ -67,7 +68,13 @@ import {
 export type View = "projects" | "design" | "settings";
 /** The pages of the settings view. */
 export type SettingsPage =
-  "tools" | "materials" | "profiles" | "machine" | "defaults" | "agent";
+  | "tools"
+  | "materials"
+  | "profiles"
+  | "machine"
+  | "defaults"
+  | "storage"
+  | "agent";
 /** What the large area beside the panel shows. */
 export type Stage = "drawing" | "pocket" | "plug" | "fit" | "timeline";
 /** What the panel shows while no inlay or operation is open: the list to work on, its tools, or what of it to export. */
@@ -704,6 +711,14 @@ function clickRegion(state: AppState, id: number, add: boolean): AppState {
   return { ...state, selection };
 }
 
+/** Whether the tool list is still the one read at start: it is written only once it is changed here. */
+export function toolsAsLoaded(
+  now: { tools: Tool[]; lists: ToolLists },
+  loaded: { tools?: Tool[]; lists?: ToolLists },
+): boolean {
+  return now.tools === loaded.tools && now.lists === loaded.lists;
+}
+
 const StateContext = createContext<AppState>(initial);
 const DispatchContext = createContext<Dispatch<Action>>(() => {});
 
@@ -838,7 +853,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       if (opened.project) project = opened.project;
       const route = opened.route;
-      problem ??= opened.problem;
+      problem ??= opened.problem ?? startProblem();
       const { projects, folders } = await db
         .readShelf()
         .catch((): db.Shelf => ({ projects: [], folders: [] }));
@@ -1115,7 +1130,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
       });
     };
-    if (state.home === "browser") {
+    // Not until it is changed here: a list that could not be read would be written over by none.
+    if (toolsAsLoaded(state, asLoaded.current)) return;
+    if (state.home !== "server") {
       (async () =>
         db.putSetting(
           "tools",
@@ -1123,11 +1140,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ))().catch(failed);
       return;
     }
-    if (
-      state.tools === asLoaded.current.tools &&
-      state.lists === asLoaded.current.lists
-    )
-      return;
     const base = taken.current;
     toolWritesWaiting.current++;
     let begun = false;

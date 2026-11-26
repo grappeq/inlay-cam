@@ -5663,3 +5663,44 @@ button.primary .spinner {
   max-width: 420px;
   margin: 6px 0 10px;
 }
+
+/* Settings, Storage: the places, and what differs between two of them. */
+.place-acts {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  white-space: normal;
+}
+.place-name {
+  font-weight: 600;
+}
+.sync-pick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.sync-table th {
+  width: auto;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.sync-table td.sync-state,
+.sync-table td.sync-do {
+  width: 1%;
+  white-space: nowrap;
+}
+.chip.warn {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.sync-foot {
+  padding: 8px 12px;
+  align-items: center;
+}
+.sync-pick select,
+.sync-table select {
+  width: auto;
+}

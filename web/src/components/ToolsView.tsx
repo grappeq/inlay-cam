@@ -40,6 +40,7 @@ import { ToolCard } from "./ToolCard";
 import { foldedNames, zipFiles } from "../util/zip";
 
 const ZIP_NAME = "tools-fusion-360-by-group.zip";
+import { keptText } from "../storage/places";
 import { recall, remember } from "../storage/view";
 
 /** What a group of tools is called when the tools name none of their own. */
@@ -574,7 +575,7 @@ export function ToolsArea() {
         </div>
         <div className="tl-foot">
           <LibraryMenu />
-          <span className="muted">{home === "server" ? "Kept on this server, for everyone who opens it." : "Kept in this browser, for all your projects."}</span>
+          <span className="muted">{keptText(home)}</span>
         </div>
       </section>
 

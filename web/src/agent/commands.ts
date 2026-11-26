@@ -401,7 +401,9 @@ function describeProject(state: AppState) {
       ? `not saved: ${state.saveError}`
       : state.home === "server"
         ? "on the server the page came from"
-        : "in this browser",
+        : state.home === "folder"
+          ? "in a folder on the user's computer"
+          : "in this browser",
   };
 }
 
