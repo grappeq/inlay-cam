@@ -27,7 +27,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::store::{is_folder_path, is_project_id, iso, Loaded, Store};
+use crate::store::{is_folder_path, is_project_id, iso, millis, Loaded, Store};
 use inlay_core::project::project_from_file_json;
 use lists::List;
 
@@ -37,6 +37,11 @@ const MAX_FILE_BODY: usize = 8 * 1024 * 1024;
 const MAX_PROJECT_BODY: usize = 32 * 1024 * 1024;
 /// What the app keeps besides tools and projects, each a text of its own.
 const SETTING_KEYS: [&str; 4] = ["machine", "inlayDefaults", "lastProjectId", "view"];
+/// The settings whose last change is dated, under `saved` in
+/// settings.json: the ones the app syncs between the places it keeps
+/// things in. A folder the app keeps things in by itself dates them alike.
+const DATED_KEYS: [&str; 2] = ["machine", "inlayDefaults"];
+const SAVED: &str = "saved";
 const MAX_BODY: usize = 256 * 1024;
 /// Characters in one query value.
 const MAX_QUERY: usize = 300;
@@ -192,8 +197,8 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/api/folders", "Make a folder. {path}"),
     ("PATCH", "/api/folders/<path>", "Rename a folder or move it into another, with what is in it. {path: the new one}"),
     ("DELETE", "/api/folders/<path>", "Take a folder away. Its projects stay, in no folder."),
-    ("GET", "/api/settings", "What the app keeps besides: the machine, the inlay defaults, the last project, the view."),
-    ("PUT", "/api/settings/<key>", "Keep one setting. {value: <text> | null}"),
+    ("GET", "/api/settings", "What the app keeps besides: the machine, the inlay defaults, the last project, the view. saved: when the machine and the inlay defaults were last changed, in milliseconds since 1970."),
+    ("PUT", "/api/settings/<key>", "Keep one setting. {value: <text> | null, saved?: <when it was changed, where it is copied from elsewhere>}"),
 ];
 
 pub struct Api {
@@ -1016,10 +1021,20 @@ impl Api {
                 SETTING_KEYS.join(", ")
             )));
         }
-        let mut body = body_object(request, &["value"])?;
+        let mut body = body_object(request, &["value", "saved"])?;
         let value = match body.remove("value") {
             Some(value @ (Value::String(_) | Value::Null)) => value,
             _ => return Err(Refusal::bad("value is required: a text, or null")),
+        };
+        // When it was changed where it is copied from, to date it as there.
+        let at = match body.remove("saved") {
+            None | Some(Value::Null) => None,
+            Some(Value::Number(at)) if at.is_u64() => at.as_u64(),
+            _ => {
+                return Err(Refusal::bad(
+                    "saved is a time in milliseconds since 1970, when given",
+                ))
+            }
         };
         let _held = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         // Settings that cannot be read are set aside, not left to refuse
@@ -1033,6 +1048,23 @@ impl Api {
                 Map::new()
             }
         };
+        // Kept again as it is, it is not changed: its date stays.
+        let changed = settings.get(key) != Some(&value);
+        if DATED_KEYS.contains(&key) && (changed || value.is_null()) {
+            let mut saved = match settings.remove(SAVED) {
+                Some(Value::Object(saved)) => saved,
+                _ => Map::new(),
+            };
+            if value.is_null() {
+                saved.remove(key);
+            } else {
+                let at = at.unwrap_or_else(|| millis((self.clock)()));
+                saved.insert(key.to_string(), at.into());
+            }
+            if !saved.is_empty() {
+                settings.insert(SAVED.to_string(), Value::Object(saved));
+            }
+        }
         if value.is_null() {
             settings.remove(key);
         } else {

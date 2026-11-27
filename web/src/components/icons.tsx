@@ -253,3 +253,62 @@ export type ToolIconName = keyof typeof ARRANGE_ICONS;
 export function ToolIcon({ name }: { name: ToolIconName }) {
   return <Icon>{ARRANGE_ICONS[name]}</Icon>;
 }
+
+const SYNC_ICONS = {
+  folder: <path d="M3 6h5l2 2h7v8H3z" />,
+  project: (
+    <>
+      <path d="M5 3h7l3 3v11H5z" />
+      <path d="M12 3v3h3" />
+    </>
+  ),
+  tool: (
+    <>
+      <path d="M8 3h4v8H8z" />
+      <path d="M8 11l2 6 2-6M8 6l4 2" />
+    </>
+  ),
+  settings: (
+    <>
+      <path d="M4 6h12M4 10h12M4 14h12" />
+      <circle cx="8" cy="6" r="1.6" fill="var(--surface)" />
+      <circle cx="13" cy="10" r="1.6" fill="var(--surface)" />
+      <circle cx="7" cy="14" r="1.6" fill="var(--surface)" />
+    </>
+  ),
+  browser: (
+    <>
+      <path d="M3 4h14v12H3z" />
+      <path d="M3 8h14" />
+    </>
+  ),
+  server: (
+    <>
+      <path d="M4 4h12v5H4zM4 11h12v5H4z" />
+      <path d="M7 6.5h.01M7 13.5h.01" />
+    </>
+  ),
+  right: <path d="M4 10h12M12 6l4 4-4 4" />,
+  left: <path d="M16 10H4M8 6l-4 4 4 4" />,
+  both: (
+    <>
+      <path d="M7 7h9v9H7z" />
+      <path d="M4 13V4h9" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 6h12M8 6V4h4v2" />
+      <path d="M6 6l1 11h6l1-11" />
+    </>
+  ),
+  open: <path d="M5 8l5 5 5-5" />,
+  closed: <path d="M8 5l5 5-5 5" />,
+} as const;
+
+export type SyncIconName = keyof typeof SYNC_ICONS;
+
+/** A symbol of the list of what two places keep differently. */
+export function SyncIcon({ name }: { name: SyncIconName }) {
+  return <Icon>{SYNC_ICONS[name]}</Icon>;
+}

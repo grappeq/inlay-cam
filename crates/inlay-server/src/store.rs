@@ -600,7 +600,7 @@ fn write_whole(path: &Path, text: &str) -> io::Result<()> {
     fs::rename(&temporary, path)
 }
 
-fn millis(at: SystemTime) -> u64 {
+pub fn millis(at: SystemTime) -> u64 {
     at.duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64

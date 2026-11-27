@@ -258,10 +258,10 @@ export function storeOf(id: Home): Store {
     const folder = folderStore();
     return {
       ...folder,
-      putSetting: async (key, value) => {
+      putSetting: async (key, value, at) => {
         // A tool list written over by a sync is kept, as the server keeps the one it replaces.
         if (key === "tools" && (await folder.getSetting(key)) !== value) await folder.setToolsAside();
-        await folder.putSetting(key, value);
+        await folder.putSetting(key, value, at);
       },
     };
   }
@@ -281,8 +281,9 @@ export function storeOf(id: Home): Store {
     moveProject: server.moveProject,
     deleteProject: server.deleteProject,
     getSetting: async (key) => (key === "tools" ? (await server.readLibrary())?.text : server.getSetting(key)),
-    putSetting: async (key, value) => {
-      if (key !== "tools") return server.putSetting(key, value);
+    settingSaved: async (key) => (key === "tools" ? (await server.readLibrary())?.savedAt : server.settingSaved(key)),
+    putSetting: async (key, value, at) => {
+      if (key !== "tools") return server.putSetting(key, value, at);
       const now = await server.readLibrary();
       if (!now) throw new Error("the server gave no tool list to write over");
       if ((await server.writeLibrary(value, now.token)) === "conflict") throw new Error("the tool list was changed on the server at the same moment: compare again");

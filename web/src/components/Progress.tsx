@@ -71,11 +71,12 @@ function Bar({ task }: { task: Task }) {
 /**
  * A task where its result will land: what is being done and how far it is, a
  * bar, and under it what is in hand, how long it has taken, and Stop when it
- * can be stopped. Nothing for the first moments of a task.
+ * can be stopped. Nothing for the first moments of a task, unless `always`.
  */
-export function ProgressLine({ task, className }: { task: Task | null; className?: string }) {
+export function ProgressLine({ task, className, always }: { task: Task | null; className?: string; always?: boolean }) {
   const now = useNow(task !== null && task.shown);
-  if (!task || !task.shown) return null;
+  // `always`: from its first moment, where the bar takes the place of what started it.
+  if (!task || !(task.shown || always)) return null;
   const count = countText(task);
   const time = now - task.started >= TIME_AFTER ? elapsedText(task, now) : "";
   return (

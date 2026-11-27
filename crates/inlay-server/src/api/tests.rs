@@ -1,5 +1,6 @@
 use super::*;
 use crate::store::tests::Scratch;
+use std::time::{Duration, UNIX_EPOCH};
 
 /// A server over a fresh folder that holds the starter set.
 struct Served {
@@ -1026,7 +1027,8 @@ fn folders_are_made_renamed_and_taken_away() {
 
 #[test]
 fn settings_are_kept_one_text_per_key() {
-    let served = served();
+    let mut served = served();
+    served.api.clock = || UNIX_EPOCH + Duration::from_secs(1);
     assert_eq!(served.get("/api/settings").1, json!({}));
     assert_eq!(
         served
@@ -1050,7 +1052,7 @@ fn settings_are_kept_one_text_per_key() {
     );
     assert_eq!(
         served.get("/api/settings").1,
-        json!({ "machine": "{\"maxRpm\":12000}", "lastProjectId": "p-1" })
+        json!({ "machine": "{\"maxRpm\":12000}", "lastProjectId": "p-1", "saved": { "machine": 1000 } })
     );
     assert_eq!(
         served
@@ -1064,7 +1066,7 @@ fn settings_are_kept_one_text_per_key() {
     );
     assert_eq!(
         served.get("/api/settings").1,
-        json!({ "machine": "{\"maxRpm\":12000}" })
+        json!({ "machine": "{\"maxRpm\":12000}", "saved": { "machine": 1000 } })
     );
     assert_eq!(
         served
@@ -1143,7 +1145,49 @@ fn settings_that_cannot_be_read_are_set_aside() {
             .0,
         200
     );
-    assert_eq!(served.get("/api/settings").1, json!({ "machine": "m" }));
+    assert_eq!(served.get("/api/settings").1["machine"], json!("m"));
+}
+
+#[test]
+fn a_synced_setting_is_dated_when_it_changes() {
+    let mut served = served();
+    let put = |served: &Served, key: &str, value: Value| {
+        let target = format!("/api/settings/{key}");
+        assert_eq!(served.write("PUT", &target, json!({ "value": value })).0, 200);
+    };
+    served.api.clock = || UNIX_EPOCH + Duration::from_secs(1);
+    put(&served, "machine", json!("m"));
+    put(&served, "inlayDefaults", json!("d"));
+    // What the screens remember changes all the time, and is not synced.
+    put(&served, "view", json!("v"));
+    served.api.clock = || UNIX_EPOCH + Duration::from_secs(2);
+    // Kept again as it is: the date stays. Changed: it moves.
+    put(&served, "machine", json!("m"));
+    put(&served, "inlayDefaults", json!("d2"));
+    assert_eq!(
+        served.get("/api/settings").1["saved"],
+        json!({ "machine": 1000, "inlayDefaults": 2000 })
+    );
+    // Copied from another place, it is dated as it is there; a date that is none is refused.
+    let copied = json!({ "value": "m3", "saved": 1500 });
+    assert_eq!(served.write("PUT", "/api/settings/machine", copied).0, 200);
+    assert_eq!(served.get("/api/settings").1["saved"]["machine"], json!(1500));
+    let wrong = json!({ "value": "m4", "saved": "now" });
+    assert_eq!(served.write("PUT", "/api/settings/machine", wrong).0, 400);
+    // One that never had a date is forgotten as any other.
+    put(&served, "view", Value::Null);
+    put(&served, "view", json!("v"));
+    // Forgotten, its date goes with it; a `saved` that is no object is written anew.
+    put(&served, "inlayDefaults", Value::Null);
+    put(&served, "machine", Value::Null);
+    assert_eq!(served.get("/api/settings").1, json!({ "view": "v" }));
+    let settings = served.api.store.path().with_file_name("settings.json");
+    std::fs::write(&settings, r#"{"saved":"x","machine":"m"}"#).unwrap();
+    put(&served, "machine", json!("m2"));
+    assert_eq!(
+        served.get("/api/settings").1,
+        json!({ "machine": "m2", "saved": { "machine": 2000 } })
+    );
 }
 
 #[test]

@@ -119,7 +119,7 @@ ids. `<row>` names a cutting row: its material's key for the plain row, or
 | POST | `/api/folders` | `{path}` | Makes a folder |
 | PATCH | `/api/folders/<path>` | `{path}` | Renames a folder, or moves it into another |
 | DELETE | `/api/folders/<path>` | | Takes a folder away; its projects stay |
-| GET | `/api/settings` | | The settings kept, one text per key |
+| GET | `/api/settings` | | The settings kept, one text per key, and `saved`: when the synced ones last changed |
 | PUT | `/api/settings/<key>` | `{value}` | Keeps one setting |
 
 ### `GET /api/library` and `PUT /api/library`
@@ -329,9 +329,15 @@ browser.
 
 `GET /api/settings` answers an object of texts by key: `machine`, `inlayDefaults`,
 `lastProjectId` and `view` (what the screens remember, such as the tool list's sort order).
-`PUT /api/settings/<key>` takes `{"value": "<text>"}`, or `null` to forget the key. What a
+`PUT /api/settings/<key>` takes `{"value": "<text>"}`, or `null` to forget the key, and
+with it, of a text copied from another place, `"saved"`: when it was changed there. What a
 text holds is the page's own matter, as in a browser's storage; the server keeps it as
 given, in `settings.json`.
+
+Beside the texts the answer has `saved`, once `machine` or `inlayDefaults` has been written:
+an object of the time each of the two last changed, in milliseconds since 1970, as
+`{"machine": 1795735490403}`. A key kept again with the text it has keeps its time, and a
+key forgotten loses it. The app shows these when it syncs the server with another place.
 
 ### `GET /api/export` and `GET /api/export/<kind>`
 

@@ -223,6 +223,25 @@ export function getSetting(key: SettingKey): Promise<string | undefined> {
   return run<string | undefined>(SETTINGS, "readonly", (s) => s.get(key));
 }
 
-export async function putSetting(key: SettingKey, value: string): Promise<void> {
-  await run(SETTINGS, "readwrite", (s) => s.put(value, key));
+/** The settings whose last change is dated, each under `saved:<key>`: the ones synced between places. */
+const DATED: SettingKey[] = ["tools", "machine", "inlayDefaults"];
+
+/** Keeps a setting. `at`: when it was changed where it is copied from, to date it as there; now, without. */
+export async function putSetting(key: SettingKey, value: string, at?: number): Promise<void> {
+  await run(SETTINGS, "readwrite", (s) => {
+    if (DATED.includes(key)) {
+      // Kept again as it is, it is not changed: its date stays.
+      const had = s.get(key);
+      had.onsuccess = () => {
+        if (had.result !== value) s.put(at ?? Date.now(), `saved:${key}`);
+      };
+    }
+    return s.put(value, key);
+  });
+}
+
+/** When a synced setting was last changed here. Nothing of one kept before its changes were dated. */
+export async function settingSaved(key: SettingKey): Promise<number | undefined> {
+  const at = await run<unknown>(SETTINGS, "readonly", (s) => s.get(`saved:${key}`));
+  return typeof at === "number" ? at : undefined;
 }

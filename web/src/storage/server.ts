@@ -78,6 +78,8 @@ export interface ServerLibrary {
   text: string;
   /** Names this version of the file. */
   token: string;
+  /** When the file was last written, where the server says. */
+  savedAt?: number;
 }
 
 function tokenOf(response: Response): string {
@@ -113,7 +115,8 @@ export async function readLibrary(have?: string): Promise<ServerLibrary | null> 
   const response = await call("api/library", { cache: "no-store", headers: have ? { "If-None-Match": `"${have}"` } : {} });
   if (response.status === 304) return null;
   if (!response.ok) throw await problem(response);
-  return { text: await response.text(), token: tokenOf(response) };
+  const savedAt = Date.parse(response.headers.get("X-Saved-At") ?? "");
+  return { text: await response.text(), token: tokenOf(response), ...(Number.isFinite(savedAt) ? { savedAt } : {}) };
 }
 
 /** Writes the tool list over the version `token` names. Gives the new token, or "conflict" when the server's list is no longer that version. */
@@ -213,6 +216,14 @@ export async function getSetting(key: string): Promise<string | undefined> {
   return typeof body[key] === "string" ? body[key] : undefined;
 }
 
-export async function putSetting(key: string, value: string): Promise<void> {
-  await answer(await call(`api/settings/${encodeURIComponent(key)}`, { method: "PUT", headers: WRITE, body: JSON.stringify({ value }) }));
+/** When a synced setting was last changed on the server. Nothing from a server that does not date them. */
+export async function settingSaved(key: string): Promise<number | undefined> {
+  const body = await (await answer(await call("api/settings", { cache: "no-store" }))).json();
+  const at = body.saved && typeof body.saved === "object" ? body.saved[key] : undefined;
+  return typeof at === "number" ? at : undefined;
+}
+
+/** `at`: when it was changed where it is copied from, to date it as there. */
+export async function putSetting(key: string, value: string, at?: number): Promise<void> {
+  await answer(await call(`api/settings/${encodeURIComponent(key)}`, { method: "PUT", headers: WRITE, body: JSON.stringify({ value, ...(at !== undefined ? { saved: at } : {}) }) }));
 }

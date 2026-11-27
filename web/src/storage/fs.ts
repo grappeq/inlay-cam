@@ -94,6 +94,15 @@ interface Found {
 export type FolderStore = ReturnType<typeof openFolder>;
 
 /** The folder `root` as a place things are kept in. */
+/** The settings of settings.json whose last change is dated under `saved` there: the ones synced between places. */
+const DATED = ["machine", "inlayDefaults"];
+const SAVED = "saved";
+
+function datesOf(all: Record<string, unknown>): Record<string, unknown> {
+  const saved = all[SAVED];
+  return saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as Record<string, unknown>) : {};
+}
+
 export function openFolder(root: Dir, memo?: Memo) {
   let seen: Record<string, Seen> | null = null;
   // Where each project was when the folder was last gone through.
@@ -402,12 +411,32 @@ export function openFolder(root: Dir, memo?: Memo) {
     return typeof value === "string" ? value : undefined;
   }
 
-  async function putSetting(key: string, value: string): Promise<void> {
+  /**
+   * When a synced setting was last changed: of the tool list the date of its file, of the others what
+   * `saved` in settings.json says, as inlay-server writes it.
+   */
+  async function settingSaved(key: string): Promise<number | undefined> {
     if (key === "tools") {
-      await write(root, TOOLS, value);
+      try {
+        return (await (await root.getFileHandle(TOOLS)).getFile()).lastModified;
+      } catch (e) {
+        if (named(e, "NotFoundError", "TypeMismatchError")) return undefined;
+        throw e;
+      }
+    }
+    const at = datesOf((await settings()).all)[key];
+    return typeof at === "number" ? at : undefined;
+  }
+
+  /** `at`: when it was changed where it is copied from. The tool list is dated by its file, whenever it is written. */
+  async function putSetting(key: string, value: string, at?: number): Promise<void> {
+    if (key === "tools") {
+      // Kept again as it is, it is not written: the date of its file is when it last changed.
+      if ((await textOf(TOOLS)) !== value) await write(root, TOOLS, value);
       return;
     }
     const { all, spoilt } = await settings();
+    if (DATED.includes(key) && all[key] !== value) all[SAVED] = { ...datesOf(all), [key]: at ?? Date.now() };
     // One that cannot be read is set aside, so that settings can be kept again.
     if (spoilt !== null) await write(await root.getDirectoryHandle(BACKUPS, { create: true }), `settings-${stamp(new Date())}.json`, spoilt);
     await write(root, SETTINGS, JSON.stringify({ ...all, [key]: value }));
@@ -431,6 +460,7 @@ export function openFolder(root: Dir, memo?: Memo) {
     renameFolder: inTurn(renameFolder),
     deleteFolder: inTurn(deleteFolder),
     getSetting: inTurn(getSetting),
+    settingSaved: inTurn(settingSaved),
     putSetting: inTurn(putSetting),
   };
 }

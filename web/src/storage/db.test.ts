@@ -159,3 +159,28 @@ describe("the picture of a project kept in a browser", () => {
     expect(await db.getProject("gone")).toBeUndefined();
   });
 });
+
+describe("when a setting kept in a browser was last changed", () => {
+  it("is the day it changed, not the day it was kept again as it was", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const db = await load();
+      expect(await db.settingSaved("machine")).toBeUndefined();
+      vi.setSystemTime(5000);
+      await Promise.all([db.putSetting("machine", "m"), db.putSetting("tools", "{t}"), db.putSetting("lastProjectId", "a")]);
+      vi.setSystemTime(9000);
+      await db.putSetting("machine", "m");
+      await db.putSetting("tools", "{t2}");
+      expect(await db.settingSaved("machine")).toBe(5000);
+      expect(await db.settingSaved("tools")).toBe(9000);
+      // What is not synced is not dated.
+      expect(await db.settingSaved("lastProjectId")).toBeUndefined();
+      expect(await db.getSetting("machine")).toBe("m");
+      // Copied from another place, it is dated as it is there.
+      await db.putSetting("machine", "m3", 7000);
+      expect(await db.settingSaved("machine")).toBe(7000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

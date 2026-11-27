@@ -2,7 +2,7 @@
 // folder in memory: where files go, what is listed of a folder a hand has
 // been in, and what filing, renaming and deleting do to the files.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { openFolder, summaryOf, type Seen } from "./fs";
 import { MemDir } from "./memdir";
 
@@ -195,7 +195,7 @@ describe("settings kept in a folder", () => {
     expect(await store.getSetting("tools")).toBeUndefined();
     // At the same moment, as the app writes them: none is lost.
     await Promise.all([store.putSetting("machine", "m"), store.putSetting("inlayDefaults", "d"), store.putSetting("lastProjectId", "a"), store.putSetting("tools", "{tools}")]);
-    expect(JSON.parse(root.read("settings.json")!)).toEqual({ machine: "m", inlayDefaults: "d", lastProjectId: "a" });
+    expect(JSON.parse(root.read("settings.json")!)).toEqual({ machine: "m", inlayDefaults: "d", lastProjectId: "a", saved: { machine: expect.any(Number), inlayDefaults: expect.any(Number) } });
     expect(root.read("tools.json")).toBe("{tools}");
     expect(await store.getSetting("machine")).toBe("m");
     expect(await store.getSetting("tools")).toBe("{tools}");
@@ -207,7 +207,7 @@ describe("settings kept in a folder", () => {
     const store = openFolder(root);
     expect(await store.getSetting("machine")).toBeUndefined();
     await store.putSetting("machine", "m");
-    expect(JSON.parse(root.read("settings.json")!)).toEqual({ machine: "m" });
+    expect(JSON.parse(root.read("settings.json")!)).toEqual({ machine: "m", saved: { machine: expect.any(Number) } });
     const aside = root.paths().find((p) => p.startsWith("backups/settings-"))!;
     expect(root.read(aside)).toBe("[spoilt");
   });
@@ -225,6 +225,54 @@ describe("settings kept in a folder", () => {
     fail = false;
     await store.putSetting("machine", "m2");
     expect(await store.getSetting("machine")).toBe("m2");
+  });
+});
+
+describe("when a setting kept in a folder was last changed", () => {
+  it("is the day it changed, not the day it was kept again as it was", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const root = new MemDir();
+      const store = openFolder(root);
+      expect(await store.settingSaved("machine")).toBeUndefined();
+      expect(await store.settingSaved("tools")).toBeUndefined();
+      vi.setSystemTime(5000);
+      await store.putSetting("machine", "m");
+      await store.putSetting("inlayDefaults", "d");
+      await store.putSetting("tools", "{tools}");
+      const tools = await store.settingSaved("tools");
+      expect(tools).toBeGreaterThan(0);
+      vi.setSystemTime(9000);
+      await store.putSetting("machine", "m");
+      await store.putSetting("inlayDefaults", "d2");
+      await store.putSetting("tools", "{tools}");
+      // What is not synced is not dated.
+      await store.putSetting("lastProjectId", "a");
+      expect(await store.settingSaved("machine")).toBe(5000);
+      expect(await store.settingSaved("inlayDefaults")).toBe(9000);
+      expect(await store.settingSaved("tools")).toBe(tools);
+      expect(JSON.parse(root.read("settings.json")!).saved).toEqual({ machine: 5000, inlayDefaults: 9000 });
+      await store.putSetting("tools", "{tools 2}");
+      expect(await store.settingSaved("tools")).toBeGreaterThan(tools!);
+      // Copied from another place, it is dated as it is there.
+      await store.putSetting("machine", "m3", 7000);
+      expect(await store.settingSaved("machine")).toBe(7000);
+      await store.putSetting("machine", "m");
+      // The dates are not a setting to be read as one.
+      expect(await store.getSetting("saved")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not known of settings written before they were dated, or with dates that are none", async () => {
+    const root = new MemDir();
+    root.put("settings.json", JSON.stringify({ machine: "m", inlayDefaults: "d", saved: "x" }));
+    const store = openFolder(root);
+    expect(await store.settingSaved("machine")).toBeUndefined();
+    await store.putSetting("machine", "m2");
+    expect(JSON.parse(root.read("settings.json")!)).toEqual({ machine: "m2", inlayDefaults: "d", saved: { machine: expect.any(Number) } });
+    expect(await store.settingSaved("inlayDefaults")).toBeUndefined();
   });
 });
 

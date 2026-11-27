@@ -5682,25 +5682,187 @@ button.primary .spinner {
   gap: 8px;
   padding: 8px 12px;
 }
-.sync-table th {
-  width: auto;
+.sync-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.sync-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.sync-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.sync-table th,
+.sync-table td {
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: middle;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: 400;
   color: var(--text);
+  white-space: normal;
+}
+.sync-table .icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  color: var(--muted);
+}
+.sync-table td.sync-tick {
+  width: 1%;
+  padding-left: 12px;
+}
+.sync-table thead th,
+.sync-table thead td {
+  font-size: 12px;
+  color: var(--muted);
+  border-top-color: var(--line-strong);
+}
+.sync-table tr.sync-head th,
+.sync-table tr.sync-head td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-top-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.sync-table tr.sync-head th {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sync-count {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--muted);
+}
+button.sync-fold,
+button.sync-fold:hover:not(:disabled) {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+.sync-fold .icon:first-child {
+  margin-right: 2px;
+}
+.sync-table th.sync-name {
   overflow-wrap: anywhere;
 }
-.sync-table td.sync-state,
-.sync-table td.sync-do {
-  width: 1%;
+.sync-table th.sync-name.deep {
+  padding-left: 30px;
+}
+.sync-table .sync-side {
+  width: 132px;
   white-space: nowrap;
 }
-.chip.warn {
-  border-color: var(--danger);
+.sync-table td.sync-turn {
+  width: 1%;
+  padding: 2px 0;
+  text-align: center;
+}
+.sync-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.sync-pill.new {
+  background: color-mix(in srgb, var(--ok) 14%, var(--surface));
+  color: var(--ok);
+}
+.sync-pill.old {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.sync-pill.clash {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.sync-pill.gone {
   background: var(--danger-soft);
+  color: var(--danger);
+}
+.sync-pill.none {
+  border: 1px dashed var(--line-strong);
+  color: var(--muted);
+}
+button.sync-way {
+  display: inline-flex;
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--ok);
+  cursor: pointer;
+}
+button.sync-way .icon {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: inherit;
+}
+button.sync-way.clash {
+  color: var(--warn);
+}
+button.sync-way.delete {
+  color: var(--danger);
+}
+button.sync-way:not(:disabled):hover,
+button.sync-way:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+button.sync-way:disabled {
+  cursor: default;
+  opacity: 1;
+}
+/* Not ticked: nothing is done to it, whichever way it points. */
+.sync-table tr.off th.sync-name,
+.sync-table tr.off button.sync-way {
+  color: var(--muted);
+}
+.sync-table tr.off button.sync-way {
+  opacity: 0.55;
+}
+.sync-progress {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 720px) {
+  .sync-table .sync-side {
+    width: auto;
+    white-space: normal;
+  }
+  .sync-pill {
+    white-space: normal;
+  }
+  .sync-key {
+    margin-left: 0;
+  }
 }
 .sync-foot {
   padding: 8px 12px;
   align-items: center;
 }
-.sync-pick select,
-.sync-table select {
+.sync-pick select {
   width: auto;
 }

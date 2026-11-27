@@ -47,7 +47,7 @@ browser. It is one or the other, never some of each (`web/src/storage/home.ts`).
 |---|---|---|
 | `tools.json` | Tools, their cutting rows and logs, materials, profiles, groups: a [tool file](formats.md#tool-library-kind-tool-library) | IndexedDB |
 | `projects/<id>.json`, `projects/<folder>/<id>.json` | One [project file](formats.md#project-kind-project) per project, in the folder it is filed in: a folder of the app is a folder here | IndexedDB, the folder beside the project |
-| `settings.json` | The machine, the inlay defaults, the last open project, what the screens remember | IndexedDB and local storage |
+| `settings.json` | The machine, the inlay defaults, the last open project, what the screens remember, and under `saved` when the first two last changed | IndexedDB and local storage |
 | `backups/` | The tool file before each change, and deleted projects | (none) |
 
 ## What happens to a write to the tool list
@@ -180,7 +180,7 @@ its text to `/api/library`. The file it replaces is backed up in turn.
 | History | `GET /api/backups` | The backups kept, and each as a file |
 | Projects | `GET, PUT, DELETE /api/projects/<id>` | One project file each; `If-Match` on a `PUT` |
 | Folders | `PATCH /api/projects/<id>`, `/api/folders` | Filing a project renames its file; folders are made, renamed and taken away |
-| Settings | `GET /api/settings`, `PUT /api/settings/<key>` | One text per key |
+| Settings | `GET /api/settings`, `PUT /api/settings/<key>` | One text per key; `saved` dates the synced ones |
 
 Every write to the tool list takes `dryRun` and `diff`, so an agent can show the exact
 change to the file before it is made. The details of each are in [api.md](api.md).
